@@ -24,7 +24,9 @@ uint32_t gWatchStage = 0, gWatchBeat = 0, gWatchMs = 0;
 volatile uint32_t gLastDrainMs = 0;
 void (*gOrigSystick)() = nullptr;
 // [I] Remote-control bytes from the host ('@' lines), USB ISR -> main loop.
-char gRemoteRx[512];
+// The ring itself is in SDRAM (diagRemoteBuffer); null until then.
+char* gRemoteRx = nullptr;
+uint32_t gRemoteRxSize = 0;
 volatile uint32_t gRemoteHead = 0, gRemoteTail = 0;   // monotonic; both under lock()
 bool gRxInRemoteLine = false;
 bool gInit = false;
@@ -67,7 +69,7 @@ void drainCore() {
             const char c = char(rx->buf[i]);
             if (!gRxInRemoteLine && c == '@') gRxInRemoteLine = true;
             if (gRxInRemoteLine) {
-                if (gRemoteHead - gRemoteTail < sizeof(gRemoteRx)) gRemoteRx[gRemoteHead++ % sizeof(gRemoteRx)] = c;
+                if (gRemoteRx && gRemoteHead - gRemoteTail < gRemoteRxSize) gRemoteRx[gRemoteHead++ % gRemoteRxSize] = c;
                 if (c == '\n') gRxInRemoteLine = false;
             } else if (c != '\r' && c != '\n') {
                 replay = true;
@@ -279,9 +281,17 @@ bool diagTerminalOpen() { return usb_configuration && (usb_cdc_line_rtsdtr & USB
 size_t diagRemoteRead(char* out, size_t cap) {
     uint32_t p = lock();
     size_t n = 0;
-    while (n < cap && gRemoteTail != gRemoteHead) out[n++] = gRemoteRx[gRemoteTail++ % sizeof(gRemoteRx)];
+    while (gRemoteRx && n < cap && gRemoteTail != gRemoteHead) out[n++] = gRemoteRx[gRemoteTail++ % gRemoteRxSize];
     unlock(p);
     return n;
+}
+
+void diagRemoteBuffer(char* buf, uint32_t size) {
+    uint32_t p = lock();
+    gRemoteRx = buf;
+    gRemoteRxSize = size;
+    gRemoteHead = gRemoteTail = 0;
+    unlock(p);
 }
 
 void diagFreezeBoot() {

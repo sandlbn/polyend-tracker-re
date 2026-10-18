@@ -38,6 +38,9 @@ void diagFreezeBoot();
 // [I] Received remote-control bytes ('@' lines, line ends included); returns
 // the count copied (0 = none). Main loop only.
 size_t diagRemoteRead(char* out, size_t cap);
+// [I] The receive ring for those lines (SDRAM, handed over once the SDRAM is
+// up; the SRAM stack headroom has no room for it). Until then they are dropped.
+void diagRemoteBuffer(char* buf, uint32_t size);
 
 }  // namespace hal
 }  // namespace ot

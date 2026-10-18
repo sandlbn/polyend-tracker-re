@@ -19,6 +19,7 @@
 #include "hal/sd_storage.h"
 #include "hal/usb_storage.h"
 #include "remote/remote.h"
+#include "sdram_bss.h"
 
 extern "C" uint8_t _ssdram_bss[], _esdram_bss[];   // src/hal/opentracker.ld
 
@@ -296,7 +297,10 @@ void telemetryTick() {
 // [I] Remote control (core/remote/remote.h): the panel as the simulator's
 // front panel over the USB serial port. The bridge sits between the panel
 // drivers and the App; with no host it passes everything through.
-alignas(ot::remote::DeviceBridge) unsigned char gRemoteMem[sizeof(ot::remote::DeviceBridge)];
+// SDRAM (`.sdram_bss`, zeroed in otAppMain before use): the SRAM stack
+// headroom (make perf-gate) has no room for them.
+OT_SDRAM_BSS alignas(ot::remote::DeviceBridge) unsigned char gRemoteMem[sizeof(ot::remote::DeviceBridge)];
+OT_SDRAM_BSS char gRemoteRx[512];
 ot::remote::DeviceBridge* gRemote = nullptr;
 ot::IClock* gClock = nullptr;
 
@@ -386,6 +390,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     rio.send = &remoteSend;
     rio.changed = &remoteChanged;
     gRemote = new (gRemoteMem) ot::remote::DeviceBridge(*hal.input, *hal.leds, rio);
+    hal::diagRemoteBuffer(gRemoteRx, sizeof gRemoteRx);
     gClock = hal.clock;
     refs.input = &gRemote->input();
     refs.leds = &gRemote->leds();
