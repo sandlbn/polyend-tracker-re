@@ -24,11 +24,33 @@ const char* const kFlatNames[12] = {"C", "Db", "D", "Eb", "E", "F", "Gb", "G", "
 bool gFlats = false;
 }  // namespace
 
+namespace {
+// Letter names the scale's notes repeat when spelled from `names` (C D E F G
+// A Bb: 0; C D E F G A A#: 1).
+int repeatedLetters(int root, uint16_t mask, const char* const* names) {
+    int seen = 0, repeats = 0;
+    for (int i = 0; i < 12; ++i) {
+        if (!((mask >> i) & 1)) continue;
+        const int bit = 1 << (names[(root + i) % 12][0] - 'A');
+        if (seen & bit) ++repeats;
+        seen |= bit;
+    }
+    return repeats;
+}
+}  // namespace
+
 bool keyUsesFlats(int root, uint8_t scale) {
-    // Minor-third scales without a major third are spelled like their
-    // relative major (D minor -> F major -> flats).
     const uint16_t m = scaleMask(scale);
-    int major = ((root % 12) + 12) % 12;
+    const int pc = ((root % 12) + 12) % 12;
+    // The spelling that names the scale's notes with the fewest repeated
+    // letters: C Mixolydian ... A Bb (flats), D melodic minor ... B C#
+    // (sharps), whatever the key signature of its major or minor key.
+    const int sharps = repeatedLetters(pc, m, kSharpNames), flats = repeatedLetters(pc, m, kFlatNames);
+    if (sharps != flats) return flats < sharps;
+    // A tie (pentatonic, chromatic, whole-tone, F# / Gb major...): the key
+    // signature. Minor-third scales without a major third are spelled like
+    // their relative major (D minor -> F major -> flats).
+    int major = pc;
     if (((m >> 3) & 1) && !((m >> 4) & 1)) major = (major + 3) % 12;
     // Major keys written with flats: F, Bb, Eb, Ab, Db (Gb / F# spelled with sharps).
     return major == 5 || major == 10 || major == 3 || major == 8 || major == 1;
