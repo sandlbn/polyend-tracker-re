@@ -29,6 +29,7 @@
 #include "sim_usb_storage.h"
 #include "panel.h"
 #include "png.h"
+#include "remote_link.h"
 #include "sdl_audio.h"
 #include "sim_nvstore.h"
 #include "sw_display.h"
@@ -47,6 +48,7 @@ struct Options {
     bool romFonts = false, romText = false;   // OP-6 checks (also OT_SIM_ROM_FONTS / OT_SIM_ROM_TEXT = 1)
     bool busyDisplay = true;                  // FT81x pacing model (off: --instant-display / OT_SIM_BUSY = 0)
     std::string script, screenshot, wav;
+    std::string remote;   // [I] serial port of a Tracker used as the front panel
     float lineInTone = 0.0f;   // headless: synthetic line input (Hz), 0 = none
     long quitAfterMs = -1;
 };
@@ -61,6 +63,8 @@ void usage() {
         "  --no-midi         do not create ALSA MIDI ports\n"
         "  --demo            renderer/input demo instead of the app\n"
         "  --quit-after MS   exit after MS milliseconds (interactive mode)\n"
+        "  --remote DEV      use a Tracker running OpenTracker as the front panel (its USB serial\n"
+        "                    port, e.g. /dev/ttyACM0); see sim/README.md \"Remote control\"\n"
         "headless (no window, virtual time):\n"
         "  --script FILE     replay scripted input (see README)\n"
         "  --screenshot PNG  save the framebuffer at the end\n"
@@ -93,6 +97,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         if (a == "--rom-text") { o.romText = true; continue; }
         if (a == "--instant-display") { o.busyDisplay = false; continue; }
         if (a == "--script" && next(o.script)) continue;
+        if (a == "--remote" && next(o.remote)) continue;
         if (a == "--screenshot" && next(o.screenshot)) continue;
         if (a == "--wav" && next(o.wav)) continue;
         if (a == "--line-in-tone" && next(v)) { o.lineInTone = float(std::atof(v.c_str())); continue; }
@@ -867,6 +872,8 @@ int runInteractive(Machine& m, const Options& o) {
     Control mouseCtl;
     bool quit = false;
     uint32_t lastPresent = 0;
+    RemoteLink remote;
+    if (!o.remote.empty() && !remote.open(o.remote)) return 1;
 
     while (!quit) {
         SDL_Event ev;
@@ -943,6 +950,7 @@ int runInteractive(Machine& m, const Options& o) {
                 default: break;
             }
         }
+        remote.service(m.input, m.leds, SDL_GetTicks());
         m.step();
         const uint32_t now = SDL_GetTicks();
         if (o.quitAfterMs >= 0 && long(now) >= o.quitAfterMs) quit = true;
@@ -956,6 +964,9 @@ int runInteractive(Machine& m, const Options& o) {
                                  m.storage.root() + "\nMIDI: " +
                                  (m.midi.active() ? "ALSA ports OpenTracker DIN/USB" : "off") +
                                  "\nAudio: " + (m.audio ? "44100 Hz (device: 44117.6 Hz)" : "off") +
+                                 (remote.isOpen() ? "\nRemote: " + remote.path() +
+                                                        (remote.active() ? " (Tracker panel)" : " (waiting)")
+                                                  : std::string()) +
                                  "\nCtrl+Q quits";
             panel.draw(canvas, fb.data(), m.input, m.leds, latched, status);
             SDL_UpdateTexture(tex, nullptr, canvas.pixels(), Panel::kW * 4);
@@ -966,6 +977,7 @@ int runInteractive(Machine& m, const Options& o) {
             SDL_Delay(1);
         }
     }
+    remote.close();
     m.shutdown();
     SDL_DestroyTexture(tex);
     SDL_DestroyRenderer(ren);

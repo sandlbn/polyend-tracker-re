@@ -23,6 +23,10 @@ volatile uint32_t gBeat = 0;
 uint32_t gWatchStage = 0, gWatchBeat = 0, gWatchMs = 0;
 volatile uint32_t gLastDrainMs = 0;
 void (*gOrigSystick)() = nullptr;
+// [I] Remote-control bytes from the host ('@' lines), USB ISR -> main loop.
+char gRemoteRx[512];
+volatile uint32_t gRemoteHead = 0, gRemoteTail = 0;   // monotonic; both under lock()
+bool gRxInRemoteLine = false;
 bool gInit = false;
 volatile bool gWatchOn = true;
 // Fault report text (registers + last 40 log lines): written into the SD
@@ -54,15 +58,24 @@ void appendLine(const char* text) {
 // called with our lock held (usb_* re-enable interrupts unconditionally).
 void drainCore() {
     if (!usb_configuration) return;
-    // Host command: any received byte replays the boot log.
+    // Host command: any received byte replays the boot log; [I] lines
+    // starting with '@' are remote-control commands instead (diagRemoteRead).
     for (usb_packet_t* rx; (rx = usb_rx(CDC_RX_ENDPOINT)) != nullptr;) {
-        bool any = rx->len > 0;
-        usb_free(rx);
-        if (any) {
-            uint32_t p = lock();
-            diag::requestReplay(gLog);
-            unlock(p);
+        bool replay = false;
+        uint32_t p = lock();
+        for (uint32_t i = rx->index; i < rx->len; i++) {
+            const char c = char(rx->buf[i]);
+            if (!gRxInRemoteLine && c == '@') gRxInRemoteLine = true;
+            if (gRxInRemoteLine) {
+                if (gRemoteHead - gRemoteTail < sizeof(gRemoteRx)) gRemoteRx[gRemoteHead++ % sizeof(gRemoteRx)] = c;
+                if (c == '\n') gRxInRemoteLine = false;
+            } else if (c != '\r' && c != '\n') {
+                replay = true;
+            }
         }
+        if (replay) diag::requestReplay(gLog);
+        unlock(p);
+        usb_free(rx);
     }
     if (!(usb_cdc_line_rtsdtr & USB_SERIAL_DTR)) return;
     for (int i = 0; i < 8; i++) {
@@ -262,6 +275,14 @@ void diagWatchdog(bool on) {
 }
 
 bool diagTerminalOpen() { return usb_configuration && (usb_cdc_line_rtsdtr & USB_SERIAL_DTR); }
+
+size_t diagRemoteRead(char* out, size_t cap) {
+    uint32_t p = lock();
+    size_t n = 0;
+    while (n < cap && gRemoteTail != gRemoteHead) out[n++] = gRemoteRx[gRemoteTail++ % sizeof(gRemoteRx)];
+    unlock(p);
+    return n;
+}
 
 void diagFreezeBoot() {
     uint32_t p = lock();
