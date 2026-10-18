@@ -7,6 +7,10 @@
 //
 // See sim/README.md for the key map and the script language.
 #include <SDL.h>
+#include <cerrno>
+#include <unistd.h>
+#include <termios.h>
+#include <fcntl.h>
 
 #include <algorithm>
 #include <cctype>
@@ -30,6 +34,7 @@
 #include "panel.h"
 #include "png.h"
 #include "remote_link.h"
+#include "remote/remote.h"
 #include "sdl_audio.h"
 #include "sim_nvstore.h"
 #include "sw_display.h"
@@ -49,6 +54,7 @@ struct Options {
     bool busyDisplay = true;                  // FT81x pacing model (off: --instant-display / OT_SIM_BUSY = 0)
     std::string script, screenshot, wav;
     std::string remote;   // [I] serial port of a Tracker used as the front panel
+    bool serve = false;   // [I] act as a Tracker for tools/tracker_remote.py (pseudo-terminal)
     float lineInTone = 0.0f;   // headless: synthetic line input (Hz), 0 = none
     long quitAfterMs = -1;
 };
@@ -65,6 +71,8 @@ void usage() {
         "  --quit-after MS   exit after MS milliseconds (interactive mode)\n"
         "  --remote DEV      use a Tracker running OpenTracker as the front panel (its USB serial\n"
         "                    port, e.g. /dev/ttyACM0); see sim/README.md \"Remote control\"\n"
+        "  --serve           act as a Tracker with remote control on, on a pseudo-terminal\n"
+        "                    (its path is printed): tools/tracker_remote.py drives it\n"
         "headless (no window, virtual time):\n"
         "  --script FILE     replay scripted input (see README)\n"
         "  --screenshot PNG  save the framebuffer at the end\n"
@@ -98,6 +106,7 @@ bool parseArgs(int argc, char** argv, Options& o) {
         if (a == "--instant-display") { o.busyDisplay = false; continue; }
         if (a == "--script" && next(o.script)) continue;
         if (a == "--remote" && next(o.remote)) continue;
+        if (a == "--serve") { o.serve = true; continue; }
         if (a == "--screenshot" && next(o.screenshot)) continue;
         if (a == "--wav" && next(o.wav)) continue;
         if (a == "--line-in-tone" && next(v)) { o.lineInTone = float(std::atof(v.c_str())); continue; }
@@ -162,6 +171,45 @@ struct Machine {
     std::vector<uint8_t> scratch;
     std::unique_ptr<ot::PerfPatternMemory> perfPatterns;
     SimNvStore nvstore;   // config EEPROM stand-in: "<sd>.eeprom" next to the SD folder
+    // [I] --serve: the device side of remote control on a pseudo-terminal.
+    std::unique_ptr<ot::remote::DeviceBridge> bridge;
+    int serveFd = -1;
+    bool openServe() {
+        serveFd = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
+        if (serveFd < 0 || grantpt(serveFd) != 0 || unlockpt(serveFd) != 0) {
+            std::fprintf(stderr, "serve: no pseudo-terminal\n");
+            return false;
+        }
+        termios t{};
+        if (tcgetattr(serveFd, &t) == 0) {
+            cfmakeraw(&t);
+            tcsetattr(serveFd, TCSANOW, &t);
+        }
+        ot::remote::DeviceBridge::Io io;
+        io.send = [](void* c, const char* line) {
+            const int fd = *static_cast<int*>(c);
+            std::string l = std::string(line) + "\r\n";
+            size_t off = 0;
+            while (off < l.size()) {
+                const ssize_t n = ::write(fd, l.data() + off, l.size() - off);
+                if (n > 0) off += size_t(n);
+                else if (n < 0 && errno != EAGAIN && errno != EINTR) return;   // nobody reads: dropped
+                else SDL_Delay(1);
+            }
+        };
+        io.ctx = &serveFd;
+        bridge.reset(new ot::remote::DeviceBridge(input, leds, io));
+        bridge->setEnabled(true);   // the sim stands for a Tracker with Config > USB > Remote control On
+        std::printf("serve: %s\n", ptsname(serveFd));
+        std::fflush(stdout);
+        return true;
+    }
+    void serviceServe() {
+        if (!bridge) return;
+        char buf[512];
+        for (ssize_t n; (n = ::read(serveFd, buf, sizeof buf)) > 0;) bridge->rx(buf, size_t(n), clock.millis());
+        bridge->tick(clock.millis(), true);
+    }
 
     // demo state
     std::string demoLog[8];
@@ -185,6 +233,7 @@ struct Machine {
             audio = &sdlAudio;
         }
         if (demo) return true;
+        if (o.serve && !openServe()) return false;
 
         sampleBank.assign(ot::kSampleBankBytes / 2, 0);
         fxMemory.assign(ot::audio::AudioEngine::kFxMemorySamples, 0);
@@ -206,8 +255,9 @@ struct Machine {
         h.audio = audio;
         h.storage = &storage;
         h.midi = &midi;
-        h.input = &input;
-        h.leds = &leds;
+        h.input = bridge ? &bridge->input() : static_cast<ot::IInput*>(&input);
+        h.leds = bridge ? &bridge->leds() : static_cast<ot::ILeds*>(&leds);
+        h.remote = bridge.get();
         h.clock = &clock;
         h.nvstore = &nvstore;
         h.usbStorage = &usbStorage;   // 2.x USB Storage mode (no real USB in the sim)
@@ -261,6 +311,7 @@ struct Machine {
 
     void step() {
         if (app) {
+            serviceServe();
             app->loop();
             // Display brightness follows the config like the device glue
             // (src/app_main.cpp applyBrightness, spec 05 §1.8).

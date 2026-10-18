@@ -301,6 +301,11 @@ public:
     void exitUsbStorage();
     bool usbStorageActive() const { return usbActive_; }
     remote::DeviceBridge* remoteBridge() const { return hal_.remote; }
+    // [I] Remote drive mode (core/remote/remote.h): one status line,
+    // "@RC S key=value ..." (spaces in values as '_'), incl. performance.
+    int remoteStatus(char* out, int cap);
+    // Main loop: answers the bridge's status query, meters while driven.
+    void serviceRemote();
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
     }

@@ -305,6 +305,9 @@ ot::remote::DeviceBridge* gRemote = nullptr;
 ot::IClock* gClock = nullptr;
 
 void remoteSend(void*, const char* line) { ot::hal::diagLog(line); }
+// Screenshot lines (~120 B with the timestamp) only while the 4 KB log ring
+// has room for several more and whatever else gets logged meanwhile.
+bool remoteRoom(void*) { return ot::hal::diagTerminalOpen() && ot::hal::diagTxFree() >= 1024; }
 void remoteChanged(void*, bool on) {
     gApp.ui.notify(on ? "Remote control: panel drives the simulator" : "Remote control off", 4000);
 }
@@ -389,6 +392,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     ot::remote::DeviceBridge::Io rio;
     rio.send = &remoteSend;
     rio.changed = &remoteChanged;
+    rio.room = &remoteRoom;
     gRemote = new (gRemoteMem) ot::remote::DeviceBridge(*hal.input, *hal.leds, rio);
     hal::diagRemoteBuffer(gRemoteRx, sizeof gRemoteRx);
     gClock = hal.clock;

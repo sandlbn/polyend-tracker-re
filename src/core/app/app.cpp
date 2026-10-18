@@ -401,6 +401,7 @@ void App::loop() {
         patternEditedFromSeq_ = false;
         patternEdited();
     }
+    serviceRemote();
     // Project manager (spec 05 §1.3 step 5, appendix E3/E4): one bounded
     // step of the running job, else the periodic autosave check.
     if (jobBusy()) serviceProjectJob();

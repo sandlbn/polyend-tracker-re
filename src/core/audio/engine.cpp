@@ -770,6 +770,14 @@ void AudioEngine::renderLive(int16_t* out) {
         return;
     }
     renderBlock(false, out, nullptr);
+    if (outMeter_) {   // [I] remote status level
+        int pk = outPeak_;
+        for (uint32_t i = 0; i < kBlock * 2; ++i) {
+            const int a = out[i] < 0 ? -int(out[i]) : int(out[i]);
+            pk = a > pk ? a : pk;
+        }
+        outPeak_ = pk;
+    }
 }
 
 void AudioEngine::fillCallback(int16_t* out, uint32_t frames, void* ctx) {

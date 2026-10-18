@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "formats/crc32.h"
 #include "ui/buttons.h"
 
 namespace ot {
@@ -40,6 +41,9 @@ bool parse(const char* line, Msg& m) {
     else if (!std::strcmp(p, "BYE")) m.kind = Msg::kBye;
     else if (!std::strcmp(p, "ON")) m.kind = Msg::kOn;
     else if (!std::strcmp(p, "OFF")) m.kind = Msg::kOff;
+    else if (!std::strcmp(p, "DRIVE")) m.kind = Msg::kDrive;
+    else if (!std::strcmp(p, "Q")) m.kind = Msg::kQuery;
+    else if (!std::strcmp(p, "SHOT")) m.kind = Msg::kShot;
     else if (!std::strncmp(p, "B1 ", 3) || !std::strncmp(p, "B0 ", 3)) {
         if (!ints(p + 3, v, 1) || v[0] < 0 || v[0] > 63) return false;
         m.kind = p[1] == '1' ? Msg::kButtonDown : Msg::kButtonUp;
@@ -102,6 +106,21 @@ int formatLeds(const uint8_t levels[kPads], char* out, int cap) {
     return 6 + 2 * kPads;
 }
 
+int base64(const uint8_t* in, int n, char* out) {
+    static const char kB64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    int o = 0;
+    for (int i = 0; i < n; i += 3) {
+        const uint32_t v = uint32_t(in[i]) << 16 | (i + 1 < n ? uint32_t(in[i + 1]) << 8 : 0u) |
+                           (i + 2 < n ? uint32_t(in[i + 2]) : 0u);
+        out[o++] = kB64[(v >> 18) & 63];
+        out[o++] = kB64[(v >> 12) & 63];
+        out[o++] = i + 1 < n ? kB64[(v >> 6) & 63] : '=';
+        out[o++] = i + 2 < n ? kB64[v & 63] : '=';
+    }
+    out[o] = 0;
+    return o;
+}
+
 void LineReader::feed(const char* data, size_t n, void (*fn)(void*, const char*), void* ctx) {
     for (size_t i = 0; i < n; ++i) {
         const char c = data[i];
@@ -135,16 +154,45 @@ void DeviceBridge::onLine(const char* line) {
     if (!parse(line, m)) return;
     switch (m.kind) {
         case Msg::kHello:
+        case Msg::kDrive:
             if (!enabled_) break;
             lastHello_ = now_;
-            setActive(true);
+            setMode(m.kind == Msg::kHello ? kPanel : kDrive);
             break;
-        case Msg::kBye: setActive(false); break;
+        case Msg::kBye: setMode(kOff); break;
         case Msg::kLeds:
-            if (!active_) break;
+            if (mode_ != kPanel) break;
             for (int i = 0; i < kPads && i < pads_.padCount(); ++i)
                 pads_.setPad(uint8_t(i), m.levels[i], m.levels[i], m.levels[i]);
             pads_.show();
+            break;
+        case Msg::kButtonDown:
+        case Msg::kButtonUp:
+        case Msg::kPadDown:
+        case Msg::kPadUp:
+        case Msg::kEncoder:
+            if (mode_ == kDrive) inject(m);
+            break;
+        case Msg::kQuery:
+            if (mode_ == kDrive) query_ = true;
+            break;
+        case Msg::kShot:
+            if (mode_ != kDrive) break;
+            if (!display_ || display_->width() > kShotMaxW) {
+                sendLine("@RC SHOT FAIL");
+                break;
+            }
+            shotW_ = display_->width();
+            shotH_ = display_->height();
+            shotRow_ = 0;
+            shotLen_ = 0;
+            shotBytes_ = 0;
+            shotCrc_ = crc32Init();
+            {
+                char h[40];
+                std::snprintf(h, sizeof h, "@RC SHOT %d %d", shotW_, shotH_);
+                sendLine(h);
+            }
             break;
         default: break;
     }
@@ -152,25 +200,20 @@ void DeviceBridge::onLine(const char* line) {
 
 void DeviceBridge::tick(uint32_t now, bool hostOpen) {
     now_ = now;
-    if (active_ && (!hostOpen || now - lastHello_ > kTimeoutMs)) setActive(false);
+    if (mode_ != kOff && (!hostOpen || now - lastHello_ > kTimeoutMs)) setMode(kOff);
+    if (shotRow_ >= 0) serviceShot();
 }
 
 void DeviceBridge::setEnabled(bool on) {
     enabled_ = on;
-    if (!on) setActive(false);
+    if (!on) setMode(kOff);
 }
 
-void DeviceBridge::setActive(bool on) {
-    if (on == active_) return;
-    active_ = on;
-    if (on) {
-        // Keys the app saw go down are released to the app, not the host.
-        localButtons_ = buttonsDown_;
-        localPads_ = padsDown_;
-        sentButtons_ = sentPads_ = 0;
-        pads_.clear();
-        pads_.show();
-    } else {
+void DeviceBridge::setMode(Mode m) {
+    if (m == mode_) return;
+    const Mode old = mode_;
+    mode_ = m;
+    if (old == kPanel) {
         // The host releases whatever it still holds for us (on "@RC OFF");
         // keys still down here are not the app's: their releases are dropped.
         localButtons_ = localPads_ = 0;
@@ -180,9 +223,117 @@ void DeviceBridge::setActive(bool on) {
             pads_.setPad(uint8_t(i), uint8_t(c >> 16), uint8_t(c >> 8), uint8_t(c));
         }
         pads_.show();
+    } else if (old == kDrive) {
+        // Whatever the host still holds is released to the app.
+        for (uint8_t i = 0; i < 64; ++i) {
+            if ((injButtons_ >> i) & 1) pushInjected(InputEvent::kButtonUp, i);
+            if ((injPads_ >> i) & 1) pushInjected(InputEvent::kPadUp, i);
+        }
+        injButtons_ = injPads_ = 0;
+        query_ = false;
+        shotRow_ = -1;
     }
-    if (io_.send) io_.send(io_.ctx, on ? "@RC ON" : "@RC OFF");
-    if (io_.changed) io_.changed(io_.ctx, on);
+    if (m == kPanel) {
+        // Keys the app saw go down are released to the app, not the host.
+        localButtons_ = buttonsDown_;
+        localPads_ = padsDown_;
+        sentButtons_ = sentPads_ = 0;
+        pads_.clear();
+        pads_.show();
+    }
+    sendLine(m == kPanel ? "@RC ON" : m == kDrive ? "@RC DRIVING" : "@RC OFF");
+    if (io_.changed && (old == kOff || m == kOff)) io_.changed(io_.ctx, m != kOff);
+}
+
+void DeviceBridge::pushInjected(InputEvent::Type t, uint8_t id, uint8_t vel, int8_t delta) {
+    if (uint8_t(injHead_ - injTail_) >= kInjected) return;   // full: dropped
+    InputEvent& e = inj_[injHead_ % kInjected];
+    e = InputEvent{};
+    e.type = t;
+    e.id = id;
+    e.velocity = vel;
+    e.delta = delta;
+    e.timeMs = now_;
+    ++injHead_;
+}
+
+void DeviceBridge::inject(const Msg& m) {
+    const uint64_t bit = 1ull << (m.id & 63);
+    switch (m.kind) {
+        case Msg::kButtonDown:
+            if (m.id == btn::Power) return;   // the host never powers the Tracker off
+            injButtons_ |= bit;
+            pushInjected(InputEvent::kButtonDown, m.id);
+            break;
+        case Msg::kButtonUp:
+            if (!(injButtons_ & bit)) return;
+            injButtons_ &= ~bit;
+            pushInjected(InputEvent::kButtonUp, m.id);
+            break;
+        case Msg::kPadDown:
+            injPads_ |= bit;
+            pushInjected(InputEvent::kPadDown, m.id, m.velocity ? m.velocity : 100);
+            break;
+        case Msg::kPadUp:
+            if (!(injPads_ & bit)) return;
+            injPads_ &= ~bit;
+            pushInjected(InputEvent::kPadUp, m.id);
+            break;
+        case Msg::kEncoder: pushInjected(InputEvent::kEncoder, 0, 0, m.delta); break;
+        default: break;
+    }
+}
+
+void DeviceBridge::shotLine(int n) {
+    char line[16 + (kShotChunk + 2) / 3 * 4];
+    std::memcpy(line, "@RC D ", 6);
+    base64(shotBuf_, n, line + 6);
+    sendLine(line);
+    std::memmove(shotBuf_, shotBuf_ + n, size_t(shotLen_ - n));
+    shotLen_ -= n;
+}
+
+void DeviceBridge::serviceShot() {
+    while (shotRow_ >= 0 && room()) {
+        if (shotLen_ >= kShotChunk) {
+            shotLine(kShotChunk);
+            continue;
+        }
+        if (shotRow_ < shotH_) {
+            // One row: runs of equal pixels, [count-1, r, g, b].
+            if (!display_ || !display_->readPixels(0, uint16_t(shotRow_), uint16_t(shotW_), 1, shotPx_)) {
+                sendLine("@RC SHOT FAIL");
+                shotRow_ = -1;
+                return;
+            }
+            uint8_t* o = shotBuf_ + shotLen_;
+            for (int x = 0; x < shotW_;) {
+                const uint32_t c = shotPx_[x] & 0xFFFFFFu;
+                int n = 1;
+                while (x + n < shotW_ && n < 256 && (shotPx_[x + n] & 0xFFFFFFu) == c) ++n;
+                *o++ = uint8_t(n - 1);
+                *o++ = uint8_t(c >> 16);
+                *o++ = uint8_t(c >> 8);
+                *o++ = uint8_t(c);
+                x += n;
+            }
+            const int added = int(o - (shotBuf_ + shotLen_));
+            shotCrc_ = crc32Update(shotCrc_, shotBuf_ + shotLen_, size_t(added));
+            shotBytes_ += uint32_t(added);
+            shotLen_ += added;
+            ++shotRow_;
+            continue;
+        }
+        if (shotLen_ > 0) {
+            shotLine(shotLen_);
+            continue;
+        }
+        char e[64];
+        std::snprintf(e, sizeof e, "@RC SHOT END %lu %08lX", static_cast<unsigned long>(shotBytes_),
+                      static_cast<unsigned long>(crc32Final(shotCrc_)));
+        sendLine(e);
+        shotRow_ = -1;
+    }
 }
 
 bool DeviceBridge::forward(const InputEvent& ev) {
@@ -193,17 +344,18 @@ bool DeviceBridge::forward(const InputEvent& ev) {
     uint64_t& held = button ? buttonsDown_ : padsDown_;
     const bool repeat = down && (held & bit);   // driver auto-repeat: the host makes its own
     if (button || pad) held = down ? (held | bit) : (held & ~bit);
-    if (!active_) return false;
+    if (mode_ == kOff) return false;
     if (button && ev.id == btn::Power) {
-        // Power stays local; a press also hands the panel back to the Tracker
-        // (the app's power popup closes again on the release).
+        // Power stays local; a press also hands the Tracker back (the app's
+        // power popup closes again on the release).
         if (down && !repeat) setEnabled(false);
         return false;
     }
+    if (mode_ == kDrive) return false;   // the panel keeps working next to the host
     uint64_t& local = button ? localButtons_ : localPads_;
     if ((button || pad) && !down && (local & bit)) {
         local &= ~bit;
-        return false;   // pressed before remote mode: the app gets its release
+        return false;   // pressed before panel mode: the app gets its release
     }
     if (repeat) return true;
     uint64_t& sent = button ? sentButtons_ : sentPads_;
@@ -212,11 +364,17 @@ bool DeviceBridge::forward(const InputEvent& ev) {
         sent = down ? (sent | bit) : (sent & ~bit);
     }
     char line[32];
-    if (formatEvent(ev, line, sizeof line) && io_.send) io_.send(io_.ctx, line);
+    if (formatEvent(ev, line, sizeof line)) sendLine(line);
     return true;
 }
 
 bool DeviceBridge::Input::poll(InputEvent& ev) {
+    // The host's input first (drive mode), then the panel.
+    if (b_.injTail_ != b_.injHead_) {
+        ev = b_.inj_[b_.injTail_ % kInjected];
+        ++b_.injTail_;
+        return true;
+    }
     while (b_.panel_.poll(ev))
         if (!b_.forward(ev)) return true;
     return false;
@@ -224,16 +382,16 @@ bool DeviceBridge::Input::poll(InputEvent& ev) {
 
 void DeviceBridge::Leds::setPad(uint8_t pad, uint8_t r, uint8_t g, uint8_t b) {
     if (pad < kPads) b_.appColor_[pad] = (uint32_t(r) << 16) | (uint32_t(g) << 8) | b;
-    if (!b_.active_) b_.pads_.setPad(pad, r, g, b);
+    if (b_.mode_ != kPanel) b_.pads_.setPad(pad, r, g, b);
 }
 
 void DeviceBridge::Leds::clear() {
     std::memset(b_.appColor_, 0, sizeof(b_.appColor_));
-    if (!b_.active_) b_.pads_.clear();
+    if (b_.mode_ != kPanel) b_.pads_.clear();
 }
 
 void DeviceBridge::Leds::show() {
-    if (!b_.active_) b_.pads_.show();
+    if (b_.mode_ != kPanel) b_.pads_.show();
 }
 
 }  // namespace remote

@@ -170,6 +170,17 @@ public:
     void setCallbackDisabled(bool d) { callbackDisabled_ = d; }
     // Line input for the next block: 128 interleaved int16 frames, or nullptr (silence).
     void setLineInput(const int16_t* interleaved) { lineIn_ = interleaved; }
+    // [I] Output level for remote status (drive mode): peak |sample| of the
+    // live output since the last take, 0..32767. Measured only while on.
+    void setOutputMeter(bool on) {
+        if (!on) outPeak_ = 0;
+        outMeter_ = on;
+    }
+    int takeOutputPeak() {
+        const int p = outPeak_;
+        outPeak_ = 0;
+        return p;
+    }
     // Recorder monitor (spec 22 §5): stock 0x153B4(0x56) writes table[0x56] =
     // 1.0 into the line-in MSUM inputs, so while the Recorder monitors, the
     // line input reaches the master at unity whatever the Global Mixer line
@@ -335,6 +346,8 @@ private:
     void* hookCtx_ = nullptr;
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;
+    volatile bool outMeter_ = false;
+    volatile int outPeak_ = 0;
     bool lineMonitor_ = false;
     volatile float lineMonPeak_ = 0.0f;
     float tempo_ = 130.0f;

@@ -8,6 +8,7 @@
 #include "test.h"
 #include "ui_fakes.h"
 
+#include "formats/crc32.h"
 #include "remote/remote.h"
 #include "ui/buttons.h"
 #include "ui/screens.h"
@@ -314,4 +315,194 @@ TEST(remote_config_row_switches_the_bridge) {
     h.tap(btn::F8);
     c.optionText(3, 1, t, sizeof t);
     CHECK_STR(t, "Off");
+}
+
+// ---- Drive mode: a host script drives the app (tools/tracker_remote.py) ----
+
+TEST(remote_drive_mode_injects_input) {
+    Rig r;
+    r.host("@RC DRIVE");
+    CHECK(r.bridge.driving());
+    CHECK(!r.bridge.active());
+    CHECK(r.sent.back() == "@RC DRIVING");
+    CHECK_EQ(r.changes.size(), 1u);
+    r.host("@RC B1 23");
+    r.host("@RC B0 23");
+    r.host("@RC P1 5 90");
+    r.host("@RC P0 5");
+    r.host("@RC E -3");
+    r.host("@RC B1 42");   // the power switch is never injected
+    auto ev = r.app();
+    CHECK_EQ(ev.size(), 5u);
+    if (ev.size() == 5) {
+        CHECK(ev[0].type == InputEvent::kButtonDown && ev[0].id == 23);
+        CHECK(ev[1].type == InputEvent::kButtonUp && ev[1].id == 23);
+        CHECK(ev[2].type == InputEvent::kPadDown && ev[2].id == 5 && ev[2].velocity == 90);
+        CHECK(ev[3].type == InputEvent::kPadUp);
+        CHECK(ev[4].type == InputEvent::kEncoder && ev[4].delta == -3);
+    }
+    // The panel keeps working next to the host, nothing is forwarded.
+    r.sent.clear();
+    r.panel.push(InputEvent::kButtonDown, 7);
+    CHECK_EQ(r.app().size(), 1u);
+    CHECK(r.sent.empty());
+    // The app's own LEDs stay on the pads; host LED frames are ignored.
+    r.bridge.leds().setPad(2, 0, 9, 0);
+    r.bridge.leds().show();
+    CHECK_EQ(r.leds.shown[2], 9u << 8);
+    // Held by the host when it leaves: released to the app.
+    r.host("@RC B1 30");
+    r.app();
+    r.host("@RC BYE");
+    CHECK(!r.bridge.driving());
+    ev = r.app();
+    CHECK_EQ(ev.size(), 1u);
+    if (!ev.empty()) CHECK(ev[0].type == InputEvent::kButtonUp && ev[0].id == 30);
+    // Off: host input is ignored; disabled: DRIVE is ignored.
+    r.host("@RC B1 30");
+    CHECK(r.app().empty());
+    r.bridge.setEnabled(false);
+    r.host("@RC DRIVE");
+    CHECK(!r.bridge.driving());
+    // Keepalive timeout and the power switch end it too.
+    r.bridge.setEnabled(true);
+    r.host("@RC DRIVE");
+    r.now += kTimeoutMs + 1;
+    r.bridge.tick(r.now, true);
+    CHECK(!r.bridge.driving());
+    r.host("@RC DRIVE");
+    r.panel.push(InputEvent::kButtonDown, btn::Power);
+    r.app();
+    CHECK(!r.bridge.driving());
+    CHECK(!r.bridge.enabled());
+}
+
+namespace {
+std::vector<uint8_t> unbase64(const std::string& s) {
+    auto v = [](char c) -> int {
+        if (c >= 'A' && c <= 'Z') return c - 'A';
+        if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+        if (c >= '0' && c <= '9') return c - '0' + 52;
+        return c == '+' ? 62 : c == '/' ? 63 : -1;
+    };
+    std::vector<uint8_t> out;
+    for (size_t i = 0; i + 3 < s.size(); i += 4) {
+        const int a = v(s[i]), b = v(s[i + 1]), c = v(s[i + 2]), d = v(s[i + 3]);
+        out.push_back(uint8_t(a << 2 | b >> 4));
+        if (c >= 0) out.push_back(uint8_t((b & 15) << 4 | c >> 2));
+        if (d >= 0) out.push_back(uint8_t((c & 3) << 6 | d));
+    }
+    return out;
+}
+struct HostSide {
+    std::vector<std::string> sent;
+    bool room = true;
+    static DeviceBridge::Io io(HostSide* s) {
+        DeviceBridge::Io o;
+        o.send = [](void* c, const char* l) { static_cast<HostSide*>(c)->sent.push_back(l); };
+        o.room = [](void* c) { return static_cast<HostSide*>(c)->room; };
+        o.ctx = s;
+        return o;
+    }
+};
+}  // namespace
+
+TEST(remote_drive_status_and_perf) {
+    Harness h;
+    App& a = *h.app;
+    FakePanel panel;
+    PadLedsFake leds;
+    HostSide host;
+    DeviceBridge b(panel, leds, HostSide::io(&host));
+    b.setEnabled(true);
+    a.setRemoteBridge(&b);
+    auto send = [&](const char* l) {
+        std::string s = std::string(l) + "\n";
+        b.rx(s.data(), s.size(), 0);
+    };
+    send("@RC Q");   // not driving: no answer
+    h.run(5);
+    CHECK(host.sent.empty());
+    send("@RC DRIVE");
+    send("@RC Q");
+    h.run(5);
+    CHECK_EQ(host.sent.size(), 2u);
+    const std::string st = host.sent.back();
+    CHECK(st.rfind("@RC S scr=Pattern play=0 step=0 pat=1 ins=1 peak=0 ", 0) == 0);
+    for (const char* k : {" cpuA=", " cpuP=", " ovr=0", " gov=4", " govB=4", " cuts=0", " freeKB=", " note="})
+        CHECK(st.find(k) != std::string::npos);
+    // Values with spaces come as '_' (screen names, notices).
+    h.tap(btn::SampleRecorder);
+    a.ui.notify("Hello there");
+    send("@RC Q");
+    h.run(5);
+    CHECK(host.sent.back().find("scr=Sample_Recorder") != std::string::npos);
+    CHECK(host.sent.back().find("note=Hello_there") != std::string::npos);
+    // The output meter runs only while driven.
+    send("@RC BYE");
+    h.run(5);
+    h.audio.pump(5);
+    CHECK_EQ(a.engine.takeOutputPeak(), 0);
+}
+
+TEST(remote_drive_screenshot) {
+    Harness h;
+    App& a = *h.app;
+    FakePanel panel;
+    PadLedsFake leds;
+    HostSide host;
+    DeviceBridge b(panel, leds, HostSide::io(&host));
+    b.setEnabled(true);
+    a.setRemoteBridge(&b);
+    auto send = [&](const char* l) {
+        std::string s = std::string(l) + "\n";
+        b.rx(s.data(), s.size(), 0);
+    };
+    send("@RC DRIVE");
+    // No readback on this display: refused.
+    h.run(5);
+    send("@RC SHOT");
+    b.tick(0, true);   // the header goes out, the first row read fails
+    CHECK(host.sent.back() == "@RC SHOT FAIL");
+    CHECK(!b.shotActive());
+    // With readback (every pixel differs: the worst case for the runs).
+    h.disp.readback = true;
+    host.sent.clear();
+    host.room = false;
+    send("@RC SHOT");
+    CHECK(host.sent.size() == 1u && host.sent[0] == "@RC SHOT 800 480");
+    b.tick(0, true);
+    CHECK_EQ(host.sent.size(), 1u);   // no room: nothing sent
+    CHECK(b.shotActive());
+    host.room = true;
+    for (int i = 0; i < 10 && b.shotActive(); ++i) b.tick(0, true);
+    CHECK(!b.shotActive());
+    std::vector<uint8_t> data;
+    std::string end;
+    for (size_t i = 1; i < host.sent.size(); ++i) {
+        const std::string& l = host.sent[i];
+        if (l.rfind("@RC D ", 0) == 0) {
+            CHECK(l.size() <= 6 + 96);
+            const auto d = unbase64(l.substr(6));
+            data.insert(data.end(), d.begin(), d.end());
+        } else {
+            end = l;
+        }
+    }
+    CHECK_EQ(data.size(), size_t(800) * 480 * 4);   // one run per pixel
+    char want[64];
+    std::snprintf(want, sizeof want, "@RC SHOT END %lu %08lX", static_cast<unsigned long>(data.size()),
+                  static_cast<unsigned long>(ot::crc32(data.data(), data.size())));
+    CHECK_STR(end.c_str(), want);
+    // Decode one pixel: row 37, x 300 -> R = 300 & 0xFF, G = 37, B = 0x5A.
+    const size_t o = (size_t(37) * 800 + 300) * 4;
+    CHECK_EQ(data[o], 0);
+    CHECK_EQ(data[o + 1], 300 & 0xFF);
+    CHECK_EQ(data[o + 2], 37);
+    CHECK_EQ(data[o + 3], 0x5A);
+    // Leaving drive mode drops a screenshot in progress.
+    host.sent.clear();
+    send("@RC SHOT");
+    send("@RC BYE");
+    CHECK(!b.shotActive());
 }

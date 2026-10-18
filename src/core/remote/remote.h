@@ -1,24 +1,38 @@
-// [I] Remote control (not in stock): a Tracker running OpenTracker as the
-// front panel of the desktop simulator. Text lines over the device's USB
-// serial (CDC) port, which it shares with the diag log (hal/diag.h):
+// [I] Remote control (not in stock), text lines over the device's USB serial
+// (CDC) port, which it shares with the diag log (hal/diag.h). Two modes:
 //
-//   host -> device   "@RC HELLO"            enter remote mode / keepalive (every kKeepaliveMs)
-//                    "@RC BYE"              leave remote mode
+// Panel mode: the Tracker is the front panel of the desktop simulator.
+//   host -> device   "@RC HELLO"            enter panel mode / keepalive (every kKeepaliveMs)
 //                    "@RC L <96 hex>"       pad LED levels 0..255, pads 0..47
-//   device -> host   "@RC ON" / "@RC OFF"   remote mode entered / left
+//   device -> host   "@RC ON"               panel mode entered
 //                    "@RC B1 <id>" / "@RC B0 <id>"            button down / up
 //                    "@RC P1 <pad> <velocity>" / "@RC P0 <pad>"  pad down / up
 //                    "@RC E <delta>"        encoder detents (device acceleration applied)
 //
+// Drive mode: a host script drives the Tracker's own app and reads it back
+// (tools/tracker_remote.py; on-device testing).
+//   host -> device   "@RC DRIVE"            enter drive mode / keepalive
+//                    "@RC B1/B0/P1/P0/E ..." as above: input for the Tracker's app
+//                    "@RC Q"                status query
+//                    "@RC SHOT"             screenshot request
+//   device -> host   "@RC DRIVING"          drive mode entered
+//                    "@RC S key=value ..."  status (App::remoteStatus)
+//                    "@RC SHOT <w> <h>", then "@RC D <base64>" lines, then
+//                    "@RC SHOT END <bytes> <crc32 hex>" (or "@RC SHOT FAIL"):
+//                    per row, runs of [count-1, r, g, b] (a run never crosses a row)
+//
+// Both:  host -> device "@RC BYE" ends the mode; device -> host "@RC OFF".
+//
 // Device lines arrive inside diag log lines (timestamp prefix), so a parser
-// looks for "@RC " anywhere in the line. While remote mode is on the device
-// forwards its input instead of handing it to its own app (the power switch
-// stays local) and shows the host's pad LEDs; it falls back to normal after
-// "@RC BYE", kTimeoutMs without a keepalive, or the host closing the port.
+// looks for "@RC " anywhere in the line. Panel mode forwards the panel's
+// input instead of handing it to the app (the power switch stays local) and
+// shows the host's pad LEDs; drive mode adds the host's input to the panel's.
+// Either ends after "@RC BYE", kTimeoutMs without a keepalive, or the host
+// closing the port.
 //
 // The device only answers while remote control is enabled (Config > USB >
 // Remote control, Off after power-on). A short press of the power switch
-// while the host drives the panel disables it again.
+// during either mode disables it again.
 #pragma once
 
 #include <cstddef>
@@ -33,9 +47,14 @@ constexpr uint32_t kKeepaliveMs = 500;
 constexpr uint32_t kTimeoutMs = 2000;
 constexpr int kPads = 48;
 constexpr int kLineMax = 128;   // longest line: "@RC L " + 96 hex digits
+constexpr int kShotChunk = 72;  // screenshot bytes per "@RC D" line (96 base64 chars)
+constexpr int kShotMaxW = 800;
 
 struct Msg {
-    enum Kind : uint8_t { kNone, kHello, kBye, kOn, kOff, kButtonDown, kButtonUp, kPadDown, kPadUp, kEncoder, kLeds };
+    enum Kind : uint8_t {
+        kNone, kHello, kBye, kOn, kOff, kButtonDown, kButtonUp, kPadDown, kPadUp, kEncoder, kLeds,
+        kDrive, kQuery, kShot,
+    };
     Kind kind = kNone;
     uint8_t id = 0;
     uint8_t velocity = 0;
@@ -48,6 +67,8 @@ bool parse(const char* line, Msg& m);
 // Input event -> "@RC ..." (no line end); 0 for events with no remote form.
 int formatEvent(const InputEvent& ev, char* out, int cap);
 int formatLeds(const uint8_t levels[kPads], char* out, int cap);
+// Base64 of n bytes into out (NUL-terminated); returns the length.
+int base64(const uint8_t* in, int n, char* out);
 
 // Splits a byte stream into lines (CR / LF ends, over-long lines dropped).
 class LineReader {
@@ -67,23 +88,42 @@ class DeviceBridge {
 public:
     struct Io {
         void (*send)(void* ctx, const char* line) = nullptr;   // one line, no line end
-        void (*changed)(void* ctx, bool active) = nullptr;     // remote mode on / off
+        void (*changed)(void* ctx, bool active) = nullptr;     // a remote mode on / off
+        // Room for a few more lines (diag ring); null = always. Screenshots
+        // only send while there is room, so nothing is overwritten unsent.
+        bool (*room)(void* ctx) = nullptr;
         void* ctx = nullptr;
     };
     DeviceBridge(IInput& panel, ILeds& pads, const Io& io);
 
     void rx(const char* data, size_t n, uint32_t now);
-    // hostOpen: the host holds the serial port (DTR). Times out a silent host.
+    // hostOpen: the host holds the serial port (DTR). Times out a silent host;
+    // streams a requested screenshot while there is room.
     void tick(uint32_t now, bool hostOpen);
-    bool active() const { return active_; }
-    // Config > USB > Remote control. Disabling ends an active session.
+    bool active() const { return mode_ == kPanel; }    // panel mode
+    bool driving() const { return mode_ == kDrive; }   // drive mode
+    // Config > USB > Remote control. Disabling ends either mode.
     void setEnabled(bool on);
     bool enabled() const { return enabled_; }
+
+    // Drive mode, for the App (App::serviceRemote).
+    bool takeQuery() {
+        const bool q = query_;
+        query_ = false;
+        return q;
+    }
+    void sendLine(const char* line) {
+        if (io_.send) io_.send(io_.ctx, line);
+    }
+    void setDisplay(IDisplay* d) { display_ = d; }
+    bool shotActive() const { return shotRow_ >= 0; }
 
     IInput& input() { return in_; }
     ILeds& leds() { return leds_; }
 
 private:
+    enum Mode : uint8_t { kOff, kPanel, kDrive };
+
     class Input final : public IInput {
     public:
         explicit Input(DeviceBridge& b) : b_(b) {}
@@ -105,9 +145,14 @@ private:
     };
 
     void onLine(const char* line);
-    void setActive(bool on);
+    void setMode(Mode m);
     // True: the event goes to the host (or is a dropped repeat), not to the app.
     bool forward(const InputEvent& ev);
+    void inject(const Msg& m);
+    void pushInjected(InputEvent::Type t, uint8_t id, uint8_t vel = 0, int8_t delta = 0);
+    bool room() const { return !io_.room || io_.room(io_.ctx); }
+    void serviceShot();
+    void shotLine(int n);   // one "@RC D" line of the first n pending bytes
 
     IInput& panel_;
     ILeds& pads_;
@@ -115,13 +160,29 @@ private:
     Input in_{*this};
     Leds leds_{*this};
     LineReader reader_;
-    bool active_ = false;
+    Mode mode_ = kOff;
     bool enabled_ = false;
     uint32_t now_ = 0, lastHello_ = 0;
     uint64_t buttonsDown_ = 0, padsDown_ = 0;     // panel state, always tracked
-    uint64_t localButtons_ = 0, localPads_ = 0;   // held when remote mode began: their release stays local
+    uint64_t localButtons_ = 0, localPads_ = 0;   // held when panel mode began: their release stays local
     uint64_t sentButtons_ = 0, sentPads_ = 0;     // pressed on the host
-    uint32_t appColor_[kPads] = {};               // the app's own LED frame, shown again after remote mode
+    uint32_t appColor_[kPads] = {};               // the app's own LED frame, shown again after panel mode
+
+    // Drive mode: the host's input for the app, and what it holds.
+    static constexpr int kInjected = 32;
+    InputEvent inj_[kInjected];
+    uint8_t injHead_ = 0, injTail_ = 0;
+    uint64_t injButtons_ = 0, injPads_ = 0;
+    bool query_ = false;
+
+    // Screenshot streaming (drive mode): one row at a time from the display.
+    IDisplay* display_ = nullptr;
+    int shotRow_ = -1;    // next row to read, -1 = idle
+    int shotW_ = 0, shotH_ = 0;
+    uint32_t shotCrc_ = 0, shotBytes_ = 0;
+    uint32_t shotPx_[kShotMaxW] = {};
+    uint8_t shotBuf_[kShotMaxW * 4 + kShotChunk] = {};   // one row's runs + a partial line
+    int shotLen_ = 0;
 };
 
 }  // namespace remote

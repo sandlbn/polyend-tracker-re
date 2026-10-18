@@ -41,6 +41,8 @@ size_t diagRemoteRead(char* out, size_t cap);
 // [I] The receive ring for those lines (SDRAM, handed over once the SDRAM is
 // up; the SRAM stack headroom has no room for it). Until then they are dropped.
 void diagRemoteBuffer(char* buf, uint32_t size);
+// [I] Bytes the log ring can take before unsent data is overwritten.
+uint32_t diagTxFree();
 
 }  // namespace hal
 }  // namespace ot

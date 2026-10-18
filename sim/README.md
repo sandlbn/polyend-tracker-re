@@ -122,6 +122,32 @@ Tracker returns to normal within 2 s.
 The link shares the USB serial port with the diag log; nothing else may
 hold it open (a serial terminal or `cat`). Protocol: `src/core/remote/remote.h`.
 
+### Drive mode: scripted tests on the Tracker
+
+The other direction: `tools/tracker_remote.py` drives the Tracker's own app
+(buttons, pads, encoder), reads its status (screen, transport, output level,
+notice and performance: CPU load per audio block, overruns, synth voice
+governor, free sample memory) and takes screenshots, with the same script
+language as the headless simulator plus checks:
+
+```
+tools/tracker_remote.py /dev/ttyACM0 -c "tap PERFORMANCE; wait 300; expect-screen Performance; perf; screenshot perf.png" \
+    --out shots --log tracker.log
+tools/telemetry_check.py log tracker.log      # real-hardware CPU / loop thresholds
+```
+
+Config > USB > Remote control must be On; the Tracker's own controls keep
+working, a short press of the power switch ends it. `--log` keeps everything
+the Tracker sends, including its periodic telemetry lines (also usable as
+`make perf-gate LOG=tracker.log`). The simulator stands in for a Tracker
+with `--serve` (it prints the pseudo-terminal to give the script; its CPU
+fields read -1, the host has no cycle counter):
+
+```
+build/sim/opentracker-sim --serve          # prints "serve: /dev/pts/N"
+tools/tracker_remote.py /dev/pts/N -c "status"
+```
+
 ## Headless scripts
 
 With `--script` (or `--screenshot`) no window or audio device is opened. Time

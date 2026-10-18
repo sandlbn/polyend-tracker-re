@@ -314,6 +314,8 @@ public:
     void ask(const char* title, const char* text, const char* l5, const char* l6, const char* l7, AskFn fn,
              void* ctx);
     bool askOpen() const { return askOpen_; }
+    // The notice on screen now ("" when none); [I] remote status.
+    const char* notice() const { return noteUntil_ ? note_ : ""; }
     void closeAsk() { askOpen_ = false; dirty(); }
     // Blocking-operation progress: draws a frame immediately.
     void progress(const char* title, int percent);

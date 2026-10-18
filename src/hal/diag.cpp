@@ -286,6 +286,13 @@ size_t diagRemoteRead(char* out, size_t cap) {
     return n;
 }
 
+uint32_t diagTxFree() {
+    uint32_t p = lock();
+    const uint32_t used = gLog.head - gLog.txPos;
+    unlock(p);
+    return used >= diag::kRingSize ? 0u : diag::kRingSize - used;
+}
+
 void diagRemoteBuffer(char* buf, uint32_t size) {
     uint32_t p = lock();
     gRemoteRx = buf;
