@@ -445,6 +445,30 @@ TEST(remote_drive_status_and_perf) {
     CHECK_EQ(a.engine.takeOutputPeak(), 0);
 }
 
+// USB Storage mode runs its own loop (the computer owns the card): drive
+// mode still answers there, so the mode can be tested on a Tracker.
+TEST(remote_drive_status_in_usb_storage) {
+    Harness h;
+    App& a = *h.app;
+    FakePanel panel;
+    PadLedsFake leds;
+    HostSide host;
+    DeviceBridge b(panel, leds, HostSide::io(&host));
+    b.setEnabled(true);
+    a.setRemoteBridge(&b);
+    auto send = [&](const char* l) {
+        std::string s = std::string(l) + "\n";
+        b.rx(s.data(), s.size(), 0);
+    };
+    a.ui.setUsbStorageMode(true);
+    CHECK(a.usbStorageActive());
+    send("@RC DRIVE");
+    send("@RC Q");
+    h.run(5);
+    CHECK(!host.sent.empty() && host.sent.back().rfind("@RC S scr=", 0) == 0);
+    a.ui.setUsbStorageMode(false);
+}
+
 TEST(remote_drive_screenshot) {
     Harness h;
     App& a = *h.app;
