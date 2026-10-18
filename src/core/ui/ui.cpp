@@ -4,6 +4,8 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "app/project_fields.h"
+#include "ui/notes.h"
 #include "ui/screens.h"
 #include "ui/widgets.h"
 
@@ -1015,6 +1017,11 @@ void Ui::update(uint32_t now) {
             }
         }
     }
+    // [I] Note names (Config > General): Auto follows the project key, which
+    // changes on project open and in Config, so it is re-derived every pass.
+    const bool flats = noteSpellingFlats();
+    setNoteSpelling(app.cfg.noteNames, app.project.u8(pf::kRootNote), app.project.u8(pf::kScale));
+    if (noteSpellingFlats() != flats) dirty();
     if (noteUntil_ && int32_t(now - noteUntil_) >= 0) {
         noteUntil_ = 0;
         note_[0] = 0;

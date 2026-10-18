@@ -22,7 +22,7 @@ const char* const kProjectHelp[] = {
     "Makes the sample editor markers move to the nearest zero crossing, which avoids clicks at loop and slice "
     "points.",
 };
-// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds Export theme, CPU meter, Synth voices, Export sample rate and the two SD streaming rows.
+// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds Export theme, CPU meter, Synth voices, Export sample rate and the two SD streaming rows, then Note names.
 const char* const kGeneralHelp[] = {
     "Selects the FM band and channel steps used by the built-in radio in your part of the world.",
     "Sets the backlight level of the screen.",
@@ -54,6 +54,9 @@ const char* const kGeneralHelp[] = {
     "longer than the threshold (and long ones when the project would not fit); All streams every long "
     "sample. The project reloads when you change it.",
     "How long a sample must be before Auto streams it from the card.",
+    // [I] not in stock.
+    "How black keys are named: C# or Db. Auto follows the project's root note and scale, so F major and D "
+    "minor show flats and G major shows sharps.",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

@@ -174,8 +174,8 @@ TEST(custom_theme_persists_in_ext_v5_and_reloads_at_boot) {
     h.app->markConfigDirty();
     CHECK(h.app->saveConfig());
     const uint8_t* x = nv.mem.data() + Config::kExtOffset;
-    CHECK_BYTES(x, 'O', 'T', 'X', 5, 27);
-    CHECK_EQ(Config::kExtSize, 33u);
+    CHECK_BYTES(x, 'O', 'T', 'X', 5, 28);   // + noteNames
+    CHECK_EQ(Config::kExtSize, 34u);
     CHECK(std::memcmp(x + 11, "Paper\0", 6) == 0);
     CHECK_EQ(nv.mem[0xD5], 1);   // the stock byte holds the base
     Harness h2(false);
@@ -299,7 +299,7 @@ TEST(ext_record_v4_reads_as_no_custom_theme) {
     uint8_t x[Config::kExtSize];
     c.toExt(x);
     CHECK_EQ(x[3], 5);
-    CHECK_EQ(x[4], 27);
+    CHECK_EQ(x[4], 28);
     Config d;
     CHECK(d.fromExt(x, sizeof x));
     CHECK_STR(d.themeFile, "My theme");

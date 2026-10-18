@@ -19,16 +19,36 @@ const char* const kScaleNames[kScaleCount] = {
     "Blues Maj", "Penta Min", "Penta Maj", "Hung Min",  "Ukrainian", "Marva",    "Todi",     "Wholetone",
     "Dim",       "SLocrian",  "Hirajoshi", "In Sen",    "Yo",        "Iwato",    "WholeHalf", "Kumoi",
     "Overtone",  "DoubHarm",  "Indian",    "GypsyMin",  "NeapoMaj",  "NeapoMin", "Enigmatic"};
-const char* kNoteLetters[12] = {"C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"};
+const char* const kSharpNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+const char* const kFlatNames[12] = {"C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"};
+bool gFlats = false;
 }  // namespace
+
+bool keyUsesFlats(int root, uint8_t scale) {
+    // Minor-third scales without a major third are spelled like their
+    // relative major (D minor -> F major -> flats).
+    const uint16_t m = scaleMask(scale);
+    int major = ((root % 12) + 12) % 12;
+    if (((m >> 3) & 1) && !((m >> 4) & 1)) major = (major + 3) % 12;
+    // Major keys written with flats: F, Bb, Eb, Ab, Db (Gb / F# spelled with sharps).
+    return major == 5 || major == 10 || major == 3 || major == 8 || major == 1;
+}
+
+void setNoteSpelling(uint8_t spelling, int root, uint8_t scale) {
+    gFlats = spelling == kSpellFlats || (spelling == kSpellAuto && keyUsesFlats(root, scale));
+}
+
+bool noteSpellingFlats() { return gFlats; }
+
+const char* pitchClassName(int note) { return (gFlats ? kFlatNames : kSharpNames)[((note % 12) + 12) % 12]; }
 
 void noteName(int8_t note, char out[4]) {
     if (note >= 0) {
         // Stock grid / popup text has no separator: "C5", "C#5" (spec 20
         // §4.1 text colour rules; Part 2 §8.5 "C6", "C#6").
+        const char* pc = pitchClassName(note);
         int n = 0;
-        out[n++] = kNoteLetters[note % 12][0];
-        if (kNoteLetters[note % 12][1] == '#') out[n++] = '#';
+        while (*pc) out[n++] = *pc++;
         out[n++] = char('0' + (note / 12) % 10);
         out[n] = 0;
         return;
