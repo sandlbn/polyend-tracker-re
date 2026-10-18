@@ -299,9 +299,26 @@ public:
     // Fallback (ROM fonts): horizontal.
     void textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int quarterTurns = 1,
                      uint16_t opt = 0);
+    // Several turned strings in one font, colour and turn inside one
+    // SAVE_CONTEXT / transform (~14 words once instead of per string); the
+    // glyphs land where textRotated would put them.
+    struct RotatedText {
+        int x, y;
+        const char* s;
+        uint16_t opt;
+    };
+    void textRotatedRun(const RotatedText* t, int n, uint8_t font, uint32_t c, int quarterTurns = 1);
     // CMD_GRADIENT from c0 at (x0, y0) to c1 at (x1, y1) over the current
     // clip (spec 20 §1.5). Fallback displays: a solid fill.
     void gradient(int x0, int y0, int x1, int y1, uint32_t c0, uint32_t c1);
+    // RAM_DL words one CMD_GRADIENT expands to on the FT81x (it uploads 5).
+    // Measured on a Tracker (telemetry REG_CMD_DL, the same page in the
+    // default and the Monochrome theme, ~45 frames each): Track Mixer 17
+    // gradients 1794 vs 1140 words, Global Mixer 20 gradients 1754 vs 1085
+    // -> ~23 words per gradient. Counted as 24 so the budgets and the RAM_DL
+    // guard see what the device builds (at 5, gradient-heavy pages passed
+    // every host check and faulted on hardware).
+    static constexpr uint32_t kGradientDlWords = 24;
     // Box x, y, w, h filled with a gradient c0 -> c1, top to bottom (vertical)
     // or left to right: SAVE_CONTEXT, scissor, CMD_GRADIENT, RESTORE_CONTEXT.
     void gradientRect(int x, int y, int w, int h, uint32_t c0, uint32_t c1, bool vertical = true);

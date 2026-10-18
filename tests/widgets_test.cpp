@@ -550,6 +550,11 @@ TEST(keyboard_and_name_field_020) {
 
     Harness h;
     App& a = *h.app;
+    // The harness sends ROM-font text as whole CMD_TEXT strings (2006 words
+    // for this frame, past the guard); on the device it is ~1400
+    // (display_budget_test). This test checks the keyboard, not the budget:
+    // no guard (0 = off).
+    a.ui.setDlFrameLimit(0);
     a.ui.kb.open("Edit Pattern 2 Name", "", 31, "Save", nullptr, nullptr);
     a.ui.dirty();
     h.run(40);

@@ -483,21 +483,24 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
 }
 
 void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int quarterTurns, uint16_t opt) {
-    if (!s || !*s) return;
+    const RotatedText t{x, y, s, opt};
+    textRotatedRun(&t, 1, font, c, quarterTurns);
+}
+
+void Gfx::textRotatedRun(const RotatedText* t, int n, uint8_t font, uint32_t c, int quarterTurns) {
     const uint8_t handle = romFontFor(font);
     const fontdata::FontInfo* cf = customFont(handle);
     const int q = ((quarterTurns % 4) + 4) % 4;
     if (!cf || q == 0) {   // fallback (ROM fonts) / no turn: horizontal text
-        text(x, y, font, c, s, opt);
+        for (int i = 0; i < n; ++i)
+            if (t[i].s && *t[i].s) text(t[i].x, t[i].y, font, c, t[i].s, t[i].opt);
         return;
     }
-    // Box of the turned text: W x H with W along the reading direction.
-    const int W = ot::textWidth(font, s), H = cf->h, cw = cf->w;
+    uint32_t glyphs = 0;
+    for (int i = 0; i < n; ++i) glyphs += t[i].s ? uint32_t(std::strlen(t[i].s)) : 0u;
+    if (!glyphs) return;
+    const int H = cf->h, cw = cf->w;
     const bool side = q != 2;              // reads vertically
-    const int bw = side ? H : W, bh = side ? W : H;
-    if (opt & IDisplay::kOptCenterX) x -= bw / 2;
-    else if (opt & IDisplay::kOptRightX) x -= bw;
-    if (opt & IDisplay::kOptCenterY) y -= bh / 2;
     // BITMAP_TRANSFORM: source (u, v) of the drawn pixel (px, py) from the
     // vertex, NEAREST sampling at pixel centres (8.8 / 1/256 px).
     //   q 1 (CCW, bottom to top): u = cw - py, v = px
@@ -513,7 +516,7 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
     if (q == 1) { B = -256; C = cw * 256 - 128; D = 256; }
     else if (q == 2) { A = -256; C = cw * 256 - 128; E = -256; F = H * 256 - 128; }
     else { B = 256; D = -256; F = H * 256 - 128; }
-    if (!admit(14 + 2 * uint32_t(std::strlen(s)))) return;
+    if (!admit(14 + 2 * glyphs)) return;
     sync();   // the saved context (and the restored one) has translate 0
     color(c);
     d_->saveContext();
@@ -522,27 +525,38 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
     d_->begin(IDisplay::kBitmaps);
     words_ += 10;
     int base = 0;
-    int pen = 0;
-    for (int i = 0; s[i]; ++i) {
-        const uint8_t ch = uint8_t(s[i]);
-        const int step = fontdata::advance(*cf, ch);
-        if (ch != ' ' && ch < 127 && ch >= cf->first) {
-            int vx, vy;   // vertex = top-left of the turned cell
-            if (q == 1) { vx = x; vy = y + W - pen - cw; }
-            else if (q == 2) { vx = x + W - pen - cw; vy = y; }
-            else { vx = x; vy = y + pen; }
-            if (vx >= 0 && vx < 912 && vy >= 0 && vy <= 511) {
-                const int want = vx < 512 ? 0 : 400;
-                if (want != base) {
-                    base = want;
-                    d_->vertexTranslateX(int32_t(base) * 16);
+    for (int i = 0; i < n; ++i) {
+        const char* s = t[i].s;
+        if (!s || !*s) continue;
+        // Box of the turned text: W x H with W along the reading direction.
+        const int W = ot::textWidth(font, s);
+        const int bw = side ? H : W, bh = side ? W : H;
+        int x = t[i].x, y = t[i].y;
+        if (t[i].opt & IDisplay::kOptCenterX) x -= bw / 2;
+        else if (t[i].opt & IDisplay::kOptRightX) x -= bw;
+        if (t[i].opt & IDisplay::kOptCenterY) y -= bh / 2;
+        int pen = 0;
+        for (int k = 0; s[k]; ++k) {
+            const uint8_t ch = uint8_t(s[k]);
+            const int step = fontdata::advance(*cf, ch);
+            if (ch != ' ' && ch < 127 && ch >= cf->first) {
+                int vx, vy;   // vertex = top-left of the turned cell
+                if (q == 1) { vx = x; vy = y + W - pen - cw; }
+                else if (q == 2) { vx = x + W - pen - cw; vy = y; }
+                else { vx = x; vy = y + pen; }
+                if (vx >= 0 && vx < 912 && vy >= 0 && vy <= 511) {
+                    const int want = vx < 512 ? 0 : 400;
+                    if (want != base) {
+                        base = want;
+                        d_->vertexTranslateX(int32_t(base) * 16);
+                        ++words_;
+                    }
+                    d_->vertex2ii(uint16_t(vx - base), uint16_t(vy), handle, ch);
                     ++words_;
                 }
-                d_->vertex2ii(uint16_t(vx - base), uint16_t(vy), handle, ch);
-                ++words_;
             }
+            pen += step;
         }
-        pen += step;
     }
     d_->end();
     d_->restoreContext();   // transform and translate
@@ -552,15 +566,15 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
 }
 
 void Gfx::gradient(int x0, int y0, int x1, int y1, uint32_t c0, uint32_t c1) {
-    if (lowDetail_ || !admit(5)) return;
+    if (lowDetail_ || !admit(kGradientDlWords)) return;
     sync();
     d_->gradient(int16_t(x0), int16_t(y0), c0 & 0xFFFFFFu, int16_t(x1), int16_t(y1), c1 & 0xFFFFFFu);
     cur_ = kNoColor;   // fallback displays change COLOR_RGB
-    words_ += 5;
+    words_ += kGradientDlWords;
 }
 
 void Gfx::gradientRect(int x, int y, int w, int h, uint32_t c0, uint32_t c1, bool vertical) {
-    if (w <= 0 || h <= 0 || lowDetail_ || !admit(9)) return;
+    if (w <= 0 || h <= 0 || lowDetail_ || !admit(4 + kGradientDlWords)) return;
     sync();
     d_->saveContext();
     ++words_;

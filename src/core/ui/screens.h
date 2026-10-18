@@ -40,6 +40,8 @@ class PatternScreen final : public Screen {
 public:
     using Screen::Screen;
     const char* name() const override { return "Pattern"; }
+    // Bottom-bar pages over the grid: 2 Live-REC arm page, 1 Shift mute page.
+    uint8_t detailKey() const override;
     void start(int opt) override;
     void stop() override;
     void update(uint32_t now) override;

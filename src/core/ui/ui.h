@@ -85,6 +85,11 @@ public:
     // True while the screen draws the whole 800 x 480 frame itself (Games,
     // spec 14 §3.2): the bottom bar is not drawn over it.
     virtual bool fullScreen() const { return false; }
+    // Low-detail fallback key (Ui::render): a RAM_DL overflow switches the
+    // screen to low detail until the screen, its popups or this value
+    // change. A screen with its own overlay pages (Pattern: the Shift mute
+    // and Live-REC arm pages) reports them so leaving one restores detail.
+    virtual uint8_t detailKey() const { return 0; }
     // MIDI note input owned by the screen's own preview player (spec 17 §1.3
     // owners 2..4: Sample Playback, Sample Editor, Sample Recorder). Returns
     // true when the note was taken; false = the normal track-voice path.
@@ -473,6 +478,12 @@ public:
     static constexpr uint32_t kDlLimitWords = 2048;
     static constexpr uint32_t kDriverDlWords = 36;
     static constexpr uint32_t kDlFrameWords = kDlLimitWords - kDriverDlWords;
+    // Guard limit: Gfx counts what it uploads (gradients at their RAM_DL
+    // cost, Gfx::kGradientDlWords), but the FT81x builds a few % more from
+    // text (measured on a Tracker: a dense Pattern frame at ~1950 counted
+    // words faulted, Pattern / Track Mixer frames at ~1720 used 7.2 KB of
+    // the 8 KB). kDlFrameWords / 1.037 keeps that margin.
+    static constexpr uint32_t kDlGuardWords = 1940;
     // Design target for any screen + overlay (tests/display_budget_test.cpp).
     static constexpr uint32_t kDlTargetWords = 1900;
     // Frame limit of the guard (host tests lower it to force the fallback).
@@ -501,7 +512,7 @@ private:
     // (Master / Song hold, see dispatchButton).
     static bool routesEnteringKey(uint8_t id);
     void deliverEnteringKey(bool asHold = false);
-    uint8_t overlayBits() const;
+    uint32_t overlayBits() const;
     void finishFrame(Gfx& g, const char* screenName);
 
     IDisplay* display_ = nullptr;
@@ -550,10 +561,10 @@ private:
     bool faultLogged_ = false;               // this screen's fault is in the log
     uint32_t maxWords_ = 0, overBudget_ = 0, lowDetailFrames_ = 0, statOver0_ = 0, statLow0_ = 0;
     uint32_t overLogged_ = 0;             // modules whose first overflow was logged
-    uint32_t dlFrameLimit_ = kDlFrameWords;
+    uint32_t dlFrameLimit_ = kDlGuardWords;
     bool lowDetail_ = false;              // RAM_DL fallback for this screen + overlay set
     uint32_t lowDetailGen_ = 0;
-    uint8_t lowDetailOverlays_ = 0;
+    uint32_t lowDetailOverlays_ = 0;
     uint32_t statFrames0_ = 0, statDeferred0_ = 0, renderUsSum_ = 0, renderUsMax_ = 0;
     uint32_t dirtyAtUs_ = 0;              // first dirty() since the last frame (micros)
     uint32_t lastFrameAtMs_ = 0;          // start of the last frame (ms), 0 = none yet
