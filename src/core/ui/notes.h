@@ -14,7 +14,8 @@ void noteName(int8_t note, char out[4]);
 // [I] Config > General > Note names (not in stock): how black keys are spelled.
 enum NoteSpelling : uint8_t { kSpellSharps = 0, kSpellFlats = 1, kSpellAuto = 2 };
 constexpr int kNoteSpellingCount = 3;
-// Auto: flats when the key (root pitch class, scale) is a flat key.
+// Auto: the spelling that names the scale's notes with the fewest repeated
+// letters (C Mixolydian: Bb, not A#); on a tie, flats for flat keys.
 bool keyUsesFlats(int root, uint8_t scale);
 // Sets the spelling noteName() and pitchClassName() use; root/scale are the project's (Auto only).
 void setNoteSpelling(uint8_t spelling, int root, uint8_t scale);

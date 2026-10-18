@@ -66,6 +66,49 @@ TEST(note_names_auto_follows_key) {
     setNoteSpelling(kSpellSharps, 0, 0);
 }
 
+// Auto on modes and the other 7-note scales: whichever of sharps / flats
+// names the scale with each letter once (or with fewer repeats) wins; ties
+// keep the key-signature rule above.
+TEST(note_names_auto_spells_modes) {
+    auto scaleIndex = [](const char* name) {
+        for (int i = 0; i < kScaleCount; ++i)
+            if (std::string(scaleName(uint8_t(i))) == name) return uint8_t(i);
+        CHECK(false);
+        return uint8_t(0);
+    };
+    CHECK(keyUsesFlats(0, scaleIndex("Mixlydian")));    // C D E F G A Bb
+    CHECK(keyUsesFlats(9, scaleIndex("Phrygian")));     // A Bb C D E F G
+    CHECK(keyUsesFlats(4, scaleIndex("Locrian")));      // E F G A Bb C D
+    CHECK(!keyUsesFlats(2, scaleIndex("Melo Min")));    // D E F G A B C#
+    CHECK(keyUsesFlats(0, scaleIndex("PhrygDom")));     // C Db E F G Ab Bb
+    CHECK(!keyUsesFlats(6, kMajor));                    // F# major: a tie, sharps
+    CHECK(!keyUsesFlats(9, scaleIndex("Penta Min")));   // A minor pentatonic: a tie, sharps
+    CHECK(keyUsesFlats(2, scaleIndex("Penta Min")));    // D minor pentatonic: a tie, flats
+    // Every 7-note scale and root: never more repeated letters than the
+    // other spelling would give.
+    for (int sc = 0; sc < kScaleCount; ++sc) {
+        int notes = 0;
+        for (int i = 0; i < 12; ++i) notes += (scaleMask(uint8_t(sc)) >> i) & 1;
+        if (notes != 7) continue;
+        for (int root = 0; root < 12; ++root) {
+            int rep[2];
+            for (int f = 0; f < 2; ++f) {
+                setNoteSpelling(f ? kSpellFlats : kSpellSharps, 0, 0);
+                int seen = 0;
+                rep[f] = 0;
+                for (int i = 0; i < 12; ++i) {
+                    if (!((scaleMask(uint8_t(sc)) >> i) & 1)) continue;
+                    const int bit = 1 << (pitchClassName(root + i)[0] - 'A');
+                    rep[f] += (seen & bit) ? 1 : 0;
+                    seen |= bit;
+                }
+            }
+            CHECK(rep[keyUsesFlats(root, uint8_t(sc)) ? 1 : 0] <= rep[keyUsesFlats(root, uint8_t(sc)) ? 0 : 1]);
+        }
+    }
+    setNoteSpelling(kSpellSharps, 0, 0);
+}
+
 TEST(note_names_config_record) {
     FakeNvStore nv;
     Config c;
