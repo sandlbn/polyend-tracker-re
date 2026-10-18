@@ -149,8 +149,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
         {"Build", 5, 2, 0, 0, -1},           {"Reset config", 7, 2, 0, 0, -1},
     };
     // 2.x USB Storage: live state, never stored (store 3), Off at boot.
-    // [I] Remote control: live bridge state (store 4), Off at boot.
-    const Want usb[] = {{"USB Storage", 3, 3, 2, 0, 0}, {"Remote control", 3, 4, 2, 0, 0}};
+    // [I] Remote control: live bridge state (store 5; 4 is kDev), Off at boot.
+    const Want usb[] = {{"USB Storage", 3, 3, 2, 0, 0}, {"Remote control", 3, 5, 2, 0, 0}};
     const Want info[] = {{"Licenses", 7, 2, 0, 0, -1},
                          // 2.x [I] (spec 2x-02 §2.2)
                          {"CPU overruns", 5, 2, 0, 0, -1},

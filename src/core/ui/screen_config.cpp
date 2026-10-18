@@ -24,7 +24,7 @@ namespace {
 enum Kind : uint8_t { kNum = 2, kEnum = 3, kText = 5, kAction = 7 };
 // kUsb: the live USB Storage mode state (2.x), never stored anywhere.
 // kRemote: [I] remote control enabled (App::remoteBridge), never stored.
-enum Store : uint8_t { kCfg = 0, kProj = 1, kNone = 2, kUsb = 3, kRemote = 4 };
+enum Store : uint8_t { kCfg = 0, kProj = 1, kNone = 2, kUsb = 3, kRemote = 5 };   // 4 is kDev (upstream 2.0.4, below)
 
 struct Opt {
     const char* name;
