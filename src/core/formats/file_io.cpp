@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "formats/bytes.h"
+#include "formats/perf_scenes.h"
 #include "formats/patterns_metadata.h"
 #include "sdram_bss.h"
 
@@ -88,16 +89,42 @@ bool savedInstrumentPath(char* out, size_t cap, const char* base, int n, const c
     return fmt(out, cap, std::snprintf(out, cap, "%s/instruments/%d %s.pti", base, n, name));
 }
 
+// [I] An OpenTracker side file `name` next to a ".../project.mt" path; false for other paths.
+static bool sideFilePath(char* out, size_t cap, const char* projectPath, const char* name) {
+    const size_t n = std::strlen(projectPath), k = std::strlen("/project.mt");
+    if (n < k || std::strcmp(projectPath + n - k, "/project.mt") != 0) return false;
+    return fmt(out, cap, std::snprintf(out, cap, "%.*s/%s", int(n - k), projectPath, name));
+}
+
 FmtStatus loadProjectFile(IStorage& fs, const char* path, Project& p, ProjectLoadInfo* info) {
     uint32_t got = 0;
     FmtStatus st = readWholeFile(fs, path, g_io, mt::kFileSize, &got);
     if (st != FmtStatus::Ok) return st;
-    return decodeProject(g_io, got, p, info);
+    st = decodeProject(g_io, got, p, info);
+    if (st != FmtStatus::Ok) return st;
+    // [I] Performance scenes: a missing or damaged file leaves both empty.
+    std::memset(p.perfScene, 0, sizeof(p.perfScene));
+    char sp[352];
+    if (sideFilePath(sp, sizeof(sp), path, pscn::kFileName) && fs.exists(sp) &&
+        readWholeFile(fs, sp, g_io, pscn::kFileSize, &got) == FmtStatus::Ok)
+        decodePerfScenes(g_io, got, p);
+    return FmtStatus::Ok;
 }
 
 FmtStatus saveProjectFile(IStorage& fs, const char* path, const Project& p) {
     encodeProject(p, g_io);
-    return writeWholeFile(fs, path, g_io, mt::kFileSize);
+    const FmtStatus st = writeWholeFile(fs, path, g_io, mt::kFileSize);
+    if (st != FmtStatus::Ok) return st;
+    // [I] perf_scenes.bin only while a scene is stored, so other projects
+    // keep exactly the stock file set.
+    char sp[352];
+    if (!sideFilePath(sp, sizeof(sp), path, pscn::kFileName)) return st;
+    if (!perfScenesUsed(p)) {
+        if (fs.exists(sp) && !fs.remove(sp)) return FmtStatus::IoError;
+        return st;
+    }
+    encodePerfScenes(p, g_io);
+    return writeWholeFile(fs, sp, g_io, pscn::kFileSize);
 }
 
 // 2.x: pattern files are the Tracker Mini 16-track layout (spec 21 §4):

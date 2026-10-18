@@ -573,6 +573,7 @@ public:
     // MIDI CC 41-48 / 51-62 (spec 12 §B.2, §B.3); handled at the next update.
     void perfTrackPatternCc(uint8_t track, uint8_t value) override;
     void perfSlotCc(uint8_t slot, uint8_t value) override;
+    void perfSceneCc(uint8_t value) override;
     void perfBackground(uint32_t now) override;
     void perfScreenKey(uint8_t id) override;
     void perfRevertKept() override;
@@ -592,6 +593,16 @@ public:
     int16_t live[12] = {};          // MIDI-CC live value (row 4)
     bool liveValid[12] = {};
     uint8_t shownPattern(int t) const;   // "Patt" label value of track t
+    // [I] Scenes (Octatrack-style): Shift+Left / Shift+Right store the
+    // current pad rows as scene A / B (Project::perfScene); the encoder with
+    // nothing held, or CC 63, moves the crossfader 0 (A) .. 100 (B).
+    int fader = 0;
+    static constexpr int kFaderMax = 100;
+    static constexpr int kFaderStep = 2;   // per encoder detent
+    void storeScene(int scene);
+    void setFader(int x);
+    // Every FX type in scene A or B, blended at `fader` into the slots' cur values.
+    void applyScenes();
 
 private:
     void refreshBar();
@@ -615,6 +626,8 @@ private:
     int copySrc_ = -1;
     bool ccPending_[12] = {};
     uint8_t ccVal_[12] = {};
+    bool sceneCcPending_ = false;
+    uint8_t sceneCcVal_ = 0;
     bool trackCcPending_[8] = {};
     uint8_t trackCcVal_[8] = {};
     uint8_t lastPattern_ = 0;
