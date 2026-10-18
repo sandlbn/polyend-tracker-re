@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "remote/remote.h"
 #include "ui/screens.h"
 #include "ui/widgets.h"
 
@@ -1043,6 +1044,9 @@ void Ui::drawTitle(Gfx& g, const char* title, const char* right, bool status) {
     st.cpu.right = int16_t(wg::cpuCellRight(st.seconds));
     g.cached(kFragTitle, [&] { wg::titleBarChrome(g, th(), title, right, showStatus, &st.cpu); });
     if (showStatus) wg::titleBarStatus(g, th(), st);
+    // [I] Remote drive mode (scripted tests): a stripe at the left edge of
+    // the title bar while the computer drives the Tracker.
+    if (app.remoteBridge() && app.remoteBridge()->driving()) g.fill(0, 0, 4, 27, th().accent);
     titleDrawn_ = true;
     // Remembered for the keyboard frames (render()); title may already be
     // the remembered copy.

@@ -308,8 +308,17 @@ void remoteSend(void*, const char* line) { ot::hal::diagLog(line); }
 // Screenshot lines (~120 B with the timestamp) only while the 4 KB log ring
 // has room for several more and whatever else gets logged meanwhile.
 bool remoteRoom(void*) { return ot::hal::diagTerminalOpen() && ot::hal::diagTxFree() >= 1024; }
+// Panel mode (started on purpose, with the simulator) gets notices; drive
+// mode (scripted tests) only shows the title-bar marker (Ui::drawTitle).
+bool gRemotePanel = false;
 void remoteChanged(void*, bool on) {
-    gApp.ui.notify(on ? "Remote control: panel drives the simulator" : "Remote control off", 4000);
+    if (on && gRemote && gRemote->active()) {
+        gRemotePanel = true;
+        gApp.ui.notify("Remote control: panel drives the simulator", 4000);
+    } else if (!on && gRemotePanel) {
+        gRemotePanel = false;
+        gApp.ui.notify("Remote control off", 4000);
+    }
 }
 
 void remoteService() {

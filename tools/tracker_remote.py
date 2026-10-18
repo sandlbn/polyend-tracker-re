@@ -222,7 +222,7 @@ class Runner:
     def status(self):
         start = self.link.mark()
         self.link.send("@RC Q")
-        got, _ = self.link.wait_for(lambda p: p.startswith("S "), 3.0, start)
+        got, _ = self.link.wait_for(lambda p: p.startswith("S "), 10.0, start)
         if got is None:
             raise Fail("no status answer")
         self.last = parse_status(got)

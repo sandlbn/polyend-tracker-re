@@ -55,6 +55,10 @@ void App::serviceRemote() {
     if (!r) return;
     r->setDisplay(hal_.display);
     engine.setOutputMeter(r->driving());
+    if (r->driving() != remoteDrivingShown_) {
+        remoteDrivingShown_ = r->driving();
+        ui.dirty();
+    }
     if (r->takeQuery()) {
         char s[remote::kLineMax + 64];
         remoteStatus(s, sizeof s);

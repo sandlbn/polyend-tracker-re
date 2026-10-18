@@ -185,6 +185,7 @@ void DeviceBridge::onLine(const char* line) {
             shotW_ = display_->width();
             shotH_ = display_->height();
             shotRow_ = 0;
+            shotLastOk_ = now_;
             shotLen_ = 0;
             shotBytes_ = 0;
             shotCrc_ = crc32Init();
@@ -300,12 +301,19 @@ void DeviceBridge::serviceShot() {
             continue;
         }
         if (shotRow_ < shotH_) {
-            // One row: runs of equal pixels, [count-1, r, g, b].
-            if (!display_ || !display_->readPixels(0, uint16_t(shotRow_), uint16_t(shotW_), 1, shotPx_)) {
-                sendLine("@RC SHOT FAIL");
-                shotRow_ = -1;
+            // One row: runs of equal pixels, [count-1, r, g, b]. The readback
+            // needs the display idle (a frame upload may still be running on
+            // its bus): wait for the next pass, and retry a failed read until
+            // nothing has worked for kShotStallMs.
+            const bool ready = display_ && display_->frameReady();
+            if (!ready || !display_->readPixels(0, uint16_t(shotRow_), uint16_t(shotW_), 1, shotPx_)) {
+                if (now_ - shotLastOk_ > kShotStallMs) {
+                    sendLine("@RC SHOT FAIL");
+                    shotRow_ = -1;
+                }
                 return;
             }
+            shotLastOk_ = now_;
             uint8_t* o = shotBuf_ + shotLen_;
             for (int x = 0; x < shotW_;) {
                 const uint32_t c = shotPx_[x] & 0xFFFFFFu;

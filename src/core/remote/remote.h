@@ -117,6 +117,8 @@ public:
     }
     void setDisplay(IDisplay* d) { display_ = d; }
     bool shotActive() const { return shotRow_ >= 0; }
+    // A screenshot gives up after this long without reading a row (display busy / failing).
+    static constexpr uint32_t kShotStallMs = 2000;
 
     IInput& input() { return in_; }
     ILeds& leds() { return leds_; }
@@ -178,6 +180,7 @@ private:
     // Screenshot streaming (drive mode): one row at a time from the display.
     IDisplay* display_ = nullptr;
     int shotRow_ = -1;    // next row to read, -1 = idle
+    uint32_t shotLastOk_ = 0;   // now_ of the last row read (or the start): retry until kShotStallMs
     int shotW_ = 0, shotH_ = 0;
     uint32_t shotCrc_ = 0, shotBytes_ = 0;
     uint32_t shotPx_[kShotMaxW] = {};

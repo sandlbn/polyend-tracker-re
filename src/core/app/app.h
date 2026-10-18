@@ -304,8 +304,10 @@ public:
     // [I] Remote drive mode (core/remote/remote.h): one status line,
     // "@RC S key=value ..." (spaces in values as '_'), incl. performance.
     int remoteStatus(char* out, int cap);
-    // Main loop: answers the bridge's status query, meters while driven.
+    // Main loop: answers the bridge's status query, meters while driven,
+    // redraws when drive mode starts / ends (its title-bar marker).
     void serviceRemote();
+    bool remoteDrivingShown_ = false;
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
     }

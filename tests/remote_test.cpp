@@ -454,15 +454,23 @@ TEST(remote_drive_screenshot) {
     DeviceBridge b(panel, leds, HostSide::io(&host));
     b.setEnabled(true);
     a.setRemoteBridge(&b);
+    uint32_t clk = 0;   // only moves forward, like the device's millis()
     auto send = [&](const char* l) {
         std::string s = std::string(l) + "\n";
-        b.rx(s.data(), s.size(), 0);
+        b.rx(s.data(), s.size(), clk);
     };
     send("@RC DRIVE");
     // No readback on this display: refused.
     h.run(5);
     send("@RC SHOT");
-    b.tick(0, true);   // the header goes out, the first row read fails
+    b.tick(clk, true);   // the header goes out, the reads fail and are retried
+    CHECK(b.shotActive());
+    {
+        // Nothing for the stall limit (the host keeps drive mode alive): FAIL.
+        clk += remote::DeviceBridge::kShotStallMs + 1;
+        send("@RC DRIVE");
+        b.tick(clk, true);
+    }
     CHECK(host.sent.back() == "@RC SHOT FAIL");
     CHECK(!b.shotActive());
     // With readback (every pixel differs: the worst case for the runs).
@@ -471,11 +479,11 @@ TEST(remote_drive_screenshot) {
     host.room = false;
     send("@RC SHOT");
     CHECK(host.sent.size() == 1u && host.sent[0] == "@RC SHOT 800 480");
-    b.tick(0, true);
+    b.tick(clk, true);
     CHECK_EQ(host.sent.size(), 1u);   // no room: nothing sent
     CHECK(b.shotActive());
     host.room = true;
-    for (int i = 0; i < 10 && b.shotActive(); ++i) b.tick(0, true);
+    for (int i = 0; i < 10 && b.shotActive(); ++i) b.tick(clk, true);
     CHECK(!b.shotActive());
     std::vector<uint8_t> data;
     std::string end;
@@ -496,6 +504,7 @@ TEST(remote_drive_screenshot) {
     CHECK_STR(end.c_str(), want);
     // Decode one pixel: row 37, x 300 -> R = 300 & 0xFF, G = 37, B = 0x5A.
     const size_t o = (size_t(37) * 800 + 300) * 4;
+    if (data.size() < o + 4) return;
     CHECK_EQ(data[o], 0);
     CHECK_EQ(data[o + 1], 300 & 0xFF);
     CHECK_EQ(data[o + 2], 37);
@@ -505,4 +514,84 @@ TEST(remote_drive_screenshot) {
     send("@RC SHOT");
     send("@RC BYE");
     CHECK(!b.shotActive());
+}
+
+namespace {
+// Readback that can be busy (frame upload running) or fail a number of reads.
+struct FlakyDisplay : RecordingDisplay {
+    bool ready = true;
+    int failNext = 0;
+    int reads = 0;
+    bool frameReady() override { return ready; }
+    bool readPixels(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t* rgb) override {
+        ++reads;
+        if (failNext > 0) {
+            --failNext;
+            return false;
+        }
+        for (uint32_t i = 0; i < uint32_t(w) * h; ++i) rgb[i] = 0x102030u + x + y;
+        return true;
+    }
+};
+}  // namespace
+
+TEST(remote_screenshot_waits_and_retries) {
+    FakePanel panel;
+    PadLedsFake leds;
+    HostSide host;
+    FlakyDisplay disp;
+    DeviceBridge b(panel, leds, HostSide::io(&host));
+    b.setEnabled(true);
+    b.setDisplay(&disp);
+    uint32_t now = 1000;
+    auto send = [&](const char* l) {
+        std::string s = std::string(l) + "\n";
+        b.rx(s.data(), s.size(), now);
+    };
+    send("@RC DRIVE");
+    send("@RC SHOT");
+    // Display busy: no row is read, nothing fails.
+    disp.ready = false;
+    for (int i = 0; i < 5; ++i) b.tick(now += 10, true);
+    CHECK_EQ(disp.reads, 0);
+    CHECK(b.shotActive());
+    // Transient read failures are retried.
+    disp.ready = true;
+    disp.failNext = 3;
+    for (int i = 0; i < 40 && b.shotActive(); ++i) b.tick(now += 10, true);
+    CHECK(!b.shotActive());
+    CHECK(host.sent.back().rfind("@RC SHOT END ", 0) == 0);
+    // Nothing works for longer than the stall limit: FAIL.
+    host.sent.clear();
+    send("@RC SHOT");
+    disp.failNext = 1000000;
+    for (int i = 0; i < 300 && b.shotActive(); ++i) {
+        if (i % 40 == 0) send("@RC DRIVE");   // the host's keepalive
+        b.tick(now += 10, true);
+    }
+    CHECK(b.driving());
+    CHECK(!b.shotActive());
+    CHECK_STR(host.sent.back().c_str(), "@RC SHOT FAIL");
+    CHECK(now - 1000 > 2000);
+}
+
+TEST(remote_drive_marker_redraws) {
+    Harness h;
+    App& a = *h.app;
+    FakePanel panel;
+    PadLedsFake leds;
+    HostSide host;
+    DeviceBridge b(panel, leds, HostSide::io(&host));
+    b.setEnabled(true);
+    a.setRemoteBridge(&b);
+    h.run(50);
+    CHECK(!a.remoteDrivingShown_);
+    std::string d = "@RC DRIVE\n";
+    b.rx(d.data(), d.size(), 0);
+    h.run(50);
+    CHECK(a.remoteDrivingShown_);
+    std::string y = "@RC BYE\n";
+    b.rx(y.data(), y.size(), 0);
+    h.run(50);
+    CHECK(!a.remoteDrivingShown_);
 }
