@@ -520,7 +520,7 @@ void bottomFade(Gfx& g, const Theme& th, int x, int y, int w, int h, uint32_t bg
     if (!th.flag(slot::kFlagBottomFade) || w <= 0 || h < kFadeH) return;
     if (g.lowDetail()) return;   // RAM_DL fallback: no gradients
     const int fy = y + h - kFadeH;
-    if (!g.saveContext(7)) return;   // scissor 2 + CMD_GRADIENT 5
+    if (!g.saveContext(2 + Gfx::kGradientDlWords)) return;   // scissor 2 + CMD_GRADIENT
     g.clip(x, fy, w + 1, kFadeH + 2);
     g.gradient(x, fy, x, y + h + 2, bg, 0x000000);
     g.restoreContext();

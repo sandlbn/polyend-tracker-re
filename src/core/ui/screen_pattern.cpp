@@ -251,6 +251,11 @@ SelRect PatternScreen::target() const {
     return r;
 }
 
+uint8_t PatternScreen::detailKey() const {
+    if (recArmPage) return 2;
+    return ui_.shift() && focus < 0 && !pop_.isOpen() ? 1 : 0;   // refreshBar's mute page
+}
+
 void PatternScreen::collapse() {
     selState = 1;
     wholeCol = false;

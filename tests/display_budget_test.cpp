@@ -197,14 +197,17 @@ TEST(performance_frame_budget) {
     r.play(1500);
     const uint32_t words = r.m.maxWords;
     std::printf("performance (values, edit, playing): max %u DL words\n", unsigned(words));
-    CHECK(words <= 1500);
+    // 1500 when gradients counted 5 words; ~1680 at Gfx::kGradientDlWords
+    // (verified on a Tracker: ~7.4 KB of the 8 KB RAM_DL, no faults).
+    CHECK(words <= 1700);
     r.h.tap(btn::Play);
 }
 
 // Track Mixer 2/3 and Global Mixer 3/3, playing (meters moving). Column by
 // column they uploaded ~1830 / ~1750 words and every frame faulted the
 // FT81x on hardware (the display kept the previous screen); drawn in layers
-// they stay inside the same budget as the Performance screen.
+// they stay inside the same budget as the Performance screen (verified on a
+// Tracker: 7176 / 7016 B of the 8 KB RAM_DL, no faults).
 TEST(mixer_frame_budget) {
     Rig r;
     r.h.tap(btn::Master);
@@ -218,7 +221,7 @@ TEST(mixer_frame_budget) {
     uint32_t words = r.m.maxWords;
     std::printf("track mixer (playing): max %u DL words\n", unsigned(words));
     r.m.printTally();
-    CHECK(words <= 1400);
+    CHECK(words <= 1700);
     r.h.tap(btn::Master);   // Global Mixer 3/3
     r.play(100);
     r.m.resetMax();
@@ -226,7 +229,7 @@ TEST(mixer_frame_budget) {
     words = r.m.maxWords;
     std::printf("global mixer (playing): max %u DL words\n", unsigned(words));
     r.m.printTally();
-    CHECK(words <= 1400);
+    CHECK(words <= 1700);
     r.h.tap(btn::Play);
 }
 
@@ -497,6 +500,21 @@ struct WorstRig {
         CHECK(a.ui.lowDetailFrames() == low0);     // nor fall back to low detail
         if (w > Ui::kDlTargetWords) m.printTally();
     }
+    // A scene the device cannot draw in full: the guard must catch it (no
+    // frame past kDlGuardWords reaches the display) and the low-detail
+    // frames that follow must fit the design target.
+    void measureFallback(const char* name, uint32_t ms = 60) {
+        m.resetMax();
+        const uint32_t low0 = a.ui.lowDetailFrames();
+        for (uint32_t t = 0; t < ms; t += 10) {
+            a.ui.dirty();
+            h.run(10);
+        }
+        std::printf("  %-56s %5u words (low-detail fallback)\n", name, unsigned(a.ui.lastDlWords()));
+        CHECK(m.maxWords <= Ui::kDlGuardWords);
+        CHECK(a.ui.lowDetailFrames() > low0);
+        CHECK(a.ui.lastDlWords() <= Ui::kDlTargetWords);
+    }
     // The shared overlays over the current screen.
     void overlays(const char* screen) {
         char n[96];
@@ -726,7 +744,9 @@ TEST(overlay_matrix_tracks_13_16) {
     h.down(btn::Shift);
     r.measure("pattern 13-16 dense + mute page (bank B)");
     h.tap(btn::Rec);
-    r.measure("pattern 13-16 dense + Live-REC arm page (bank B)");
+    // Measured on a Tracker: this frame (dense grid + arm page) faulted the
+    // FT81x; with the calibrated count the guard draws it in low detail.
+    r.measureFallback("pattern 13-16 dense + Live-REC arm page (bank B)");
     h.up(btn::Shift);
     h.tap(btn::Rec);
     h.down(btn::Pattern);

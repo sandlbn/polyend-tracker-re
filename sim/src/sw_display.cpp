@@ -6,6 +6,7 @@
 
 #include "jpeg_decode.h"
 #include "ui/fonts/fonts.h"
+#include "ui/gfx.h"
 
 namespace sim {
 
@@ -487,12 +488,13 @@ void SwDisplay::rec(uint8_t k, int32_t a0, int32_t a1, int32_t a2, int32_t a3, i
     if (replaying_) return;
     // DL words this command produces (CMD_TEXT: one per glyph plus BEGIN/END).
     // 1.9.5 ops as Gfx counts them: translate / save / restore 1, CMD_GRADIENT
-    // 5, BITMAP_TRANSFORM_A..F 6, BITMAP_HANDLE + BITMAP_SIZE 2.
+    // Gfx::kGradientDlWords (what the FT81x builds, not the 5 uploaded),
+    // BITMAP_TRANSFORM_A..F 6, BITMAP_HANDLE + BITMAP_SIZE 2.
     uint32_t w = 1;
     switch (k) {
         case 13: w = uint32_t(std::strlen(s)) + 2; break;
         case 14: case 15: case 16: w = 8; break;
-        case 20: w = 5; break;
+        case 20: w = ot::Gfx::kGradientDlWords; break;
         case 21: w = 6; break;
         case 22: w = 2; break;
         default: break;

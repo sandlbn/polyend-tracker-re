@@ -569,26 +569,31 @@ void SongScreen::draw(Gfx& g) {
     // Rotated column headers (style bit7, font 1).
     const uint32_t white = th.slot(slot::kSongList);
     const int ft = firstTrack;   // first shown track: 0 or 4 (12-column window)
+    // All 2 x 12 header runs in one turned-text batch (RAM_DL).
+    Gfx::RotatedText heads[2 * kGridCols];
+    char nums[kGridCols][24];
     for (int c = 0; c < kGridCols; ++c) {
         // Word and number as two runs: the stock vertical text advances
         // only 5 px for the space (font 1 is 8) [S snap 010].
         const int t = ft + c;
         const int x = kHeaderX - 4 + kPitchX * c;
         // A renamed track shows its name (stock photo; user report: the
-        // Song page kept "Track X" after a rename).
-        char nm[24], def[16];
+        // Song page kept "Track X" after a rename), as one run.
+        char def[16];
         std::snprintf(def, sizeof(def), t < 8 ? "Track %d" : "Midi %d", t + 1);
-        if (a.project.trackName(t, nm, sizeof(nm)) && nm[0] && std::strcmp(nm, def) != 0) {
-            g.textRotated(x, kHeaderBottom - g.textWidth(kFont1, nm), kFont1, white, nm, 1);
+        if (a.project.trackName(t, nums[c], sizeof(nums[c])) && nums[c][0] && std::strcmp(nums[c], def) != 0) {
+            heads[2 * c] = Gfx::RotatedText{x, kHeaderBottom - g.textWidth(kFont1, nums[c]), nums[c], 0};
+            heads[2 * c + 1] = Gfx::RotatedText{0, 0, nullptr, 0};
             continue;
         }
         const char* word = t < 8 ? "Track" : "Midi";
-        char num[12];
-        std::snprintf(num, sizeof(num), "%d", t + 1);
+        std::snprintf(nums[c], sizeof(nums[c]), "%d", t + 1);
         const int ww = g.textWidth(kFont1, word);
-        g.textRotated(x, kHeaderBottom - ww, kFont1, white, word, 1);
-        g.textRotated(x, kHeaderBottom - ww - kHeaderSpace - g.textWidth(kFont1, num), kFont1, white, num, 1);
+        heads[2 * c] = Gfx::RotatedText{x, kHeaderBottom - ww, word, 0};
+        heads[2 * c + 1] =
+            Gfx::RotatedText{x, kHeaderBottom - ww - kHeaderSpace - g.textWidth(kFont1, nums[c]), nums[c], 0};
     }
+    g.textRotatedRun(heads, 2 * kGridCols, kFont1, white, 1);
 
     // Slot grid: dark tile (121212, soft edge) per empty track, white
     // rounded cell where the track of that slot's pattern has notes.
