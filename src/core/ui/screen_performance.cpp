@@ -32,6 +32,8 @@ constexpr int kLabelDx = 2;
 constexpr int kSceneBarW = 3;
 constexpr int kSceneBarLeftDx = 5;
 constexpr int kSceneBarRightDx = 63 - 5 - kSceneBarW;
+constexpr int kSceneBarH = 21;      // full height: the row's cell y - 10 .. y + 10
+constexpr int kSceneBarMinH = 5;    // a scene out of the mix
 // Cell text: perf::valueText, with a zero shown as "---" [S snap 021].
 void cellText(uint8_t ty, int v, char* out, int cap) {
     perf::valueText(ty, v, out, cap);
@@ -656,6 +658,27 @@ void PerformanceScreen::storeScene(int scene) {
     ui_.dirty();
 }
 
+int PerformanceScreen::sceneShare(int scene, int c) const {
+    const int x = fader, toB = x >= kFaderMax / 2;
+    const uint8_t ty = src.type(c);
+    if (isStepped(ty)) return (scene == 1) == bool(toB) ? 100 : 0;   // switches at the middle
+    if (isFilter(ty)) {
+        // As applyScenes: the scenes' filters (the highest slot of each)
+        // of different types cross over, A out by the middle, B in after it.
+        uint8_t ft[2] = {0, 0};
+        for (int s = 0; s < perf::kSlots; ++s)
+            for (int sc = 0; sc < 2; ++sc) {
+                const uint8_t r = app_.project.perfScene[sc][s];
+                if (r >= 1 && r <= 3 && isFilter(src.type(s))) ft[sc] = src.type(s);
+            }
+        if (ft[0] && ft[1] && ft[0] != ft[1]) {
+            if (scene == 0) return x * 2 >= kFaderMax ? 0 : kFaderMax - x * 2;
+            return x * 2 <= kFaderMax ? 0 : x * 2 - kFaderMax;
+        }
+    }
+    return scene ? x : kFaderMax - x;
+}
+
 int16_t PerformanceScreen::padValue(int c) const {
     const int row = src.row(c);
     if (row >= 1 && row <= 3) return src.value(c, row);
@@ -903,7 +926,9 @@ void PerformanceScreen::draw(Gfx& g) {
     }
     g.alpha(255);
     // [I] Scenes: a bar on the left edge of the row scene A stores, on the
-    // right edge of the row B stores (the fader's sides in the title bar).
+    // right edge of the row B stores (the fader's sides in the title bar),
+    // as tall as that scene's share of the mix at the fader (sceneShare),
+    // from the cell's bottom; never below kSceneBarMinH, so the rows stay marked.
     {
         const Project& p = app_.project;
         bool any = false;
@@ -914,8 +939,9 @@ void PerformanceScreen::draw(Gfx& g) {
                 if (r < 1 || r > 3) continue;
                 if (!any) g.rectsBegin(th.accent);
                 any = true;
-                g.rectsAdd(sc ? colX(c) + kSceneBarRightDx : colX(c) + kSceneBarLeftDx, kRowY + 30 * r - 10,
-                           kSceneBarW, 21);
+                const int h = kSceneBarMinH + ((kSceneBarH - kSceneBarMinH) * sceneShare(sc, c) + kFaderMax / 2) / kFaderMax;
+                const int bottom = kRowY + 30 * r + 10;
+                g.rectsAdd(sc ? colX(c) + kSceneBarRightDx : colX(c) + kSceneBarLeftDx, bottom - h + 1, kSceneBarW, h);
             }
         }
         if (any) g.rectsEnd();

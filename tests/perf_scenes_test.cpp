@@ -274,7 +274,8 @@ TEST(perf_scene_marks_on_stored_rows) {
     p.src.setValue(0, 1, -50);
     p.src.setValue(0, 2, 50);
     // No scene: no marks (a bar's top-left vertex: panel x 11 + 65 c, + 5
-    // for A, + 55 for B; row r centred on y 298 + 30 r, 21 px high).
+    // for A, + 55 for B; bottom at y 308 + 30 r, 21 px high at full share,
+    // 5 px out of the mix -- the fader starts at A).
     CHECK(!r.frameHas("VERTEX 16 318"));
     r.h.pad(12 * 1 + 0);   // slot 0, row 1
     r.store(0);
@@ -283,13 +284,13 @@ TEST(perf_scene_marks_on_stored_rows) {
     r.h.pad(12 * 2 + 0);   // row 2
     r.store(1);
     CHECK(r.frameHas("VERTEX 16 318"));
-    CHECK(r.frameHas("VERTEX 66 348"));    // B: right edge of row 2
+    CHECK(r.frameHas("VERTEX 66 364"));    // B: right edge of row 2, minimum height at A
     // Same row in both: both edges.
     r.h.pad(12 * 1 + 1);   // slot 1, row 1
     r.store(0);
     r.store(1);
     CHECK(r.frameHas("VERTEX 81 318"));
-    CHECK(r.frameHas("VERTEX 131 318"));
+    CHECK(r.frameHas("VERTEX 131 334"));
 }
 
 namespace {
@@ -362,4 +363,38 @@ TEST(perf_scene_marks_fit_the_display_list) {
     // text that appears with the first scene ("A -----|----- B", ~22 words).
     CHECK(after - before <= 2 * 24 + 4 + 24);
     CHECK(after <= Ui::kDlTargetWords);
+}
+
+TEST(perf_scene_marks_follow_the_fader) {
+    Rig r;
+    App& a = r.a();
+    // Slot 0 Volume (blends), slot 3 Low-pass in A and slot 4 High-pass in B
+    // (filters of different types: cross over), slot 10 Direction (stepped).
+    for (int s : {0, 10}) {
+        a.project.perfScene[0][s] = 1;
+        a.project.perfScene[1][s] = 2;
+    }
+    a.project.perfScene[0][3] = 1;
+    a.project.perfScene[1][4] = 1;
+    // Share 50 of 100: 5 + 16 * 0.5 = 13 px; bottom row 1 y 338, row 2 y 368.
+    r.fade(50);
+    CHECK(r.frameHas("VERTEX 16 326"));    // Volume A: half
+    CHECK(r.frameHas("VERTEX 66 356"));    // Volume B: half
+    CHECK(r.frameHas("VERTEX 666 334"));   // Direction A: out (B from the middle)
+    CHECK(r.frameHas("VERTEX 716 348"));   // Direction B: full
+    CHECK(r.frameHas("VERTEX 211 334"));   // Low-pass A: faded out by the middle
+    CHECK(r.frameHas("VERTEX 326 334"));   // High-pass B: not in yet
+    r.fade(40);
+    CHECK(r.frameHas("VERTEX 666 318"));   // Direction A: full below the middle
+    CHECK(r.frameHas("VERTEX 716 364"));
+    r.fade(26);
+    // Filter cross-over, not a linear blend: Low-pass A at 26 has share
+    // 100 - 2 * 26 = 48 -> 13 px (linear would be 74 -> 17 px, top 322).
+    CHECK(r.frameHas("VERTEX 211 326"));
+    r.fade(76);
+    CHECK(r.frameHas("VERTEX 326 326"));   // High-pass B: 2 * 76 - 100 = 52 -> 13 px
+    CHECK(r.frameHas("VERTEX 211 334"));
+    r.fade(100);
+    CHECK(r.frameHas("VERTEX 16 334"));    // Volume A: out
+    CHECK(r.frameHas("VERTEX 66 348"));    // Volume B: full
 }
