@@ -26,6 +26,12 @@ constexpr int kTitleValueY = 53;
 constexpr int kRowY = 298;
 constexpr int kLabelBottom = 266;
 constexpr int kLabelDx = 2;
+// [I] Scene marks: 3-px bars inside the 63-px panel, 5 px from its edges
+// (closer to the edge, a B bar reads as the next panel's A: the panels
+// are only 2 px apart).
+constexpr int kSceneBarW = 3;
+constexpr int kSceneBarLeftDx = 5;
+constexpr int kSceneBarRightDx = 63 - 5 - kSceneBarW;
 // Cell text: perf::valueText, with a zero shown as "---" [S snap 021].
 void cellText(uint8_t ty, int v, char* out, int cap) {
     perf::valueText(ty, v, out, cap);
@@ -283,8 +289,7 @@ void PerformanceScreen::onPad(uint8_t pad, uint8_t state) {
     } else if (state == kRelease) {
         // Re-apply the stored value: an encoder tweak outside edit mode is
         // dropped (spec 12 §E.1). The row stays latched.
-        const int row = src.row(c);
-        cur[c] = (row >= 1 && row <= 3) ? src.value(c, row) : (row == perf::kLiveRow && liveValid[c] ? live[c] : 0);
+        cur[c] = padValue(c);
         held_[c] = false;
         applyAll(false);
     }
@@ -469,6 +474,8 @@ void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
                 const int nc = clampi(column + d, 0, perf::kSlots - 1);
                 if (ui_.shift() && nc != column) swapColumn(nc);
                 column = nc;
+            } else if (ui_.isDown(btn::Delete) && !anyTrackKey()) {
+                clearScene(d > 0 ? 1 : 0);   // [I] Delete+Left = clear scene A, Delete+Right = clear B
             } else if (ui_.shift() && !anyTrackKey()) {
                 storeScene(d > 0 ? 1 : 0);   // [I] Shift+Left = scene A, Shift+Right = scene B
             } else {
@@ -646,6 +653,48 @@ void PerformanceScreen::storeScene(int scene) {
     }
     a.markProjectDirty();
     ui_.notify(scene ? "Scene B stored" : "Scene A stored", 1500);
+    ui_.dirty();
+}
+
+int16_t PerformanceScreen::padValue(int c) const {
+    const int row = src.row(c);
+    if (row >= 1 && row <= 3) return src.value(c, row);
+    return row == perf::kLiveRow && liveValid[c] ? live[c] : 0;
+}
+
+void PerformanceScreen::clearScene(int scene) {
+    App& a = app_;
+    // The FX types the scenes drive (applyScenes: a filter in either scene
+    // drives all three filter types): their slots go back to the pad rows,
+    // then the scene left over (if any) blends again at the fader.
+    bool driven[perf::kFxCount] = {};
+    bool filter = false;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t ty = src.type(s);
+        if (ty == 0 || ty >= perf::kFxCount) continue;
+        for (int sc = 0; sc < 2; ++sc) {
+            const uint8_t r = a.project.perfScene[sc][s];
+            if (r < 1 || r > 3) continue;
+            driven[ty] = true;
+            filter = filter || isFilter(ty);
+        }
+    }
+    if (filter) driven[perf::kLowPass] = driven[perf::kHighPass] = driven[perf::kBandPass] = true;
+    for (int s = 0; s < perf::kSlots; ++s) a.project.perfScene[scene][s] = 0;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t ty = src.type(s);
+        if (ty == 0 || ty >= perf::kFxCount || !driven[ty]) continue;
+        cur[s] = padValue(s);
+        liveValid[s] = false;
+    }
+    a.markProjectDirty();
+    if (perfScenesUsed(a.project)) {
+        applyScenes();
+    } else {
+        fader = 0;   // no scene: a new one starts from A again
+        applyAll(false);
+    }
+    ui_.notify(scene ? "Scene B cleared" : "Scene A cleared", 1500);
     ui_.dirty();
 }
 
@@ -853,6 +902,24 @@ void PerformanceScreen::draw(Gfx& g) {
         g.rectsEnd();
     }
     g.alpha(255);
+    // [I] Scenes: a bar on the left edge of the row scene A stores, on the
+    // right edge of the row B stores (the fader's sides in the title bar).
+    {
+        const Project& p = app_.project;
+        bool any = false;
+        for (int c = 0; c < perf::kSlots; ++c) {
+            if (src.type(c) == 0) continue;
+            for (int sc = 0; sc < 2; ++sc) {
+                const int r = p.perfScene[sc][c];
+                if (r < 1 || r > 3) continue;
+                if (!any) g.rectsBegin(th.accent);
+                any = true;
+                g.rectsAdd(sc ? colX(c) + kSceneBarRightDx : colX(c) + kSceneBarLeftDx, kRowY + 30 * r - 10,
+                           kSceneBarW, 21);
+            }
+        }
+        if (any) g.rectsEnd();
+    }
     // 5. Edit mode: the column being edited carries the red focus frame [I].
     //    Column by column, the next column was drawn over the frame's right
     //    side (its edge at x + 64 and first pixel column x + 65): redraw that

@@ -1,8 +1,10 @@
 // [I] Performance scenes A / B and the crossfader (Octatrack-style, not in
 // stock): storing with Shift+Left / Shift+Right, blending per FX type with
 // the encoder or CC 63, stepped FX switching at the middle, filters of
-// different types crossing over, perf_scenes.bin next to project.mt.
+// different types crossing over, perf_scenes.bin next to project.mt;
+// clearing with Delete+Left / Delete+Right and the scene marks on the rows.
 #include <cstring>
+#include <string>
 
 #include "test.h"
 #include "ui_fakes.h"
@@ -34,6 +36,18 @@ struct Rig {
         h.down(btn::Shift);
         h.tap(scene ? btn::Right : btn::Left);
         h.up(btn::Shift);
+    }
+    void clear(int scene) {
+        h.down(btn::Delete);
+        h.tap(scene ? btn::Right : btn::Left);
+        h.up(btn::Delete);
+    }
+    bool frameHas(const char* line) {
+        h.app->ui.dirty();
+        h.run(40);
+        for (const std::string& l : h.disp.last)
+            if (l == line) return true;
+        return false;
     }
     // Fader to x (0..100) with the encoder (2 per detent).
     void fade(int x) { h.enc(int8_t((x - p().fader) / PerformanceScreen::kFaderStep)); }
@@ -252,4 +266,100 @@ TEST(perf_scenes_survive_save_and_open) {
     CHECK(!perfScenesUsed(a.project));
     CHECK(a.openProject(kProjectsDir, "scenes"));
     CHECK_EQ(a.project.perfScene[1][2], 3);
+}
+
+TEST(perf_scene_marks_on_stored_rows) {
+    Rig r;
+    PerformanceScreen& p = r.p();
+    p.src.setValue(0, 1, -50);
+    p.src.setValue(0, 2, 50);
+    // No scene: no marks (a bar's top-left vertex: panel x 11 + 65 c, + 5
+    // for A, + 55 for B; row r centred on y 298 + 30 r, 21 px high).
+    CHECK(!r.frameHas("VERTEX 16 318"));
+    r.h.pad(12 * 1 + 0);   // slot 0, row 1
+    r.store(0);
+    CHECK(r.frameHas("VERTEX 16 318"));    // A: left edge of row 1
+    CHECK(!r.frameHas("VERTEX 66 318"));   // not in B
+    r.h.pad(12 * 2 + 0);   // row 2
+    r.store(1);
+    CHECK(r.frameHas("VERTEX 16 318"));
+    CHECK(r.frameHas("VERTEX 66 348"));    // B: right edge of row 2
+    // Same row in both: both edges.
+    r.h.pad(12 * 1 + 1);   // slot 1, row 1
+    r.store(0);
+    r.store(1);
+    CHECK(r.frameHas("VERTEX 81 318"));
+    CHECK(r.frameHas("VERTEX 131 318"));
+}
+
+namespace {
+std::string gLastNote;
+void onNote(const char* t) { gLastNote = t; }
+}  // namespace
+
+TEST(perf_scene_clear_restores_pad_rows) {
+    Rig r;
+    r.a().ui.platform.notified = &onNote;
+    PerformanceScreen& p = r.p();
+    App& a = r.a();
+    // Slot 0 Volume: A = row 1 (-50), B = row 2 (+50); slot 1 is in no scene.
+    p.src.setValue(0, 1, -50);
+    p.src.setValue(0, 2, 50);
+    p.src.setValue(1, 1, 30);
+    r.h.pad(12 * 1 + 0);
+    r.store(0);
+    r.h.pad(12 * 2 + 0);
+    r.store(1);
+    r.h.pad(12 * 1 + 1);   // slot 1 row 1, after the scenes: in neither
+    const int16_t slot1 = p.cur[1];
+    r.fade(50);
+    CHECK_EQ(p.cur[0], 0);
+    // Clear B: A alone blends toward "off" on the B side (lerp -50 .. 0 at 50).
+    r.clear(1);
+    for (int s = 0; s < perf::kSlots; ++s) CHECK_EQ(a.project.perfScene[1][s], 0);
+    CHECK_EQ(a.project.perfScene[0][0], 1);
+    CHECK_EQ(p.cur[0], -25);
+    CHECK_EQ(r.voice(0).volume, -25);
+    CHECK_EQ(p.cur[1], slot1);
+    CHECK_STR(gLastNote.c_str(), "Scene B cleared");
+    // Clear A too: the slot goes back to its pad row (row 2, +50), the
+    // fader to A and out of the title bar.
+    r.clear(0);
+    CHECK(!perfScenesUsed(a.project));
+    CHECK_EQ(p.cur[0], 50);
+    CHECK_EQ(r.voice(0).volume, 50);
+    CHECK_EQ(p.cur[1], slot1);
+    CHECK_EQ(p.fader, 0);
+    CHECK_STR(gLastNote.c_str(), "Scene A cleared");
+    r.h.run(40);
+    CHECK(!r.h.disp.lastHasText(" B"));
+    // The encoder edits nothing scene-related any more; storing works again.
+    r.h.pad(12 * 1 + 0);
+    r.store(0);
+    CHECK_EQ(a.project.perfScene[0][0], 1);
+    // Clearing an empty scene is harmless.
+    r.clear(1);
+    CHECK_EQ(a.project.perfScene[0][0], 1);
+    CHECK_EQ(p.cur[0], -50);
+}
+
+TEST(perf_scene_marks_fit_the_display_list) {
+    Rig r;
+    App& a = r.a();
+    r.h.run(40);
+    const uint32_t before = a.ui.lastDlWords();
+    // Every slot in both scenes, on different rows: 24 bars, the most there can be.
+    for (int s = 0; s < perf::kSlots; ++s) {
+        a.project.perfScene[0][s] = 1;
+        a.project.perfScene[1][s] = 2;
+    }
+    a.ui.dirty();
+    r.h.run(40);
+    const uint32_t after = a.ui.lastDlWords();
+    std::printf("performance + 24 scene marks: %u -> %u DL words\n", unsigned(before), unsigned(after));
+    CHECK(after > before);
+    // Two vertices per bar + colour / begin / end, and the title-bar fader
+    // text that appears with the first scene ("A -----|----- B", ~22 words).
+    CHECK(after - before <= 2 * 24 + 4 + 24);
+    CHECK(after <= Ui::kDlTargetWords);
 }

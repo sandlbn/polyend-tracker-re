@@ -594,15 +594,21 @@ public:
     bool liveValid[12] = {};
     uint8_t shownPattern(int t) const;   // "Patt" label value of track t
     // [I] Scenes (Octatrack-style): Shift+Left / Shift+Right store the
-    // current pad rows as scene A / B (Project::perfScene); the encoder with
-    // nothing held, or CC 63, moves the crossfader 0 (A) .. 100 (B).
+    // current pad rows as scene A / B (Project::perfScene), Delete+Left /
+    // Delete+Right clear them; the encoder with nothing held, or CC 63,
+    // moves the crossfader 0 (A) .. 100 (B). A stored row is marked by a
+    // bar on its cell's left edge (A) or right edge (B).
     int fader = 0;
     static constexpr int kFaderMax = 100;
     static constexpr int kFaderStep = 2;   // per encoder detent
     void storeScene(int scene);
+    // Empties the scene; the slots the scenes drove go back to their pad rows.
+    void clearScene(int scene);
     void setFader(int x);
     // Every FX type in scene A or B, blended at `fader` into the slots' cur values.
     void applyScenes();
+    // The value slot c's pad row sets (the stored row, the live MIDI-CC row, or off).
+    int16_t padValue(int c) const;
 
 private:
     void refreshBar();
