@@ -14,6 +14,7 @@
 #include "test.h"
 #include "ui_fakes.h"
 
+#include "remote/display_tap.h"
 #include "ui/gfx.h"
 #include "ui/screens.h"
 
@@ -364,7 +365,28 @@ struct WorstRig {
     uint64_t acc = 0;
     uint32_t worst = 0;
     std::string worstName;
+    // [I] Every frame is also recorded for the display command export
+    // (remote/display_tap.h): it must fit the device's frame buffer uncut.
+    remote::DisplayTap tap{m};
+    std::vector<uint8_t> tapBuf = std::vector<uint8_t>(remote::kFrameBufBytes);
+    uint32_t tapMax = 0;
+    std::string tapMaxName;
+    const char* current = "";
+    void recordNext() {
+        if (tap.ready()) {
+            if (tap.truncated()) std::printf("  frame export cut on %s\n", current);
+            CHECK(!tap.truncated());
+            if (tap.frameBytes() > tapMax) {
+                tapMax = tap.frameBytes();
+                tapMaxName = current;
+            }
+            tap.release();
+        }
+        tap.request();
+        tap.arm();
+    }
     explicit WorstRig(bool customFonts = true) : h(false), a(*h.app) {
+        tap.setBuffer(tapBuf.data(), uint32_t(tapBuf.size()));
         setRomTextMode(kRomGlyphs);   // the device / simulator path (OP-6)
         // 101 list entries (the loader's maximum): 3 folders, 97 + 1 files.
         for (int i = 0; i < 97; ++i) {
@@ -379,9 +401,9 @@ struct WorstRig {
         m.customFonts = customFonts;
         h.disp.customFonts = customFonts;
         m.ui = &a.ui;
-        a.ui.attach(&m, &h.leds);
+        a.ui.attach(&tap, &h.leds);
         a.boot();
-        applyFontSet(&m, 0);
+        applyFontSet(&tap, 0);
         CHECK(customFontsBound() == customFonts);
         h.run(100);
         if (h.fs.files.count("Workspace/project.mt"))
@@ -440,12 +462,15 @@ struct WorstRig {
                 ++blocks;
             }
             h.audio.pump(blocks);
+            recordNext();
             h.run(10);
             a.ui.dirty();
         }
+        recordNext();
     }
     // Largest frame over `ms` of redraws (or of play when playing).
     void measure(const char* name, uint32_t ms = 60) {
+        current = name;
         m.resetMax();
         const uint32_t over0 = a.ui.overBudgetFrames(), low0 = a.ui.lowDetailFrames();
         if (a.seq.isPlaying()) {
@@ -453,8 +478,10 @@ struct WorstRig {
         } else {
             for (uint32_t t = 0; t < ms; t += 10) {
                 a.ui.dirty();
+                recordNext();
                 h.run(10);
             }
+            recordNext();
         }
         const uint32_t w = m.maxWords;
         std::printf("  %-56s %5u words\n", name, unsigned(w));
@@ -606,7 +633,8 @@ TEST(overlay_matrix_pattern) {
     h.up(btn::Rec);
     r.measure("pattern dense + count-in", 500);
     h.tap(btn::Play);
-    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+    std::printf("  worst: %s, %u words; frame export %u B (%s)\n", r.worstName.c_str(), unsigned(r.worst),
+                unsigned(r.tapMax), r.tapMaxName.c_str());
 }
 
 // OP-6 (docs/OPTIMIZATION_2X.md item 8): the same dense Pattern pages with
@@ -654,7 +682,8 @@ TEST(overlay_matrix_pattern_rom_fonts) {
     for (int i = 0; i < kTrackCount; ++i) h.tap(btn::Right);
     a.ui.dirty();
     r.measure("ROM fonts: pattern 13-16 dense");
-    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+    std::printf("  worst: %s, %u words; frame export %u B (%s)\n", r.worstName.c_str(), unsigned(r.worst),
+                unsigned(r.tapMax), r.tapMaxName.c_str());
 }
 
 // 2.x M1 (docs/M1_PLAN.md §4): the dense 16-track page with the window on
@@ -743,7 +772,8 @@ TEST(overlay_matrix_tracks_13_16) {
     h.tap(btn::F2);
     r.measure("song shifted window playing", 1000);
     h.tap(btn::F2);
-    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+    std::printf("  worst: %s, %u words; frame export %u B (%s)\n", r.worstName.c_str(), unsigned(r.worst),
+                unsigned(r.tapMax), r.tapMaxName.c_str());
 }
 
 TEST(overlay_matrix_screens) {
@@ -820,7 +850,8 @@ TEST(overlay_matrix_screens) {
     h.run(300);
     r.measure("file open project (30 long names)");
     r.overlays("file open project");
-    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+    std::printf("  worst: %s, %u words; frame export %u B (%s)\n", r.worstName.c_str(), unsigned(r.worst),
+                unsigned(r.tapMax), r.tapMaxName.c_str());
 }
 
 // 2.x M1-WP6: Track Mixer and Performance bank B (tracks 9-16) reuse the
@@ -866,7 +897,8 @@ TEST(overlay_matrix_bank_b) {
     h.down(btn::Shift);
     r.measure("track mixer bank B + Shift (solo labels)");
     h.up(btn::Shift);
-    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+    std::printf("  worst: %s, %u words; frame export %u B (%s)\n", r.worstName.c_str(), unsigned(r.worst),
+                unsigned(r.tapMax), r.tapMaxName.c_str());
 }
 
 // 2.x WP-G: the synth screens (Synth Parameters, Synth Macros, every Edit
@@ -979,7 +1011,8 @@ TEST(overlay_matrix_synth) {
     h.down(btn::F6);
     r.measure("global mixer + Synth 2 held");
     h.up(btn::F6);
-    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+    std::printf("  worst: %s, %u words; frame export %u B (%s)\n", r.worstName.c_str(), unsigned(r.worst),
+                unsigned(r.tapMax), r.tapMaxName.c_str());
 }
 
 // The guard itself (with a lowered limit so an ordinary frame overflows):

@@ -480,7 +480,7 @@ struct Harness {
         scratch.resize(0x10000);
         app.reset(new ot::App());
         ot::HalRefs h;
-        h.display = &disp;
+        h.display = wrapDisplay ? wrapDisplay(disp) : &disp;
         h.audio = &audio;
         h.storage = &fs;
         h.midi = &midi;
@@ -533,6 +533,8 @@ struct Harness {
         if (bootNow) app->boot();
     }
     static inline bool dlOverflowFatal = true;
+    // The display handed to the App instead of `disp` (e.g. a wrapper around it).
+    static inline std::function<ot::IDisplay*(ot::IDisplay&)> wrapDisplay;
     void run(uint32_t ms = 20) {
         // Advance time in 10 ms slices so timers fire in order.
         for (uint32_t t = 0; t < ms; t += 10) {

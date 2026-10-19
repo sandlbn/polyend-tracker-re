@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "remote/display_tap.h"
 #include "remote/remote.h"
 
 namespace ot {
@@ -59,6 +60,22 @@ void App::serviceRemote() {
         remoteDrivingShown_ = r->driving();
         ui.dirty();
     }
+    // Display command export: a recorded frame is drawn with the fragment
+    // cache off (its CMD_APPENDs would leave RAM_G copies out of the stream).
+    if (remote::DisplayTap* t = r->tap()) {
+        if (t->requested()) {
+            if (!remoteCacheOff_) {
+                remoteCacheOff_ = true;
+                remoteCacheWas_ = ui.fragments.enabled;
+                ui.fragments.enabled = false;
+            }
+            t->arm();
+        } else if (remoteCacheOff_ && !t->busy()) {
+            remoteCacheOff_ = false;
+            ui.fragments.enabled = remoteCacheWas_;
+        }
+    }
+    if (r->takeRedraw()) ui.dirty();
     if (r->takeQuery()) {
         char s[remote::kLineMax + 64];
         remoteStatus(s, sizeof s);

@@ -18,6 +18,7 @@
 #include "hal/telemetry.h"
 #include "hal/sd_storage.h"
 #include "hal/usb_storage.h"
+#include "remote/display_tap.h"
 #include "remote/remote.h"
 #include "sdram_bss.h"
 
@@ -61,8 +62,10 @@ constexpr uint32_t kOffNums = align(kOffClip + kPatSize);
 constexpr uint32_t kOffScratch = align(kOffNums + 64);
 // Per-track pattern staging for the Performance screen (spec 12 §C.1).
 constexpr uint32_t kOffPerf = align(kOffScratch + kScratch);
-constexpr uint32_t kOffStems = align(kOffPerf + sizeof(ot::PerfPatternMemory));
-constexpr uint32_t kEnd = kOffStems + sizeof(ot::audio::StemBlock);   // WAV export stems (was SRAM)
+constexpr uint32_t kOffStems = align(kOffPerf + sizeof(ot::PerfPatternMemory));   // WAV export stems (was SRAM)
+// [I] Display command export (core/remote/display_tap.h): one recorded frame.
+constexpr uint32_t kOffFrameRec = align(kOffStems + sizeof(ot::audio::StemBlock));
+constexpr uint32_t kEnd = kOffFrameRec + ot::remote::kFrameBufBytes;
 static_assert(ot::board::kSdramSize == 16u * 1024u * 1024u, "spec 01 §2");
 static_assert(kEnd <= ot::board::kSdramSize, "SDRAM layout exceeds 16 MB");
 // M1 budget (docs/M1_PLAN.md §1): at least 150 KB stay free for M2/M3.
@@ -302,6 +305,8 @@ void telemetryTick() {
 OT_SDRAM_BSS alignas(ot::remote::DeviceBridge) unsigned char gRemoteMem[sizeof(ot::remote::DeviceBridge)];
 OT_SDRAM_BSS char gRemoteRx[512];
 ot::remote::DeviceBridge* gRemote = nullptr;
+// The display as the App sees it: the real one, recorded for "@RC FRAME".
+OT_SDRAM_BSS alignas(ot::remote::DisplayTap) unsigned char gTapMem[sizeof(ot::remote::DisplayTap)];
 ot::IClock* gClock = nullptr;
 
 void remoteSend(void*, const char* line) { ot::hal::diagLog(line); }
@@ -394,7 +399,9 @@ void otAppMain(ot::hal::HalSet& hal) {
     mem.exportStems = reinterpret_cast<audio::StemBlock*>(sd + kOffStems);
 
     HalRefs refs;
-    refs.display = hal.display;
+    auto* tap = new (gTapMem) ot::remote::DisplayTap(*hal.display);
+    tap->setBuffer(sd + kOffFrameRec, ot::remote::kFrameBufBytes);
+    refs.display = tap;
     refs.audio = hal.audio;
     refs.storage = hal.storage;
     refs.midi = hal.midi;
@@ -403,6 +410,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     rio.changed = &remoteChanged;
     rio.room = &remoteRoom;
     gRemote = new (gRemoteMem) ot::remote::DeviceBridge(*hal.input, *hal.leds, rio);
+    gRemote->setTap(tap);
     hal::diagRemoteBuffer(gRemoteRx, sizeof gRemoteRx);
     gClock = hal.clock;
     refs.input = &gRemote->input();

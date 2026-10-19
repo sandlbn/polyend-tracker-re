@@ -308,6 +308,7 @@ public:
     // redraws when drive mode starts / ends (its title-bar marker).
     void serviceRemote();
     bool remoteDrivingShown_ = false;
+    bool remoteCacheOff_ = false, remoteCacheWas_ = true;   // fragment cache off for a recorded frame
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
     }

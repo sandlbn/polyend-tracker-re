@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "formats/crc32.h"
+#include "remote/display_tap.h"
 #include "ui/buttons.h"
 
 namespace ot {
@@ -44,6 +45,9 @@ bool parse(const char* line, Msg& m) {
     else if (!std::strcmp(p, "DRIVE")) m.kind = Msg::kDrive;
     else if (!std::strcmp(p, "Q")) m.kind = Msg::kQuery;
     else if (!std::strcmp(p, "SHOT")) m.kind = Msg::kShot;
+    else if (!std::strcmp(p, "FRAME")) m.kind = Msg::kFrame;
+    else if (!std::strcmp(p, "MIRROR 1")) m.kind = Msg::kMirrorOn;
+    else if (!std::strcmp(p, "MIRROR 0")) m.kind = Msg::kMirrorOff;
     else if (!std::strncmp(p, "B1 ", 3) || !std::strncmp(p, "B0 ", 3)) {
         if (!ints(p + 3, v, 1) || v[0] < 0 || v[0] > 63) return false;
         m.kind = p[1] == '1' ? Msg::kButtonDown : Msg::kButtonUp;
@@ -195,6 +199,21 @@ void DeviceBridge::onLine(const char* line) {
                 sendLine(h);
             }
             break;
+        case Msg::kFrame:
+        case Msg::kMirrorOn:
+            if (mode_ != kDrive) break;
+            if (!tap_) {
+                sendLine("@RC F FAIL");
+                break;
+            }
+            if (m.kind == Msg::kMirrorOn) mirror_ = true;
+            tap_->request();
+            redraw_ = true;
+            break;
+        case Msg::kMirrorOff:
+            mirror_ = false;
+            if (tap_ && !tap_->ready()) tap_->release();   // a frame not drawn yet: dropped
+            break;
         default: break;
     }
 }
@@ -202,7 +221,9 @@ void DeviceBridge::onLine(const char* line) {
 void DeviceBridge::tick(uint32_t now, bool hostOpen) {
     now_ = now;
     if (mode_ != kOff && (!hostOpen || now - lastHello_ > kTimeoutMs)) setMode(kOff);
-    if (shotRow_ >= 0) serviceShot();
+    // A started frame finishes before a screenshot starts, and the other way round.
+    if (frameSent_ < 0 && shotRow_ >= 0) serviceShot();
+    else serviceFrame();
 }
 
 void DeviceBridge::setEnabled(bool on) {
@@ -233,6 +254,9 @@ void DeviceBridge::setMode(Mode m) {
         injButtons_ = injPads_ = 0;
         query_ = false;
         shotRow_ = -1;
+        mirror_ = redraw_ = false;
+        frameSent_ = -1;
+        if (tap_) tap_->release();
     }
     if (m == kPanel) {
         // Keys the app saw go down are released to the app, not the host.
@@ -286,10 +310,7 @@ void DeviceBridge::inject(const Msg& m) {
 }
 
 void DeviceBridge::shotLine(int n) {
-    char line[16 + (kShotChunk + 2) / 3 * 4];
-    std::memcpy(line, "@RC D ", 6);
-    base64(shotBuf_, n, line + 6);
-    sendLine(line);
+    dataLine(shotBuf_, n);
     std::memmove(shotBuf_, shotBuf_ + n, size_t(shotLen_ - n));
     shotLen_ -= n;
 }
@@ -341,6 +362,46 @@ void DeviceBridge::serviceShot() {
                       static_cast<unsigned long>(crc32Final(shotCrc_)));
         sendLine(e);
         shotRow_ = -1;
+    }
+}
+
+void DeviceBridge::dataLine(const uint8_t* p, int n) {
+    char line[16 + (kShotChunk + 2) / 3 * 4];
+    std::memcpy(line, "@RC D ", 6);
+    base64(p, n, line + 6);
+    sendLine(line);
+}
+
+void DeviceBridge::serviceFrame() {
+    if (!tap_ || !tap_->ready()) return;
+    const uint32_t bytes = tap_->frameBytes();
+    while (room()) {
+        if (frameSent_ < 0) {
+            char h[48];
+            std::snprintf(h, sizeof h, "@RC F %lu %lu %d", static_cast<unsigned long>(tap_->frameSeq()),
+                          static_cast<unsigned long>(bytes), tap_->truncated() ? 1 : 0);
+            sendLine(h);
+            frameSent_ = 0;
+            frameCrc_ = crc32Init();
+            continue;
+        }
+        if (frameSent_ < int64_t(bytes)) {
+            const uint8_t* p = tap_->frame() + frameSent_;
+            const int n = bytes - uint32_t(frameSent_) < uint32_t(kShotChunk) ? int(bytes - uint32_t(frameSent_))
+                                                                                : kShotChunk;
+            frameCrc_ = crc32Update(frameCrc_, p, size_t(n));
+            dataLine(p, n);
+            frameSent_ += n;
+            continue;
+        }
+        char e[64];
+        std::snprintf(e, sizeof e, "@RC F END %lu %08lX", static_cast<unsigned long>(bytes),
+                      static_cast<unsigned long>(crc32Final(frameCrc_)));
+        sendLine(e);
+        frameSent_ = -1;
+        tap_->release();
+        if (mirror_) tap_->request();
+        return;
     }
 }
 

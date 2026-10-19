@@ -2,6 +2,7 @@
 // device-side bridge between the panel drivers and the App.
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,7 @@
 #include "ui_fakes.h"
 
 #include "formats/crc32.h"
+#include "remote/display_tap.h"
 #include "remote/remote.h"
 #include "ui/buttons.h"
 #include "ui/screens.h"
@@ -618,4 +620,265 @@ TEST(remote_drive_marker_redraws) {
     b.rx(y.data(), y.size(), 0);
     h.run(50);
     CHECK(!a.remoteDrivingShown_);
+}
+
+// ---------------------------------------------------------------------------
+// Display command export (core/remote/display_tap.h)
+
+namespace {
+// RecordingDisplay plus the calls it does not log.
+struct FullRecorder : RecordingDisplay {
+    std::vector<std::string> extra;   // bitmap transform / size, text hints (any frame)
+    void bitmapTransform(int32_t a, int32_t b, int32_t c, int32_t d, int32_t e, int32_t f) override {
+        extra.push_back("TF " + std::to_string(a) + " " + std::to_string(b) + " " + std::to_string(c) + " " +
+                        std::to_string(d) + " " + std::to_string(e) + " " + std::to_string(f));
+    }
+    void bitmapSize(uint8_t h, uint16_t w, uint16_t hh) override {
+        extra.push_back("BS " + std::to_string(h) + " " + std::to_string(w) + " " + std::to_string(hh));
+    }
+    void textHint(int16_t x, int16_t y, uint8_t font, const char* s) override {
+        extra.push_back("HINT " + std::to_string(x) + " " + std::to_string(y) + " " + std::to_string(font) + " " + s);
+    }
+};
+
+void drawSample(IDisplay& d) {
+    d.dlStart();
+    d.clearColorRGB(1, 2, 3);
+    d.clear(true, false, true);
+    d.colorRGB(200, 100, 50);
+    d.colorA(77);
+    d.lineWidth(24);
+    d.pointSize(40);
+    d.scissorXY(10, 20);
+    d.scissorSize(2048, 2048);
+    d.begin(IDisplay::kRects);
+    d.vertex2f(-3 * 16, 5 * 16);    // negative: sign-extended back
+    d.vertex2f(799 * 16, 479 * 16);
+    d.end();
+    d.vertexTranslateX(-400 * 16);
+    d.vertexTranslateX(400 * 16);
+    d.saveContext();
+    d.bitmapSize(4, 13, 300);
+    d.bitmapTransform(0, -256, 11 * 256, 256, 0, -5);
+    d.begin(IDisplay::kBitmaps);
+    d.vertex2ii(511, 300, 4, 'A');
+    d.end();
+    d.restoreContext();
+    // Glyph runs (Gfx::glyphRun): the hint, then the glyphs (sharing one BITMAPS).
+    d.vertexTranslateX(0);
+    d.begin(IDisplay::kBitmaps);
+    d.textHint(5, 6, 2, "Ab");   // spelled by its cells
+    d.vertex2ii(5, 6, 4, 'A');
+    d.vertex2ii(13, 6, 4, 'b');
+    d.textHint(100, 200, 3, "a b");   // a space: sent as a string
+    d.vertex2ii(100, 200, 5, 'a');
+    d.vertex2ii(116, 200, 5, 'b');
+    d.vertexTranslateX(400 * 16);
+    d.textHint(511, 300, 2, "Z9");   // right of x 511: translated
+    d.vertex2ii(111, 300, 4, 'Z');
+    d.vertex2ii(119, 300, 4, '9');
+    d.end();
+    d.vertexTranslateX(0);
+    for (const char* s : {"", "a", "ab", "abc", "abcd", "Pattern 1"}) d.text(-4, 33, 27, IDisplay::kOptCenterY, s);
+    d.number(700, 40, 26, IDisplay::kOptSigned | IDisplay::kOptRightX, -12345);
+    d.gradient(0, -1, 0x123456u, 800, 27, 0xABCDEFu);
+    d.swap();
+}
+}  // namespace
+
+TEST(remote_tap_records_only_the_requested_frame) {
+    FullRecorder real;
+    DisplayTap tap(real);
+    std::vector<uint8_t> buf(kFrameBufBytes);
+    drawSample(tap);   // no buffer: passes through only
+    CHECK_EQ(real.swaps, 1);
+    tap.request();
+    CHECK(!tap.requested());   // no buffer, no capture
+    tap.setBuffer(buf.data(), uint32_t(buf.size()));
+    drawSample(tap);
+    CHECK(!tap.ready());
+    tap.request();
+    CHECK(tap.requested());
+    drawSample(tap);   // requested, not armed (the App has not turned the cache off yet)
+    CHECK(!tap.ready());
+    tap.arm();
+    CHECK(tap.busy());
+    drawSample(tap);
+    CHECK(tap.ready());
+    CHECK(!tap.truncated());
+    CHECK_EQ(tap.frameSeq(), 1u);
+    CHECK_EQ(real.swaps, 4);
+    // Further frames are not recorded over it.
+    const uint32_t n = tap.frameBytes();
+    tap.request();
+    real.dlStart();
+    CHECK_EQ(tap.frameBytes(), n);
+    CHECK(tap.ready());
+    tap.release();
+    CHECK(!tap.ready() && !tap.busy());
+}
+
+TEST(remote_tap_replay_round_trip) {
+    FullRecorder real, again;
+    DisplayTap tap(real);
+    std::vector<uint8_t> buf(kFrameBufBytes);
+    tap.setBuffer(buf.data(), uint32_t(buf.size()));
+    tap.bindFontSet(1);   // the recorder has no custom fonts: the frame says ROM (-1)
+    tap.request();
+    tap.arm();
+    drawSample(tap);
+    CHECK(tap.ready());
+    // Every word is 4 bytes: the frame is whole words.
+    CHECK_EQ(tap.frameBytes() % 4, 0u);
+    CHECK(replayFrame(tap.frame(), tap.frameBytes(), again));
+    CHECK_EQ(again.last.size(), real.last.size());
+    for (size_t i = 0; i < real.last.size() && i < again.last.size(); ++i) CHECK_STR(again.last[i].c_str(), real.last[i].c_str());
+    CHECK_EQ(again.extra.size(), real.extra.size());
+    for (size_t i = 0; i < real.extra.size() && i < again.extra.size(); ++i)
+        CHECK_STR(again.extra[i].c_str(), real.extra[i].c_str());
+    CHECK(again.fontBinds.size() == 1u && again.fontBinds[0] == -1);
+    // Cut anywhere: replay stops there (false) but still shows what it drew.
+    for (uint32_t cut = 12; cut < tap.frameBytes(); cut += 4) {   // from after CMD_DLSTART
+        FullRecorder part;
+        const int swaps = part.swaps;
+        CHECK(!replayFrame(tap.frame(), cut, part));
+        CHECK_EQ(part.swaps, swaps + 1);
+    }
+}
+
+TEST(remote_tap_pictures_and_overflow) {
+    FullRecorder real, again;
+    DisplayTap tap(real);
+    std::vector<uint8_t> buf(64);
+    tap.setBuffer(buf.data(), uint32_t(buf.size()));
+    tap.request();
+    tap.arm();
+    tap.dlStart();
+    tap.drawImage(10, 20, 670000, 100, 50);
+    tap.drawRgb332(0, 0, 384000, 256, 240, 2);
+    tap.fragmentAppend(3);
+    tap.swap();
+    CHECK(tap.ready());
+    CHECK(!tap.truncated());
+    CHECK(replayFrame(tap.frame(), tap.frameBytes(), again));
+    // Pictures become grey boxes (their pixels are not sent).
+    bool box = false;
+    for (auto& l : again.last) box |= l == "VERTEX 109 69";
+    CHECK(box);
+    // Too small a buffer: cut, the words kept are whole.
+    tap.release();
+    tap.request();
+    tap.arm();
+    drawSample(tap);
+    CHECK(tap.ready());
+    CHECK(tap.truncated());
+    CHECK_EQ(tap.frameBytes(), 64u);
+    FullRecorder part;
+    CHECK(!replayFrame(tap.frame(), tap.frameBytes(), part));
+    CHECK_EQ(part.swaps, 1);
+}
+
+TEST(remote_drive_frame_export) {
+    FullRecorder* rec = nullptr;
+    std::unique_ptr<DisplayTap> tap;
+    std::vector<uint8_t> buf(kFrameBufBytes);
+    Harness::wrapDisplay = [&](IDisplay& d) {
+        tap.reset(new DisplayTap(d));
+        tap->setBuffer(buf.data(), uint32_t(buf.size()));
+        return tap.get();
+    };
+    Harness h;
+    Harness::wrapDisplay = nullptr;
+    (void)rec;
+    App& a = *h.app;
+    FakePanel panel;
+    PadLedsFake leds;
+    HostSide host;
+    DeviceBridge b(panel, leds, HostSide::io(&host));
+    b.setEnabled(true);
+    b.setTap(tap.get());
+    a.setRemoteBridge(&b);
+    uint32_t clk = 0;
+    auto send = [&](const char* l) {
+        std::string s = std::string(l) + "\n";
+        b.rx(s.data(), s.size(), clk);
+    };
+    // Only in drive mode.
+    send("@RC FRAME");
+    h.run(50);
+    CHECK(!tap->requested() && !tap->ready());
+    send("@RC DRIVE");
+    h.run(50);
+    CHECK(a.ui.fragments.enabled);
+    const int swaps = h.disp.swaps;
+    host.sent.clear();
+    host.room = false;
+    send("@RC FRAME");
+    h.run(10);   // App: cache off, armed, redrawn -> recorded
+    CHECK(h.disp.swaps > swaps);   // a still screen redraws for it
+    CHECK(tap->ready());
+    CHECK(!a.ui.fragments.enabled || !tap->busy());
+    b.tick(clk, true);
+    CHECK(host.sent.empty());   // no room: waits
+    host.room = true;
+    for (int i = 0; i < 5; ++i) b.tick(clk, true);
+    CHECK(!tap->ready());
+    h.run(10);
+    CHECK(a.ui.fragments.enabled);   // back on
+    // Header, data, end with the CRC.
+    std::vector<uint8_t> data;
+    std::string head, end;
+    for (const std::string& l : host.sent) {
+        if (l.rfind("@RC D ", 0) == 0) {
+            const auto d = unbase64(l.substr(6));
+            data.insert(data.end(), d.begin(), d.end());
+        } else if (l.rfind("@RC F END ", 0) == 0) {
+            end = l;
+        } else if (l.rfind("@RC F ", 0) == 0) {
+            head = l;
+        }
+    }
+    char want[64];
+    std::snprintf(want, sizeof want, "@RC F 1 %lu 0", static_cast<unsigned long>(data.size()));
+    CHECK_STR(head.c_str(), want);
+    std::snprintf(want, sizeof want, "@RC F END %lu %08lX", static_cast<unsigned long>(data.size()),
+                  static_cast<unsigned long>(ot::crc32(data.data(), data.size())));
+    CHECK_STR(end.c_str(), want);
+    // The frame is the screen as drawn: replayed, it is the same frame.
+    FullRecorder again;
+    CHECK(replayFrame(data.data(), data.size(), again));
+    CHECK(again.last == h.disp.last);
+    CHECK(again.lastHasText("Pattern"));
+    // Mirror: the next frame the UI draws follows, without asking.
+    host.sent.clear();
+    send("@RC MIRROR 1");
+    h.run(10);
+    for (int i = 0; i < 5; ++i) b.tick(clk, true);
+    a.ui.dirty();
+    h.run(50);
+    for (int i = 0; i < 5; ++i) b.tick(clk, true);
+    int frames = 0;
+    for (const std::string& l : host.sent) frames += l.rfind("@RC F END ", 0) == 0;
+    CHECK(frames >= 2);
+    send("@RC MIRROR 0");
+    h.run(10);
+    for (int i = 0; i < 5; ++i) b.tick(clk, true);
+    host.sent.clear();
+    a.ui.dirty();
+    h.run(10);
+    for (int i = 0; i < 5; ++i) b.tick(clk, true);
+    for (const std::string& l : host.sent) CHECK(l.rfind("@RC F", 0) != 0);
+    // Leaving drive mode drops a pending frame and turns the cache back on.
+    send("@RC FRAME");
+    h.run(10);
+    send("@RC BYE");
+    h.run(10);
+    CHECK(!tap->ready() && !tap->busy());
+    CHECK(a.ui.fragments.enabled);
+    // Without a tap: refused.
+    b.setTap(nullptr);
+    send("@RC DRIVE");
+    host.sent.clear();
+    send("@RC FRAME");
+    CHECK(!host.sent.empty() && host.sent.back() == "@RC F FAIL");
 }

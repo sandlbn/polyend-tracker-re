@@ -15,11 +15,19 @@
 //                    "@RC B1/B0/P1/P0/E ..." as above: input for the Tracker's app
 //                    "@RC Q"                status query
 //                    "@RC SHOT"             screenshot request
+//                    "@RC FRAME"            the display commands of the next frame
+//                                           (redrawn at once; display_tap.h)
+//                    "@RC MIRROR 1" / "@RC MIRROR 0"  every frame the link has room for,
+//                                           or no more (a frame already recorded is still sent)
 //   device -> host   "@RC DRIVING"          drive mode entered
 //                    "@RC S key=value ..."  status (App::remoteStatus)
 //                    "@RC SHOT <w> <h>", then "@RC D <base64>" lines, then
 //                    "@RC SHOT END <bytes> <crc32 hex>" (or "@RC SHOT FAIL"):
 //                    per row, runs of [count-1, r, g, b] (a run never crosses a row)
+//                    "@RC F <seq> <bytes> <cut>", then "@RC D <base64>" lines, then
+//                    "@RC F END <bytes> <crc32 hex>": a frame's command stream
+//                    (display_tap.h); cut = 1: the frame overflowed the buffer.
+//                    A screenshot and a frame never interleave.
 //
 // Both:  host -> device "@RC BYE" ends the mode; device -> host "@RC OFF".
 //
@@ -43,6 +51,8 @@
 namespace ot {
 namespace remote {
 
+class DisplayTap;
+
 constexpr uint32_t kKeepaliveMs = 500;
 constexpr uint32_t kTimeoutMs = 2000;
 constexpr int kPads = 48;
@@ -53,7 +63,7 @@ constexpr int kShotMaxW = 800;
 struct Msg {
     enum Kind : uint8_t {
         kNone, kHello, kBye, kOn, kOff, kButtonDown, kButtonUp, kPadDown, kPadUp, kEncoder, kLeds,
-        kDrive, kQuery, kShot,
+        kDrive, kQuery, kShot, kFrame, kMirrorOn, kMirrorOff,
     };
     Kind kind = kNone;
     uint8_t id = 0;
@@ -116,6 +126,16 @@ public:
         if (io_.send) io_.send(io_.ctx, line);
     }
     void setDisplay(IDisplay* d) { display_ = d; }
+    // Display command export (display_tap.h); null: "@RC FRAME" is refused.
+    void setTap(DisplayTap* t) { tap_ = t; }
+    DisplayTap* tap() const { return tap_; }
+    // A frame was asked for: the App redraws now (a still screen draws no frames).
+    bool takeRedraw() {
+        const bool r = redraw_;
+        redraw_ = false;
+        return r;
+    }
+    bool mirroring() const { return mirror_; }
     bool shotActive() const { return shotRow_ >= 0; }
     // A screenshot gives up after this long without reading a row (display busy / failing).
     static constexpr uint32_t kShotStallMs = 2000;
@@ -155,6 +175,8 @@ private:
     bool room() const { return !io_.room || io_.room(io_.ctx); }
     void serviceShot();
     void shotLine(int n);   // one "@RC D" line of the first n pending bytes
+    void serviceFrame();
+    void dataLine(const uint8_t* p, int n);
 
     IInput& panel_;
     ILeds& pads_;
@@ -186,6 +208,12 @@ private:
     uint32_t shotPx_[kShotMaxW] = {};
     uint8_t shotBuf_[kShotMaxW * 4 + kShotChunk] = {};   // one row's runs + a partial line
     int shotLen_ = 0;
+
+    // Frame streaming (drive mode): the tap's buffer, kShotChunk bytes a line.
+    DisplayTap* tap_ = nullptr;
+    bool redraw_ = false, mirror_ = false;
+    int64_t frameSent_ = -1;   // bytes of the ready frame sent, -1 = header not sent
+    uint32_t frameCrc_ = 0;
 };
 
 }  // namespace remote

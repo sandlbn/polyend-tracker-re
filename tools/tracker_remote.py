@@ -17,6 +17,11 @@ Script lines (the simulator's headless language, sim/README.md, plus checks;
   pad N down|up|tap [VEL]       pad 0..47
   enc DELTA                     encoder detents
   screenshot FILE.png           the shown frame (relative to --out)
+  frame FILE.otf                the display commands of a fresh frame (relative to --out);
+                                opentracker-sim --frame FILE.otf --screenshot OUT.png draws it
+  text                          print the text on screen (from a fresh frame)
+  expect-text TEXT              some text on screen contains TEXT (any case)
+  expect-no-text TEXT           no text on screen contains TEXT
   status                        print the status line
   perf                          print the performance fields
   expect KEY OP VALUE           status field check, OP one of == != < <= > >= ~ (contains)
@@ -199,6 +204,88 @@ def decode_shot(w, h, data):
     return bytes(out)
 
 
+# Display command export (src/core/remote/display_tap.h): little-endian words.
+CMD_TEXT, CMD_NUMBER, CMD_GRADIENT = 0xFFFFFF0C, 0xFFFFFF2E, 0xFFFFFF0B
+TAG_FONTSET, TAG_IMAGE, TAG_RGB332, TAG_FRAGMENT = 0xFFFFFFE0, 0xFFFFFFE2, 0xFFFFFFE3, 0xFFFFFFE4
+HINT_GLYPHS, HINT_STRING = 0xFE, 0xFD   # top byte; glyph runs drawn as VERTEX2II
+FIXED_ARGS = {0xFFFFFF00: 0, 0xFFFFFF01: 0, CMD_NUMBER: 3, CMD_GRADIENT: 4, TAG_FONTSET: 1, TAG_IMAGE: 3,
+              TAG_RGB332: 4, TAG_FRAGMENT: 1}
+
+
+def frame_texts(data):
+    """[(x, y, font, text)] of a frame: CMD_TEXT, CMD_NUMBER and glyph runs (hints)."""
+    n = len(data) // 4
+    words = struct.unpack("<%dI" % n, data[:n * 4])
+    out = []
+    i = 0
+
+    def s16(v):
+        return v - 0x10000 if v & 0x8000 else v
+
+    def string(k):
+        b = bytearray()
+        while k < n:
+            w = words[k]
+            k += 1
+            for sh in (0, 8, 16, 24):
+                c = (w >> sh) & 255
+                if c == 0:
+                    return b.decode("latin-1"), k
+                b.append(c)
+        return b.decode("latin-1"), k
+
+    def sext(v, bits):
+        v &= (1 << bits) - 1
+        return v - (1 << bits) if v & (1 << (bits - 1)) else v
+
+    translate = 0
+    while i < n:
+        w = words[i]
+        i += 1
+        top = w >> 24
+        if top == 0x2B:   # VERTEX_TRANSLATE_X
+            translate = sext(w, 17)
+            continue
+        if top in (HINT_GLYPHS, HINT_STRING):
+            chars = ""
+            if top == HINT_STRING:
+                length = (w >> 8) & 255
+                raw = b"".join(struct.pack("<I", v) for v in words[i:i + (length + 3) // 4])
+                chars = raw[:length].decode("latin-1")
+                i += (length + 3) // 4
+            # Position: the run's first glyph; HINT_GLYPHS spells the cells.
+            x = y = None
+            tr = translate
+            for g in words[i:]:
+                if g >> 24 == 0x2B:
+                    tr = sext(g, 17)
+                    continue
+                if g >> 30 != 2:
+                    break
+                if x is None:
+                    x, y = ((g >> 21) & 0x1FF) + tr // 16, (g >> 12) & 0x1FF
+                if top != HINT_GLYPHS:
+                    break
+                chars += chr(g & 0x7F)
+            out.append((x or 0, y or 0, (w >> 16) & 255, chars))
+            continue
+        if w < 0xFFFFFF00:
+            continue
+        if w == CMD_TEXT:
+            xy, f = words[i], words[i + 1]
+            t, i = string(i + 2)
+            out.append((s16(xy & 0xFFFF), s16(xy >> 16), f & 255, t))
+        elif w == CMD_NUMBER:
+            xy, f, v = words[i], words[i + 1], words[i + 2]
+            out.append((s16(xy & 0xFFFF), s16(xy >> 16), f & 255, str(v - (1 << 32) if v & 0x80000000 else v)))
+            i += 3
+        elif w in FIXED_ARGS:
+            i += FIXED_ARGS[w]
+        else:
+            raise Fail("unknown command 0x%08X in the frame" % w)
+    return out
+
+
 class Runner:
     def __init__(self, link, out_dir, buttons):
         self.link = link
@@ -264,6 +351,32 @@ class Runner:
         os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
         write_png(full, w, h, rgb)
         print("saved " + full)
+
+    def frame(self):
+        """A fresh frame's command stream (bytes); the device redraws for it."""
+        start = self.link.mark()
+        self.link.send("@RC FRAME")
+        head, i = self.link.wait_for(lambda p: p.startswith("F "), 5.0, start)
+        if head is None or head == "F FAIL":
+            raise Fail("frame not available")
+        data = bytearray()
+        while True:
+            got, i = self.link.wait_for(lambda p: p.startswith("D ") or p.startswith("F END"), 10.0, i)
+            if got is None:
+                raise Fail("frame timed out")
+            if got.startswith("D "):
+                data += base64.b64decode(got[2:])
+                continue
+            parts = got.split()   # F END <bytes> <crc>
+            if int(parts[2]) != len(data) or int(parts[3], 16) != (zlib.crc32(bytes(data)) & 0xFFFFFFFF):
+                raise Fail("frame transfer damaged (%d bytes, expected %s)" % (len(data), parts[2]))
+            break
+        if head.split()[3] == "1":
+            print("note  the frame overflowed the device's buffer: cut")
+        return bytes(data)
+
+    def texts(self):
+        return [t for t in frame_texts(self.frame()) if t[3].strip()]
 
     def run(self, cmd):
         words = cmd.split()
@@ -338,6 +451,23 @@ class Runner:
             want = " ".join(args)
             have = self.status().get("note", "")
             self.check(want.lower() in have.lower(), "notice ~ %r (is %r)" % (want, have))
+        elif op == "frame":
+            data = self.frame()
+            full = os.path.join(self.out, args[0])
+            os.makedirs(os.path.dirname(full) or ".", exist_ok=True)
+            with open(full, "wb") as f:
+                f.write(data)
+            print("saved %s (%d bytes)" % (full, len(data)))
+        elif op == "text":
+            for x, y, font, t in sorted(self.texts(), key=lambda t: (t[1], t[0])):
+                print("text  %4d %4d  %s" % (x, y, t))
+        elif op in ("expect-text", "expect-no-text"):
+            want = " ".join(args)
+            hits = [t[3] for t in self.texts() if want.lower() in t[3].lower()]
+            if op == "expect-text":
+                self.check(bool(hits), "text ~ %r%s" % (want, " (%r)" % hits[0] if hits else ""))
+            else:
+                self.check(not hits, "no text ~ %r%s" % (want, " (%r)" % hits[0] if hits else ""))
         elif op == "echo":
             print(" ".join(args))
         else:

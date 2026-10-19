@@ -148,6 +148,39 @@ build/sim/opentracker-sim --serve          # prints "serve: /dev/pts/N"
 tools/tracker_remote.py /dev/pts/N -c "status"
 ```
 
+### Display command export: text checks and a live mirror
+
+In drive mode the Tracker can also send the display commands of a frame
+(`src/core/remote/display_tap.h`): the FT81x command words it drew, a few KB
+a frame, instead of a screenshot's pixels read back from the display. The
+main loop does not stall for it, and the frame is the one being drawn, not
+the last one the display managed to show. Scripts read the text on screen
+from it:
+
+```
+tools/tracker_remote.py /dev/ttyACM0 -c "tap SampleLoader; wait 300; expect-text SD Card; text; frame loader.otf"
+build/sim/opentracker-sim --frame loader.otf --screenshot loader.png   # draw a saved frame
+```
+
+`text` prints every string on screen with its position; `expect-text` /
+`expect-no-text` check for one (any case). `frame` saves the raw frame,
+which the simulator draws like its own (project covers and Games frames
+are grey boxes: their pixels stay in the display's memory).
+
+`--mirror DEV` shows the Tracker's screen live in the simulator window and
+sends the window's keys, mouse and wheel to the Tracker (drive mode, so the
+Tracker's own controls keep working too):
+
+```
+build/sim/opentracker-sim --mirror /dev/ttyACM0 [--mirror-record frames/]
+```
+
+The Tracker sends every frame it draws while the link has room and skips
+the others; the status text shows frames per second. A still screen draws
+no frames. Frames are recorded with the UI's fragment cache off (its RAM_G
+copies are not in the stream), so mirroring changes the display upload and
+CPU numbers a little; read the performance telemetry without it.
+
 ## Headless scripts
 
 With `--script` (or `--screenshot`) no window or audio device is opened. Time

@@ -464,6 +464,7 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
     applyAlpha();
     openBitmaps();                         // shared with the previous run (closePrim ends it)
     if (hi < 0) return;
+    d_->textHint(int16_t(x), int16_t(y), font, s);   // [I] for the display command export
     int base = -1;
     if (lo >= translate_ && hi - translate_ <= 511) base = translate_;
     else if (hi <= 511) base = 0;
@@ -516,6 +517,7 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
     d_->begin(IDisplay::kBitmaps);
     words_ += 10;
     int base = 0;
+    d_->textHint(int16_t(x), int16_t(y), font, s);   // [I] display command export
     int pen = 0;
     for (int i = 0; s[i]; ++i) {
         const uint8_t ch = uint8_t(s[i]);

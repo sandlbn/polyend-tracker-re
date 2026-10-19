@@ -4,6 +4,8 @@
 //   opentracker-sim [--sd DIR] [--scale 1|2] [--line-in] [--no-audio] [--no-midi]
 //                   [--demo] [--quit-after MS]
 //   opentracker-sim --script FILE [--screenshot OUT.png] [--panel] [--wav OUT.wav] [--sd DIR]
+//   opentracker-sim --mirror DEV [--mirror-record DIR]     (a Tracker's screen, live)
+//   opentracker-sim --frame FILE.otf --screenshot OUT.png  (a recorded Tracker frame)
 //
 // See sim/README.md for the key map and the script language.
 #include <SDL.h>
@@ -33,7 +35,9 @@
 #include "sim_usb_storage.h"
 #include "panel.h"
 #include "png.h"
+#include "mirror_link.h"
 #include "remote_link.h"
+#include "remote/display_tap.h"
 #include "remote/remote.h"
 #include "sdl_audio.h"
 #include "sim_nvstore.h"
@@ -55,6 +59,8 @@ struct Options {
     std::string script, screenshot, wav;
     std::string remote;   // [I] serial port of a Tracker used as the front panel
     bool serve = false;   // [I] act as a Tracker for tools/tracker_remote.py (pseudo-terminal)
+    std::string mirror, mirrorRecord;   // [I] show a Tracker's screen live (its serial port)
+    std::string frame;                  // [I] draw a recorded frame (.otf) for --screenshot
     float lineInTone = 0.0f;   // headless: synthetic line input (Hz), 0 = none
     long quitAfterMs = -1;
 };
@@ -73,9 +79,14 @@ void usage() {
         "                    port, e.g. /dev/ttyACM0); see sim/README.md \"Remote control\"\n"
         "  --serve           act as a Tracker with remote control on, on a pseudo-terminal\n"
         "                    (its path is printed): tools/tracker_remote.py drives it\n"
+        "  --mirror DEV      show the screen of a Tracker running OpenTracker live (Config > USB >\n"
+        "                    Remote control On) and drive it with this window's keys and mouse\n"
+        "  --mirror-record DIR  with --mirror: also save every frame as DIR/frame-<seq>.otf\n"
         "headless (no window, virtual time):\n"
         "  --script FILE     replay scripted input (see README)\n"
         "  --screenshot PNG  save the framebuffer at the end\n"
+        "  --frame FILE.otf  draw a recorded Tracker frame (tracker_remote.py 'frame', --mirror-record)\n"
+        "                    instead of running the app; with --screenshot\n"
         "  --panel           screenshots include the whole front panel\n"
         "  --wav OUT.wav     record the rendered audio\n"
         "  --line-in-tone HZ synthetic line input: tone bursts (recorder tests)\n"
@@ -107,6 +118,9 @@ bool parseArgs(int argc, char** argv, Options& o) {
         if (a == "--script" && next(o.script)) continue;
         if (a == "--remote" && next(o.remote)) continue;
         if (a == "--serve") { o.serve = true; continue; }
+        if (a == "--mirror" && next(o.mirror)) continue;
+        if (a == "--mirror-record" && next(o.mirrorRecord)) continue;
+        if (a == "--frame" && next(o.frame)) continue;
         if (a == "--screenshot" && next(o.screenshot)) continue;
         if (a == "--wav" && next(o.wav)) continue;
         if (a == "--line-in-tone" && next(v)) { o.lineInTone = float(std::atof(v.c_str())); continue; }
@@ -159,6 +173,7 @@ struct Machine {
     } tone;
     ot::IAudioOut* audio = nullptr;
     bool demo = false;
+    bool mirror = false;   // --mirror: no app, the display shows the Tracker's frames
 
     // App and its large buffers (SDRAM on the device).
     std::unique_ptr<ot::App> app;
@@ -173,6 +188,8 @@ struct Machine {
     SimNvStore nvstore;   // config EEPROM stand-in: "<sd>.eeprom" next to the SD folder
     // [I] --serve: the device side of remote control on a pseudo-terminal.
     std::unique_ptr<ot::remote::DeviceBridge> bridge;
+    std::unique_ptr<ot::remote::DisplayTap> tap;   // "@RC FRAME" (display command export)
+    std::vector<uint8_t> tapBuf;
     int serveFd = -1;
     bool openServe() {
         serveFd = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
@@ -232,7 +249,7 @@ struct Machine {
             sdlAudio.enableLineIn(o.lineIn);
             audio = &sdlAudio;
         }
-        if (demo) return true;
+        if (demo || mirror) return true;
         if (o.serve && !openServe()) return false;
 
         sampleBank.assign(ot::kSampleBankBytes / 2, 0);
@@ -252,6 +269,13 @@ struct Machine {
 
         ot::HalRefs h;
         h.display = &display;
+        if (bridge) {
+            tap.reset(new ot::remote::DisplayTap(display));
+            tapBuf.assign(ot::remote::kFrameBufBytes, 0);
+            tap->setBuffer(tapBuf.data(), uint32_t(tapBuf.size()));
+            bridge->setTap(tap.get());
+            h.display = tap.get();
+        }
         h.audio = audio;
         h.storage = &storage;
         h.midi = &midi;
@@ -320,7 +344,7 @@ struct Machine {
                 appliedBrightness = level;
                 display.setBacklight(ot::IDisplay::brightnessDuty(level));
             }
-        } else {
+        } else if (!mirror) {
             demoStep();
         }
     }
@@ -893,6 +917,21 @@ int keyToPad(SDL_Scancode sc) {
     return -1;
 }
 
+// --frame: a recorded Tracker frame (core/remote/display_tap.h) into a PNG.
+int drawFrameFile(Machine& m, const Options& o) {
+    std::ifstream f(o.frame, std::ios::binary);
+    if (!f) {
+        std::fprintf(stderr, "cannot read %s\n", o.frame.c_str());
+        return 2;
+    }
+    const std::vector<uint8_t> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    m.display.setRomFontsOnly(o.romFonts);
+    const bool ok = ot::remote::replayFrame(data.data(), data.size(), m.display);
+    if (!ok) std::fprintf(stderr, "%s: malformed or cut frame (drawn up to there)\n", o.frame.c_str());
+    if (!o.screenshot.empty()) saveShot(m, o.screenshot, o.panelShot);
+    return ok ? 0 : 1;
+}
+
 int runInteractive(Machine& m, const Options& o) {
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -925,6 +964,8 @@ int runInteractive(Machine& m, const Options& o) {
     uint32_t lastPresent = 0;
     RemoteLink remote;
     if (!o.remote.empty() && !remote.open(o.remote)) return 1;
+    MirrorLink mirror;
+    if (!o.mirror.empty() && !mirror.open(o.mirror, o.mirrorRecord)) return 1;
 
     while (!quit) {
         SDL_Event ev;
@@ -1002,6 +1043,7 @@ int runInteractive(Machine& m, const Options& o) {
             }
         }
         remote.service(m.input, m.leds, SDL_GetTicks());
+        mirror.service(m.input, m.display, SDL_GetTicks());
         m.step();
         const uint32_t now = SDL_GetTicks();
         if (o.quitAfterMs >= 0 && long(now) >= o.quitAfterMs) quit = true;
@@ -1009,6 +1051,11 @@ int runInteractive(Machine& m, const Options& o) {
             lastPresent = now;
             m.display.frontCopy(fb.data());
             SwDisplay::dimFrame(fb.data(), fb.size(), m.display.backlight());
+            char mirrorStatus[160] = "";
+            if (mirror.isOpen())
+                std::snprintf(mirrorStatus, sizeof mirrorStatus, "\nMirror: %s, %s, %.1f frames/s, %u B%s",
+                              mirror.path().c_str(), mirror.driving() ? "driving" : "waiting", double(mirror.fps()),
+                              unsigned(mirror.lastBytes()), mirror.damaged() ? " (some damaged)" : "");
             std::string status = std::string("Keys: ") + (padMode ? "PAD mode (letters/digits play pads)"
                                                                   : "COMMAND mode (digits = module keys)") +
                                  "\nTab toggles key mode; right-click latches a button\nSD card: " +
@@ -1018,7 +1065,7 @@ int runInteractive(Machine& m, const Options& o) {
                                  (remote.isOpen() ? "\nRemote: " + remote.path() +
                                                         (remote.active() ? " (Tracker panel)" : " (waiting)")
                                                   : std::string()) +
-                                 "\nCtrl+Q quits";
+                                 mirrorStatus + "\nCtrl+Q quits";
             panel.draw(canvas, fb.data(), m.input, m.leds, latched, status);
             SDL_UpdateTexture(tex, nullptr, canvas.pixels(), Panel::kW * 4);
             SDL_RenderClear(ren);
@@ -1044,8 +1091,10 @@ int main(int argc, char** argv) {
     if (!parseArgs(argc, argv, o)) return 2;
     const bool headless = !o.script.empty() || !o.screenshot.empty();
     Machine m;
+    if (!o.frame.empty()) return drawFrameFile(m, o);
+    m.mirror = !o.mirror.empty();
     m.display.setRomFontsOnly(o.romFonts);
-    if (o.busyDisplay) m.display.setBusyClock(&m.clock);
+    if (o.busyDisplay && !m.mirror) m.display.setBusyClock(&m.clock);
     ot::setRomTextMode(o.romText ? ot::kRomText : ot::kRomGlyphs);
     if (!m.start(o, headless)) return 1;
     if (!headless) {

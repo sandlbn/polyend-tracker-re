@@ -96,7 +96,7 @@ endif
 OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX))
 
 # Size optimization per directory (docs/OPTIMIZATION_2X.md OP-4): UI, app,
-# HAL, games, formats and FatFs build with -Os; everything on the audio /
+# HAL, games, formats, remote control and FatFs build with -Os; everything on the audio /
 # sequencer path or in an interrupt handler keeps -O2:
 #  - src/core/audio, src/core/sequencer, src/core/model (pattern assembly runs in
 #    the audio block on a pattern switch), the Teensy core (USB / DMA ISRs);
@@ -109,7 +109,7 @@ OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX)
 #  - hal: ft81x.cpp (display SPI/DMA), sdhc.cpp (SD transfers), sdram_cache.cpp,
 #    audio_sgtl5000.cpp (I2S DMA ISRs), diag.cpp (USB drain / fault handler ISR),
 #    board.cpp (PORTC ISR), usb_storage.cpp (USB interrupt hook, SD block I/O for the computer).
-OS_DIRS   := src/core/ui/% src/core/app/% src/hal/% src/core/games/% src/core/formats/% \
+OS_DIRS   := src/core/ui/% src/core/app/% src/hal/% src/core/games/% src/core/formats/% src/core/remote/% \
              third_party/fatfs/%
 O2_KEEP   := src/core/app/app.cpp src/core/app/capture.cpp src/core/app/render.cpp \
              src/core/games/session.cpp \
