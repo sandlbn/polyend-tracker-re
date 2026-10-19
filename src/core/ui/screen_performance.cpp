@@ -34,6 +34,9 @@ constexpr int kSceneBarLeftDx = 5;
 constexpr int kSceneBarRightDx = 63 - 5 - kSceneBarW;
 constexpr int kSceneBarH = 21;      // full height: the row's cell y - 10 .. y + 10
 constexpr int kSceneBarMinH = 5;    // a scene out of the mix
+// Scene A in the theme's red accent, B in blue (the stock themes have no
+// blue; a lighter one than 0000ff, which barely shows on the dark panels).
+constexpr uint32_t kSceneBBlue = 0x3C8CFF;
 // Cell text: perf::valueText, with a zero shown as "---" [S snap 021].
 void cellText(uint8_t ty, int v, char* out, int cap) {
     perf::valueText(ty, v, out, cap);
@@ -926,23 +929,21 @@ void PerformanceScreen::draw(Gfx& g) {
     }
     g.alpha(255);
     // [I] Scenes: a bar on the left edge of the row scene A stores, on the
-    // right edge of the row B stores (the fader's sides in the title bar),
+    // right edge of the row B stores (the fader's sides in the title bar;
+    // A red, B blue),
     // as tall as that scene's share of the mix at the fader (sceneShare),
     // from the cell's bottom; never below kSceneBarMinH, so the rows stay marked.
-    {
+    for (int sc = 0; sc < 2; ++sc) {   // one batch per scene colour
         const Project& p = app_.project;
         bool any = false;
         for (int c = 0; c < perf::kSlots; ++c) {
-            if (src.type(c) == 0) continue;
-            for (int sc = 0; sc < 2; ++sc) {
-                const int r = p.perfScene[sc][c];
-                if (r < 1 || r > 3) continue;
-                if (!any) g.rectsBegin(th.accent);
-                any = true;
-                const int h = kSceneBarMinH + ((kSceneBarH - kSceneBarMinH) * sceneShare(sc, c) + kFaderMax / 2) / kFaderMax;
-                const int bottom = kRowY + 30 * r + 10;
-                g.rectsAdd(sc ? colX(c) + kSceneBarRightDx : colX(c) + kSceneBarLeftDx, bottom - h + 1, kSceneBarW, h);
-            }
+            const int r = p.perfScene[sc][c];
+            if (src.type(c) == 0 || r < 1 || r > 3) continue;
+            if (!any) g.rectsBegin(sc ? kSceneBBlue : th.accent);
+            any = true;
+            const int h = kSceneBarMinH + ((kSceneBarH - kSceneBarMinH) * sceneShare(sc, c) + kFaderMax / 2) / kFaderMax;
+            const int bottom = kRowY + 30 * r + 10;
+            g.rectsAdd(sc ? colX(c) + kSceneBarRightDx : colX(c) + kSceneBarLeftDx, bottom - h + 1, kSceneBarW, h);
         }
         if (any) g.rectsEnd();
     }

@@ -285,6 +285,7 @@ TEST(perf_scene_marks_on_stored_rows) {
     r.store(1);
     CHECK(r.frameHas("VERTEX 16 318"));
     CHECK(r.frameHas("VERTEX 66 364"));    // B: right edge of row 2, minimum height at A
+    CHECK(r.frameHas("COLOR 3C8CFF"));     // B is blue (A the theme's red accent)
     // Same row in both: both edges.
     r.h.pad(12 * 1 + 1);   // slot 1, row 1
     r.store(0);
@@ -359,9 +360,9 @@ TEST(perf_scene_marks_fit_the_display_list) {
     const uint32_t after = a.ui.lastDlWords();
     std::printf("performance + 24 scene marks: %u -> %u DL words\n", unsigned(before), unsigned(after));
     CHECK(after > before);
-    // Two vertices per bar + colour / begin / end, and the title-bar fader
-    // text that appears with the first scene ("A -----|----- B", ~22 words).
-    CHECK(after - before <= 2 * 24 + 4 + 24);
+    // Two vertices per bar + colour / begin / end per scene colour, and the
+    // title-bar fader text that appears with the first scene (~22 words).
+    CHECK(after - before <= 2 * 24 + 2 * 4 + 24);
     CHECK(after <= Ui::kDlTargetWords);
 }
 
