@@ -62,7 +62,10 @@ void setNoteSpelling(uint8_t spelling, int root, uint8_t scale) {
 
 bool noteSpellingFlats() { return gFlats; }
 
-const char* pitchClassName(int note) { return (gFlats ? kFlatNames : kSharpNames)[((note % 12) + 12) % 12]; }
+const char* pitchClassName(int note) {
+    const char* const* names = gFlats ? kFlatNames : kSharpNames;
+    return names[((note % 12) + 12) % 12];
+}
 
 void noteName(int8_t note, char out[4]) {
     if (note >= 0) {
