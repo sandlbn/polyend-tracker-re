@@ -25,8 +25,8 @@
       Flash use = .text + .data (Berkeley size): fail above 720,000 B, warn above
       600,000 B (docs/VERIFY_M1.md R4, docs/MINI_PLAN.md §5).
       With nm (default: the size tool's sibling): no double-precision libm in the
-      image, and the stack headroom _estack - _ebss: fail below 90 KiB
-      (docs/OPTIMIZATION_2X.md OP-4 / OP-5).
+      image, and the stack headroom _estack - _ebss: fail below 75 KiB
+      (docs/OPTIMIZATION_2X.md OP-4 / OP-5; see STACK_MIN).
   telemetry_check.py frames <build dir> [--guard-header src/hal/stack_guard.h]
       Per-function stack frames from the build's -fstack-usage .su files against
       the stack guard (kStackGuardBytes): a frame plus an interrupt's exception
@@ -84,9 +84,11 @@ LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|stream)[\w.]*)\s+(
 FLASH_FAIL = 720000
 FLASH_WARN = 600000
 # _estack - _ebss holds the stack and newlib's heap (src/hal/stack_watch.h). With the stack
-# guard (src/hal/stack_guard.h) this headroom also holds the 4 KB heap reserve and the 8 KB
-# guard: the stack itself gets at least 78 KiB.
-STACK_MIN = 90 * 1024
+# guard (src/hal/stack_guard.h) it also holds the 4 KB heap reserve and the 8 KB guard, so
+# the stack itself gets at least 63 KiB. Measured on the device (telemetry "stack peak"):
+# 10,852 B over playback, synths + chords, Sample Editor effects, open / save / Open Recent,
+# export and import, resample, USB storage; the heap ~0.2 KB. Was 90 KiB.
+STACK_MIN = 75 * 1024
 # newlib double-precision libm entry points / kernels (the float ones end in f).
 DOUBLE_LIBM = {"__ieee754_pow", "__ieee754_exp", "__ieee754_log", "__ieee754_log10", "__ieee754_sqrt",
                "__ieee754_rem_pio2", "__kernel_rem_pio2", "__kernel_sin", "__kernel_cos", "pow", "exp", "log",
@@ -573,6 +575,8 @@ def selftest():
     assert not ok
     ok, head = check_symbols(["20030000 B _estack", "20023820 B _ebss"], quiet=True)
     assert not ok and head == 51168
+    ok, head = check_symbols(["20030000 B _estack", "2001c780 B _ebss"], quiet=True)
+    assert ok and head == 80000, head   # passes at 75 KiB (failed at the old 90 KiB)
     su = ["a.cpp:1:6:void f()\t6032\tstatic", "b.cpp:2:6:void g()\t96\tstatic", "c.c:3:6:h\t40\tdynamic,bounded"]
     ok, deep = check_frames(su, 8192, quiet=True)
     assert ok and deep == 6032, deep

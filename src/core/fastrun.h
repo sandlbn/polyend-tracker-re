@@ -8,7 +8,7 @@
 // .data at boot (src/hal/opentracker.ld: `.fastrun`, __fastrun_start /
 // __fastrun_end; the boot log prints the size). Calls between flash and
 // SRAM_L go through linker veneers. Budget: the stack headroom stays
-// >= 90 KiB (make perf-gate); round 3 made room by moving main-loop data
+// >= 75 KiB (make perf-gate, STACK_MIN); round 3 made room by moving main-loop data
 // to the SDRAM (sdram_bss.h) and holds ~35 KB of code. The pick, its
 // measurement and the boot line's areas are in docs/OPTIMIZATION_2X.md
 // ("CPU round 3"). Host builds, benches and OT_FASTRUN=0 leave the code in
