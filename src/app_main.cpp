@@ -279,6 +279,7 @@ void telemetryTick() {
     s.i2c2Naks = ot::hal::i2c2().nakCount();
     s.stackSize = ot::hal::stackSizeBytes();
     s.stackPeak = ot::hal::stackPeakBytes();
+    s.heap = ot::hal::heapBytes();
     s.rxRestarts = ot::hal::Sgtl5000Audio::rxRecoveries();
     s.rxStale = ot::hal::Sgtl5000Audio::rxStaleBlocks();
     char line[448];

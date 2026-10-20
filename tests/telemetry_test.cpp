@@ -64,13 +64,14 @@ TEST(telemetry_format) {
           "loop max 12.345 ms (n 4000) | SDRAM free 491520 B | i2c errors i2c0 1 i2c2 2 | rx restarts 0 stale 0");
     s.stackSize = 97856;
     s.stackPeak = 41000;
+    s.heap = 1856;
     s.rxRestarts = 3;
     s.rxStale = 12;
     formatTelemetry(b, sizeof b, s);
-    CHECK(std::strstr(b, "i2c2 2 | stack peak 41000 B of 97856 B (free 56856 B) | rx restarts 3 stale 12") != nullptr);
+    CHECK(std::strstr(b, "i2c2 2 | stack peak 41000 B heap 1856 B of 97856 B (free 55000 B) | rx restarts 3 stale 12") != nullptr);
     s.stackPeak = 100000;     // clamped: never reports negative free space
     formatTelemetry(b, sizeof b, s);
-    CHECK(std::strstr(b, "stack peak 97856 B of 97856 B (free 0 B)") != nullptr);
+    CHECK(std::strstr(b, "stack peak 96000 B heap 1856 B of 97856 B (free 0 B)") != nullptr);
     s.cycMax = 365568;        // exactly 70 %
     s.loopMaxUs = 7;
     formatTelemetry(b, sizeof b, s);

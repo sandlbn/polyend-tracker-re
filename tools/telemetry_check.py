@@ -49,8 +49,9 @@ RENDER_RE = re.compile(
     r" \| loop max (\d+)\.(\d+) ms \(n (\d+)\)")
 IO_RE = re.compile(r"telemetry: io sd cmds (\d+) read (\d+) B \((\d+) KB/s\) write (\d+) B \((\d+) KB/s\)"
                    r"(?: direct (\d+) bounced (\d+))?(?: \| cache sdram (\w+) \(selftest ([\w-]*)\))?")
-# Stack high-water mark on the render line (src/hal/stack_watch.h): peak since boot, of _estack - _ebss.
-STACK_RE = re.compile(r"\| stack peak (\d+) B of (\d+) B")
+# Stack high-water mark on the render line (src/hal/stack_watch.h): peak since boot, the newlib
+# heap below it, both out of _estack - _ebss.
+STACK_RE = re.compile(r"\| stack peak (\d+) B heap (\d+) B of (\d+) B")
 UI_RE = re.compile(r"telemetry: ui (\d+) frames \((\d+)\.(\d+) fps\) render avg (\d+)\.(\d+) max (\d+)\.(\d+) ms")
 LOAD_RE = re.compile(r"telemetry: load op (\d+) run (\d) passes (\d+)")
 TS_RE = re.compile(r"^\[\s*(\d+)\.(\d+)\]")
@@ -100,7 +101,7 @@ def windows(lines):
             })
             st = STACK_RE.search(line)
             if st:
-                out[-1]["stack"] = (int(st.group(1)), int(st.group(2)))
+                out[-1]["stack"] = (int(st.group(1)), int(st.group(2)), int(st.group(3)))
             pending_io, marker = None, False
             continue
         m = UI_RE.search(line)
@@ -242,10 +243,10 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
                 fails.append(f"{where}: loop max {loop_ms:.3f} ms >= {loop_max_ms:g} ms (not loading)")
     stacks = [(w, w["stack"]) for w in ws if "stack" in w]
     if stacks:
-        w, (peak, size) = max(stacks, key=lambda ws_: ws_[1][0])
-        if size - peak < stack_free_min:
-            fails.append(f"line {w['line']} [{w['t']}]: stack free {size - peak} B < {stack_free_min} B "
-                         f"(peak {peak} B of {size} B)")
+        w, (peak, heap, size) = min(stacks, key=lambda ws_: ws_[1][2] - ws_[1][0] - ws_[1][1])
+        if size - heap - peak < stack_free_min:
+            fails.append(f"line {w['line']} [{w['t']}]: stack free {size - heap - peak} B < {stack_free_min} B "
+                         f"(peak {peak} B, heap {heap} B, of {size} B)")
     for c in cpus:
         if c["peak"] >= cpu_peak:
             fails.append(f"line {c['line']} [{c['t']}]: cpu peak {c['peak']:.1f}% >= {cpu_peak:g}%")
@@ -265,9 +266,8 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
               f"{worst_avg:.1f}% max {worst_max:.1f}%, worst loop {worst_loop:.3f} ms outside loading"
               + (f"; cache {', '.join(caches)}" if caches else ""))
         if stacks:
-            peak, size = max(st for _, st in stacks)
-            print(f"telemetry: stack peak {peak} B of {size} B (free {size - peak} B, "
-                  f"{100.0 * peak / size:.0f}% used)")
+            peak, heap, size = min((st for _, st in stacks), key=lambda st: st[2] - st[0] - st[1])
+            print(f"telemetry: stack peak {peak} B, heap {heap} B, of {size} B (free {size - heap - peak} B)")
         uis = [w["ui"] for w in ws if "ui" in w]
         if uis:
             print(f"telemetry: ui fps min {min(u[1] for u in uis):.1f}, render max {max(u[3] for u in uis):.2f} ms")
@@ -392,7 +392,7 @@ SAMPLE_OK = """\
 [  20.002] telemetry: render cyc/block min 20000 avg 30000 max 40000 (7.6% of 522240) blocks 1723 | loop max 140.500 ms (n 90) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0
 [  20.003] telemetry: ui 75 frames (15.0 fps) render avg 4.00 max 6.10 ms, last frame 1800 DL words
 [  25.001] telemetry: io sd cmds 0 read 0 B (0 KB/s) write 0 B (0 KB/s) direct 0 bounced 0 | cache sdram on (selftest ok) | sd->sdram dma read direct write direct
-[  25.002] telemetry: render cyc/block min 150000 avg 193000 max 250000 (47.8% of 522240) blocks 1723 | loop max 31.250 ms (n 160) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0 | stack peak 30000 B of 97856 B (free 67856 B) | rx restarts 0 stale 0
+[  25.002] telemetry: render cyc/block min 150000 avg 193000 max 250000 (47.8% of 522240) blocks 1723 | loop max 31.250 ms (n 160) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0 | stack peak 30000 B heap 1000 B of 97856 B (free 66856 B) | rx restarts 0 stale 0
 [  26.000] telemetry: cpu avg=37.2% peak=48.0% overruns=0 cap=4/4 synth_voices=0 cyc_per_voice=0
 """
 SAMPLE_BAD = """\
@@ -430,9 +430,9 @@ def selftest():
     pk = cpu_lines(SAMPLE_BAD.splitlines())[0]["pk"]
     assert pk["total"] == 380 and ("smp", 160) in pk["parts"] and ("on.syn", 9) in pk["parts"], pk
     assert ("PERC", 21) in pk["parts"] and pk["ev"].startswith("on 8 VAP 4"), pk
-    assert ws[1]["stack"] == (30000, 97856) and "stack" not in ws[0], ws
+    assert ws[1]["stack"] == (30000, 1000, 97856) and "stack" not in ws[0], ws
     ok, fails, _ = check_log(SAMPLE_OK.splitlines(), quiet=True, stack_free_min=70000)
-    assert not ok and len(fails) == 1 and "stack free 67856 B" in fails[0], fails
+    assert not ok and len(fails) == 1 and "stack free 66856 B" in fails[0], fails
     ok, fails, _ = check_log([], quiet=True)
     assert not ok
     bench_pk = ["    block  6672 (song pos 2, step 160):  224440 M4 insn, est.  57.8% | seq 920 on 4960/4120 ctl 5080 "
