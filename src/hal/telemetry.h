@@ -32,7 +32,16 @@ struct TelemetrySample {
     uint32_t sdramFree = 0;                        // bytes not used by the SDRAM layout
     uint32_t i2c0Errors = 0, i2c2Errors = 0;       // cumulative bus faults (timeouts, arbitration)
     uint32_t i2c0Naks = 0, i2c2Naks = 0;           // cumulative NAKs (shown when non-zero)
+    uint32_t stackSize = 0;                        // _estack - _ebss (0: not measured, field omitted)
+    uint32_t stackPeak = 0;                        // deepest stack use since boot (stack_watch.h)
+    uint32_t rxRestarts = 0, rxStale = 0;          // cumulative I2S RX restarts / input blocks lost
 };
+
+// Stack high-water mark: the device paints the free stack at boot
+// (hal/stack_watch.h); the words from the bottom up that still hold the paint
+// were never used. Returns that count, scanning [lo, hi).
+constexpr uint32_t kStackPaint = 0xC5A5C5A5u;
+size_t untouchedStackWords(const uint32_t* lo, const uint32_t* hi);
 
 // SD + cache state over one report window (2.x performance workstream).
 struct IoSample {
@@ -123,7 +132,8 @@ private:
 };
 
 // "telemetry: render cyc/block min A avg B max C (P.P% of 522240) blocks N |
-//  loop max M.MMM ms (n L) | SDRAM free F B | i2c errors i2c0 X i2c2 Y[ nak i2c0 A i2c2 B]"
+//  loop max M.MMM ms (n L) | SDRAM free F B | i2c errors i2c0 X i2c2 Y[ nak i2c0 A i2c2 B]
+//  [| stack peak P B of S B (free F B)] | rx restarts R stale T"
 // with " RENDER>70%" appended when the max crosses the alarm. Returns length.
 size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s);
 

@@ -4,6 +4,7 @@
 #include "hal/hal.h"
 #include "hal/diag.h"
 #include "hal/selftest.h"
+#include "hal/stack_watch.h"
 #include "hal/fw_update.h"
 #include "hal/sd_storage.h"
 #include "hal/usb_storage.h"
@@ -14,6 +15,8 @@ void otAppMain(ot::hal::HalSet& hal) __attribute__((weak));
 
 extern "C" int main(void)
 {
+    // Stack high-water mark for the telemetry line (hal/stack_watch.h).
+    ot::hal::stackPaint();
     // Boot diagnostics over USB CDC (fault capture, stuck watchdog), before
     // anything that could fault (hal/diag.h).
     ot::hal::diagInit();

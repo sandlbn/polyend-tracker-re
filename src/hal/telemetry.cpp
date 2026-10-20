@@ -157,6 +157,12 @@ void Telemetry::resetWindow() {
     // keep lastUs_ so the next mark measures it.
 }
 
+size_t untouchedStackWords(const uint32_t* lo, const uint32_t* hi) {
+    const uint32_t* p = lo;
+    while (p < hi && *p == kStackPaint) ++p;
+    return size_t(p - lo);
+}
+
 size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
     Fmt o(out, cap);
     const uint32_t permille = uint32_t(uint64_t(s.cycMax) * 1000u / kRenderBudgetCycles);
@@ -170,6 +176,11 @@ size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
     o.str(" | SDRAM free ").dec(s.sdramFree).str(" B");
     o.str(" | i2c errors i2c0 ").dec(s.i2c0Errors).str(" i2c2 ").dec(s.i2c2Errors);
     if (s.i2c0Naks || s.i2c2Naks) o.str(" nak i2c0 ").dec(s.i2c0Naks).str(" i2c2 ").dec(s.i2c2Naks);
+    if (s.stackSize) {
+        const uint32_t peak = s.stackPeak < s.stackSize ? s.stackPeak : s.stackSize;
+        o.str(" | stack peak ").dec(peak).str(" B of ").dec(s.stackSize).str(" B (free ").dec(s.stackSize - peak).str(" B)");
+    }
+    o.str(" | rx restarts ").dec(s.rxRestarts).str(" stale ").dec(s.rxStale);
     if (permille >= kRenderAlarmPermille) o.str(" RENDER>70%");
     return o.len;
 }

@@ -49,6 +49,8 @@ RENDER_RE = re.compile(
     r" \| loop max (\d+)\.(\d+) ms \(n (\d+)\)")
 IO_RE = re.compile(r"telemetry: io sd cmds (\d+) read (\d+) B \((\d+) KB/s\) write (\d+) B \((\d+) KB/s\)"
                    r"(?: direct (\d+) bounced (\d+))?(?: \| cache sdram (\w+) \(selftest ([\w-]*)\))?")
+# Stack high-water mark on the render line (src/hal/stack_watch.h): peak since boot, of _estack - _ebss.
+STACK_RE = re.compile(r"\| stack peak (\d+) B of (\d+) B")
 UI_RE = re.compile(r"telemetry: ui (\d+) frames \((\d+)\.(\d+) fps\) render avg (\d+)\.(\d+) max (\d+)\.(\d+) ms")
 LOAD_RE = re.compile(r"telemetry: load op (\d+) run (\d) passes (\d+)")
 TS_RE = re.compile(r"^\[\s*(\d+)\.(\d+)\]")
@@ -96,6 +98,9 @@ def windows(lines):
                 "avg": int(m.group(2)), "max": int(m.group(3)), "blocks": int(m.group(4)),
                 "loop_us": int(m.group(5)) * 1000 + int(m.group(6)), "io": pending_io, "marker": marker,
             })
+            st = STACK_RE.search(line)
+            if st:
+                out[-1]["stack"] = (int(st.group(1)), int(st.group(2)))
             pending_io, marker = None, False
             continue
         m = UI_RE.search(line)
@@ -212,7 +217,7 @@ def cpu_lines(lines):
 
 
 def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading_bytes=65536, quiet=False,
-              cpu_peak=70.0):
+              cpu_peak=70.0, stack_free_min=4096):
     ws = windows(lines)
     cpus = cpu_lines(lines)
     fails, loading, audio = [], 0, 0
@@ -235,6 +240,12 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
             worst_loop = max(worst_loop, loop_ms)
             if loop_ms >= loop_max_ms:
                 fails.append(f"{where}: loop max {loop_ms:.3f} ms >= {loop_max_ms:g} ms (not loading)")
+    stacks = [(w, w["stack"]) for w in ws if "stack" in w]
+    if stacks:
+        w, (peak, size) = max(stacks, key=lambda ws_: ws_[1][0])
+        if size - peak < stack_free_min:
+            fails.append(f"line {w['line']} [{w['t']}]: stack free {size - peak} B < {stack_free_min} B "
+                         f"(peak {peak} B of {size} B)")
     for c in cpus:
         if c["peak"] >= cpu_peak:
             fails.append(f"line {c['line']} [{c['t']}]: cpu peak {c['peak']:.1f}% >= {cpu_peak:g}%")
@@ -253,6 +264,10 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
         print(f"telemetry: {len(ws)} windows ({audio} with audio, {loading} loading); worst render avg "
               f"{worst_avg:.1f}% max {worst_max:.1f}%, worst loop {worst_loop:.3f} ms outside loading"
               + (f"; cache {', '.join(caches)}" if caches else ""))
+        if stacks:
+            peak, size = max(st for _, st in stacks)
+            print(f"telemetry: stack peak {peak} B of {size} B (free {size - peak} B, "
+                  f"{100.0 * peak / size:.0f}% used)")
         uis = [w["ui"] for w in ws if "ui" in w]
         if uis:
             print(f"telemetry: ui fps min {min(u[1] for u in uis):.1f}, render max {max(u[3] for u in uis):.2f} ms")
@@ -377,7 +392,7 @@ SAMPLE_OK = """\
 [  20.002] telemetry: render cyc/block min 20000 avg 30000 max 40000 (7.6% of 522240) blocks 1723 | loop max 140.500 ms (n 90) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0
 [  20.003] telemetry: ui 75 frames (15.0 fps) render avg 4.00 max 6.10 ms, last frame 1800 DL words
 [  25.001] telemetry: io sd cmds 0 read 0 B (0 KB/s) write 0 B (0 KB/s) direct 0 bounced 0 | cache sdram on (selftest ok) | sd->sdram dma read direct write direct
-[  25.002] telemetry: render cyc/block min 150000 avg 193000 max 250000 (47.8% of 522240) blocks 1723 | loop max 31.250 ms (n 160) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0
+[  25.002] telemetry: render cyc/block min 150000 avg 193000 max 250000 (47.8% of 522240) blocks 1723 | loop max 31.250 ms (n 160) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0 | stack peak 30000 B of 97856 B (free 67856 B) | rx restarts 0 stale 0
 [  26.000] telemetry: cpu avg=37.2% peak=48.0% overruns=0 cap=4/4 synth_voices=0 cyc_per_voice=0
 """
 SAMPLE_BAD = """\
@@ -415,6 +430,9 @@ def selftest():
     pk = cpu_lines(SAMPLE_BAD.splitlines())[0]["pk"]
     assert pk["total"] == 380 and ("smp", 160) in pk["parts"] and ("on.syn", 9) in pk["parts"], pk
     assert ("PERC", 21) in pk["parts"] and pk["ev"].startswith("on 8 VAP 4"), pk
+    assert ws[1]["stack"] == (30000, 97856) and "stack" not in ws[0], ws
+    ok, fails, _ = check_log(SAMPLE_OK.splitlines(), quiet=True, stack_free_min=70000)
+    assert not ok and len(fails) == 1 and "stack free 67856 B" in fails[0], fails
     ok, fails, _ = check_log([], quiet=True)
     assert not ok
     bench_pk = ["    block  6672 (song pos 2, step 160):  224440 M4 insn, est.  57.8% | seq 920 on 4960/4120 ctl 5080 "
@@ -453,6 +471,7 @@ def main(argv):
     lg.add_argument("--loop-max-ms", type=float, default=50.0)
     lg.add_argument("--loading-bytes", type=int, default=65536)
     lg.add_argument("--cpu-peak", type=float, default=70.0)
+    lg.add_argument("--stack-free-min", type=int, default=4096)
     bn = sub.add_parser("bench")
     bn.add_argument("--baseline", required=True)
     bn.add_argument("--tolerance", type=float, default=5.0)
@@ -473,7 +492,7 @@ def main(argv):
             with open(a.path, errors="replace") as f:
                 log_lines = f.read().splitlines()
                 ok, _, _ = check_log(log_lines, a.render_avg, a.render_max, a.loop_max_ms,
-                                     a.loading_bytes, cpu_peak=a.cpu_peak)
+                                     a.loading_bytes, cpu_peak=a.cpu_peak, stack_free_min=a.stack_free_min)
             if a.bench:
                 with open(a.bench, errors="replace") as b:
                     cpi_report(log_lines, b.read().splitlines())

@@ -56,12 +56,21 @@ TEST(telemetry_format) {
     s.sdramFree = 491520;
     s.i2c0Errors = 1;
     s.i2c2Errors = 2;
-    char b[256];
+    char b[448];
     size_t n = formatTelemetry(b, sizeof b, s);
     CHECK(n == std::strlen(b));
     CHECK(std::string(b) ==
           "telemetry: render cyc/block min 41000 avg 52224 max 104448 (20.0% of 522240) blocks 1723 | "
-          "loop max 12.345 ms (n 4000) | SDRAM free 491520 B | i2c errors i2c0 1 i2c2 2");
+          "loop max 12.345 ms (n 4000) | SDRAM free 491520 B | i2c errors i2c0 1 i2c2 2 | rx restarts 0 stale 0");
+    s.stackSize = 97856;
+    s.stackPeak = 41000;
+    s.rxRestarts = 3;
+    s.rxStale = 12;
+    formatTelemetry(b, sizeof b, s);
+    CHECK(std::strstr(b, "i2c2 2 | stack peak 41000 B of 97856 B (free 56856 B) | rx restarts 3 stale 12") != nullptr);
+    s.stackPeak = 100000;     // clamped: never reports negative free space
+    formatTelemetry(b, sizeof b, s);
+    CHECK(std::strstr(b, "stack peak 97856 B of 97856 B (free 0 B)") != nullptr);
     s.cycMax = 365568;        // exactly 70 %
     s.loopMaxUs = 7;
     formatTelemetry(b, sizeof b, s);
@@ -72,6 +81,20 @@ TEST(telemetry_format) {
     char small[16];
     formatTelemetry(small, sizeof small, s);
     CHECK(std::strlen(small) == 15);
+}
+
+TEST(telemetry_stack_scan) {
+    uint32_t st[16];
+    for (uint32_t& w : st) w = kStackPaint;
+    CHECK(untouchedStackWords(st, st + 16) == 16);   // never used
+    st[10] = 0;                                      // deepest write so far
+    st[13] = 0x1234;
+    CHECK(untouchedStackWords(st, st + 16) == 10);
+    st[2] = kStackPaint + 1;                         // a deeper write that differs by one bit
+    CHECK(untouchedStackWords(st, st + 16) == 2);
+    st[0] = 7;
+    CHECK(untouchedStackWords(st, st + 16) == 0);    // overflowed to the bottom
+    CHECK(untouchedStackWords(st, st) == 0);
 }
 
 // ---- 2.x "cpu" line (spec 2x-02 §4, tools/telemetry_check.py) -------------
