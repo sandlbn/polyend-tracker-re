@@ -179,6 +179,24 @@ void App::preBlock(float seconds) {
     // spec 05 §1.3 / spec 04 §1.1 step 1: the audio block drives the sequencer
     // clock (live 128/44122.65 s, offline kRenderBlockSeconds).
     seq.processElapsed(seconds);
+    // [I] Live resampling: did a bar start in this block (its notes are
+    // rendered in it)? Bars count from play start, as the metronome does.
+    if (!rendering_) {
+        const bool playing = seq.isPlaying();
+        const int32_t st = seq.masterStep();
+        const int32_t bar = resampleBarSteps();
+        bool barStart = false;
+        if (playing) {
+            if (!resampleWasPlaying_ || st < resampleLastStep_) {
+                barStart = st % bar == 0;   // play start (step 0) or a restart
+            } else {
+                for (int32_t k = resampleLastStep_ + 1; k <= st; ++k) barStart = barStart || k % bar == 0;
+            }
+        }
+        resampleWasPlaying_ = playing;
+        resampleLastStep_ = st;
+        if (resampler.busy()) resampler.onBlock(playing, barStart);
+    }
 }
 
 void App::applyEngineSettings() {
@@ -406,6 +424,7 @@ void App::loop() {
         patternEditedFromSeq_ = false;
         patternEdited();
     }
+    serviceResample();
     // Project manager (spec 05 §1.3 step 5, appendix E3/E4): one bounded
     // step of the running job, else the periodic autosave check.
     if (jobBusy()) serviceProjectJob();

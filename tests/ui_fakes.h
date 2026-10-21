@@ -468,6 +468,7 @@ struct Harness {
     std::function<void(int16_t* block, uint64_t blockIndex)> lineGen;
     int16_t lineBlock[256] = {};
     uint64_t lineBlocks = 0;
+    int routedInput = -1;   // the last App::selectInput source (-1: none)
 
     explicit Harness(bool bootNow = true, uint32_t bankSamples = 4 * 1024 * 1024) {
         // ROM-font runs as whole CMD_TEXT strings (the checks read them);
@@ -505,6 +506,11 @@ struct Harness {
             return self->lineBlock;
         };
         h.lineInCtx = this;
+        h.selectInput = [](void* c, uint8_t source, uint8_t) {
+            static_cast<Harness*>(c)->routedInput = source;
+            return true;
+        };
+        h.inputCtx = this;
         ot::AppMemory m;
         m.sampleBank = bank.data();
         m.sampleBankSamples = uint32_t(bank.size());

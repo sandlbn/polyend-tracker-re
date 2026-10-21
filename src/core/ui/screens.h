@@ -797,6 +797,30 @@ private:
     uint8_t lastMidi_ = 48;       // last MIDI instrument used here (stock +0x709)
 };
 
+// [I] Live resampling (app/resample.h, screen_resample.cpp): From / Length /
+// Place on, the take's state, Gain and Monitor for Line in takes.
+class ResampleScreen final : public Screen {
+public:
+    using Screen::Screen;
+    const char* name() const override { return "Resample"; }
+    void start(int opt) override;
+    void stop() override;
+    void update(uint32_t now) override;
+    void draw(Gfx& g) override;
+    void onButton(uint8_t id, uint8_t state) override;
+    void onEncoder(int d) override;
+    int sel = 0;   // column: 0 From, 1 Length, 2 Slices, 3 Place on, 5 Gain, 6 Monitor
+
+private:
+    bool lineIn() const;
+    void route();   // meter / monitor the line input when From = Line in
+    void change(int d);
+    void refreshBar();
+    uint32_t shown_ = 0xFFFFFFFFu;   // take state / bar / playing last shown
+    int meter_ = 0;
+    uint32_t lastMeterAt_ = 0;
+};
+
 // ---------------------------------------------------------------------------
 // Synth slots (2.x WP-G; Tracker Mini manual p.147-153, docs/MINI_PLAN.md §3
 // UI). One screen with four views over slot `slot` (instruments 64..66):

@@ -24,6 +24,7 @@ SynthBank::SynthBank() { reset(); }
 
 void SynthBank::reset() {
     for (auto& v : voices_) v = Voice{};
+    for (auto& o : owner_) o = -1;
     for (auto& p : pend_) p = Pending{};
     for (auto& d : defer_) d = Deferred{};
     nDefer_ = 0;
@@ -481,6 +482,7 @@ void SynthBank::startOn(int r, int track, int s, const SynthNote& n, float bend,
     V.pending = -1;
     V.fresh = 1;
     V.track = int8_t(track);
+    owner_[r] = int8_t(track);
     trackVoice_[track] = int8_t(r);
     if (prof_) BlockProfile::inc(prof_->nSynOn[s]);
     V.g = voiceGain(sl, V);   // start at the target (the engine envelope attacks)
@@ -771,20 +773,25 @@ void SynthBank::stopAll() {
     nDefer_ = 0;
     flushDue_ = false;
     for (int t = 0; t < kSynthAllTracks; ++t) trackVoice_[t] = -1;
+    for (auto& o : owner_) o = -1;
     activeVoices_ = 0;
 }
 
 // --- render ----------------------------------------------------------------------------
 
 OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float* mR, float* dsend, float* rsend,
-                       int16_t* const stems[kSynthSlots]) {
+                       int16_t* const stems[kSynthSlots], int tapTrack, float* tapL, float* tapR) {
     sync();
     liveDrain();   // MIDI input (audio side only)
     if (flushDue_) flushDeferred();   // no note-on came first in this block
     // Records per slot (one pass).
     uint8_t busy[kSynthSlots] = {};
-    for (const Voice& v : voices_)
-        if (v.state != kFree) ++busy[v.v.slot];
+    bool tapSlot[kSynthSlots] = {};   // [I] resample tap: slots the tapped track plays
+    for (int r = 0; r < kSynthMaxVoices; ++r)
+        if (voices_[r].state != kFree) {
+            ++busy[voices_[r].v.slot];
+            if (tapL && owner_[r] == tapTrack) tapSlot[voices_[r].v.slot] = true;
+        }
     bool any = false;
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
@@ -865,6 +872,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             if (V.state == kFading || !alive) {
                 if (V.track >= 0 && trackVoice_[V.track] == r) trackVoice_[V.track] = -1;
                 V.track = -1;
+                owner_[r] = -1;
                 V.state = kFree;
                 --activeVoices_;
                 const int pe = V.pending;
@@ -891,7 +899,8 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         }
         if (tapped) sl.eng->setSendTap(s, nullptr, nullptr, 0.0f, 0.0f);
         if (prof) prof_->slot[s] += engCyc;
-        const float pk = mixSlot(sl, mL, mR, dsend, rsend, stem);
+        const float pk = mixSlot(sl, mL, mR, dsend, rsend, stem, tapSlot[s] ? tapL : nullptr,
+                                 tapSlot[s] ? tapR : nullptr);
         // Track Mixer meters: the slot's block peak shared by its sounding
         // voices by envelope level x gain (exact for one voice).
         if (pk > 0.0f) {
@@ -942,6 +951,16 @@ OT_FASTRUN_FN void mixLoop(float* bl, float* br, float* mL, float* mR, float* ds
         br[i] = kKeep ? r : 0.0f;
     }
 }
+// [I] Resample tap (only while a Track take runs): adds the slot bus into
+// tl / tr, then clears the bus when `clear`. In flash, not .fastrun, to keep
+// SRAM for the stack.
+__attribute__((noinline)) void addTap(float* tl, float* tr, float* bl, float* br, bool clear) {
+    for (uint32_t i = 0; i < kBlock; ++i) {
+        tl[i] += bl[i];
+        tr[i] += br[i];
+        if (clear) bl[i] = br[i] = 0.0f;
+    }
+}
 using MixFn = void (*)(float*, float*, float*, float*, float*, float*, float, float, float, float, float, float, float,
                        float);
 // [ramp][delay][reverb]
@@ -951,7 +970,8 @@ const MixFn kMix[2][2][2] = {{{mixLoop<false, false, false, false>, mixLoop<fals
                               {mixLoop<true, true, false, false>, mixLoop<true, true, true, false>}}};
 }  // namespace
 
-OT_FASTRUN_FN float SynthBank::mixSlot(Slot& sl, float* mL, float* mR, float* dsend, float* rsend, int16_t* stem) {
+OT_FASTRUN_FN float SynthBank::mixSlot(Slot& sl, float* mL, float* mR, float* dsend, float* rsend, int16_t* stem,
+                                      float* tapL, float* tapR) {
     float l0, r0, d0, e0;
     const float li = sl.gl.begin(l0), ri = sl.gr.begin(r0), di = sl.sd.begin(d0), ei = sl.sr.begin(e0);
     const bool dl = d0 != 0.0f || di != 0.0f, rv = e0 != 0.0f || ei != 0.0f;
@@ -975,11 +995,13 @@ OT_FASTRUN_FN float SynthBank::mixSlot(Slot& sl, float* mL, float* mR, float* ds
         if (pk > peak_[s]) peak_[s] = pk;
         blockPk = pk;
     }
-    if (!stem) {
+    if (!stem && !tapL) {
         kMix[ramp][dl][rv](bl, br, mL, mR, dsend, rsend, l0, r0, d0, e0, li, ri, di, ei);
         return blockPk;
     }
     mixLoop<true, true, true, true>(bl, br, mL, mR, dsend, rsend, l0, r0, d0, e0, li, ri, di, ei);
+    if (tapL) addTap(tapL, tapR, bl, br, !stem);   // [I] resample tap: the slot's post-gain/pan bus, dry
+    if (!stem) return blockPk;
     for (uint32_t i = 0; i < kBlock; ++i) {
         stem[2 * i] = toS16(bl[i]);
         stem[2 * i + 1] = toS16(br[i]);

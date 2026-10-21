@@ -121,6 +121,7 @@ $(patsubst %,$(BUILD)/%.o,$(OS_SRCS)): OPT := -Os
 # implicit float -> double promotion; the double libm must not come back
 # (tools/check_image.py checks the linked image).
 DPROMO    := src/core/app/sample_fx.cpp src/core/app/perf_presets.cpp src/core/ui/screen_recorder.cpp \
+             src/core/ui/screen_resample.cpp \
              src/core/ui/screen_instrument.cpp src/core/ui/screen_mixer.cpp src/core/ui/screen_loader.cpp \
              src/core/ui/widgets.cpp src/core/fmath.cpp
 $(patsubst %,$(BUILD)/%.o,$(DPROMO)): WARN := -Wdouble-promotion

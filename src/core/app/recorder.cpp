@@ -75,6 +75,220 @@ bool App::writeWav(const char* path, const int16_t* mono, uint32_t frames) {
     return w.close() && ok;
 }
 
+// ---------------------------------------------------------------------------
+// [I] Live resampling (app/resample.h)
+
+int App::nextResampleSlot() const {
+    int top = bank.lastLoaded();
+    for (int i = kSampleInstrumentCount - 1; i > top; --i)
+        if (instrPresent[i]) {
+            top = i;
+            break;
+        }
+    return top + 1 < kSampleInstrumentCount ? top + 1 : -1;
+}
+
+App::ResampleAction App::resampleToggle() {
+    switch (resampler.state()) {
+        case Resampler::kIdle: {
+            if (sampleBankLent || rendering_ || (jobBusy() && jobOp() != JobOp::Autosave)) return ResampleAction::kBusy;
+            if (nextResampleSlot() < 0) return ResampleAction::kNoSlot;
+            // All free sample memory is held for the recording (two planar
+            // halves); loads meanwhile see none and cannot touch it.
+            const size_t free = bank.freeSamples() & ~size_t(1);
+            if (free < 2u * 44100u || free > 0xFFFFFFFEu || !bank.setReserved(free)) return ResampleAction::kNoMemory;
+            resampler.arm(bank.reservedArea(), uint32_t(free), kResampleBars[resampleCfg.length % ResampleSettings::kLengths]);
+            engine.setResampleTap(&resampler, resampleCfg.source);
+            return ResampleAction::kArmed;
+        }
+        case Resampler::kArmed:
+            resampleCancel();
+            return ResampleAction::kCancelled;
+        case Resampler::kRecording:
+            resampler.requestStop();
+            return ResampleAction::kStopping;
+        default:
+            return ResampleAction::kBusy;
+    }
+}
+
+void App::resampleCancel() {
+    engine.setResampleTap(nullptr, 0);
+    if (resampler.state() >= Resampler::kRecording) reportResample(ResampleReport::kCancelled, -1);
+    resampler.reset();
+    bank.setReserved(0);
+}
+
+void App::serviceResample() {
+    if (!resampler.busy()) return;
+    // The bank was cleared (project load / New project) or lent (Games):
+    // the reserved memory is gone.
+    if (sampleBankLent || bank.reserved() == 0) {
+        engine.setResampleTap(nullptr, 0);
+        if (resampler.state() >= Resampler::kRecording) reportResample(ResampleReport::kCancelled, -1);
+        resampler.reset();
+        bank.setReserved(0);
+        ui.notify("Resample cancelled");
+        return;
+    }
+    if (resampler.state() == Resampler::kDone) finishResample();
+}
+
+// Snapshot of the take for the diag log. Call after the tap is removed (the
+// audio side writes no more stats) and before resampler.reset().
+void App::reportResample(uint8_t outcome, int slot) {
+    ResampleReport& r = lastResample;
+    ++r.seq;
+    r.source = resampleCfg.source;
+    r.end = resampler.end();
+    r.outcome = outcome;
+    r.slot = int8_t(slot);
+    r.frames = resampler.frames();
+    r.stats = resampler.stats();
+}
+
+void App::finishResample() {
+    engine.setResampleTap(nullptr, 0);
+    const uint32_t n = resampler.frames();
+    const Resampler::End end = resampler.end();
+    const int slot = nextResampleSlot();
+    auto release = [this] {
+        resampler.reset();
+        bank.setReserved(0);
+    };
+    if (n < 441) {   // under 10 ms: nothing worth keeping
+        reportResample(ResampleReport::kEmpty, -1);
+        release();
+        ui.notify("Resample: nothing recorded");
+        return;
+    }
+    if (slot < 0) {
+        reportResample(ResampleReport::kNoSlot, -1);
+        release();
+        ui.notify("Resample: no free instrument slot after the last one", 4000);
+        return;
+    }
+    // Planar stereo at the tail (left block, right block). Moving down never
+    // overlaps the right half's source (the area starts at or after tail()).
+    int16_t* dst = bank.tail();
+    std::memmove(dst, resampler.left(), size_t(n) * sizeof(int16_t));
+    std::memmove(dst + n, resampler.right(), size_t(n) * sizeof(int16_t));
+    reportResample(ResampleReport::kOk, slot);
+    release();
+    // Above every loaded instrument: commitTail() moves no playing sample.
+    if (!bank.commitTail(slot, n, true)) {
+        lastResample.outcome = ResampleReport::kFailed;
+        ui.notify("Resample failed");
+        return;
+    }
+    Instrument ins;
+    ins.setDefault();
+    const uint8_t src = resampleCfg.source;
+    if (src == 0) std::snprintf(ins.name, sizeof(ins.name), "Resample Master");
+    else if (src == audio::AudioEngine::kTapLineIn) std::snprintf(ins.name, sizeof(ins.name), "Resample Line in");
+    else std::snprintf(ins.name, sizeof(ins.name), "Resample Track %d", src);
+    ins.lengthFrames = n;
+    ins.stereo = true;
+    // Whole bars when it ended on a bar: placement repeats every that many.
+    const uint32_t bars = end == Resampler::kEndBars ? resampler.bars()
+                        : end == Resampler::kEndStopped ? resampler.barsDone() : 0;
+    // Sliced: slices on the beat / step grid (equal, or where hits start),
+    // Beat Slice (note 24 + i plays slice i at its own pitch; the pads play
+    // slices 1..48).
+    uint16_t sliceSteps[kSliceCount];
+    const int slices = resampleSliceSteps(bank.left(slot), bank.right(slot), n, bars, sliceSteps);
+    if (slices > 0) {
+        const uint64_t total = uint64_t(bars) * uint64_t(resampleBarSteps());
+        ins.playMode = uint8_t(PlayMode::BeatSlice);
+        ins.sliceCount = uint8_t(slices);
+        for (int i = 0; i < slices; ++i)
+            ins.slices[i] = uint16_t((uint64_t(sliceSteps[i]) * 65535u + total / 2) / total);
+    }
+    instruments[slot] = ins;
+    instrPresent[slot] = true;
+    markInstrumentDirty(slot, true);
+    setCurrentInstrument(slot);
+    resampler.reset();
+    char msg[64];
+    if (bars) std::snprintf(msg, sizeof(msg), "Resampled %lu bar%s -> instrument %d", static_cast<unsigned long>(bars),
+                            bars == 1 ? "" : "s", slot + 1);
+    else std::snprintf(msg, sizeof(msg), "Resampled %.1f s -> instrument %d%s", double(n) / 44100.0, slot + 1,
+                       end == Resampler::kEndFull ? " (memory full)" : "");
+    if (slices) {
+        const size_t l = std::strlen(msg);
+        std::snprintf(msg + l, sizeof(msg) - l, ", %d slices", slices);
+    } else if (resampleCfg.slices) {
+        const size_t l = std::strlen(msg);
+        std::snprintf(msg + l, sizeof(msg) - l, ", not sliced");   // no whole bars
+    }
+    ui.notify(msg, 3000);
+    placeResample(slot, bars, sliceSteps, slices);
+    ui.dirty();
+}
+
+int App::resampleSliceGrid(uint32_t bars, int& count) const {
+    count = 0;
+    if (resampleCfg.slices == 0 || bars == 0) return 0;
+    const int total = int(bars) * resampleBarSteps();
+    const bool beat = resampleCfg.slices == 1 || resampleCfg.slices == 3;
+    int unit = beat ? cfg.tsDen + 1 : 1;
+    while (total / unit > kSliceCount) unit *= 2;
+    count = total / unit;
+    return count > 0 ? unit : 0;
+}
+
+int App::resampleSliceSteps(const int16_t* l, const int16_t* r, uint32_t n, uint32_t bars, uint16_t* steps) const {
+    int count = 0;
+    int unit = resampleSliceGrid(bars, count);
+    if (!unit) return 0;
+    if (resampleCfg.slices <= 2) {   // equal
+        for (int i = 0; i < count; ++i) steps[i] = uint16_t(i * unit);
+        return count;
+    }
+    // At hits: the finest grid whose hits fit (more hits than slices: the
+    // grid doubles and only the hits on its cells count).
+    const int total = int(bars) * resampleBarSteps();
+    unit = resampleCfg.slices == 3 ? cfg.tsDen + 1 : 1;
+    for (;; unit *= 2) {
+        uint16_t cells[kSliceCount];
+        const int found = findHitCells(l, r, n, total / unit, cells, kSliceCount);
+        if (found <= kSliceCount || total / unit <= kSliceCount) {
+            const int c = found < kSliceCount ? found : kSliceCount;
+            for (int i = 0; i < c; ++i) steps[i] = uint16_t(cells[i] * unit);
+            return c;
+        }
+    }
+}
+
+void App::placeResample(int slot, uint32_t bars, const uint16_t* sliceSteps, int slices) {
+    const int t = int(resampleCfg.place) - 1;
+    if (t < 0 || t >= Sequencer::kVoiceTracks) return;
+    Pattern& p = pattern();
+    const int len = int(p.tracks[0].lastStep) + 1;
+    const int every = int(bars) * resampleBarSteps();
+    pushUndo();
+    // Note 60 plays the sample at its own pitch (audio_tables kUnityNote).
+    // Sliced: slice i (note 24 + i) on the step where it starts, repeating
+    // with the take; the steps in between stay empty (the slice plays on).
+    int next = 0;   // the next slice to place within the current repeat
+    for (int s = 0; s < len; ++s) {
+        const int off = every > 0 ? s % every : s;
+        if (off == 0) next = 0;
+        int note = -1;
+        if (slices > 0) {
+            if (next < slices && sliceSteps[next] == off) note = 24 + next++;
+        } else if (off == 0) {
+            note = 60;
+        }
+        if (note < 0) continue;
+        Step& st = p.tracks[t].steps[s];
+        st.note = int8_t(note);
+        st.instrument = uint8_t(slot);
+    }
+    patternEdited();
+    if (every > len) ui.notify("Resample is longer than the pattern: placed once", 3000);
+}
+
 bool App::writeWav(const char* path, const int16_t* l, const int16_t* r, uint32_t frames) {
     if (!r) return writeWav(path, l, frames);
     IStorage& f = fs();

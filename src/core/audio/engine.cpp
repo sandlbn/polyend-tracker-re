@@ -32,6 +32,19 @@ void SampleBank::init(int16_t* pool, size_t cap) {
 
 void SampleBank::clear() {
     for (auto& s : slots_) s = Slot{};
+    reserved_ = 0;
+}
+
+bool SampleBank::setReserved(size_t samples) {
+    if (samples > cap_ - usedSamples()) return false;
+    reserved_ = samples;
+    return true;
+}
+
+int SampleBank::lastLoaded() const {
+    for (int j = kSlots - 1; j >= 0; --j)
+        if (slots_[j].loaded) return j;
+    return -1;
 }
 
 uint32_t SampleBank::startOf(int idx) const {
@@ -52,7 +65,7 @@ int16_t* SampleBank::reserve(int idx, uint32_t frames, bool stereo) {
     const uint32_t need = frames * (stereo ? 2u : 1u);
     const uint32_t old = slots_[idx].samples();
     const size_t used = usedSamples();
-    if (used - old + need > cap_) return nullptr;
+    if (used - old + need > cap_ - reserved_) return nullptr;
     const uint32_t start = startOf(idx);
     const uint32_t oldEnd = start + old;
     const uint32_t newEnd = start + need;
@@ -85,7 +98,7 @@ bool SampleBank::commitTail(int idx, uint32_t frames, bool stereo) {
     const uint32_t n = frames * (stereo ? 2u : 1u);
     if (n == 0) return true;
     const size_t used = usedSamples();
-    if (n > cap_ - used) return false;
+    if (n > cap_ - reserved_ - used) return false;
     const uint32_t start = startOf(idx);
     // Rotate the tail block down to the slot position; higher instruments move up.
     if (start < used) std::rotate(pool_ + start, pool_ + used, pool_ + used + n);
@@ -126,7 +139,7 @@ bool SampleBank::replaceFromTail(int idx, uint32_t frames, bool stereo) {
     if (!loaded(idx)) return false;
     const uint32_t n = frames * (stereo ? 2u : 1u);
     const size_t used = usedSamples();
-    if (n == 0 || n > cap_ - used) return false;
+    if (n == 0 || n > cap_ - reserved_ - used) return false;
     const uint32_t start = slots_[idx].off;
     const uint32_t old = slots_[idx].samples();
     // [C][B][N] -> [N][C][B] -> [N][B][C]
@@ -572,8 +585,19 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     zeroWords(mR_, sizeof(mR_));
     bool anyVoice = false;
     uint32_t sendsTouched = 0;   // bit 0 dsend_, bit 1 rsend_ (else still all zero)
+    // [I] Resample tap on one track: that voice keeps its L/R like a stem.
+    IResampleTap* const tap = offline ? nullptr : tap_;
+    const int tapTrack = tap && tapSource_ >= 1 && tapSource_ <= kVoices ? tapSource_ - 1 : -1;
+    bool tapVoiceOn = false;
+    // Tap buffer: silence, or the Track source's synth slots + its voice.
+    float tapL[kBlock], tapR[kBlock];
+    if (tap) {
+        zeroFloats(tapL, kBlock);
+        zeroFloats(tapR, kBlock);
+    }
     for (int t = 0; t < kVoices; ++t) {
-        if (voices_[t].render(vc_[t], vout_[t], dsend_, rsend_, mL_, mR_, stems != nullptr)) {
+        if (voices_[t].render(vc_[t], vout_[t], dsend_, rsend_, mL_, mR_, stems != nullptr || t == tapTrack)) {
+            if (t == tapTrack) tapVoiceOn = true;
             anyVoice = true;
             sendsTouched |= voices_[t].sendsTouched();
             float pk = peak_[t];
@@ -591,7 +615,8 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
         int16_t* synthStems[kSynthSlots] = {};
         if (stems)
             for (int s = 0; s < kSynthSlots; ++s) synthStems[s] = stems->data[StemBlock::kFirstSynthStem + s];
-        anyVoice |= synth_.render(synthIn_, mL_, mR_, dsend_, rsend_, synthStems);
+        anyVoice |= synth_.render(synthIn_, mL_, mR_, dsend_, rsend_, synthStems, tapTrack, tapTrack >= 0 ? tapL : nullptr,
+                                  tapTrack >= 0 ? tapR : nullptr);
         sendsTouched = 3;   // (the slots' send taps: not tracked)
     }
     const uint32_t pc4 = stamp();
@@ -714,6 +739,29 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     float limOutL[kBlock], limOutR[kBlock];
     const bool limL = limL_.process(mL_, sc, limOutL);
     const bool limR = limR_.process(mR_, sc, limOutR);
+    if (tap) {
+        // [I] Resample tap (see setResampleTap); a source that produced
+        // nothing this block taps silence. A Track source is the track's
+        // sample voice plus the synth slots it plays (in tapL / tapR from
+        // the synth render), dry: no delay / reverb.
+        const float *tl = tapL, *tr = tapR;
+        if (tapTrack >= 0) {
+            if (tapVoiceOn)
+                for (uint32_t i = 0; i < kBlock; ++i) {
+                    tapL[i] += vout_[tapTrack].l[i];
+                    tapR[i] += vout_[tapTrack].r[i];
+                }
+        } else if (tapSource_ == kTapLineIn) {
+            if (line) {
+                tl = lineL_;
+                tr = lineR_;
+            }
+        } else {
+            if (limL) tl = limOutL;
+            if (limR) tr = limOutR;
+        }
+        tap->tapBlock(tl, tr, kBlock);
+    }
     // 8. OUT mixers (§5.4, mode 0): limiter * master volume + file preview
     //    (input 1) + metronome (input 5, SEND[metronomeVolume], after the
     //    limiter and master volume, centred; spec 07 Q10).

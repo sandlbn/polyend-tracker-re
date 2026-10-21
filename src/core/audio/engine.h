@@ -42,7 +42,15 @@ public:
     // instrument (tail(), freeSamples() int16), then commitTail() moves the
     // data into index order. idx must not be loaded; frames == 0 leaves it empty.
     int16_t* tail() { return pool_ ? pool_ + usedSamples() : nullptr; }
-    size_t freeSamples() const { return cap_ - usedSamples(); }
+    size_t freeSamples() const { return cap_ - reserved_ - usedSamples(); }
+    // [I] Live resampling (app/resample.h): the last `samples` of the pool are
+    // held back for a recording in progress; freeSamples() excludes them, so
+    // loads into tail() can never reach them. 0 releases.
+    bool setReserved(size_t samples);
+    size_t reserved() const { return reserved_; }
+    int16_t* reservedArea() { return pool_ && reserved_ ? pool_ + cap_ - reserved_ : nullptr; }
+    // Highest loaded slot (-1: none); a commit above it moves no other instrument.
+    int lastLoaded() const;
     bool commitTail(int idx, uint32_t frames, bool stereo);
     // Copy instrument src into dst (dst replaced). False when the bank is full.
     bool copy(int src, int dst);
@@ -77,6 +85,7 @@ private:
     uint32_t startOf(int idx) const;
     int16_t* pool_ = nullptr;
     size_t cap_ = 0;
+    size_t reserved_ = 0;
     Slot slots_[kSlots];
 };
 
@@ -142,6 +151,14 @@ struct StemBlock {
     int16_t data[kStems][kBlock * 2];
 };
 
+// [I] Live resampling tap (app/resample.h): one stereo block of the chosen
+// source per live block, in the audio context, after the mix.
+class IResampleTap {
+public:
+    virtual ~IResampleTap() = default;
+    virtual void tapBlock(const float* l, const float* r, uint32_t frames) = 0;
+};
+
 class AudioEngine : public ISequencerSink {
 public:
     static constexpr size_t kFxMemorySamples = Delay::kMemorySamples + Reverb::kMemorySamples;
@@ -170,6 +187,15 @@ public:
     void setCallbackDisabled(bool d) { callbackDisabled_ = d; }
     // Line input for the next block: 128 interleaved int16 frames, or nullptr (silence).
     void setLineInput(const int16_t* interleaved) { lineIn_ = interleaved; }
+    // [I] Live resampling: source 0 = master (limiter output, before master
+    // volume, metronome and file preview), 1..8 = sample track t-1 (post
+    // pan, as its stem), kTapLineIn = the line input (channel mode applied,
+    // before the line level / mute). Null tap = off. Live blocks only.
+    static constexpr uint8_t kTapLineIn = 9;
+    void setResampleTap(IResampleTap* tap, uint8_t source) {
+        tapSource_ = source;
+        tap_ = tap;
+    }
     // Recorder monitor (spec 22 §5): stock 0x153B4(0x56) writes table[0x56] =
     // 1.0 into the line-in MSUM inputs, so while the Recorder monitors, the
     // line input reaches the master at unity whatever the Global Mixer line
@@ -349,6 +375,8 @@ private:
     void* hookCtx_ = nullptr;
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;
+    IResampleTap* volatile tap_ = nullptr;
+    volatile uint8_t tapSource_ = 0;
     bool lineMonitor_ = false;
     volatile float lineMonPeak_ = 0.0f;
     float tempo_ = 130.0f;

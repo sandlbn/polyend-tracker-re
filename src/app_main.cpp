@@ -220,10 +220,33 @@ void recorderInputDiag(uint32_t nowMs) {
                       static_cast<unsigned long>(len), int(c.full()), peak, gApp.engine.takeLineMonitorPeak());
 }
 
+// [I] One "resample:" line per finished or cancelled take (app/resample.h),
+// with the I2S RX restarts / stale input blocks counted while it recorded.
+void resampleDiag() {
+    static uint32_t seen = 0, rx0 = 0, stale0 = 0;
+    static bool recording = false;
+    const ot::Resampler::State st = gApp.resampler.state();
+    if (!recording && (st == ot::Resampler::kRecording || st == ot::Resampler::kStopping)) {
+        recording = true;
+        rx0 = ot::hal::Sgtl5000Audio::rxRecoveries();
+        stale0 = ot::hal::Sgtl5000Audio::rxStaleBlocks();
+    }
+    const ot::ResampleReport& r = gApp.lastResample;
+    if (r.seq == seen) return;
+    seen = r.seq;
+    const uint32_t rx = recording ? ot::hal::Sgtl5000Audio::rxRecoveries() - rx0 : 0;
+    const uint32_t stale = recording ? ot::hal::Sgtl5000Audio::rxStaleBlocks() - stale0 : 0;
+    recording = false;
+    char line[200];
+    ot::formatResampleReport(line, sizeof line, r, rx, stale);
+    ot::hal::diagLog(line);
+}
+
 void telemetryTick() {
     const ot::IClock& clock = *ot::hal::halSet().clock;
     gTelemetry.loopMark(clock.micros());
     recorderInputDiag(clock.millis());
+    resampleDiag();
     pollRenderCycles(clock.millis());
     {   // 2.x "cpu" line, 1 Hz (spec 2x-02 §4, hal/telemetry.h)
         static ot::diag::CpuTelemetry cpuTel;

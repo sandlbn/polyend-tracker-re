@@ -335,7 +335,8 @@ void LoaderScreen::memoryProjection() {
         if (slot < kSampleInstrumentCount) used -= a.bank.samples(slot) * 2;
     }
     projected_ = uint32_t(used);
-    over_ = used > a.bank.capacityBytes();
+    // [I] A resample take holds the free memory it may record into (#7).
+    over_ = used + uint64_t(a.bank.reserved()) * 2 > a.bank.capacityBytes();
 }
 
 void LoaderScreen::refreshBar() {
@@ -486,7 +487,12 @@ void LoaderScreen::add(bool next) {
         return;
     }
     memoryProjection();
-    if (over_) return;
+    if (over_) {
+        // [I] Say why when a resample take holds the memory (#7); otherwise
+        // the red memory bar shows it, as stock.
+        if (a.bank.reserved()) ui_.notify("Sample memory is reserved by the resample take", 3000);
+        return;
+    }
     bool occupied = false;
     for (int i = 0; i < files; ++i) occupied = occupied || a.instrPresent[insCursor + i];
     addNext_ = next;

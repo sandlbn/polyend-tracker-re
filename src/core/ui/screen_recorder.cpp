@@ -119,9 +119,14 @@ void RecorderScreen::start(int opt) {
     }
     if (a.seq.isPlaying()) {
         // appendix C §2.2: "this will stop the pattern" -- b6 leaves, b7 stops and enters.
-        ui_.ask("Sample Recorder", "This will stop the pattern. Continue?", nullptr, "Cancel", "Yes",
+        // [I] b5 "Resample": the Resample screen, the pattern keeps playing.
+        ui_.ask("Sample Recorder", "This will stop the pattern. Continue?", "Resample", "Cancel", "Yes",
                 [](void* c, int key) {
                     auto* s = static_cast<RecorderScreen*>(c);
+                    if (key == btn::F6) {
+                        s->ui_.switchTo(kModResample);
+                        return;
+                    }
                     if (key != btn::F8) {
                         s->ui_.switchTo(s->ui_.previous());
                         return;
@@ -575,7 +580,11 @@ void RecorderScreen::onButton(uint8_t id, uint8_t st) {
         return;
     }
     if (id == btn::Up || id == btn::Down) {
-        change(id == btn::Up ? 1 : -1);
+        // [I] The Source list is drawn top to bottom: Up = the item above,
+        // Down = the item below (the encoder's + is the next item down), as
+        // in PlaybackScreen. Monitor (On above Off) already moves this way.
+        const int d = id == btn::Up ? 1 : -1;
+        change(state == 0 && sel == 0 ? -d : d);
         return;
     }
     if (state == 0) {

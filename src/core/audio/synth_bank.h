@@ -166,7 +166,11 @@ public:
     // Render one block: adds into mL/mR and the send buses. stems[s] (may be
     // nullptr) receives slot s's post-gain/pan bus as interleaved int16.
     // Returns true when anything was added.
-    bool render(const SynthMixInputs& in, float* mL, float* mR, float* dsend, float* rsend, int16_t* const stems[kSynthSlots]);
+    // [I] tapTrack >= 0: the post-gain/pan bus of every slot with a voice
+    // that track started (releases included) is also added into tapL / tapR
+    // (live resampling, Track source).
+    bool render(const SynthMixInputs& in, float* mL, float* mR, float* dsend, float* rsend, int16_t* const stems[kSynthSlots],
+                int tapTrack = -1, float* tapL = nullptr, float* tapR = nullptr);
 
     // --- IVoicePool (governor, spec 2x-02 §3) --------------------------------
     int sounding() const override;
@@ -277,7 +281,8 @@ private:
     void fade(int r, bool steal = false);
     void startOn(int r, int track, int s, const SynthNote& n, float bend, float bendTarget, float bendStep);
     void releaseTrack(int track);
-    float mixSlot(Slot& sl, float* mL, float* mR, float* dsend, float* rsend, int16_t* stem);   // block peak
+    float mixSlot(Slot& sl, float* mL, float* mR, float* dsend, float* rsend, int16_t* stem, float* tapL = nullptr,
+                  float* tapR = nullptr);   // block peak
     void notePitchFx(const SynthNoteOn& n, float prevPitch, bool hasPrev, float& bend, float& target, float& step) const;
 
     Voice voices_[kSynthMaxVoices];
@@ -290,6 +295,9 @@ private:
     bool recApplied_[kSynthSlots] = {};   // slots_[s].rec has been applied (sync)
     Slot slots_[kSynthSlots];
     int8_t trackVoice_[kSynthAllTracks];      // record held by each track, -1 none
+    // [I] Track that started each record, kept through its release (the
+    // resample tap); -1 free. Not in Voice: one more byte pads each record.
+    int8_t owner_[kSynthMaxVoices];
     float trackPitch_[kSynthAllTracks];       // last note pitch (Glide FX source)
     uint32_t serial_ = 0;
     uint32_t steals_ = 0;

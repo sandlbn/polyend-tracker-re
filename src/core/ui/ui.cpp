@@ -855,6 +855,12 @@ void Ui::dispatchButton(uint8_t id, uint8_t state) {
     if (kb.isOpen()) {
         if (kb.onButton(id, state)) return;
     }
+    // [I] Shift + Sample Recorder: live resampling from any screen (arm /
+    // stop at the next bar / cancel while armed), see App::resampleToggle.
+    if (id == btn::SampleRecorder && shift() && state != kHold) {
+        if (state == kPress) resampleKey();
+        return;
+    }
     if (btn::isModuleKey(id)) {
         const int m = moduleForButton(id);
         if (m == active_ || m == kModNone || s->ownsModuleKey(id)) {
@@ -910,8 +916,38 @@ void Ui::deliverEnteringKey(bool asHold) {
     }
 }
 
+void Ui::resampleKey() {
+    switch (app.resampleToggle()) {
+        case App::ResampleAction::kArmed: break;   // update() shows the state
+        case App::ResampleAction::kCancelled: notify("Resample cancelled"); break;
+        case App::ResampleAction::kStopping: break;
+        case App::ResampleAction::kNoSlot: notify("Resample: no free instrument slot after the last one", 4000); break;
+        case App::ResampleAction::kNoMemory: notify("Resample: not enough sample memory", 3000); break;
+        default: notify("Resample: busy"); break;
+    }
+    resampleShownAt_ = 0;   // show the new state now
+}
+
 void Ui::update(uint32_t now) {
     now_ = now;
+    // [I] Live resampling status, refreshed while armed / recording.
+    if (app.resampler.busy() && app.resampler.state() != Resampler::kDone && active_ != kModResample &&
+        now - resampleShownAt_ >= 250) {
+        resampleShownAt_ = now ? now : 1;
+        const Resampler& r = app.resampler;
+        char t[64];
+        if (r.state() == Resampler::kArmed)
+            std::snprintf(t, sizeof(t), app.seq.isPlaying() ? "Resample armed: starts on the next bar"
+                                                            : "Resample armed: starts with Play");
+        else if (r.state() == Resampler::kStopping)
+            std::snprintf(t, sizeof(t), "Resampling: stops at the next bar");
+        else if (r.bars())
+            std::snprintf(t, sizeof(t), "Resampling  bar %lu / %u", static_cast<unsigned long>(r.barsDone() + 1), r.bars());
+        else
+            std::snprintf(t, sizeof(t), "Resampling  bar %lu  (Shift+Sample Rec stops)",
+                          static_cast<unsigned long>(r.barsDone() + 1));
+        notify(t, 600);
+    }
     if (noteUntil_ && int32_t(now - noteUntil_) >= 0) {
         noteUntil_ = 0;
         note_[0] = 0;
