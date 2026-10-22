@@ -272,7 +272,7 @@ TEST(resample_screen) {
     CHECK(a.seq.isPlaying());
     ResampleScreen& r = *static_cast<ResampleScreen*>(a.ui.screen(kModResample));
     CHECK_EQ(r.sel, 0);
-    // Settings: F2 Length (tap again: next), F4 Place on, encoder.
+    // Settings: F2 Length (tap again: next), F5 Place on, encoder.
     a.resampleCfg = ResampleSettings{};
     h.tap(btn::F2);
     h.tap(btn::F2);
