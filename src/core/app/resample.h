@@ -26,10 +26,15 @@ struct ResampleSettings {
     // 0 off; equal slices: 1 one per beat, 2 one per step; at hits: 3 on the
     // beat grid, 4 on the step grid (Beat Slice, App::resampleSliceSteps).
     uint8_t slices = 0;
+    // 0 a new instrument (the next free slot); 1..48 instrument N: a take of
+    // the same length (App::kResampleFitFrames) overwrites it in place, its
+    // settings kept; else it goes to a new instrument (App::finishResample).
+    uint8_t into = 0;
     static constexpr int kSources = 10;
     static constexpr int kLengths = 6;
     static constexpr int kPlaces = 9;
     static constexpr int kSlices = 5;
+    static constexpr int kInto = 49;
 };
 constexpr uint8_t kResampleBars[ResampleSettings::kLengths] = {0, 1, 2, 4, 8, 16};
 

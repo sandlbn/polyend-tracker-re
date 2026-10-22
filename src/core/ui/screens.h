@@ -809,7 +809,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onEncoder(int d) override;
-    int sel = 0;   // column: 0 From, 1 Length, 2 Slices, 3 Place on, 5 Gain, 6 Monitor
+    int sel = 0;   // column: 0 From, 1 Length, 2 Slices, 3 Into, 4 Place on, 5 Gain, 6 Monitor
 
 private:
     bool lineIn() const;
@@ -817,6 +817,7 @@ private:
     void change(int d);
     void refreshBar();
     uint32_t shown_ = 0xFFFFFFFFu;   // take state / bar / playing last shown
+    int intoTop_ = 0;                // Into list: first visible row
     int meter_ = 0;
     uint32_t lastMeterAt_ = 0;
 };

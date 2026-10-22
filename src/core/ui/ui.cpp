@@ -917,6 +917,23 @@ void Ui::deliverEnteringKey(bool asHold) {
 }
 
 void Ui::resampleKey() {
+    // Into: Instrument N holding a sample: ask once before the first take
+    // that may replace it (App::resampleIntoOk; reset when Into changes).
+    const int into = int(app.resampleCfg.into) - 1;
+    if (app.resampler.state() == Resampler::kIdle && into >= 0 && app.bank.loaded(into) &&
+        app.resampleIntoOk != into) {
+        char title[40];
+        std::snprintf(title, sizeof(title), "Resample into instrument %d?", into + 1);
+        ask(title, "Same-length takes replace it", nullptr, "Cancel", "Yes",
+            [](void* ctx, int key) {
+                if (key != btn::F8) return;
+                auto* self = static_cast<Ui*>(ctx);
+                self->app.resampleIntoOk = int8_t(self->app.resampleCfg.into - 1);
+                self->resampleKey();
+            },
+            this);
+        return;
+    }
     switch (app.resampleToggle()) {
         case App::ResampleAction::kArmed: break;   // update() shows the state
         case App::ResampleAction::kCancelled: notify("Resample cancelled"); break;

@@ -88,11 +88,31 @@ int App::nextResampleSlot() const {
     return top + 1 < kSampleInstrumentCount ? top + 1 : -1;
 }
 
+int App::resampleTarget(uint32_t n, bool* inPlace, bool* fits) const {
+    if (inPlace) *inPlace = false;
+    if (fits) *fits = true;
+    const int into = int(resampleCfg.into) - 1;
+    if (into >= 0 && into < kSampleInstrumentCount) {
+        if (bank.loaded(into)) {
+            const uint32_t old = bank.frames(into);
+            const uint32_t d = n > old ? n - old : old - n;
+            if (bank.stereo(into) && (n == 0 || d <= kResampleFitFrames)) {
+                if (inPlace) *inPlace = true;
+                return into;
+            }
+        } else if (into > bank.lastLoaded()) {
+            return into;   // committing there moves no sample
+        }
+        if (fits) *fits = false;
+    }
+    return nextResampleSlot();
+}
+
 App::ResampleAction App::resampleToggle() {
     switch (resampler.state()) {
         case Resampler::kIdle: {
             if (sampleBankLent || rendering_ || (jobBusy() && jobOp() != JobOp::Autosave)) return ResampleAction::kBusy;
-            if (nextResampleSlot() < 0) return ResampleAction::kNoSlot;
+            if (resampleTarget(0, nullptr, nullptr) < 0) return ResampleAction::kNoSlot;
             // All free sample memory is held for the recording (two planar
             // halves); loads meanwhile see none and cannot touch it.
             const size_t free = bank.freeSamples() & ~size_t(1);
@@ -151,7 +171,8 @@ void App::finishResample() {
     engine.setResampleTap(nullptr, 0);
     const uint32_t n = resampler.frames();
     const Resampler::End end = resampler.end();
-    const int slot = nextResampleSlot();
+    bool inPlace = false, fits = true;
+    const int slot = resampleTarget(n, &inPlace, &fits);
     auto release = [this] {
         resampler.reset();
         bank.setReserved(0);
@@ -168,26 +189,48 @@ void App::finishResample() {
         ui.notify("Resample: no free instrument slot after the last one", 4000);
         return;
     }
-    // Planar stereo at the tail (left block, right block). Moving down never
-    // overlaps the right half's source (the area starts at or after tail()).
-    int16_t* dst = bank.tail();
-    std::memmove(dst, resampler.left(), size_t(n) * sizeof(int16_t));
-    std::memmove(dst + n, resampler.right(), size_t(n) * sizeof(int16_t));
-    reportResample(ResampleReport::kOk, slot);
-    release();
-    // Above every loaded instrument: commitTail() moves no playing sample.
-    if (!bank.commitTail(slot, n, true)) {
-        lastResample.outcome = ResampleReport::kFailed;
-        ui.notify("Resample failed");
-        return;
+    uint32_t frames = n;
+    if (inPlace) {
+        // Into N, same length: overwrite its audio where it is (voices on it
+        // keep their pointers and play on into the new take), trimmed or
+        // padded with silence to the slot's length.
+        frames = bank.frames(slot);
+        const uint32_t m = n < frames ? n : frames;
+        int16_t* d = bank.data(slot);
+        for (int c = 0; c < 2; ++c) {
+            int16_t* lane = d + uint32_t(c) * frames;
+            std::memcpy(lane, c ? resampler.right() : resampler.left(), size_t(m) * sizeof(int16_t));
+            if (m < frames) std::memset(lane + m, 0, size_t(frames - m) * sizeof(int16_t));
+        }
+        reportResample(ResampleReport::kOk, slot);
+        release();
+    } else {
+        // Planar stereo at the tail (left block, right block). Moving down never
+        // overlaps the right half's source (the area starts at or after tail()).
+        int16_t* dst = bank.tail();
+        std::memmove(dst, resampler.left(), size_t(n) * sizeof(int16_t));
+        std::memmove(dst + n, resampler.right(), size_t(n) * sizeof(int16_t));
+        reportResample(ResampleReport::kOk, slot);
+        release();
+        // Above every loaded instrument: commitTail() moves no playing sample.
+        if (!bank.commitTail(slot, n, true)) {
+            lastResample.outcome = ResampleReport::kFailed;
+            ui.notify("Resample failed");
+            return;
+        }
     }
-    Instrument ins;
-    ins.setDefault();
-    const uint8_t src = resampleCfg.source;
-    if (src == 0) std::snprintf(ins.name, sizeof(ins.name), "Resample Master");
-    else if (src == audio::AudioEngine::kTapLineIn) std::snprintf(ins.name, sizeof(ins.name), "Resample Line in");
-    else std::snprintf(ins.name, sizeof(ins.name), "Resample Track %d", src);
-    ins.lengthFrames = n;
+    // Into N keeps the slot's settings (an empty slot that has them too);
+    // a new instrument starts from the defaults.
+    const bool keep = slot == int(resampleCfg.into) - 1 && instrPresent[slot];
+    Instrument ins = instruments[slot];
+    if (!keep) {
+        ins.setDefault();
+        const uint8_t src = resampleCfg.source;
+        if (src == 0) std::snprintf(ins.name, sizeof(ins.name), "Resample Master");
+        else if (src == audio::AudioEngine::kTapLineIn) std::snprintf(ins.name, sizeof(ins.name), "Resample Line in");
+        else std::snprintf(ins.name, sizeof(ins.name), "Resample Track %d", src);
+    }
+    ins.lengthFrames = frames;
     ins.stereo = true;
     // Whole bars when it ended on a bar: placement repeats every that many.
     const uint32_t bars = end == Resampler::kEndBars ? resampler.bars()
@@ -196,7 +239,7 @@ void App::finishResample() {
     // Beat Slice (note 24 + i plays slice i at its own pitch; the pads play
     // slices 1..48).
     uint16_t sliceSteps[kSliceCount];
-    const int slices = resampleSliceSteps(bank.left(slot), bank.right(slot), n, bars, sliceSteps);
+    const int slices = resampleSliceSteps(bank.left(slot), bank.right(slot), frames, bars, sliceSteps);
     if (slices > 0) {
         const uint64_t total = uint64_t(bars) * uint64_t(resampleBarSteps());
         ins.playMode = uint8_t(PlayMode::BeatSlice);
@@ -210,18 +253,22 @@ void App::finishResample() {
     setCurrentInstrument(slot);
     resampler.reset();
     char msg[64];
-    if (bars) std::snprintf(msg, sizeof(msg), "Resampled %lu bar%s -> instrument %d", static_cast<unsigned long>(bars),
-                            bars == 1 ? "" : "s", slot + 1);
-    else std::snprintf(msg, sizeof(msg), "Resampled %.1f s -> instrument %d%s", double(n) / 44100.0, slot + 1,
-                       end == Resampler::kEndFull ? " (memory full)" : "");
-    if (slices) {
+    if (!fits)
+        std::snprintf(msg, sizeof(msg), "Instr %d is another length: saved as instrument %d", resampleCfg.into, slot + 1);
+    else if (bars)
+        std::snprintf(msg, sizeof(msg), "Resampled %lu bar%s -> instrument %d%s", static_cast<unsigned long>(bars),
+                      bars == 1 ? "" : "s", slot + 1, inPlace ? " (replaced)" : "");
+    else
+        std::snprintf(msg, sizeof(msg), "Resampled %.1f s -> instrument %d%s", double(n) / 44100.0, slot + 1,
+                      end == Resampler::kEndFull ? " (memory full)" : inPlace ? " (replaced)" : "");
+    if (fits && slices) {
         const size_t l = std::strlen(msg);
         std::snprintf(msg + l, sizeof(msg) - l, ", %d slices", slices);
-    } else if (resampleCfg.slices) {
+    } else if (fits && resampleCfg.slices) {
         const size_t l = std::strlen(msg);
         std::snprintf(msg + l, sizeof(msg) - l, ", not sliced");   // no whole bars
     }
-    ui.notify(msg, 3000);
+    ui.notify(msg, fits ? 3000 : 4000);
     placeResample(slot, bars, sliceSteps, slices);
     ui.dirty();
 }

@@ -485,6 +485,19 @@ public:
     // First slot above every loaded instrument (committing there moves no
     // sample), -1 when the last slot is taken.
     int nextResampleSlot() const;
+    // [I] Into: Instrument N. Takes are whole audio blocks, so two takes of
+    // the same bars differ by up to a block: within that they fit the slot
+    // (trimmed or padded with silence) and keep its length.
+    static constexpr uint32_t kResampleFitFrames = 128;
+    // The slot a take would land in now: N (empty above every loaded slot,
+    // or a stereo sample to overwrite in place) or the next free slot; -1
+    // none. `inPlace` (may be null): N overwritten; `fits` (may be null):
+    // false when Into N was given but the take goes elsewhere. n: the take's
+    // frames (0: not known yet, N is taken when it holds a stereo sample).
+    int resampleTarget(uint32_t n, bool* inPlace, bool* fits) const;
+    // Into N was confirmed for this slot (asked once when arming, Ui::resampleKey);
+    // -1 none. Reset when Into changes.
+    int8_t resampleIntoOk = -1;
     // Steps per bar from the Config time signature.
     int resampleBarSteps() const { return (cfg.tsNum + 1) * (cfg.tsDen + 1); }
     // [I] Sliced takes, equal slices: steps per slice for a take of `bars`

@@ -279,12 +279,12 @@ TEST(resample_screen) {
     CHECK_EQ(a.resampleCfg.length, 4);   // 4 -> 8 bars
     h.enc(-3);
     CHECK_EQ(a.resampleCfg.length, 1);   // 1 bar
-    h.tap(btn::F4);
+    h.tap(btn::F5);
     h.enc(2);
     CHECK_EQ(a.resampleCfg.place, 2);
     // Gain / Monitor only for Line in: F6 does nothing for Master.
     h.tap(btn::F6);
-    CHECK_EQ(r.sel, 3);
+    CHECK_EQ(r.sel, 4);
     h.tap(btn::F1);
     h.enc(9);
     CHECK_EQ(a.resampleCfg.source, 9);   // Line in
@@ -303,6 +303,7 @@ TEST(resample_screen) {
     CHECK_EQ(a.cfg.recMonitor, 1);
     CHECK(!a.inputMonitorMuted);
     // Left / Right step through the columns; lists: Up = the item above.
+    h.tap(btn::Left);
     h.tap(btn::Left);
     h.tap(btn::Left);
     h.tap(btn::Left);
@@ -327,9 +328,10 @@ TEST(resample_screen) {
     h.tap(btn::Up);
     h.tap(btn::Right);
     CHECK_EQ(r.sel, 2);   // Slices
+    h.tap(btn::Right);   // Into
     h.tap(btn::Right);
     h.tap(btn::Right);   // stays on Place on (Gain / Monitor need Line in)
-    CHECK_EQ(r.sel, 3);
+    CHECK_EQ(r.sel, 4);
     h.tap(btn::Up);
     CHECK_EQ(a.resampleCfg.place, 1);
     h.tap(btn::Down);
@@ -653,4 +655,179 @@ TEST(resample_find_hit_cells_late) {
     uint16_t out[48];
     CHECK_EQ(findHitCells(x.data(), nullptr, kN, kCells, out, 48), 2);
     CHECK_EQ(out[1], 4);
+}
+
+// ---------------------------------------------------------------------------
+// [I] Into: Instrument N (ResampleSettings::into)
+
+namespace {
+
+// One take of `bars` bars (playing; armed now, recorded from the next bar).
+void take(Harness& h, uint8_t lengthIdx) {
+    App& a = *h.app;
+    a.resampleCfg.length = lengthIdx;
+    CHECK(a.resampleToggle() == App::ResampleAction::kArmed);
+    if (!a.seq.isPlaying()) a.seq.play(0);
+    for (int i = 0; i < 4000 && a.resampler.state() != Resampler::kDone; ++i) h.audio.pump(1);
+    CHECK(a.resampler.state() == Resampler::kDone);
+    h.run(5);
+    CHECK(!a.resampler.busy());
+}
+
+}  // namespace
+
+TEST(resample_into_same_length_in_place) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);
+    take(h, 1);   // Into: New -> instrument 2
+    CHECK(a.instrPresent[1]);
+    const uint32_t frames = a.bank.frames(1);
+    const int16_t* at = a.bank.left(1);
+    std::snprintf(a.instruments[1].name, sizeof(a.instruments[1].name), "Loop");
+    a.instruments[1].volume = 40;
+    a.resampleCfg.into = 2;
+    take(h, 1);   // the same bars: overwritten where it is, settings kept
+    CHECK(!a.instrPresent[2]);
+    CHECK_EQ(a.bank.frames(1), frames);
+    CHECK(a.bank.left(1) == at);
+    CHECK_STR(a.instruments[1].name, "Loop");
+    CHECK_EQ(a.instruments[1].volume, 40);
+    CHECK_EQ(a.instruments[1].lengthFrames, frames);
+    CHECK(peakOf(a, 1) > 1000);
+    CHECK(strstr(a.ui.notice(), "(replaced)") != nullptr);
+    CHECK_EQ(a.lastResample.slot, 1);
+    // Many repeat takes keep the slot's length (each is fitted to it).
+    for (int k = 0; k < 3; ++k) take(h, 1);
+    CHECK_EQ(a.bank.frames(1), frames);
+    CHECK(!a.instrPresent[2]);
+}
+
+TEST(resample_into_other_length_saves_new) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);
+    take(h, 1);   // instrument 2, 1 bar
+    const uint32_t frames = a.bank.frames(1);
+    a.resampleCfg.into = 2;
+    take(h, 2);   // 2 bars: does not fit, the take is kept in a new slot
+    CHECK_EQ(a.bank.frames(1), frames);
+    CHECK(a.instrPresent[2]);
+    CHECK(near(a.bank.frames(2), 2 * kBarFrames, 256));
+    CHECK_STR(a.instruments[2].name, "Resample Master");
+    CHECK_STR(a.ui.notice(), "Instr 2 is another length: saved as instrument 3");
+}
+
+TEST(resample_into_empty_slots) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);   // instrument 1 loaded
+    // Empty and above every loaded slot: the take goes there.
+    a.resampleCfg.into = 10;
+    take(h, 1);
+    CHECK(a.instrPresent[9]);
+    CHECK(near(a.bank.frames(9), kBarFrames, 128));
+    CHECK(strstr(a.ui.notice(), "-> instrument 10") != nullptr);
+    // Empty below a loaded slot (committing there would move instrument 10):
+    // a new slot instead.
+    a.resampleCfg.into = 5;
+    take(h, 1);
+    CHECK(!a.instrPresent[4]);
+    CHECK(a.instrPresent[10]);
+    CHECK_STR(a.ui.notice(), "Instr 5 is another length: saved as instrument 11");
+}
+
+TEST(resample_into_asks_once) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);
+    a.resampleCfg.length = 1;
+    a.resampleCfg.into = 1;   // instrument 1 holds the saw (mono): asked anyway
+    auto key = [&] {
+        h.down(btn::Shift);
+        h.tap(btn::SampleRecorder);
+        h.up(btn::Shift);
+    };
+    key();
+    CHECK(a.ui.askOpen());
+    CHECK(!a.resampler.busy());
+    h.tap(btn::F7);   // Cancel
+    CHECK(!a.ui.askOpen());
+    CHECK(!a.resampler.busy());
+    key();
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F8);   // Yes: armed
+    CHECK(a.resampler.state() == Resampler::kArmed);
+    key();            // cancel the armed take
+    CHECK(!a.resampler.busy());
+    key();            // confirmed for this slot: no question
+    CHECK(!a.ui.askOpen());
+    CHECK(a.resampler.state() == Resampler::kArmed);
+    key();
+    // An empty slot: nothing to ask.
+    a.resampleCfg.into = 20;
+    key();
+    CHECK(!a.ui.askOpen());
+    CHECK(a.resampler.state() == Resampler::kArmed);
+    key();
+}
+
+TEST(resample_screen_into) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);
+    a.seq.play(0);
+    h.tap(btn::SampleRecorder);
+    h.tap(btn::F6);   // Resample
+    CHECK(a.ui.active() == kModResample);
+    ResampleScreen& r = *static_cast<ResampleScreen*>(a.ui.screen(kModResample));
+    a.resampleIntoOk = 0;
+    h.tap(btn::F4);
+    CHECK_EQ(r.sel, 3);
+    h.enc(3);
+    CHECK_EQ(a.resampleCfg.into, 3);
+    CHECK_EQ(a.resampleIntoOk, -1);   // Into changed: ask again
+    h.tap(btn::F4);                   // again: the next item
+    CHECK_EQ(a.resampleCfg.into, 4);
+    h.tap(btn::Left);
+    CHECK_EQ(r.sel, 2);
+    h.tap(btn::Right);
+    CHECK_EQ(r.sel, 3);
+    h.tap(btn::Right);
+    CHECK_EQ(r.sel, 4);   // Place on
+    h.run(100);
+    CHECK(h.disp.lastHasText("Into"));
+    CHECK(h.disp.lastHasText("Instr 4"));
+    CHECK(h.disp.lastHasText("1 saw"));   // the list shows slot names
+    CHECK(h.disp.lastHasText("-> Instr 4"));   // empty, above every loaded slot
+}
+
+TEST(resample_into_records_the_take_with_its_fx) {
+    // Take 1 placed on track 2, the source muted, delay / reverb on the take,
+    // take 2 from Master into the same slot: the FX are in the new audio.
+    Harness h;
+    App& a = *h.app;
+    setup(h);
+    a.resampleCfg.place = 2;
+    take(h, 1);   // instrument 2 on track 2
+    const uint32_t n = a.bank.frames(1);
+    std::vector<int16_t> before(a.bank.left(1), a.bank.left(1) + n);
+    a.setTrackMute(0, true);
+    a.instruments[1].delaySend = 100;
+    a.instruments[1].reverbSend = 100;
+    a.markInstrumentDirty(1);
+    a.resampleCfg.place = 0;
+    a.resampleCfg.into = 2;
+    take(h, 1);
+    CHECK_EQ(a.bank.frames(1), n);
+    // Energy of the difference against the energy of the first take.
+    double diff = 0.0, ref = 0.0;
+    const int16_t* l = a.bank.left(1);
+    for (uint32_t i = 0; i < n; ++i) {
+        const double d = double(l[i]) - double(before[i]);
+        diff += d * d;
+        ref += double(before[i]) * double(before[i]);
+    }
+    std::printf("    take 2 vs take 1: difference energy %.1f %% of take 1\n", 100.0 * diff / ref);
+    CHECK(diff > 0.05 * ref);
 }

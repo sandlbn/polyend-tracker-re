@@ -3,8 +3,8 @@
 // Sample Recorder arms / stops a take from any screen with these settings.
 //
 // Columns (x = 2 + 100 k, as the Sample Recorder): From, Length, Slices,
-// Place on, the take's state (and the Line in level), Gain and Monitor (Line
-// in takes only), Record.
+// Into, Place on, Gain and Monitor (Line in takes only), Record with the
+// take's state (and the Line in level) above it.
 // The screen routes the codec to Line in on entry: the recorder's Source
 // list may have left it on a microphone (#9).
 #include <cstdio>
@@ -24,13 +24,21 @@ const char* const kPlace[ResampleSettings::kPlaces] = {"Off",     "Track 1", "Tr
                                                        "Track 5", "Track 6", "Track 7", "Track 8"};
 const char* const kMonitor[2] = {"On", "Off"};
 constexpr int kColX0 = 2;
-constexpr int kColSlices = 2, kColPlace = 3, kColState = 4, kColGain = 5, kColMonitor = 6;
-// Selectable columns: From, Length, Slices, Place on; Gain / Monitor for Line in.
-constexpr int kCols[6] = {0, 1, kColSlices, kColPlace, kColGain, kColMonitor};
+constexpr int kColSlices = 2, kColInto = 3, kColPlace = 4, kColGain = 5, kColMonitor = 6, kColState = 7;
+// Selectable columns: From, Length, Slices, Into, Place on; Gain / Monitor for Line in.
+constexpr int kCols[7] = {0, 1, kColSlices, kColInto, kColPlace, kColGain, kColMonitor};
 constexpr float kMinBar = 1.0f / float(wg::kPanelH - 25);
 
 void listItem(void* ctx, int i, char* out, int cap) {
     std::snprintf(out, size_t(cap), "%s", static_cast<const char* const*>(ctx)[i]);
+}
+
+// Into: "New", then the sample slots by number and name.
+void intoItem(void* ctx, int i, char* out, int cap) {
+    const App& a = *static_cast<const App*>(ctx);
+    if (i == 0) std::snprintf(out, size_t(cap), "New");
+    else if (a.instrPresent[i - 1]) std::snprintf(out, size_t(cap), "%d %s", i, a.instruments[i - 1].name);
+    else std::snprintf(out, size_t(cap), "%d", i);
 }
 
 void list(Gfx& g, const Theme& th, int col, const char* const* items, int count, int sel) {
@@ -94,7 +102,10 @@ void ResampleScreen::refreshBar() {
     b.set(1, "Length", kLength[r.length % ResampleSettings::kLengths]);
     b.set(kColSlices, "Slices", kSlices[r.slices % ResampleSettings::kSlices]);
     b.set(kColPlace, "Place on", kPlace[r.place % ResampleSettings::kPlaces]);
-    char v[8];
+    char v[12];
+    if (r.into) std::snprintf(v, sizeof(v), "Instr %u", unsigned(r.into));
+    else std::snprintf(v, sizeof(v), "New");
+    b.set(kColInto, "Into", v);
     std::snprintf(v, sizeof(v), "%u", unsigned(a.cfg.recGain[0]));
     b.set(kColGain, "Gain", v, lineIn());
     b.set(kColMonitor, "Monitor", a.cfg.recMonitor ? "On" : "Off", lineIn());
@@ -115,6 +126,10 @@ void ResampleScreen::change(int d) {
         case 1: r.length = uint8_t(clampi(r.length + d, 0, ResampleSettings::kLengths - 1)); break;
         case kColSlices: r.slices = uint8_t(clampi(r.slices + d, 0, ResampleSettings::kSlices - 1)); break;
         case kColPlace: r.place = uint8_t(clampi(r.place + d, 0, ResampleSettings::kPlaces - 1)); break;
+        case kColInto:
+            r.into = uint8_t(clampi(r.into + d, 0, ResampleSettings::kInto - 1));
+            a.resampleIntoOk = -1;
+            break;
         case kColGain:
             a.cfg.recGain[0] = uint8_t(clampi(a.cfg.recGain[0] + d, 0, 100));
             a.selectInput(0, a.cfg.recGain[0]);
@@ -145,7 +160,7 @@ void ResampleScreen::onButton(uint8_t id, uint8_t st) {
         refreshBar();
         return;
     }
-    const int n = lineIn() ? 6 : 4;
+    const int n = lineIn() ? 7 : 5;
     if (id == btn::Left || id == btn::Right) {
         int i = 0;
         while (i < n - 1 && kCols[i] != sel) ++i;
@@ -161,8 +176,8 @@ void ResampleScreen::onButton(uint8_t id, uint8_t st) {
         return;
     }
     if (id >= btn::F1 && id <= btn::F7) {
-        // F1..F4 select From / Length / Slices / Place on (again: the next
-        // item, with wrap); F6 / F7 Gain / Monitor (again on Monitor: toggle).
+        // F1..F5 select From / Length / Slices / Into / Place on (again: the
+        // next item, with wrap); F6 / F7 Gain / Monitor (again on Monitor: toggle).
         const int c = id - btn::F1;
         int i = 0;
         while (i < n && kCols[i] != c) ++i;
@@ -176,6 +191,10 @@ void ResampleScreen::onButton(uint8_t id, uint8_t st) {
             if (c == 1) r.length = uint8_t((r.length + 1) % ResampleSettings::kLengths);
             if (c == kColSlices) r.slices = uint8_t((r.slices + 1) % ResampleSettings::kSlices);
             if (c == kColPlace) r.place = uint8_t((r.place + 1) % ResampleSettings::kPlaces);
+            if (c == kColInto) {
+                r.into = uint8_t((r.into + 1) % ResampleSettings::kInto);
+                a.resampleIntoOk = -1;
+            }
             if (c == kColMonitor) change(a.cfg.recMonitor ? 1 : -1);
         }
         if (lineIn() || c <= kColPlace) sel = c;
@@ -214,7 +233,20 @@ void ResampleScreen::draw(Gfx& g) {
     list(g, th, 1, kLength, ResampleSettings::kLengths, r.length % ResampleSettings::kLengths);
     list(g, th, kColSlices, kSlices, ResampleSettings::kSlices, r.slices % ResampleSettings::kSlices);
     list(g, th, kColPlace, kPlace, ResampleSettings::kPlaces, r.place % ResampleSettings::kPlaces);
-    // The take's state at the top of its column; for Line in the level below.
+    {
+        wg::ListView v;
+        v.x = kColX0 + 100 * kColInto;
+        v.w = wg::columnW();
+        v.count = ResampleSettings::kInto;
+        v.sel = r.into % ResampleSettings::kInto;
+        intoTop_ = wg::listFollow(v.sel, v.count, wg::listVisibleRows(v.h), intoTop_);
+        v.top = intoTop_;
+        v.selStyle = wg::ListSel::kWhite;
+        v.item = intoItem;
+        v.ctx = &a;
+        wg::list(g, th, v);
+    }
+    // The take's state above Record; for Line in the level below.
     wg::panel(g, th, kColX0 + 100 * kColState);
     const Resampler& rs = a.resampler;
     const char* line1 = "Ready";
@@ -232,10 +264,13 @@ void ResampleScreen::draw(Gfx& g) {
             else
                 std::snprintf(line2, sizeof(line2), "bar %lu", static_cast<unsigned long>(rs.barsDone() + 1));
             break;
-        default:
-            if (a.nextResampleSlot() < 0) std::snprintf(line2, sizeof(line2), "no free slot");
-            else std::snprintf(line2, sizeof(line2), "-> Instr %d", a.nextResampleSlot() + 1);
+        default: {
+            bool inPlace = false;
+            const int t = a.resampleTarget(0, &inPlace, nullptr);
+            if (t < 0) std::snprintf(line2, sizeof(line2), "no free slot");
+            else std::snprintf(line2, sizeof(line2), inPlace ? "replace %d" : "-> Instr %d", t + 1);
             break;
+        }
     }
     const int cx = wg::columnX(kColState) + wg::columnW() / 2;
     const bool on = rs.state() == Resampler::kRecording || rs.state() == Resampler::kStopping;
@@ -262,7 +297,6 @@ void ResampleScreen::draw(Gfx& g) {
         wg::panel(g, th, kColX0 + 100 * kColGain);
         wg::panel(g, th, kColX0 + 100 * kColMonitor);
     }
-    wg::panel(g, th, kColX0 + 700);
     wg::panelFocus(g, th, wg::columnX(sel), wg::columnW());
 }
 
