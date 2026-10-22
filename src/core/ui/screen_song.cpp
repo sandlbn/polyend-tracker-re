@@ -621,7 +621,7 @@ void SongScreen::draw(Gfx& g) {
         const int len = a.pattern().tracks[0].lastStep + 1;
         const int st = clampi(a.seq.step(0), 0, len > 0 ? len - 1 : 0);
         const int y = kGridY + kPitchY * (playing - first) + (len > 0 ? (kPitchY - 2) * st / len : 0);
-        g.fill(kGridX, y, kPitchX * kTrackCount - 1, 2, th.slot(slot::kSongList + 9));   // 30cb3f
+        g.fill(kGridX, y, kPitchX * kGridCols - 1, 2, th.slot(slot::kSongList + 9));   // 30cb3f
     }
     if (focus == 0) {
         // Grid selection (edit mode): white 1.5-px outline on the gaps,

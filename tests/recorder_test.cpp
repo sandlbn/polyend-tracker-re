@@ -746,3 +746,28 @@ TEST(recorder_name_readable_on_every_theme) {
         CHECK_STR(colour.c_str(), want[t]);
     }
 }
+
+TEST(recorder_monitor_only_on_setup_and_while_recording) {
+    // Owner request: after a take the input (radio, line) no longer plays
+    // under Preview / the pads in the edit view; it monitors on the setup
+    // page and while recording.
+    Harness h;
+    App& a = *h.app;
+    a.cfg.recMonitor = 1;
+    toneBlocks(h, 0, 1000);
+    h.tap(btn::SampleRecorder);
+    h.run(20);
+    CHECK(!a.inputMonitorMuted);   // setup page
+    h.tap(btn::F8);                // Record
+    h.run(20);
+    CHECK(!a.inputMonitorMuted);   // recording
+    h.lineBlocks = 0;
+    h.audio.pump(30);
+    h.tap(btn::F8);                // Stop -> edit view
+    h.run(20);
+    CHECK_EQ(rec(h).state, 1);
+    CHECK(a.inputMonitorMuted);
+    h.tap(btn::F7);                // Cancel -> setup again
+    h.run(20);
+    if (rec(h).state == 0) CHECK(!a.inputMonitorMuted);
+}

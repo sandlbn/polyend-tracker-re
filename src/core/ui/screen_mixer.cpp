@@ -282,6 +282,19 @@ void MixerScreen::start(int opt) {
         actStep_[i] = -1;
         actUntil_[i] = 0;
     }
+    // Meters and peak-hold marks restart empty: they only update while this
+    // page is shown, so marks from an earlier visit stayed frozen after the
+    // song stopped (user report).
+    for (int t = 0; t < 8; ++t) {
+        meter[t] = meterHold[t] = 0;
+        for (float& v : hist_[t]) v = 0.0f;
+    }
+    for (int i = 0; i < 4; ++i)
+        for (int c = 0; c < 2; ++c) {
+            globalMeter[i][c] = 0;
+            for (float& v : ghist_[i][c]) v = 0.0f;
+        }
+    for (int& v : synthMeter) v = 0;
     // The entering Master press is consumed by the switch (spec 06 §0.3).
     masterPending_ = otherKeyDuringMaster_ = masterHoldFired_ = false;
     refreshBar();

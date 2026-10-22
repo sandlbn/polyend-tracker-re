@@ -516,6 +516,15 @@ TEST(song_progress_line_follows_the_playing_pattern) {
     const int y2 = songProgressY(h);
     CHECK(y1 >= 92);
     CHECK(y2 > y1 + 10);
+    // The line stays inside the 12-column grid (device photo: on 2.x it ran
+    // through the Pattern list), i.e. it ends before the list at x 491.
+    for (size_t i = 0; i + 1 < h.disp.last.size(); ++i) {
+        int x0, yA, x1, yB;
+        if (std::sscanf(h.disp.last[i].c_str(), "VERTEX %d %d", &x0, &yA) == 2 &&
+            std::sscanf(h.disp.last[i + 1].c_str(), "VERTEX %d %d", &x1, &yB) == 2 && x0 == 5 && yB - yA == 1 &&
+            yA == y2)
+            CHECK(x1 < 491);
+    }
     h.tap(btn::F2);   // Stop
     h.run(60);
     a.ui.dirty();
@@ -568,4 +577,21 @@ TEST(song_headers_show_track_names) {
     }
     CHECK(bass);
     CHECK(track2);
+}
+
+TEST(track_mixer_meters_restart_empty) {
+    // User report: peak-hold marks from an earlier visit stayed on the Track
+    // Mixer after the song was stopped elsewhere; the page opens empty.
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);   // Track Mixer 2/3
+    auto& m = *static_cast<MixerScreen*>(a.ui.screen(kModMaster));
+    m.meter[0] = 60;
+    m.meterHold[0] = 70;
+    h.tap(btn::Pattern);
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    CHECK_EQ(m.meter[0], 0);
+    CHECK_EQ(m.meterHold[0], 0);
 }

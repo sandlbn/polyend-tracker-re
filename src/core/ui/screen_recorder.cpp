@@ -675,6 +675,10 @@ int RecorderScreen::arrowSel(int sel, int dir, int state, bool radio) {
 
 void RecorderScreen::update(uint32_t now) {
     App& a = app_;
+    // Monitor (appendix C §2.7) only on the setup page and while recording:
+    // after a take, the input (e.g. the radio) no longer plays under Preview
+    // and the pads while the recording is trimmed (owner request).
+    a.inputMonitorMuted = a.cfg.recMonitor == 0 || (state != 0 && !a.capture.active());
     // Recording finished by the tap itself (memory full, appendix C §2.10).
     if (recording_ && !a.capture.active()) {
         stopRecording();
