@@ -21,6 +21,20 @@ constexpr double kPi = 3.14159265358979323846;
 // (spec 18 §2.2 Overdrive: piecewise soft clip, exponential, stepped).
 const char* const kOdTypes[3] = {"Soft", "Exp", "Step"};
 
+const char* const kEq4OnLabels[2] = {"Off", "On"};
+const char* const kEq4TypeLabels[audio::kEqTypeCount] = {"Bell", "Low Shelf", "High Shelf", "Low Cut", "High Cut", "Notch"};
+const char* const kEq4SlopeLabels[2] = {"12 dB", "48 dB"};
+
+// Band `n` (name prefix "B1".."B4") of the EQ4 table; defaults are the factory
+// layout of audio::eqDefaultBand with every band off.
+#define EQ4_BAND(on, type, freq, q)                                  \
+    {"on", 0, 1, 1, on, kFmtLabel, kEq4OnLabels},                    \
+    {"type", 0, audio::kEqTypeCount - 1, 1, type, kFmtLabel, kEq4TypeLabels}, \
+    {"freq", 20, 20000, 1, freq, kFmtHz, nullptr},                   \
+    {"gain", -15, 15, 0.1f, 0, kFmtDb, nullptr},                     \
+    {"slope", 0, 1, 1, 0, kFmtLabel, kEq4SlopeLabels},               \
+    {"Q", 0.1f, 18, 0.01f, q, kFmtFloat2, nullptr}
+
 // spec 06 §6.4 table (names are OpenTracker's wording).
 const EffectDesc kEffects[kEffectCount] = {
     {"Normalizer", 1, {{"Level", 1, 100, 1, 100, kFmtPercent, nullptr}}},   // SPEC GAP: "runtime min" -> 1
@@ -48,6 +62,10 @@ const EffectDesc kEffects[kEffectCount] = {
       {"High gain", -12, 12, 0.05f, 0, kFmtDb, nullptr},
       {"High freq", 8000, 20000, 100, 12000, kFmtHz, nullptr},
       {"High width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr}}},
+    {"EQ4",
+     4 * kEq4Fields,
+     {EQ4_BAND(0, audio::kEqLowCut, 80, 0.71f), EQ4_BAND(0, audio::kEqPeak, 500, 1.0f),
+      EQ4_BAND(0, audio::kEqPeak, 2500, 1.0f), EQ4_BAND(0, audio::kEqHighCut, 12000, 0.71f)}},
     {"Limiter",
      3,
      {{"Threshold", -60, 0, 1, -6, kFmtDb, nullptr},
@@ -211,6 +229,33 @@ double dynCoef(float ms) {
 
 }  // namespace
 
+void eq4Pack(const audio::TrackEqParams& e, float* p) {
+    for (int b = 0; b < audio::kEqBands; ++b) {
+        const audio::EqBand& bd = e.band[b];
+        float* q = p + b * kEq4Fields;
+        q[0] = bd.on ? 1.0f : 0.0f;
+        q[1] = float(bd.type);
+        q[2] = float(bd.freqHz);
+        q[3] = float(bd.gainDb10) / 10.0f;
+        q[4] = float(bd.slope);
+        q[5] = float(bd.q100) / 100.0f;
+    }
+}
+
+void eq4Unpack(const float* p, audio::TrackEqParams* e) {
+    for (int b = 0; b < audio::kEqBands; ++b) {
+        const float* q = p + b * kEq4Fields;
+        audio::EqBand& bd = e->band[b];
+        bd.on = q[0] >= 0.5f;
+        bd.type = uint8_t(clampi(int(std::lround(q[1])), 0, audio::kEqTypeCount - 1));
+        bd.freqHz = uint16_t(clampi(int(std::lround(q[2])), audio::kEqFreqMin, audio::kEqFreqMax));
+        bd.gainDb10 = int16_t(clampi(int(std::lround(q[3] * 10.0f)), -audio::kEqGainMax, audio::kEqGainMax));
+        bd.q100 = uint16_t(clampi(int(std::lround(q[5] * 100.0f)), audio::kEqQMin, audio::kEqQMax));
+        bd.slope = q[4] >= 0.5f ? 1 : 0;
+        if (!audio::eqSlopeAllowed(b, bd.type)) bd.slope = 0;
+    }
+}
+
 const EffectDesc& effect(int i) { return kEffects[i < 0 || i >= kEffectCount ? 0 : i]; }
 
 void defaults(int fx, float* p) {
@@ -289,7 +334,8 @@ uint32_t outputFrames(int fx, const float* p, uint32_t n) {
     }
 }
 
-uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t cap) {
+uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t* out, uint32_t cap, ProgressFn progress,
+                 void* ctx) {
     const uint32_t m = outputFrames(fx, p, n);
     const uint32_t w = m < cap ? m : cap;
     if (n == 0) {
@@ -454,6 +500,57 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 if (v > 1.0) v = 1.0;
                 if (v < -1.0) v = -1.0;
                 out[i] = sat(v * 32767.0);
+            }
+            break;
+        }
+        case kEq4: {
+            // The track EQ's own biquads (audio::eqStageCoefficients: the curve
+            // on screen) in single precision, transposed direct form II, like
+            // the real-time track EQ: the M4's FPU has no double, so a double
+            // loop ran through software maths and made long samples slow. Done
+            // stage by stage over blocks, rounded and saturated. No active
+            // band: the selection is copied untouched.
+            audio::TrackEqParams eq;
+            eq4Unpack(p, &eq);
+            struct Stage {
+                float c[5], z1, z2;
+            } st[10];
+            int ns = 0;
+            for (int b = 0; b < audio::kEqBands; ++b) {
+                if (!eq.band[b].on || !audio::eqBandActive(eq.band[b])) continue;
+                const int cnt = audio::eqStageCount(eq.band[b]);
+                for (int s = 0; s < cnt && ns < 10; ++s, ++ns) {
+                    audio::eqStageCoefficients(eq.band[b], s, st[ns].c);
+                    st[ns].z1 = st[ns].z2 = 0.0f;
+                }
+            }
+            if (ns == 0) {
+                std::memcpy(out, in, w * sizeof(int16_t));
+                break;
+            }
+            float buf[256];
+            for (uint32_t i0 = 0; i0 < w; i0 += 256) {
+                if (progress && (i0 & 8191u) == 0 && i0) progress(ctx, i0, w);
+                const uint32_t m = w - i0 < 256 ? w - i0 : 256;
+                for (uint32_t k = 0; k < m; ++k) buf[k] = float(in[i0 + k]);
+                for (int s = 0; s < ns; ++s) {
+                    Stage& t = st[s];
+                    const float c0 = t.c[0], c1 = t.c[1], c2 = t.c[2], c3 = t.c[3], c4 = t.c[4];
+                    float z1 = t.z1, z2 = t.z2;
+                    for (uint32_t k = 0; k < m; ++k) {
+                        const float x = buf[k];
+                        const float y = c0 * x + z1;
+                        z1 = c1 * x - c3 * y + z2;
+                        z2 = c2 * x - c4 * y;
+                        buf[k] = y;
+                    }
+                    t.z1 = z1;
+                    t.z2 = z2;
+                }
+                for (uint32_t k = 0; k < m; ++k) {
+                    const float v = buf[k];
+                    out[i0 + k] = !(v == v) ? int16_t(0) : v >= 32767.0f ? int16_t(32767) : v <= -32768.0f ? int16_t(-32768) : int16_t(std::lround(v));
+                }
             }
             break;
         }

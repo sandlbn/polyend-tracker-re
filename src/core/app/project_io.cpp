@@ -10,6 +10,7 @@
 #include "app/project_io.h"
 #include "audio/synth_params.h"
 #include "formats/bytes.h"
+#include "formats/track_eq_file.h"
 #include "formats/crc32.h"
 #include "formats/file_io.h"
 #include "formats/pattern_mtp.h"
@@ -444,6 +445,7 @@ bool App::newProject() {
     f.mkdir("Workspace/instruments");
     f.mkdir("Workspace/patterns");
     f.mkdir("Workspace/samples");
+    trackEq = audio::TrackEqSet();   // OpenTracker: per-track EQ back to off
     project.setDefault();
     project.setName("New Project");
     project.setFolder("");
@@ -1521,6 +1523,11 @@ bool App::jobUnit(uint32_t& cost) {
                 return false;
             }
             project = p;
+            // OpenTracker per-track EQ sidecar: missing / damaged = EQ off.
+            trackEq = audio::TrackEqSet();
+            trackEqFilePath(src, sizeof(src), kWorkspace);
+            (void)loadTrackEqFile(f, src, trackEq);
+            engineDirty_ = true;
             pj_.sizeMismatch = pinfo.sizeMismatch;
             pj_.slotReset = uint8_t(pj_.slotReset | pinfo.synthSlotsReset);   // Open: also the source file's check
             std::memset(extKeep_, 0, sizeof(extKeep_));
@@ -1754,6 +1761,16 @@ bool App::jobUnit(uint32_t& cost) {
                 return false;
             }
             cost += kJobSmallCost;
+            // OpenTracker: the project's track EQ sidecar comes along (a
+            // project without one simply has none in the Workspace).
+            if (pj_.fromProject) {
+                audio::TrackEqSet eq;
+                trackEqFilePath(src, sizeof(src), pj_.dir);
+                if (loadTrackEqFile(f, src, eq) == FmtStatus::Ok) {
+                    trackEqFilePath(dst, sizeof(dst), kWorkspace);
+                    if (saveTrackEqFile(f, dst, eq) != FmtStatus::Ok) ++pj_.loadErrors;
+                }
+            }
             // Steps 3-6 run inside the load (instruments, names, patterns).
             jobBeginLoad();
             return true;
@@ -1846,6 +1863,13 @@ bool App::jobUnit(uint32_t& cost) {
                     projectDirty_ = true;
                     ++pj_.loadErrors;
                 }
+                // OpenTracker: every EQ edit marks the project dirty, so the
+                // sidecar follows project.mt into the Workspace.
+                trackEqFilePath(dst, sizeof(dst), kWorkspace);
+                if (saveTrackEqFile(f, dst, trackEq) != FmtStatus::Ok) {
+                    projectDirty_ = true;
+                    ++pj_.loadErrors;
+                }
                 cost += kJobSmallCost;
             }
             pj_.stage = kAPatch;
@@ -1905,6 +1929,17 @@ bool App::jobUnit(uint32_t& cost) {
             f.mkdir(dst);
             projectFilePath(dst, sizeof(dst), pj_.dir);
             if (saveProjectFile(f, dst, project) != FmtStatus::Ok) ++pj_.loadErrors;
+            // OpenTracker: the track EQ sidecar. Not created for a project that
+            // never used it; an existing one is rewritten (also back to defaults).
+            trackEqFilePath(dst, sizeof(dst), pj_.dir);
+            {
+                uint8_t cur[kTrackEqFileSize], def[kTrackEqFileSize];
+                encodeTrackEq(trackEq, cur);
+                encodeTrackEq(audio::TrackEqSet(), def);
+                if ((std::memcmp(cur, def, sizeof(cur)) != 0 || f.exists(dst)) &&
+                    saveTrackEqFile(f, dst, trackEq) != FmtStatus::Ok)
+                    ++pj_.loadErrors;
+            }
             cost += 4 * kJobSmallCost;
             pj_.stage = kSPatterns;
             pj_.idx = 1;

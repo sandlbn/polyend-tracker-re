@@ -49,7 +49,7 @@ void params(int fx, float* p) { sfx::defaults(fx, p); }
 }  // namespace
 
 TEST(stock_normalizer) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kNormalizer, p);
     const std::vector<int16_t> in = {1000, -333, 0, 500};
     Run r = run(sfx::kNormalizer, p, in);
@@ -66,7 +66,7 @@ TEST(stock_normalizer) {
 }
 
 TEST(stock_crop_reverse) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kCrop, p);
     const auto in = sine(1000, 9000, 300);
     Run r = run(sfx::kCrop, p, in);
@@ -77,7 +77,7 @@ TEST(stock_crop_reverse) {
 }
 
 TEST(stock_amplifier_trunc_and_saturation) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kAmplifier, p);
     p[0] = 0.5f;
     Run r = run(sfx::kAmplifier, p, {-3, 3, 7, -7});
@@ -93,7 +93,7 @@ TEST(stock_amplifier_trunc_and_saturation) {
 }
 
 TEST(stock_overdrive_types) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kOverdrive, p);
     CHECK_NEAR(p[0], 1.0, 1e-6);
     // Type 0: y = 2s below 1/3 FS, (3 - (2 - 3a)^2)/3 up to 2/3 FS, FS above.
@@ -128,7 +128,7 @@ TEST(stock_overdrive_types) {
 }
 
 TEST(stock_delay_multitap_and_length) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kDelay, p);
     // Defaults f = 0.95, 50 ms: D = 2205, K = 90 (0.95^90 <= 0.01 < 0.95^89).
     CHECK_EQ(sfx::outputFrames(sfx::kDelay, p, 1000), 1000u + 90u * 2205u);
@@ -158,7 +158,7 @@ TEST(stock_delay_multitap_and_length) {
 }
 
 TEST(stock_bitcrusher_hold_and_bits) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kBitcrusher, p);
     // R = 44100: H = round(44117.647 / 44100) = 1; 4 bits. Stock keeps the
     // top bits (floor, (x >> 12) * 4096); OpenTracker deliberately rounds to
@@ -189,7 +189,7 @@ TEST(stock_bitcrusher_hold_and_bits) {
 }
 
 TEST(stock_chorus_taps) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kChorus, p);
     const auto in = sine(1000, 9000, 300);
     // Voices 1: pass-through.
@@ -217,7 +217,7 @@ TEST(stock_chorus_taps) {
 }
 
 TEST(stock_flanger) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kFlanger, p);   // length 128 (L = 64), offset 50 % = 32, depth 1, 1 Hz
     Run r = run(sfx::kFlanger, p, impulse(400, 10000, 0));
     CHECK_EQ(r.len, 400u);
@@ -239,7 +239,7 @@ TEST(stock_flanger) {
 }
 
 TEST(stock_equalizer) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kEqualizer, p);
     // All bands at 0 dB (linear 1.0): bypassed.
     const auto mid = sine(44100, 2000, 800);
@@ -267,7 +267,7 @@ TEST(stock_equalizer) {
 }
 
 TEST(stock_limiter) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kLimiter, p);   // -6 dB, 3 ms, 300 ms
     // Below the threshold the gain stays exactly 1.
     const auto quiet = sine(22050, 10000, 440);
@@ -284,7 +284,7 @@ TEST(stock_limiter) {
 }
 
 TEST(stock_compressor) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kCompressor, p);   // -12 dB, 4:1, 10 ms, 50 ms
     // Below the threshold: unchanged.
     const auto quiet = sine(22050, 3000, 440);
@@ -305,7 +305,7 @@ TEST(stock_compressor) {
 }
 
 TEST(stock_wavetable_smoother) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kWavetableSmoother, p);
     // Source: 10 windows of 100 samples, window j holds 1000 j.
     std::vector<int16_t> in(1000);
@@ -339,7 +339,7 @@ TEST(stock_wavetable_smoother) {
 }
 
 TEST(stock_timestretch) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kStretchNote, p);
     // Target 0 means the current length.
     p[0] = 0;
@@ -376,7 +376,7 @@ TEST(stock_timestretch) {
 }
 
 TEST(stock_fades) {
-    float p[9];
+    float p[sfx::kMaxParams];
     params(sfx::kFadeIn, p);
     const std::vector<int16_t> dc(1000, 10000);
     Run r = run(sfx::kFadeIn, p, dc);

@@ -137,6 +137,12 @@ struct MixerSettings {
     uint8_t metronomeVolume = 50;
     uint8_t previewVolume = 86;
 
+    // Per-track 4-band EQ on the 8 sample tracks (OpenTracker extension,
+    // audio/track_eq.h). Not part of project.mt (loadFromProject leaves it
+    // alone): the app keeps it in a sidecar file next to the project
+    // (formats/track_eq_file.h).
+    TrackEqSet trackEq;
+
     // Fill from the project values block (file offsets; RAM 0x20004780 + f,
     // spec 02 §3.3, spec 07). Fields without a project location keep their value.
     void loadFromProject(const Project& p);

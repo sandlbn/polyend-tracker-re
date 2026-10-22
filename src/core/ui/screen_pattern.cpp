@@ -468,9 +468,12 @@ void PatternScreen::refreshBar() {
         default:
             b.set(0, "Pattern", "name");
             b.set(1, "Track", "name");
+            // OpenTracker extension: the EQ of the track under the cursor (tracks 1-8).
+            b.set(2, "Track EQ", track < 8 ? nullptr : "1-8 only", track < 8);
             b.set(7, "More");
             b.underline(0, wg::kUnderlineAvailable);
             b.underline(1, wg::kUnderlineAvailable);
+            if (track < 8) b.underline(2, wg::kUnderlineAvailable);
             b.pages(7, 3, page);
             break;
     }
@@ -520,7 +523,8 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
         } else if (!muteOverlay) {
             pageButton(id, state);
         }
-        refreshBar();
+        // A page key may have switched screens (Track EQ): the new screen owns the bar now.
+        if (ui_.active() == kModPattern) refreshBar();
         return;
     }
     const int ck = colForKey(id);
@@ -888,6 +892,16 @@ void PatternScreen::pageButton(int f, uint8_t state) {
                         self->app_.markProjectDirty();
                     },
                     this);
+    } else if (f == 2) {
+        // Track EQ of the cursor track; the Pattern key comes back here.
+        if (track < 8) {
+            char msg[32];
+            std::snprintf(msg, sizeof(msg), "Track EQ: track %d", track + 1);
+            ui_.switchTo(kModMaster, (4 << 8) | track);
+            ui_.notify(msg, 1500);   // shown on the EQ page; proves the key was handled
+        } else {
+            ui_.notify("Track EQ: tracks 1-8 only");
+        }
     }
 }
 

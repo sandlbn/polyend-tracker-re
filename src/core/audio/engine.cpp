@@ -529,6 +529,7 @@ void AudioEngine::controlBlock(float blockUs) {
             c.delayLevel = dl;
             c.reverbLevel = rl;
             c.postFaderSends = m.postFaderSends;
+            voices_[t].setEq(m.trackEq.track[t]);
         }
         c.ampTap = t == kMetronomeVoice;   // o.amp of stereo voices: metronome + side-chain track
         voices_[t].control(c);

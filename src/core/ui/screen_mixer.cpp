@@ -2,10 +2,12 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 
 #include "app/app.h"
 #include "app/perf_presets.h"
 #include "app/project_fields.h"
+#include "ui/eq_view.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -56,6 +58,10 @@ void levelText(uint8_t v, char* out, int cap) {
     else std::snprintf(out, size_t(cap), "%.2f dB", double(20.0f * std::log10(g)));
 }
 
+// Track EQ text and graph: ui/eq_view.cpp.
+void eqFreqText(int hz, char* out, int cap) { eqv::freqText(hz, out, cap); }
+void eqGainText(const audio::EqBand& b, int index, char* out, int cap) { eqv::gainText(b, index, out, cap); }
+void eqQText(const audio::EqBand& b, char* out, int cap) { eqv::qText(b, out, cap); }
 // --- stock Mixer / Master chrome (spec 20 §4.9, VISUAL_DIFF §8.11-8.13) ----
 // Columns sit at x = 2 + 100 k (C8).
 inline int colX(int k) { return 2 + 100 * k; }
@@ -276,6 +282,10 @@ constexpr const char* kBankBText = "Tracks 9-16";
 void MixerScreen::start(int opt) {
     const int hi = (opt >> 8) & 0xFF;
     if (hi >= 1 && hi <= 3) page = hi - 1;
+    else if (hi == 4) {   // OpenTracker: the Track EQ of track (opt & 0xFF), opened from the Pattern screen
+        page = 3;
+        eqTrack = clampi(opt & 0xFF, 0, 7);
+    } else if (page == 3) page = 1;   // entering Master by its key never lands on the EQ
     for (auto& h : held_) h = false;
     for (int i = 0; i < 8; ++i) {
         activity[i] = false;
@@ -404,6 +414,26 @@ void MixerScreen::refreshBar() {
         }
         return;
     }
+    if (page == 3) {
+        // OpenTracker per-track EQ: F1..F4 pick a band (again = on / off),
+        // F5..F8 pick the parameter the jog wheel edits.
+        const audio::EqBand& bd = a.trackEq.track[eqTrack].band[eqBand];
+        for (int i = 0; i < audio::kEqBands; ++i) {
+            std::snprintf(v, sizeof(v), "Band %d", i + 1);
+            b.set(i, v, a.trackEq.track[eqTrack].band[i].on ? "On" : "Off");
+            b.highlight(i, i == eqBand);
+        }
+        b.set(4, "Type", audio::eqTypeName(bd.type));
+        eqFreqText(bd.freqHz, v, sizeof(v));
+        b.set(5, "Freq", v);
+        eqGainText(bd, eqBand, v, sizeof(v));
+        const bool slopeParam = audio::eqSlopeAllowed(eqBand, bd.type);
+        b.set(6, slopeParam ? "Slope" : "Gain", v, slopeParam || audio::eqUsesGain(bd.type));
+        eqQText(bd, v, sizeof(v));
+        b.set(7, "Q", v);
+        b.highlight(4 + eqParam, true);
+        return;
+    }
     if (page == 1) {
         // Label: fader level (grey) / action (white); the track name is
         // the column header [S snap 023]. A muted channel's label uses the
@@ -511,6 +541,10 @@ void MixerScreen::change(int d) {
         masterChange(d);
         return;
     }
+    if (page == 3) {
+        eqChange(d);
+        return;
+    }
     bool any = false;
     for (int i = 0; i < 8; ++i) {
         if (!held_[i]) continue;
@@ -523,6 +557,44 @@ void MixerScreen::change(int d) {
         else if (i < kSynthCol + kSynthSlotCount) synthGainStep(a, i - kSynthCol, float(d), false);
     }
     if (any && !(page == 1 && bank)) a.markProjectDirty();
+}
+
+void MixerScreen::eqKey(int f) {
+    audio::EqBand& bd = app_.trackEq.track[eqTrack].band[eqBand];
+    if (f < audio::kEqBands) {
+        if (f == eqBand) {
+            bd.on = !bd.on;
+            app_.markProjectDirty();
+        } else {
+            eqBand = f;
+        }
+    } else {
+        eqParam = f - audio::kEqBands;
+    }
+}
+
+void MixerScreen::eqChange(int d) {
+    if (d == 0) return;
+    audio::EqBand& bd = app_.trackEq.track[eqTrack].band[eqBand];
+    const bool coarse = ui_.shift();
+    switch (eqParam) {
+        case 0:
+            bd.type = audio::eqStepType(bd.type, d > 0 ? 1 : -1);
+            if (!audio::eqSlopeAllowed(eqBand, bd.type)) bd.slope = 0;   // no hidden 48 dB on a bell
+            break;
+        case 1: bd.freqHz = audio::eqStepFreq(bd.freqHz, d, coarse); break;
+        case 2:
+            if (audio::eqSlopeAllowed(eqBand, bd.type)) {   // 12 <-> 48 dB/oct
+                bd.slope = bd.slope ? 0 : 1;
+                break;
+            }
+            if (!audio::eqUsesGain(bd.type)) return;
+            bd.gainDb10 = audio::eqStepGain(bd.gainDb10, d, coarse);
+            break;
+        default: bd.q100 = audio::eqStepQ(bd.q100, d, coarse); break;
+    }
+    bd.on = true;   // an edited band is audible at once
+    app_.markProjectDirty();
 }
 
 void MixerScreen::mixerKey(int i, uint8_t state) {
@@ -609,7 +681,8 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 ui_.switchTo(ui_.previous());
                 return;
             }
-            if (!masterHoldFired_) page = (page + 1) % 3;   // the hold already jumped
+            // The hold already jumped. From the Track EQ page Master returns to the Track Mixer.
+            if (!masterHoldFired_) page = page == 3 ? 1 : (page + 1) % 3;
         }
         refreshBar();
         return;
@@ -640,6 +713,8 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 const int maxF = sub == 2 ? 6 : 4;
                 if (f <= maxF && !(sub == 3 && f == 3)) param = (sub == 3 && f == 4) ? 3 : f;
             }
+        } else if (page == 3) {
+            if (state == kPress) eqKey(f);
         } else {
             mixerKey(f, state);
         }
@@ -663,7 +738,10 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
         }
         case btn::Left:
         case btn::Right:
-            if (page == 1) {
+            if (page == 3) {
+                eqTrack = clampi(eqTrack + (id == btn::Right ? 1 : -1), 0, 7);
+                ui_.dirty();
+            } else if (page == 1) {
                 // 2.x Track Mixer bank: Left = tracks 1-8, Right = 9-16
                 // (unbound on the stock Track Mixer, 2x-01 §4).
                 const int nb = id == btn::Right ? 1 : 0;
@@ -688,6 +766,11 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
             }
             break;
         case btn::Delete:
+            if (page == 3) {   // Delete resets the selected EQ band to its default
+                app_.trackEq.track[eqTrack].band[eqBand] = audio::eqDefaultBand(eqBand);
+                app_.markProjectDirty();
+                break;
+            }
             // Delete resets held faders to 86 = 0 dB (spec 06 §4.4, spec 07 Q3/Q6).
             if (page == 1 && bank) break;   // no bank-B levels
             if (page == 1)
@@ -700,6 +783,23 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                     if (held_[kSynthCol + s]) synthGainStep(app_, s, 0.0f, true);   // 0 dB like the faders
             }
             app_.markProjectDirty();
+            break;
+        case btn::Insert:
+            // OpenTracker extension: hold a track key (Track Mixer, tracks 1-8) and press Insert
+            // to open that track's EQ. The track key then does not mute on release.
+            if (page == 1 && !bank) {
+                for (int i = 0; i < 8; ++i) {
+                    if (!held_[i]) continue;
+                    eqTrack = i;
+                    page = 3;
+                    for (int k = 0; k < 8; ++k) {
+                        held_[k] = false;
+                        changed_[k] = true;
+                    }
+                    ui_.dirty();
+                    break;
+                }
+            }
             break;
         case btn::Rec:
             if (page == 1) rename = !rename;
@@ -924,6 +1024,10 @@ void MixerScreen::draw(Gfx& g) {
         }
         return;
     }
+    if (page == 3) {
+        drawTrackEq(g);
+        return;
+    }
     // Muted fader: the value-bar alt slot, 222222 on Original [S snap 024],
     // 303030 on Monochrome [S round 3, snap 010].
     const uint32_t off = th.slot(slot::kValueBarAlt);
@@ -1002,6 +1106,61 @@ void MixerScreen::draw(Gfx& g) {
     bodies(g, th, ui_, bd, nb);
     bars(g, th, br, nr);
     wg::panel(g, th, colX(7), 30, 96, wg::kPanelH - 1);
+}
+
+
+// Track EQ page (OpenTracker extension): the combined response of the four
+// bands on a log-frequency axis (20 Hz .. 20 kHz, +-15 dB), one marker per
+// active band, and the band / parameter columns under F1..F8.
+void MixerScreen::drawTrackEq(Gfx& g) {
+    App& a = app_;
+    const Theme& th = ui_.th();
+    const audio::TrackEqParams& tp = a.trackEq.track[eqTrack];
+    char nm[24], right[64];
+    a.project.trackName(eqTrack, nm, sizeof(nm));
+    std::snprintf(right, sizeof(right), "Track %d  %s", eqTrack + 1, nm);
+    ui_.drawTitle(g, "Track EQ", right);
+
+    eqv::drawGraph(g, th, tp, eqBand, 2, 29, 796, 255);
+
+    // Lower half: F1..F4 = the four bands (type / freq / gain / Q), F5..F8 =
+    // the selected band's four parameters, big, in the order of the labels.
+    const uint32_t panelC = th.slot(slot::kEmptyPanel + 1);
+    const uint32_t ink = th.slot(slot::kList + 4);
+    const uint32_t dim = wg::mix(panelC, ink, 40);
+    for (int i = 0; i < audio::kEqBands; ++i) {
+        const audio::EqBand& bd = tp.band[i];
+        char hd[24], f[24], gn[24], q[24];
+        std::snprintf(hd, sizeof(hd), "Band %d", i + 1);
+        wg::panel(g, th, colX(i), 288, 96, 135, panelC);
+        const uint32_t c = bd.on ? ink : dim;
+        g.text(50 + 100 * i, 301, kFont4, c, hd, IDisplay::kOptCenter);
+        eqFreqText(bd.freqHz, f, sizeof(f));
+        eqGainText(bd, i, gn, sizeof(gn));
+        eqQText(bd, q, sizeof(q));
+        const char* rows[4] = {audio::eqTypeName(bd.type), f, gn, q};
+        for (int k = 0; k < 4; ++k) g.text(50 + 100 * i, 327 + 24 * k, kFont1, c, rows[k], IDisplay::kOptCenter);
+        if (i == eqBand) g.frame(colX(i) + 4, 327 + 24 * eqParam - 10, 88, 20, th.slot(slot::kFocusFrame));
+    }
+    {
+        const audio::EqBand& bd = tp.band[eqBand];
+        char f[24], gn[24], q[24];
+        eqFreqText(bd.freqHz, f, sizeof(f));
+        eqGainText(bd, eqBand, gn, sizeof(gn));
+        eqQText(bd, q, sizeof(q));
+        const bool slopeCol = audio::eqSlopeAllowed(eqBand, bd.type);
+        const char* names[4] = {"Type", "Freq", slopeCol ? "Slope" : "Gain", "Q"};
+        const char* vals[4] = {audio::eqTypeName(bd.type), f, gn, q};
+        for (int k = 0; k < 4; ++k) {
+            const int x = colX(4 + k);
+            wg::panel(g, th, x, 288, 96, 135, panelC);
+            const bool off = !bd.on || (k == 2 && !slopeCol && !audio::eqUsesGain(bd.type));
+            g.text(x + 48, 301, kFont4, off ? dim : ink, names[k], IDisplay::kOptCenter);
+            g.text(x + 48, 360, kFont1, off ? dim : ink, vals[k], IDisplay::kOptCenter);
+        }
+        wg::focusFrame(g, th, colX(4 + eqParam) - 1, 288, colX(4 + eqParam) + 96, 422);
+    }
+    wg::focusFrame(g, th, colX(eqBand) - 1, 288, colX(eqBand) + 96, 422);
 }
 
 }  // namespace ot

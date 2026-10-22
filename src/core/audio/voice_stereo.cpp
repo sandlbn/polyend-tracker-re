@@ -468,6 +468,7 @@ void Voice::renderPlayerSt(float* outL, float* outR, uint32_t n) {
 OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* dsend, float* rsend, float* mixL, float* mixR) {
     if (!lastSt_) {   // mono -> stereo: the right channel state continues from the left one
         svfR_ = svf_;
+        eqR_ = eq_;   // the EQ tail continues on the right channel too
         filtLastR_ = filtLast_;
         lastSt_ = true;
     }
@@ -488,7 +489,8 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
     float* __restrict oa = o.amp;
     float* __restrict ol = o.l;
     float* __restrict orr = o.r;
-    if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && !filtOn_ && !filtXfade_ && mixL && mixR) {
+    if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && !filtOn_ && !filtXfade_ && !eq_.active() && mixL &&
+        mixR) {
         filtLast_ = xl[kBlock - 1] * eg[kBlock - 1];
         filtLastR_ = xr[kBlock - 1] * eg[kBlock - 1];
         OutRamps g;
@@ -516,8 +518,8 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
         peak_ = stereoPeak(o);
         return true;
     }
-    if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && filtOn_ && !filtXfade_ && mixL && mixR &&
-        svf_.fm == svfR_.fm && svf_.dp == svfR_.dp) {
+    if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && filtOn_ && !filtXfade_ && !eq_.active() && mixL &&
+        mixR && svf_.fm == svfR_.fm && svf_.dp == svfR_.dp) {
         // Filter only: envelope, both filters, sends, volume, balance and
         // the dry-bus sum in one pass.
         OutRamps g;
@@ -587,6 +589,12 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
     }
     filtLast_ = xl[kBlock - 1];
     filtLastR_ = xr[kBlock - 1];
+    // Track EQ insert (audio/track_eq.h): the same settings on both channels,
+    // each with its own filter state; before the sends.
+    if (eq_.active()) {
+        eq_.process(xl, kBlock);
+        eqR_.process(xr, kBlock);
+    }
     // Sends: (L + R) / 2, post-filter, pre-volume.
     float s0, s1;
     const float di = sendD_.begin(s0);

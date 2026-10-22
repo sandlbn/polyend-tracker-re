@@ -12,6 +12,8 @@
 
 #include <cstdint>
 
+#include "audio/track_eq.h"
+
 namespace ot {
 namespace sfx {
 
@@ -26,6 +28,7 @@ enum Effect : uint8_t {
     kChorus,
     kFlanger,
     kEqualizer,
+    kEq4,           // OpenTracker: the 4-band track EQ, offline (after Equalizer)
     kLimiter,
     kCompressor,
     kWavetableSmoother,
@@ -33,10 +36,13 @@ enum Effect : uint8_t {
     kStretchNote,
     kFadeIn,
     kFadeOut,
-    kEffectCount = 17,
+    kEffectCount = 18,
 };
 
-constexpr int kMaxParams = 9;
+// 24 = the EQ4 effect: four bands of six values (kEq4Fields). Every other
+// effect has at most 9.
+constexpr int kMaxParams = 24;
+constexpr int kEq4Fields = 6;   // per band: on, type, freq Hz, gain dB, slope, Q
 constexpr uint32_t kMaxFrames = 0x1E0000;   // spec 06 §6.1/§6.3 length limit
 
 // Display formats for parameter values.
@@ -72,7 +78,13 @@ struct EffectDesc {
 };
 
 const EffectDesc& effect(int i);
-// Default parameter table (spec 06 §6.1 "17 x 9 default table").
+// EQ4 parameter block: band b occupies p[6b .. 6b+5] = on (0/1), type
+// (audio::EqType), freq (Hz), gain (dB), slope (0 = 12, 1 = 48 dB/oct), Q.
+// Unpack clamps everything and drops a slope the band cannot have.
+void eq4Pack(const audio::TrackEqParams& e, float* p);
+void eq4Unpack(const float* p, audio::TrackEqParams* e);
+
+// Default parameter table (spec 06 §6.1 "17 x 9 default table"; EQ4 adds 24).
 void defaults(int fx, float* params);
 float clampParam(int fx, int i, float v);
 void formatParam(int fx, int i, float v, char* out, int cap);
@@ -82,7 +94,11 @@ void formatParam(int fx, int i, float v, char* out, int cap);
 uint32_t outputFrames(int fx, const float* params, uint32_t n);
 // Process n input frames into out (capacity cap); returns frames written
 // (== outputFrames unless cap is smaller). in and out must not overlap.
-uint32_t process(int fx, const float* params, const int16_t* in, uint32_t n, int16_t* out, uint32_t cap);
+// `progress` (optional) is called now and then with (ctx, frames done, frames
+// total) while a long effect runs (EQ4); the other effects are quick.
+using ProgressFn = void (*)(void* ctx, uint32_t done, uint32_t total);
+uint32_t process(int fx, const float* params, const int16_t* in, uint32_t n, int16_t* out, uint32_t cap,
+                 ProgressFn progress = nullptr, void* ctx = nullptr);
 
 }  // namespace sfx
 }  // namespace ot

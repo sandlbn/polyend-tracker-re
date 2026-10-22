@@ -971,6 +971,8 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
             zeroWords(o.amp, sizeof(o.amp));
             zeroWords(o.l, sizeof(o.l));
             zeroWords(o.r, sizeof(o.r));
+            eq_.reset();   // no stale EQ state into the next note
+            eqR_.reset();
             cleanOut_ = &o;
         }
         peak_ = 0.0f;
@@ -1000,7 +1002,8 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     // Sample end (one-shot/slice) with no retrigger pending: the voice is done.
     if (!playing_ && !pending_.valid) env_.stop();
     float* __restrict oa = o.amp;
-    if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && !filtOn_ && !filtXfade_ && mixL && mixR) {
+    if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && !filtOn_ && !filtXfade_ && !eq_.active() && mixL &&
+        mixR) {
         // No crusher / overdrive / filter: envelope, sends, volume, pan and
         // the dry-bus sum in one pass (identical arithmetic to the stages
         // below; x * (eg * 1) == x * eg).
@@ -1034,7 +1037,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         peak_ = amax * panMax;
         return true;
     }
-    if (!filtXfade_ && mixL && mixR && !keepLR) {
+    if (!filtXfade_ && !eq_.active() && mixL && mixR && !keepLR) {
         // Crusher / overdrive / filter on: the whole chain in one pass.
         OutRamps g;
         g.di = sendD_.begin(g.s0);
@@ -1105,6 +1108,9 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         filtXfade_ = false;
     }
     filtLast_ = x[kBlock - 1];
+    // Track EQ insert (OpenTracker extension, audio/track_eq.h): after the
+    // filter, before the sends, so the delay / reverb sends carry the EQ'd sound.
+    if (eq_.active()) eq_.process(x, kBlock);
     // Sends: post-filter, pre-volume (§1.3). A send ramp that is 0 for the
     // whole block adds nothing and is skipped.
     float s0, s1;

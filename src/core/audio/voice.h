@@ -18,6 +18,7 @@
 
 #include "audio/audio_tables.h"
 #include "audio/dsp.h"
+#include "audio/track_eq.h"
 #include "model/instrument.h"
 
 namespace ot {
@@ -123,6 +124,17 @@ public:
     // Track-0 step index at the next note-on / LFO FX: S_on of the synced
     // LFO phase (spec 07 Q5).
     void setLfoStepLatch(int16_t step0) { curStep0_ = step0; }
+
+    // Per-track EQ insert (OpenTracker extension, audio/track_eq.h): runs after
+    // the filter and before the sends (both channels of a stereo note). The
+    // engine passes the track's parameters every block; this is cheap when
+    // nothing changed, and it re-applies them after reset() (which rebuilds
+    // the voice).
+    void setEq(const TrackEqParams& p) {
+        eq_.set(p);
+        eqR_.set(p);
+    }
+    bool eqActive() const { return eq_.active(); }
 
     // Per-block control (spec 04 §4.8/§4.9): modulators, parameter mapping.
     void control(const VoiceControl& c);
@@ -272,6 +284,7 @@ private:
     float filtLastR_ = 0.0f;
     Svf svfR_;                 // right channel filter (stereo notes)
     uint8_t sendsTouched_ = 0; // see sendsTouched()
+    TrackEq eq_, eqR_;         // per-track EQ: mono / left, right channel (audio/track_eq.h)
 };
 
 }  // namespace audio

@@ -34,12 +34,12 @@ std::vector<int16_t> slot0(App& a) { return std::vector<int16_t>(a.bank.left(0),
 }  // namespace
 
 TEST(sfx_catalogue_and_dsp) {
-    // spec 06 §6.4: 17 effects; parameter counts and defaults.
+    // spec 06 §6.4: 17 stock effects + EQ4; parameter counts and defaults.
     CHECK_STR(sfx::effect(0).name, "Normalizer");
-    CHECK_STR(sfx::effect(16).name, "Fade out");
-    const int counts[17] = {1, 0, 0, 1, 2, 2, 2, 2, 4, 9, 3, 4, 2, 4, 2, 0, 0};
+    CHECK_STR(sfx::effect(17).name, "Fade out");
+    const int counts[sfx::kEffectCount] = {1, 0, 0, 1, 2, 2, 2, 2, 4, 9, 24, 3, 4, 2, 4, 2, 0, 0};
     for (int e = 0; e < sfx::kEffectCount; ++e) CHECK_EQ(sfx::effect(e).params, counts[e]);
-    float p[9];
+    float p[sfx::kMaxParams];
     sfx::defaults(sfx::kDelay, p);
     CHECK_NEAR(p[0], 0.95, 1e-6);
     CHECK_NEAR(p[1], 50, 1e-6);

@@ -1,5 +1,5 @@
 // Sample Editor (spec 06 §6; spec 05 §2.10): Start/End markers with zoom,
-// 17 offline effects with parameters (app/sample_fx.*), preview, apply and
+// 18 offline effects with parameters (app/sample_fx.*), preview, apply and
 // exactly one level of undo.
 //
 // Memory: the edited instrument stays in the sample bank. An effect result is
@@ -12,6 +12,7 @@
 
 #include "app/app.h"
 #include "app/sample_fx.h"
+#include "ui/eq_view.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -22,6 +23,23 @@ int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 // list in the panel at 601 (stock 006, VISUAL_DIFF §3.5).
 constexpr int kWaveY = 116, kWaveH = 219, kMarkTop = 108, kMarkBottom = 334;
 constexpr int kListX = 601, kListW = 197;
+
+// Progress of a long effect (EQ4) over `ch` channels: the bar moves in steps of
+// 3 % so the screen redraw does not slow the processing.
+struct EffectProgress {
+    Ui* ui;
+    const char* title;
+    uint32_t ch, c;
+    int last;
+};
+void effectProgress(void* p, uint32_t done, uint32_t total) {
+    auto* s = static_cast<EffectProgress*>(p);
+    if (!total) return;
+    const int pct = int((uint64_t(s->c) * 100 + uint64_t(done) * 100 / total) / s->ch);
+    if (pct < s->last + 3) return;
+    s->last = pct;
+    s->ui->progress(s->title, pct);
+}
 
 void effectItem(void*, int i, char* out, int cap) { std::snprintf(out, size_t(cap), "%s", sfx::effect(i).name); }
 }  // namespace
@@ -79,12 +97,25 @@ void EditorScreen::enter() {
     startM = 0;
     endM = 65535;
     view.reset(a.bank.frames(slot_));
-    // spec 06 §6.1: load the 17 x 9 default table on every normal entry.
+    // spec 06 §6.1: load the default table (17 stock effects, plus EQ4) on every normal entry.
     for (int e = 0; e < sfx::kEffectCount; ++e) sfx::defaults(e, params[e]);
     const float t = a.project.tempo();
     if (t >= 40.0f && t <= 800.0f) params[sfx::kStretchBeat][0] = float(int(t + 0.5f));
     previewState = 0;
     refreshBar();
+}
+
+// The preview ended by itself (the sample reached its end): the bar goes back
+// from Stop to Preview.
+void EditorScreen::update(uint32_t now) {
+    (void)now;
+    if (previewPlaying && !app_.engine.previewBufferActive()) {
+        previewPlaying = false;
+        padPreview_ = -1;
+        midiNote_ = -1;
+        if (!inert) refreshBar();
+        ui_.dirty();   // the main loop redraws only a dirty frame
+    }
 }
 
 void EditorScreen::stop() {
@@ -144,7 +175,8 @@ bool EditorScreen::apply() {
             std::memcpy(dst, src + s0, size_t(sel) * sizeof(int16_t));
         } else {
             std::memcpy(dst, src, size_t(s0) * sizeof(int16_t));
-            sfx::process(effect, p, src + s0, sel, dst + s0, outSel);
+            EffectProgress ep{&ui_, "Applying", ch, c, -3};
+            sfx::process(effect, p, src + s0, sel, dst + s0, outSel, effectProgress, &ep);
             std::memcpy(dst + s0 + outSel, src + s1, size_t(len - s1) * sizeof(int16_t));
         }
         ui_.progress("Applying", int((c + 1) * 100 / ch));
@@ -215,7 +247,10 @@ bool EditorScreen::preview(int note) {
     if (previewState == 0) {
         ui_.progress("Processing", 0);
         const int16_t* cur = a.bank.data(slot_);
-        for (uint32_t c = 0; c < ch; ++c) sfx::process(effect, params[effect], cur + c * len + s0, sel, out + c * outSel, outSel);
+        for (uint32_t c = 0; c < ch; ++c) {
+            EffectProgress ep{&ui_, "Processing", ch, c, -3};
+            sfx::process(effect, params[effect], cur + c * len + s0, sel, out + c * outSel, outSel, effectProgress, &ep);
+        }
         ui_.progressDone();
         previewState = 1;
         prevS0_ = s0;
@@ -295,6 +330,35 @@ void EditorScreen::refreshBar() {
         b.highlightOnly(focus == 3 ? -1 : focus);
         return;
     }
+    if (effect == sfx::kEq4) {
+        const audio::TrackEqParams t = eqGet();
+        if (page == 2) {
+            // F1..F4: the bands (press = on / off), F5 opens the band parameters.
+            for (int i = 0; i < audio::kEqBands; ++i) {
+                std::snprintf(v, sizeof(v), "Band %d", i + 1);
+                b.set(i, v, t.band[i].on ? "On" : "Off");
+            }
+            b.set(4, "Params");
+            b.highlightOnly(eqBand);
+        } else {
+            const audio::EqBand& bd = t.band[eqBand];
+            b.set(0, "Type", audio::eqTypeName(bd.type));
+            eqv::freqText(bd.freqHz, v, sizeof(v));
+            b.set(1, "Freq", v);
+            eqv::gainText(bd, eqBand, v, sizeof(v));
+            const bool slopeParam = audio::eqSlopeAllowed(eqBand, bd.type);
+            b.set(2, slopeParam ? "Slope" : "Gain", v, slopeParam || audio::eqUsesGain(bd.type));
+            eqv::qText(bd, v, sizeof(v));
+            b.set(3, "Q", v);
+            std::snprintf(v, sizeof(v), "%d", eqBand + 1);
+            b.set(4, "Band", v);
+            b.highlightOnly(eqParam);
+        }
+        b.set(5, "Back");
+        b.set(6, previewPlaying ? "Stop" : "Preview");
+        b.set(7, "Apply");
+        return;
+    }
     for (int i = 0; i < 4; ++i) {
         const int k = paramPage * 4 + i;
         if (k >= e.params) continue;
@@ -306,6 +370,70 @@ void EditorScreen::refreshBar() {
     b.set(6, previewPlaying ? "Stop" : "Preview");
     b.set(7, "Apply");
     b.highlightOnly(paramFocus - paramPage * 4);
+}
+
+audio::TrackEqParams EditorScreen::eqGet() const {
+    audio::TrackEqParams t;
+    sfx::eq4Unpack(params[sfx::kEq4], &t);
+    return t;
+}
+
+void EditorScreen::eqSet(const audio::TrackEqParams& t) {
+    sfx::eq4Pack(t, params[sfx::kEq4]);
+    previewState = 0;   // the processed preview is stale
+    stopPreview();
+}
+
+void EditorScreen::eqKey(int f) {
+    if (f < 0 || f >= audio::kEqBands) return;
+    audio::TrackEqParams t = eqGet();
+    eqBand = f;
+    t.band[f].on = !t.band[f].on;
+    eqSet(t);
+}
+
+void EditorScreen::eqChange(int d) {
+    if (d == 0) return;
+    audio::TrackEqParams t = eqGet();
+    audio::EqBand& bd = t.band[eqBand];
+    const bool coarse = ui_.shift();
+    switch (eqParam) {
+        case 0:
+            bd.type = audio::eqStepType(bd.type, d > 0 ? 1 : -1);
+            if (!audio::eqSlopeAllowed(eqBand, bd.type)) bd.slope = 0;   // no hidden 48 dB on a bell
+            break;
+        case 1: bd.freqHz = audio::eqStepFreq(bd.freqHz, d, coarse); break;
+        case 2:
+            if (audio::eqSlopeAllowed(eqBand, bd.type)) {   // 12 <-> 48 dB/oct
+                bd.slope = bd.slope ? 0 : 1;
+                break;
+            }
+            if (!audio::eqUsesGain(bd.type)) return;
+            bd.gainDb10 = audio::eqStepGain(bd.gainDb10, d, coarse);
+            break;
+        default: bd.q100 = audio::eqStepQ(bd.q100, d, coarse); break;
+    }
+    bd.on = true;   // an edited band is audible at once
+    eqSet(t);
+}
+
+void EditorScreen::eqReset() {
+    audio::TrackEqParams t = eqGet();
+    audio::EqBand& bd = t.band[eqBand];
+    const audio::EqBand def = audio::eqDefaultBand(eqBand);
+    switch (eqParam) {
+        case 0:
+            bd.type = def.type;
+            bd.slope = 0;
+            break;
+        case 1: bd.freqHz = def.freqHz; break;
+        case 2:
+            bd.gainDb10 = 0;
+            bd.slope = 0;
+            break;
+        default: bd.q100 = def.q100; break;
+    }
+    eqSet(t);
 }
 
 void EditorScreen::markerDelta(int which, int d) {
@@ -395,6 +523,54 @@ void EditorScreen::onButton(uint8_t id, uint8_t state) {
         refreshBar();
         return;
     }
+    if (effect == sfx::kEq4) {
+        // EQ4: page 2 = the four bands, page 3 = the selected band's parameters.
+        switch (id) {
+            case btn::F1:
+            case btn::F2:
+            case btn::F3:
+            case btn::F4:
+                if (page == 2) eqKey(id - btn::F1);
+                else eqParam = id - btn::F1;
+                break;
+            case btn::F5:
+                if (page == 2) page = 3;
+                else eqBand = (eqBand + 1) % audio::kEqBands;   // next band
+                break;
+            case btn::F6:
+                stopPreview();
+                page = page == 3 ? 2 : 1;   // Back: params -> bands -> markers
+                break;
+            case btn::F7:
+                if (previewPlaying) stopPreview();
+                else preview();
+                break;
+            case btn::F8: apply(); return;
+            case btn::Left:
+            case btn::Right:
+                if (page == 2) eqBand = clampi(eqBand + (id == btn::Right ? 1 : -1), 0, audio::kEqBands - 1);
+                else eqParam = clampi(eqParam + (id == btn::Right ? 1 : -1), 0, 3);
+                break;
+            case btn::Up:
+                if (page == 3) eqChange(1);
+                break;
+            case btn::Down:
+                if (page == 3) eqChange(-1);
+                break;
+            case btn::Delete:
+                if (page == 3) {
+                    eqReset();
+                } else {   // the band back to its factory layout, off
+                    audio::TrackEqParams t = eqGet();
+                    t.band[eqBand] = audio::eqDefaultBand(eqBand);
+                    eqSet(t);
+                }
+                break;
+            default: Screen::onButton(id, state); break;
+        }
+        refreshBar();
+        return;
+    }
     // Page 2 (spec 06 §6.4).
     switch (id) {
         case btn::F1:
@@ -440,14 +616,16 @@ void EditorScreen::onButton(uint8_t id, uint8_t state) {
 
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
 bool EditorScreen::encoderOnList() const {
-    return !inert && page != 2 && focus == 3;   // effect list
+    return !inert && page == 1 && focus == 3;   // effect list
 }
 #endif
 
 void EditorScreen::onEncoder(int d) {
     if (inert) return;
-    if (page == 2) {
-        paramDelta(d);
+    if (page == 3) {
+        eqChange(d);
+    } else if (page == 2) {
+        if (effect != sfx::kEq4) paramDelta(d);   // EQ4 bands: the jog wheel does nothing here
     } else {
         switch (focus) {
             case 0: markerDelta(0, d); break;
@@ -459,13 +637,63 @@ void EditorScreen::onEncoder(int d) {
     refreshBar();
 }
 
+// EQ4. Page 2: one column per band (F1..F4) with its type, frequency, gain or
+// slope and Q, dim while the band is off. Page 3: the response graph of the
+// four bands over the selected band's four parameters (F1..F4) and its number
+// (F5), laid out like the Track EQ page.
+void EditorScreen::drawEq4(Gfx& g) {
+    const Theme& th = ui_.th();
+    const audio::TrackEqParams t = eqGet();
+    const uint32_t panelC = th.slot(slot::kEmptyPanel + 1);
+    const uint32_t ink = th.slot(slot::kList + 4);
+    const uint32_t dim = wg::mix(panelC, ink, 40);
+    char f[24], gn[24], q[24], hd[24];
+    if (page == 2) {
+        for (int i = 0; i < audio::kEqBands; ++i) {
+            const audio::EqBand& bd = t.band[i];
+            const int x = wg::columnX(i), cx = x + 48;
+            wg::panel(g, th, x);
+            const uint32_t c = bd.on ? ink : dim;
+            std::snprintf(hd, sizeof(hd), "Band %d", i + 1);
+            g.text(cx, wg::kPanelY + 20, kFont4, c, hd, IDisplay::kOptCenter);
+            g.text(cx, wg::kPanelY + 48, kFont4, c, bd.on ? "On" : "Off", IDisplay::kOptCenter);
+            eqv::freqText(bd.freqHz, f, sizeof(f));
+            eqv::gainText(bd, i, gn, sizeof(gn));
+            eqv::qText(bd, q, sizeof(q));
+            const char* rows[4] = {audio::eqTypeName(bd.type), f, gn, q};
+            for (int k = 0; k < 4; ++k) g.text(cx, wg::kPanelY + 110 + 40 * k, kFont1, c, rows[k], IDisplay::kOptCenter);
+            if (i == eqBand) wg::panelFocus(g, th, x, wg::columnW());
+        }
+        return;
+    }
+    eqv::drawGraph(g, th, t, eqBand, 2, 29, 796, 255);
+    const audio::EqBand& bd = t.band[eqBand];
+    eqv::freqText(bd.freqHz, f, sizeof(f));
+    eqv::gainText(bd, eqBand, gn, sizeof(gn));
+    eqv::qText(bd, q, sizeof(q));
+    const bool slopeCol = audio::eqSlopeAllowed(eqBand, bd.type);
+    const char* names[5] = {"Type", "Freq", slopeCol ? "Slope" : "Gain", "Q", "Band"};
+    char bn[16];
+    std::snprintf(bn, sizeof(bn), "%d", eqBand + 1);
+    const char* vals[5] = {audio::eqTypeName(bd.type), f, gn, q, bn};
+    for (int k = 0; k < 5; ++k) {
+        const int x = 2 + 100 * k;
+        wg::panel(g, th, x, 288, 96, 135, panelC);
+        const bool off = (k < 4 && !bd.on) || (k == 2 && !slopeCol && !audio::eqUsesGain(bd.type));
+        g.text(x + 48, 301, kFont4, off ? dim : ink, names[k], IDisplay::kOptCenter);
+        g.text(x + 48, 360, kFont1, off ? dim : ink, vals[k], IDisplay::kOptCenter);
+    }
+    wg::focusFrame(g, th, 2 + 100 * eqParam - 1, 288, 2 + 100 * eqParam + 96, 422);
+}
+
 void EditorScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
     const uint8_t ci = a.currentInstrument();
     const sfx::EffectDesc& e = sfx::effect(effect);
     char title[48], sub[48];
-    if (page == 2) std::snprintf(title, sizeof(title), "Sample Editor  %s", e.name);
+    if (page == 3) std::snprintf(title, sizeof(title), "Sample Editor  EQ4  Band %d", eqBand + 1);
+    else if (page == 2) std::snprintf(title, sizeof(title), "Sample Editor  %s", e.name);
     else std::snprintf(title, sizeof(title), e.params ? "Sample Editor 1/2" : "Sample Editor");
     const bool sample = ci < kSampleInstrumentCount && a.bank.loaded(ci);
     if (ci < kSampleInstrumentCount) std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instruments[ci].name);
@@ -482,7 +710,18 @@ void EditorScreen::draw(Gfx& g) {
     view.window(&v0, &v1);
     const uint32_t len = a.bank.frames(ci);
     const uint32_t wave = th.slot(slot::kWave);
+    if (page == 3) {
+        drawEq4(g);
+        return;
+    }
     if (page == 2) {
+        if (effect == sfx::kEq4) {
+            drawEq4(g);
+            waveRegion(g, th, 401, 798, kWaveY, kWaveH);
+            drawWaveData(g, th, a.bank.left(ci), len, v0, v1, 401, kWaveY, 398, kWaveH, wave);
+            if (previewPlaying) g.text(600, 370, kFontText, th.dim, "Playing", IDisplay::kOptCenter);
+            return;
+        }
         // Parameter bars in the column panels (spec 06 §6.2); the selection
         // preview on the right. SPEC GAP: no stock capture of page 2.
         for (int i = 0; i < 4; ++i) {

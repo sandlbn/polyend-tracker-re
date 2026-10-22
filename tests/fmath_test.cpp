@@ -190,7 +190,7 @@ TEST(sample_fx_matches_the_double_libm_results) {
     int maxd;
     size_t count;
     {
-        float p[9];
+        float p[sfx::kMaxParams];
         sfx::defaults(sfx::kEqualizer, p);
         p[0] = 6.0f;
         p[3] = -4.5f;
@@ -201,7 +201,7 @@ TEST(sample_fx_matches_the_double_libm_results) {
         CHECK_EQ(count, size_t(0));
     }
     {
-        float p[9];
+        float p[sfx::kMaxParams];
         sfx::defaults(sfx::kLimiter, p);
         diff(runFx(sfx::kLimiter, p, in), refLimiter(p, in), maxd, count);
         CHECK_EQ(maxd, 0);
@@ -214,7 +214,7 @@ TEST(sample_fx_matches_the_double_libm_results) {
         CHECK_EQ(count, size_t(0));
     }
     for (float g : {0.01f, 1.0f, 2.37f, 5.0f}) {
-        float p[9];
+        float p[sfx::kMaxParams];
         sfx::defaults(sfx::kOverdrive, p);
         p[0] = g;
         p[1] = 1.0f;

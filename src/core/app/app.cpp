@@ -208,6 +208,7 @@ void App::applyEngineSettings() {
     m.masterVolume = cfg.masterVolume > 100 ? 100 : cfg.masterVolume;   // spec 05 §5.4
     m.metronomeVolume = cfg.metronomeVolume;
     m.previewVolume = cfg.previewVolume > 100 ? 100 : cfg.previewVolume;
+    m.trackEq = trackEq;
     // Config "Line in channel" (spec 15 §2.2 #11): clamp > 2 -> 2 and push it
     // to the line input, both the Global-mixer pass-through and the recorder.
     const uint8_t lineCh = cfg.lineInChannel > 2 ? 2 : cfg.lineInChannel;

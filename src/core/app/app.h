@@ -174,6 +174,9 @@ public:
     Instrument instruments[kSampleInstrumentCount];
     bool instrPresent[kSampleInstrumentCount] = {};
     audio::AudioEngine engine;
+    // Per-track 4-band EQ (OpenTracker extension, audio/track_eq.h). Not part of project.mt: saved in a
+    // sidecar file next to the project (formats/track_eq_file.h); the engine gets it in applyEngineSettings().
+    audio::TrackEqSet trackEq;
     audio::SampleBank& bank;          // engine.bank(): spec 02 §8.2 packing
     Config cfg;
     Sequencer seq;
