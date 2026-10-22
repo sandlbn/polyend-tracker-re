@@ -12,6 +12,7 @@
 
 #include "app/app.h"
 #include "app/perf_presets.h"
+#include "formats/perf_scenes.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -25,6 +26,17 @@ constexpr int kTitleValueY = 53;
 constexpr int kRowY = 298;
 constexpr int kLabelBottom = 266;
 constexpr int kLabelDx = 2;
+// [I] Scene marks: 3-px bars inside the 63-px panel, 5 px from its edges
+// (closer to the edge, a B bar reads as the next panel's A: the panels
+// are only 2 px apart).
+constexpr int kSceneBarW = 3;
+constexpr int kSceneBarLeftDx = 5;
+constexpr int kSceneBarRightDx = 63 - 5 - kSceneBarW;
+constexpr int kSceneBarH = 21;      // full height: the row's cell y - 10 .. y + 10
+constexpr int kSceneBarMinH = 5;    // a scene out of the mix
+// Scene A in the theme's red accent, B in blue (the stock themes have no
+// blue; a lighter one than 0000ff, which barely shows on the dark panels).
+constexpr uint32_t kSceneBBlue = 0x3C8CFF;
 // Cell text: perf::valueText, with a zero shown as "---" [S snap 021].
 void cellText(uint8_t ty, int v, char* out, int cap) {
     perf::valueText(ty, v, out, cap);
@@ -93,6 +105,8 @@ void PerformanceScreen::start(int opt) {
     lastPattern_ = curPat;
     edit = false;
     copySrc_ = -1;
+    fader = 0;   // [I] scenes: the crossfader starts at A, applied on its first move
+    sceneCcPending_ = false;
     a.seq.setPerformanceMode(true);   // step 4
     labelsDirty_ = false;
     refreshBar();
@@ -280,8 +294,7 @@ void PerformanceScreen::onPad(uint8_t pad, uint8_t state) {
     } else if (state == kRelease) {
         // Re-apply the stored value: an encoder tweak outside edit mode is
         // dropped (spec 12 §E.1). The row stays latched.
-        const int row = src.row(c);
-        cur[c] = (row >= 1 && row <= 3) ? src.value(c, row) : (row == perf::kLiveRow && liveValid[c] ? live[c] : 0);
+        cur[c] = padValue(c);
         held_[c] = false;
         applyAll(false);
     }
@@ -355,6 +368,13 @@ void PerformanceScreen::onEncoder(int d) {
         return;
     }
     if (!src.valid()) return;
+    // [I] Nothing held: the encoder is the scene crossfader.
+    bool padHeld = false;
+    for (bool h : held_) padHeld = padHeld || h;
+    if (!padHeld) {
+        setFader(fader + d * kFaderStep);
+        return;
+    }
     bool any = false;
     for (int c = 0; c < perf::kSlots; ++c) {
         const uint8_t ty = src.type(c);
@@ -459,6 +479,10 @@ void PerformanceScreen::onButton(uint8_t id, uint8_t state) {
                 const int nc = clampi(column + d, 0, perf::kSlots - 1);
                 if (ui_.shift() && nc != column) swapColumn(nc);
                 column = nc;
+            } else if (ui_.isDown(btn::Delete) && !anyTrackKey()) {
+                clearScene(d > 0 ? 1 : 0);   // [I] Delete+Left = clear scene A, Delete+Right = clear B
+            } else if (ui_.shift() && !anyTrackKey()) {
+                storeScene(d > 0 ? 1 : 0);   // [I] Shift+Left = scene A, Shift+Right = scene B
             } else {
                 for (int i = 0; i < 8; ++i)
                     if (keyHeld_[i]) {
@@ -545,6 +569,11 @@ void PerformanceScreen::perfSlotCc(uint8_t slot, uint8_t value) {
     ccPending_[slot] = true;
 }
 
+void PerformanceScreen::perfSceneCc(uint8_t value) {
+    sceneCcVal_ = value > 127 ? 127 : value;
+    sceneCcPending_ = true;
+}
+
 void PerformanceScreen::update(uint32_t now) {
     App& a = app_;
     if (now - lastPoll_ >= kCcPollMs) {
@@ -569,6 +598,11 @@ void PerformanceScreen::update(uint32_t now) {
             cur[s] = ty ? live[s] : 0;
             apply = true;
         }
+        // [I] CC 63: scene crossfader.
+        if (sceneCcPending_) {
+            sceneCcPending_ = false;
+            setFader((sceneCcVal_ * kFaderMax + 63) / 127);
+        }
         // OpenTracker applies a Pattern length slot too (stock only shows it,
         // spec 12 §B.2 quirk; README).
         if (apply) {
@@ -590,6 +624,185 @@ void PerformanceScreen::update(uint32_t now) {
         refreshBar();
         ui_.dirty();
     }
+}
+
+// ---------------------------------------------------------------------------
+// [I] Scenes A / B and the crossfader (Octatrack-style, not in stock)
+
+namespace {
+bool isFilter(uint8_t ty) { return ty == perf::kLowPass || ty == perf::kHighPass || ty == perf::kBandPass; }
+// FX that cannot blend: switch from A to B at the middle of the fade.
+bool isStepped(uint8_t ty) {
+    switch (ty) {
+        case perf::kDirection: case perf::kVolLfo: case perf::kPanLfo: case perf::kFineLfo:
+        case perf::kFilterLfo: case perf::kPosLfo: case perf::kRepeater: case perf::kPlayMode:
+        case perf::kPatternLength:
+            return true;
+        default:
+            return false;
+    }
+}
+// a .. b at x / 100, rounded to the nearest.
+int lerp100(int a, int b, int x) {
+    const int n = a * (100 - x) + b * x;
+    return (n >= 0 ? n + 50 : n - 50) / 100;
+}
+}  // namespace
+
+void PerformanceScreen::storeScene(int scene) {
+    App& a = app_;
+    // Stored rows 1..3 only: a live MIDI-CC value (row 4) is not kept.
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t r = src.row(s);
+        a.project.perfScene[scene][s] = uint8_t(src.type(s) && r >= 1 && r <= 3 ? r : 0);
+    }
+    a.markProjectDirty();
+    ui_.notify(scene ? "Scene B stored" : "Scene A stored", 1500);
+    ui_.dirty();
+}
+
+int PerformanceScreen::sceneShare(int scene, int c) const {
+    const int x = fader, toB = x >= kFaderMax / 2;
+    const uint8_t ty = src.type(c);
+    if (isStepped(ty)) return (scene == 1) == bool(toB) ? 100 : 0;   // switches at the middle
+    if (isFilter(ty)) {
+        // As applyScenes: the scenes' filters (the highest slot of each)
+        // of different types cross over, A out by the middle, B in after it.
+        uint8_t ft[2] = {0, 0};
+        for (int s = 0; s < perf::kSlots; ++s)
+            for (int sc = 0; sc < 2; ++sc) {
+                const uint8_t r = app_.project.perfScene[sc][s];
+                if (r >= 1 && r <= 3 && isFilter(src.type(s))) ft[sc] = src.type(s);
+            }
+        if (ft[0] && ft[1] && ft[0] != ft[1]) {
+            if (scene == 0) return x * 2 >= kFaderMax ? 0 : kFaderMax - x * 2;
+            return x * 2 <= kFaderMax ? 0 : x * 2 - kFaderMax;
+        }
+    }
+    return scene ? x : kFaderMax - x;
+}
+
+int16_t PerformanceScreen::padValue(int c) const {
+    const int row = src.row(c);
+    if (row >= 1 && row <= 3) return src.value(c, row);
+    return row == perf::kLiveRow && liveValid[c] ? live[c] : 0;
+}
+
+void PerformanceScreen::clearScene(int scene) {
+    App& a = app_;
+    // The FX types the scenes drive (applyScenes: a filter in either scene
+    // drives all three filter types): their slots go back to the pad rows,
+    // then the scene left over (if any) blends again at the fader.
+    bool driven[perf::kFxCount] = {};
+    bool filter = false;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t ty = src.type(s);
+        if (ty == 0 || ty >= perf::kFxCount) continue;
+        for (int sc = 0; sc < 2; ++sc) {
+            const uint8_t r = a.project.perfScene[sc][s];
+            if (r < 1 || r > 3) continue;
+            driven[ty] = true;
+            filter = filter || isFilter(ty);
+        }
+    }
+    if (filter) driven[perf::kLowPass] = driven[perf::kHighPass] = driven[perf::kBandPass] = true;
+    for (int s = 0; s < perf::kSlots; ++s) a.project.perfScene[scene][s] = 0;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t ty = src.type(s);
+        if (ty == 0 || ty >= perf::kFxCount || !driven[ty]) continue;
+        cur[s] = padValue(s);
+        liveValid[s] = false;
+    }
+    a.markProjectDirty();
+    if (perfScenesUsed(a.project)) {
+        applyScenes();
+    } else {
+        fader = 0;   // no scene: a new one starts from A again
+        applyAll(false);
+    }
+    ui_.notify(scene ? "Scene B cleared" : "Scene A cleared", 1500);
+    ui_.dirty();
+}
+
+void PerformanceScreen::setFader(int x) {
+    fader = clampi(x, 0, kFaderMax);
+    applyScenes();
+    ui_.dirty();
+}
+
+void PerformanceScreen::applyScenes() {
+    if (!src.valid()) return;
+    const Project& p = app_.project;
+    // Per FX type: the slot and value each scene sets (the higher slot wins,
+    // as in applyAll).
+    struct Pick {
+        int slot = -1;
+        int v = 0;
+    };
+    Pick pa[perf::kFxCount], pb[perf::kFxCount];
+    Pick fa, fb;   // the filter (LP / HP / BP share one engine filter)
+    uint8_t fta = 0, ftb = 0;
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t ty = src.type(s);
+        if (ty == 0 || ty >= perf::kFxCount) continue;
+        for (int sc = 0; sc < 2; ++sc) {
+            const uint8_t r = p.perfScene[sc][s];
+            if (r < 1 || r > 3) continue;
+            const Pick k{s, src.value(s, r)};
+            if (isFilter(ty)) {
+                (sc ? fb : fa) = k;
+                (sc ? ftb : fta) = ty;
+            } else {
+                (sc ? pb : pa)[ty] = k;
+            }
+        }
+    }
+    const int x = fader;
+    const bool toB = x >= kFaderMax / 2;
+    int16_t next[perf::kSlots];
+    for (int s = 0; s < perf::kSlots; ++s) next[s] = cur[s];
+    bool involved[perf::kFxCount] = {};
+    bool picked[perf::kSlots] = {};
+    auto place = [&](const Pick& k, int v) {
+        if (k.slot < 0) return;
+        next[k.slot] = int16_t(v);
+        picked[k.slot] = true;
+    };
+    for (int ty = 1; ty < perf::kFxCount; ++ty) {
+        if (isFilter(uint8_t(ty))) continue;
+        const Pick &A = pa[ty], &B = pb[ty];
+        if (A.slot < 0 && B.slot < 0) continue;
+        involved[ty] = true;
+        if (isStepped(uint8_t(ty))) {
+            place(toB ? B : A, toB ? B.v : A.v);   // a scene without it: off
+            continue;
+        }
+        // Continuous: blend (a missing side is 0, no effect) in the slot of
+        // the scene the fader is closer to.
+        const Pick& at = toB ? (B.slot >= 0 ? B : A) : (A.slot >= 0 ? A : B);
+        place(at, lerp100(A.v, B.v, x));
+    }
+    if (fa.slot >= 0 || fb.slot >= 0) {
+        involved[perf::kLowPass] = involved[perf::kHighPass] = involved[perf::kBandPass] = true;
+        if (fa.slot >= 0 && fb.slot >= 0 && fta != ftb) {
+            // Different filter types: A fades out to the middle, B fades in after it.
+            if (!toB) place(fa, lerp100(fa.v, 0, x * 2));
+            else place(fb, lerp100(0, fb.v, (x - kFaderMax / 2) * 2));
+        } else {
+            const Pick& at = toB ? (fb.slot >= 0 ? fb : fa) : (fa.slot >= 0 ? fa : fb);
+            place(at, lerp100(fa.slot >= 0 ? fa.v : 0, fb.slot >= 0 ? fb.v : 0, x));
+        }
+    }
+    // Slots of an involved type that the blend did not pick are off; FX in
+    // neither scene keep what the pads set.
+    for (int s = 0; s < perf::kSlots; ++s) {
+        const uint8_t ty = src.type(s);
+        if (ty == 0 || ty >= perf::kFxCount || !involved[ty]) continue;
+        if (!picked[s]) next[s] = 0;
+        cur[s] = next[s];
+        liveValid[s] = false;
+    }
+    applyAll(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +834,16 @@ void PerformanceScreen::draw(Gfx& g) {
     const Theme& th = ui_.th();
     // 2.x bank B: right-hand text "Tracks 9-16" (M1 plan spec gap 5).
     const char* right = bank ? (edit ? "EDIT  Tracks 9-16" : "Tracks 9-16") : (edit ? "EDIT" : nullptr);
+    // [I] With a scene stored: the crossfader, "A ----|----- B".
+    char fade[48];
+    if (perfScenesUsed(app_.project)) {
+        char bar[12];
+        const int pos = fader * 10 / kFaderMax;
+        for (int i = 0; i <= 10; ++i) bar[i] = i == pos ? '|' : '-';
+        bar[11] = 0;
+        std::snprintf(fade, sizeof(fade), "%s%sA %s B", right ? right : "", right ? "  " : "", bar);
+        right = fade;
+    }
     ui_.drawTitle(g, "Performance FX", right);
     if (!src.valid()) return;
     // spec 20 §4.10 / VISUAL_DIFF §8.10: 12 FX panels (class 0x0b) 63 px
@@ -705,6 +928,25 @@ void PerformanceScreen::draw(Gfx& g) {
         g.rectsEnd();
     }
     g.alpha(255);
+    // [I] Scenes: a bar on the left edge of the row scene A stores, on the
+    // right edge of the row B stores (the fader's sides in the title bar;
+    // A red, B blue),
+    // as tall as that scene's share of the mix at the fader (sceneShare),
+    // from the cell's bottom; never below kSceneBarMinH, so the rows stay marked.
+    for (int sc = 0; sc < 2; ++sc) {   // one batch per scene colour
+        const Project& p = app_.project;
+        bool any = false;
+        for (int c = 0; c < perf::kSlots; ++c) {
+            const int r = p.perfScene[sc][c];
+            if (src.type(c) == 0 || r < 1 || r > 3) continue;
+            if (!any) g.rectsBegin(sc ? kSceneBBlue : th.accent);
+            any = true;
+            const int h = kSceneBarMinH + ((kSceneBarH - kSceneBarMinH) * sceneShare(sc, c) + kFaderMax / 2) / kFaderMax;
+            const int bottom = kRowY + 30 * r + 10;
+            g.rectsAdd(sc ? colX(c) + kSceneBarRightDx : colX(c) + kSceneBarLeftDx, bottom - h + 1, kSceneBarW, h);
+        }
+        if (any) g.rectsEnd();
+    }
     // 5. Edit mode: the column being edited carries the red focus frame [I].
     //    Column by column, the next column was drawn over the frame's right
     //    side (its edge at x + 64 and first pixel column x + 65): redraw that

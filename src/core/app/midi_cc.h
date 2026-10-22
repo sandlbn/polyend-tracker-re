@@ -35,6 +35,8 @@ public:
     virtual ~PerformanceCcSink() = default;
     virtual void perfTrackPatternCc(uint8_t track, uint8_t value) { (void)track; (void)value; }
     virtual void perfSlotCc(uint8_t slot, uint8_t value) { (void)slot; (void)value; }
+    // [I] CC 63: scene crossfader position 0..127, handled at the next update.
+    virtual void perfSceneCc(uint8_t value) { (void)value; }
     // Main-loop tick while another screen is shown: the Performance FX may
     // stay live there (spec 16 §A.15).
     virtual void perfBackground(uint32_t now) { (void)now; }
@@ -94,6 +96,8 @@ inline uint8_t masterLevel(uint8_t v) { return uint8_t((v > 127 ? 127 : v) * 100
 // Performance CC ranges (spec 12 §B.2, §B.3).
 inline bool isPerfTrackCc(uint8_t cc) { return cc >= 41 && cc <= 48; }
 inline bool isPerfSlotCc(uint8_t cc) { return cc >= 51 && cc <= 62; }
+// [I] Performance scene crossfader (not in stock): 0 = scene A, 127 = scene B.
+constexpr uint8_t kPerfSceneCc = 63;
 
 }  // namespace midicc
 }  // namespace ot
