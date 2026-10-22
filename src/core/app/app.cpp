@@ -292,7 +292,13 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
         for (int k = 0; k < kAuditionTracks && track < 0; ++k) {
             const int t = (start + k) % kAuditionTracks;
             if (!midi && t >= audio::kVoices) continue;
-            if (trackMuted(t) || aud_[t].busy) continue;
+            if (trackMuted(t)) continue;
+            // The pattern editor's note-encoder audition has no release
+            // event (stock re-triggers the row instead): its track counts as
+            // free, else MIDI keys stopped writing at the cursor after a jog
+            // turn until a pad press / project load (user report).
+            if (aud_[t].busy && aud_[t].id != kAuditionEncoder) continue;
+            if (aud_[t].busy) releaseAudition(t);
             track = t;   // tracks playing pattern notes are not skipped
         }
     }
@@ -524,7 +530,16 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
         // spec 17 §1.4 step 3: reset the voice FX while stopped.
         if (!seq.isPlaying()) engine.resetAllVoiceFx();
         // Steps 4-7: first free unmuted track from startTrack; no stealing.
-        const int t = previewOn(voice, currentInstrument(), note, d2, -1, rect.t0);
+        int t = previewOn(voice, currentInstrument(), note, d2, -1, rect.t0);
+        // 2.x synth slots sound on the synth live tracks, not a pattern
+        // track: step entry writes the n-th held note to the n-th track of
+        // the target (user report: MIDI keys recorded nothing on S1..S3).
+        if (t < 0 && isSynthInstrument(currentInstrument())) {
+            int held = 0;
+            for (int k = 0; k < audio::kSynthLiveTracks; ++k)
+                if (synthLive_[k] && synthLive_[k] != voice) ++held;
+            t = rect.t0 + held;
+        }
         // Step 8: edit-mode chord entry across the selected tracks.
         if (t >= 0 && pe && ui.active() == kModPattern) pe->midiChordEntry(t, note, liveVelocity(d2));
     } else {

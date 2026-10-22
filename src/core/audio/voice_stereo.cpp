@@ -561,10 +561,13 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
     }
     // Bit crusher, overdrive, filter: per channel, same settings (2x-04 §3.2).
     if (mask_ != 0xFFFF) {
+        // Round to the nearest step (mid-tread), as the mono voice: quiet
+        // signals and release tails stay silent (no floor hiss).
         const int32_t m = int32_t(int16_t(mask_));
+        const int32_t half = (((~m) & 0xFFFF) + 1) >> 1;
         for (uint32_t i = 0; i < kBlock; ++i) {
-            xl[i] = float(int32_t(toS16(xl[i])) & m) * (1.0f / 32768.0f);
-            xr[i] = float(int32_t(toS16(xr[i])) & m) * (1.0f / 32768.0f);
+            xl[i] = float((int32_t(toS16(xl[i])) + half) & m) * (1.0f / 32768.0f);
+            xr[i] = float((int32_t(toS16(xr[i])) + half) & m) * (1.0f / 32768.0f);
         }
     }
     if (odGain_ > 0.0f) {

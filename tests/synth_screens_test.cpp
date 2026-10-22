@@ -482,8 +482,20 @@ TEST(macro_section_editing) {
     h.run(40);
     CHECK_STR(a.ui.bar.label[7].top, "Back");
     const bool bi = a.synthPatch(1).macros[0].bipolar;
+    {   // the macro was turned away from its neutral value first
+        SynthSlotRecord rec = a.synthSlot(1);
+        rec.macros[0] = 20;
+        a.setSynthSlotRecord(1, rec);
+    }
     h.enc(1);
     CHECK(a.synthPatch(1).macros[0].bipolar == !bi);
+    // User report: the value restarts at the new mode's neutral position
+    // (bipolar centre 63 = "0", else 0), not at a leftover -63.
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), !bi ? 63 : 0);
+    h.enc(1);
+    CHECK(a.synthPatch(1).macros[0].bipolar == bi);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), bi ? 63 : 0);
+    h.enc(1);   // back to the toggled state for the rest of the test
     // A new target in the first free slot: Parameter row of target count.
     const int count = audio::synthMacroTargets(a.synthPatch(1).macros[0]);
     s.row = 2 + 2 * count;
@@ -1388,4 +1400,34 @@ TEST(synth_edit_wheel_hint_lists_and_values) {
     }
     CHECK(lists >= 1);
     CHECK(values >= 2);
+}
+
+TEST(instr_hold_chooser_on_the_synth_page) {
+    // User report: holding Instr on a synth page did nothing. It opens the
+    // instrument chooser (samples, MIDI, then Synth 1..3); releasing it opens
+    // the picked instrument's page.
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 0);
+    CHECK(a.ui.active() == kModSynth);
+    h.down(btn::Instr);
+    h.run(250);
+    CHECK(a.ui.picker.isOpen());
+    CHECK_EQ(a.ui.picker.cursor(), kFirstSynthInstrument);
+    // Pick sample instrument 3: the Instrument page.
+    for (int i = 0; i < 8; ++i) h.app->ui.picker.move(-8);
+    h.app->ui.picker.move(2);
+    h.up(btn::Instr);
+    h.run(60);
+    CHECK_EQ(a.currentInstrument(), 2);
+    CHECK(a.ui.active() == kModInstrument);
+    // And back to Synth 2 from the Instrument page's chooser.
+    h.down(btn::Instr);
+    h.run(250);
+    CHECK(a.ui.picker.isOpen());
+    h.app->ui.picker.move(kFirstSynthInstrument + 1 - 2);
+    h.up(btn::Instr);
+    h.run(60);
+    CHECK_EQ(a.currentInstrument(), kFirstSynthInstrument + 1);
+    CHECK(a.ui.active() == kModSynth);
 }

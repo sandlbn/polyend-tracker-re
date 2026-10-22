@@ -148,3 +148,41 @@ TEST(pattern_top_info_modes) {
     CHECK(1 + 15 * p.rowHeight() <= 423);
     CHECK(!hasText(h, "0m:00s"));
 }
+
+TEST(midi_note_step_entry_with_a_synth_instrument) {
+    // User report (2.x): with Synth 1..3 as the current instrument, MIDI keys
+    // in edit mode sounded but wrote nothing (the synth plays on its own live
+    // tracks, so no pattern track was claimed). They are written at the
+    // cursor; a held chord fills the selected tracks in order.
+    Harness h;
+    App& a = *h.app;
+    a.cfg.notesIn = 1;
+    h.tap(btn::Rec);
+    CHECK(a.editMode);
+    a.setCurrentInstrument(uint8_t(kFirstSynthInstrument));   // S1
+    midiNote(h, 60, 100);
+    CHECK(a.pattern().tracks[0].steps[0].note == 60);
+    CHECK(a.pattern().tracks[0].steps[0].instrument == kFirstSynthInstrument);
+    // Chord over a 3-track selection: three held keys, one per track.
+    h.down(btn::Shift);
+    h.tap(btn::Right);
+    h.tap(btn::Right);
+    h.up(btn::Shift);
+    for (uint8_t n : {64, 67, 71}) {
+        h.midi.in.push_back(0x90);
+        h.midi.in.push_back(n);
+        h.midi.in.push_back(100);
+        h.run(20);
+    }
+    for (uint8_t n : {64, 67, 71}) {
+        h.midi.in.push_back(0x80);
+        h.midi.in.push_back(n);
+        h.midi.in.push_back(0);
+        h.run(20);
+    }
+    const SelRect r = pe(h).target();
+    if (r.t1 > r.t0) {
+        CHECK(a.pattern().tracks[r.t0].steps[r.s0].note == 64);
+        CHECK(a.pattern().tracks[r.t0 + 1].steps[r.s0].note == 67);
+    }
+}

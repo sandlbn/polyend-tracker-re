@@ -1,7 +1,11 @@
 // Instrument .pti codec tests (spec 02 §6).
 #include "test.h"
 
+#include <cmath>
+#include <limits>
 #include <vector>
+
+#include "audio/voice.h"
 
 #include "formats/bytes.h"
 #include "formats/crc32.h"
@@ -25,7 +29,7 @@ static Instrument makeCustom() {
     ins.endPoint = 400;
     ins.wavetableCurrentWindow = 3;
     for (int i = 0; i < kAutomationCount; ++i) {
-        ins.env[i].amount = 0.25f * float(i);
+        ins.env[i].amount = 0.25f * float(i % 5);   // 0..1 (loads clamp to the editor range)
         ins.env[i].delayMs = uint16_t(10 + i);
         ins.env[i].attackMs = uint16_t(20 + i);
         ins.env[i].holdMs = uint16_t(30 + i);
@@ -260,4 +264,72 @@ TEST(full_file_mono_and_stereo) {
     CHECK(decodePtiSamples(file.data(), sz, info, lay, b, out.data(), out.size()) == FmtStatus::Ok);
     CHECK(!b.stereo);
     CHECK(std::memcmp(out.data(), L.data(), n * 2) == 0);
+}
+
+// A damaged file (NaN / inf / out-of-range floats) loads with finite values
+// in the editor ranges, and the voice renders finite audio through the filter.
+TEST(damaged_floats_sanitised_on_load) {
+    Instrument a = makeCustom();
+    a.playMode = uint8_t(PlayMode::ForwardLoop);
+    encodePtiHeader(a, g_hdr);
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    uint8_t* body = g_hdr + 0x10;
+    for (int i = 0; i < kAutomationCount; ++i) {
+        wrF32(body + 0x4C + i * 20 + 0, i & 1 ? nan : -inf);   // env amount
+        wrF32(body + 0x4C + i * 20 + 12, i & 1 ? 7.0f : nan);  // env sustain
+        wrF32(body + 0xC4 + i * 8 + 4, i & 1 ? nan : -2.0f);   // lfo amount
+    }
+    wrF32(body + 0xF4, nan);   // cutoff
+    wrF32(body + 0xF8, nan);   // resonance
+    Instrument b;
+    CHECK(decodePtiHeader(g_hdr, sizeof(g_hdr), b) == FmtStatus::Ok);
+    for (int i = 0; i < kAutomationCount; ++i) {
+        CHECK(std::isfinite(b.env[i].amount) && b.env[i].amount >= 0.0f && b.env[i].amount <= 1.0f);
+        CHECK(std::isfinite(b.env[i].sustain) && b.env[i].sustain >= 0.0f && b.env[i].sustain <= 1.0f);
+        CHECK(std::isfinite(b.lfo[i].amount) && b.lfo[i].amount >= 0.0f && b.lfo[i].amount <= 1.0f);
+    }
+    CHECK_EQ(b.env[1].amount, Envelope().amount);
+    CHECK_EQ(b.env[0].sustain, Envelope().sustain);
+    CHECK_EQ(b.env[1].sustain, 1.0f);
+    CHECK_EQ(b.cutoff, Instrument().cutoff);
+    CHECK_EQ(b.resonance, Instrument().resonance);
+    wrF32(body + 0xF4, 3.0f);
+    wrF32(body + 0xF8, inf);
+    CHECK(decodePtiHeader(g_hdr, sizeof(g_hdr), b) == FmtStatus::Ok);
+    CHECK_EQ(b.cutoff, 1.0f);
+    CHECK_EQ(b.resonance, Instrument().resonance);
+    wrF32(body + 0xF8, 9.0f);
+    CHECK(decodePtiHeader(g_hdr, sizeof(g_hdr), b) == FmtStatus::Ok);
+    CHECK_EQ(b.resonance, 4.3f);
+    // Render through the (enabled, band-pass) filter: finite output.
+    wrF32(body + 0xF4, nan);
+    wrF32(body + 0xF8, nan);
+    CHECK(decodePtiHeader(g_hdr, sizeof(g_hdr), b) == FmtStatus::Ok);
+    audio::initTables();
+    std::vector<int16_t> d(4410);
+    for (size_t i = 0; i < d.size(); ++i) d[i] = int16_t(16000.0f * std::sin(6.2831853f * float(i) / 100.0f));
+    b.lengthFrames = uint32_t(d.size());
+    b.startPoint = 0;
+    b.loopPoint1 = 1;
+    b.loopPoint2 = 65534;
+    b.endPoint = 65535;
+    CHECK(b.filterEnabled == 1);
+    audio::Voice v;
+    v.noteOn(&b, d.data(), uint32_t(d.size()), 60, -1, 0, 0, 0, 0);
+    audio::VoiceControl c;
+    audio::VoiceOut o;
+    float ds[audio::kBlock] = {}, rs[audio::kBlock] = {};
+    bool finite = true;
+    float peak = 0.0f;
+    for (int blk = 0; blk < 50; ++blk) {
+        v.control(c);
+        v.render(c, o, ds, rs);
+        for (uint32_t i = 0; i < audio::kBlock; ++i) {
+            finite = finite && std::isfinite(o.amp[i]);
+            peak = std::fmax(peak, std::fabs(o.amp[i]));
+        }
+    }
+    CHECK(finite);
+    CHECK(peak > 0.0f);
 }

@@ -412,6 +412,14 @@ void SynthScreen::macroRowChange(int m, int r, int d) {
     if (r == 0) return;   // the name: keyboard (F7 / encoder push)
     if (r == 1) {
         mc.bipolar = !mc.bipolar;
+        // The macro's value restarts at its neutral position for the new
+        // mode (0, or the centre 63 = "0" when bipolar), as on a patch load;
+        // keeping the old 0 showed a bipolar macro at -63 (user report).
+        if (m < audio::kSynthSeqMacros) {
+            SynthSlotRecord rec = app_.synthSlot(slot);
+            rec.macros[m] = audio::synthMacroDefault(mc.bipolar);
+            app_.setSynthSlotRecord(slot, rec);
+        }
     } else {
         const int k = (r - 2) / 2;
         if ((r - 2) % 2 == 0) {
@@ -667,7 +675,31 @@ void SynthScreen::savePatchAs() {
 // ---------------------------------------------------------------------------
 // Input
 
+void instrumentChooserItem(void* ctx, int i, char* out, int cap) {
+    App* a = static_cast<App*>(ctx);
+    if (i < kSampleInstrumentCount)
+        std::snprintf(out, size_t(cap), "%02d %s", i + 1, a->instrPresent[i] ? a->instruments[i].name : "");
+    else if (i < kInstrumentCount) std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
+    else synthui::slotLabel(*a, i - kFirstSynthInstrument, out, cap);
+}
+
 void SynthScreen::onButton(uint8_t id, uint8_t state) {
+    // Instr held: the instrument chooser, as on the Instrument Params page
+    // (user report: the key did nothing on a synth page). Releasing it opens
+    // the page of the picked instrument (sample, MIDI or synth slot).
+    if (id == btn::Instr && view != View::Browser) {
+        if (state == kPress) {
+            audition(false, 0);
+            ui_.picker.open(2, "Instrument", kInstrumentChooserCount, app_.currentInstrument(), instrumentChooserItem,
+                            &app_);
+        } else if (state == kRelease && ui_.picker.isOpen()) {
+            app_.setCurrentInstrument(uint8_t(ui_.picker.cursor()));
+            ui_.picker.close();
+            ui_.switchTo(kModInstrument);   // routes to this page for S1..S3
+        }
+        return;
+    }
+    if (ui_.picker.isOpen()) return;
     if (id == btn::InstrParams) {
         if (state != kPress) return;
         audition(false, 0);

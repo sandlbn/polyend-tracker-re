@@ -477,3 +477,95 @@ TEST(pattern_preview_plays_the_row_once) {
     h.tap(btn::Down);
     CHECK_EQ(p.step, row + 1);
 }
+
+namespace {
+// y of the song progress line: a 2-row RECTS box starting at x 5 in the
+// grid's first row band (92..118), or -1.
+int songProgressY(Harness& h) {
+    int last = -1;
+    for (size_t i = 0; i + 1 < h.disp.last.size(); ++i) {
+        int x0, y0, x1, y1;
+        if (std::sscanf(h.disp.last[i].c_str(), "VERTEX %d %d", &x0, &y0) == 2 &&
+            std::sscanf(h.disp.last[i + 1].c_str(), "VERTEX %d %d", &x1, &y1) == 2 && x0 == 5 && x1 > 400 &&
+            y1 - y0 == 1 && y0 >= 92 && y0 <= 118)
+            last = y0;
+    }
+    return last;
+}
+}  // namespace
+
+TEST(song_progress_line_follows_the_playing_pattern) {
+    // User report (Tracker+ / stock photo): during song playback a
+    // horizontal line moves down through the playing slot's grid row.
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Song);
+    h.tap(btn::F2);   // Play Song
+    CHECK(a.seq.isPlaying());
+    auto playTo = [&](int step) {
+        for (int i = 0; i < 2000 && a.seq.step(0) < step; ++i) {
+            h.audio.pump(1);
+            h.run(2);
+        }
+        a.ui.dirty();
+        h.run(30);
+    };
+    playTo(4);
+    const int y1 = songProgressY(h);
+    playTo(24);
+    const int y2 = songProgressY(h);
+    CHECK(y1 >= 92);
+    CHECK(y2 > y1 + 10);
+    h.tap(btn::F2);   // Stop
+    h.run(60);
+    a.ui.dirty();
+    h.run(30);
+    CHECK_EQ(songProgressY(h), -1);
+}
+
+TEST(song_loop_flag_ends_with_its_play_run) {
+    // Stock photos: the title shows the loop arrow only while Shift+Play loops
+    // a pattern in the song; a later plain pattern play shows the triangle,
+    // even when the loop was stopped from another screen.
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Song);
+    auto& s = *static_cast<SongScreen*>(a.ui.screen(kModSong));
+    h.tap(btn::F2);   // play song
+    h.audio.pump(20);
+    h.run(20);
+    h.down(btn::Shift);
+    h.tap(btn::Play);   // Loop Pattern (deferred to the next step)
+    h.up(btn::Shift);
+    for (int i = 0; i < 200 && !s.loopingInSong(); ++i) {
+        h.audio.pump(1);
+        h.run(5);
+    }
+    CHECK(s.loopingInSong());
+    h.tap(btn::Pattern);
+    h.tap(btn::Play);   // stop from the Pattern screen
+    CHECK(!a.seq.isPlaying());
+    h.run(20);
+    h.tap(btn::Play);   // plain pattern play
+    CHECK(a.seq.isPlaying());
+    CHECK(!s.loopingInSong());
+    h.tap(btn::Play);
+}
+
+TEST(song_headers_show_track_names) {
+    // User report / stock photo: a renamed track shows its name on the Song
+    // page (it kept "Track X").
+    Harness h;
+    App& a = *h.app;
+    a.project.setTrackName(1, "Bass");
+    h.tap(btn::Song);
+    a.ui.dirty();
+    h.run(40);
+    bool bass = false, track2 = false;
+    for (auto& l : h.disp.last) {
+        if (l.find("\"Bass\"") != std::string::npos) bass = true;
+        if (l.find("\"Track\"") != std::string::npos) track2 = true;   // the other tracks keep "Track N"
+    }
+    CHECK(bass);
+    CHECK(track2);
+}

@@ -32,10 +32,9 @@ public:
     //
     // CPU (OpenTracker, not in the spec): the lines live in SDRAM, so each
     // block reads/writes them as contiguous spans with 32-bit accesses
-    // (ring_io), and only the lines the current mode outputs are processed
-    // -- A+B for ping-pong, C for mono (C never depends on A/B and vice
-    // versa). A line set that becomes active again starts empty (reads
-    // older than its activation return 0). When the input is digital
+    // (ring_io). All three lines are read and written every sample, as on
+    // stock, and the mode only picks the output (A/B for ping-pong, C for
+    // mono), so switching ping-pong continues the echoes. When the input is digital
     // silence and every line read/write of the last delay time stayed
     // within +-kQuiet LSB (-80 dBFS), the delay is bypassed: zero output,
     // the write pointer keeps moving and zeros are written behind it until
@@ -56,10 +55,8 @@ private:
     int32_t ya_ = 0, yb_ = 0, yc_ = 0;   // previous filter outputs
     bool pingpong_ = false;
     bool disabled_ = false;
-    bool activePP_ = false;              // line set processed last block
     bool bypass_ = false;
     uint32_t quiet_ = 0;                 // consecutive quiet samples (reads and writes)
-    uint32_t fresh_ = kDelayLineLen;     // samples written since the line set became active
     uint32_t zeroed_ = 0;                // bypassed samples zeroed behind w (stops at the ring length)
 };
 

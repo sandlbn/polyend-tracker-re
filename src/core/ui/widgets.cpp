@@ -304,7 +304,10 @@ void titleBarStatus(Gfx& g, const Theme& th, const TitleStatus& s) {
         g.rectsAdd(l.iconX + l.symW - 1, kTitleCentreY - 5, 3, 12);
         g.rectsEnd();
     } else {
-        g.icon(l.iconX + l.symW - 6, kTitleCentreY - 5, kIconPlay, sc);
+        // The play triangle; the loop arrow while Shift+Play loops a pattern
+        // inside the song (stock photos: plain pattern play shows the triangle).
+        g.icon(l.iconX + l.symW - 6, kTitleCentreY - 5, st->transport == Transport::kLoopingInSong ? kIconLoop : kIconPlay,
+               sc);
     }
     formatStatusPosition(buf, sizeof(buf), st->pattern, st->step, st->hex);
     g.text(l.posX, kTitleCentreY, kFont4, sc, buf, IDisplay::kOptCenterY);

@@ -91,7 +91,7 @@ void strokes(Gfx& g, const int (*box)[4], int n, uint32_t c);
 void dot(Gfx& g, int cx, int cy, float r, uint32_t c);
 
 // --- title bar (spec 20 §1.2) ------------------------------------------------
-enum class Transport : uint8_t { kStopped, kPlayingSong, kPlayingPattern };
+enum class Transport : uint8_t { kStopped, kPlayingSong, kPlayingPattern, kLoopingInSong };
 
 // 2.x CPU load cell [I] (docs/specs/2x-02 §2.2; stock has no CPU meter):
 // "CPU nn%" (P, the 1 s peak) or "CPU!" after an overrun, 60 x 24 px,

@@ -190,7 +190,8 @@ public:
     uint32_t tapT0 = 0;
     bool tapShown = false;         // "TAP n/4" display flag SO+0x131 (spec 06 §2.4)
     int transportState() const;    // F1/F2 label state 0..5 (spec 06 §2.2)
-    bool loopingInSong() const { return loopInSong_; }
+    // Loop Pattern active in the current play run (a stop elsewhere ends it).
+    bool loopingInSong() const;
     bool loopTogglePending() const { return togglePending_; }
 
 private:
@@ -211,6 +212,7 @@ private:
     int clipRow0_ = 0, clipRows_ = 0, clipTrack0_ = 0, clipTracks_ = 0;
     uint32_t lastUpdate_ = 0;
     int followPos_ = -1;           // playing slot the cursor last followed (-1: follow at once)
+    uint32_t loopRun_ = 0;         // App::playStartMs() of the run that set loopInSong_
     bool loopInSong_ = false;      // state 3: song paused on one pattern (spec 06 §2.2)
     bool togglePending_ = false;   // F1 deferred action (seq+0x548 = 0x5ae00, spec 06 §2.3)
     int toggleStep_ = 0;           // master step at scheduling; fires on the next one
@@ -912,6 +914,11 @@ inline int midiTrackInstrumentPad(int instrument) {
     return -1;
 }
 }  // namespace synthui
+
+// Instr-hold chooser (Instrument Params, Synth pages): sample instruments
+// 1..48, MIDI 1..16, then Synth 1..3 (2.x, Tracker Mini).
+constexpr int kInstrumentChooserCount = kInstrumentCount + kSynthSlotCount;
+void instrumentChooserItem(void* ctx, int i, char* out, int cap);
 
 class SynthScreen final : public Screen {
 public:

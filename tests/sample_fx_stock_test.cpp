@@ -160,10 +160,12 @@ TEST(stock_delay_multitap_and_length) {
 TEST(stock_bitcrusher_hold_and_bits) {
     float p[9];
     params(sfx::kBitcrusher, p);
-    // R = 44100: H = round(44117.647 / 44100) = 1; 4 bits.
+    // R = 44100: H = round(44117.647 / 44100) = 1; 4 bits. Stock keeps the
+    // top bits (floor, (x >> 12) * 4096); OpenTracker deliberately rounds to
+    // the nearest step on the same grid (no hiss/DC on quiet material).
     const auto in = sine(2000, 20000, 440);
     Run r = run(sfx::kBitcrusher, p, in);
-    for (uint32_t i = 0; i < 2000; ++i) CHECK_EQ(r.out[i], int16_t((in[i] >> 12) * 4096));
+    for (uint32_t i = 0; i < 2000; ++i) CHECK_EQ(r.out[i], int16_t(((in[i] + 2048) >> 12) * 4096));
     // B = 16, R = 11025: H = 4, hold only.
     p[0] = 16;
     p[1] = 11025;
@@ -173,14 +175,17 @@ TEST(stock_bitcrusher_hold_and_bits) {
     p[1] = 500;
     r = run(sfx::kBitcrusher, p, in);
     for (uint32_t i = 0; i < 2000; ++i) CHECK_EQ(r.out[i], in[i - i % 64]);
-    // B = 1: sign only (0 or -32768).
+    // B = 1: steps of 32768, rounded to nearest (stock: sign only, 0 or
+    // -32768); the top step clamps to 32767.
     p[0] = 1;
     p[1] = 44100;
-    r = run(sfx::kBitcrusher, p, {100, -100, 32767, -1});
+    r = run(sfx::kBitcrusher, p, {100, -100, 32767, -1, -20000, 20000});
     CHECK_EQ(r.out[0], 0);
-    CHECK_EQ(r.out[1], -32768);
-    CHECK_EQ(r.out[2], 0);
-    CHECK_EQ(r.out[3], -32768);
+    CHECK_EQ(r.out[1], 0);
+    CHECK_EQ(r.out[2], 32767);
+    CHECK_EQ(r.out[3], 0);
+    CHECK_EQ(r.out[4], -32768);
+    CHECK_EQ(r.out[5], 32767);
 }
 
 TEST(stock_chorus_taps) {

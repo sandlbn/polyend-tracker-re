@@ -37,20 +37,24 @@
 # fatworst re-recorded (FAT review follow-ups): measured at pitch ~108 (glide 108 -> 96;
 # polyBLEP event cost grows with pitch), was 16110 at 36 -> 60. mixfat unchanged (same
 # patch, its own notes 36..57).
-idle     10731
-idle2    10863
-play8    138113
-worst    241144
-stereo8  167310
-synth4   66420
-vapinit  9025
-vapworst 17148
+# Re-baselined 2026-10-21 (2.1.0, owner decision): the delay now reads, filters and writes
+# all three lines every sample like stock (ping-pong switches keep the echo tail; delay
+# 4.6k -> 8.7k insn/block), plus the drift since 2.0.7 (idle / synth4 had been +3.6..4.1 %).
+# Est. load stays inside the budget: mix 64.8 %, peak 59.4 %, alarm 70 %.
+idle     11112
+idle2    11470
+play8    145418
+worst    244349
+stereo8  174615
+synth4   66860
+vapinit  9027
+vapworst 17150
 fatinit  9224
 fatworst 18679
-mix      249396
-mix5     265354
-mix6     265357
-mixfat   252014
-pswitch  137875
-peakavg  143387
-peak     224440
+mix      257071
+mix5     273064
+mix6     273069
+mixfat   257346
+pswitch  145180
+peakavg  147318
+peak     228560

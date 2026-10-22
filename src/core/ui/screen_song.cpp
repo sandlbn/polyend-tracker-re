@@ -117,6 +117,10 @@ int SongScreen::transportState() const {
     return loopInSong_ ? 3 : 5;
 }
 
+bool SongScreen::loopingInSong() const {
+    return loopInSong_ && app_.seq.isPlaying() && app_.playStartMs() == loopRun_;
+}
+
 void SongScreen::applyLoopToggle() {
     // spec 06 §2.3 F1 deferred action (0x5ae00), run at the sync point: the
     // song keeps playing; only the next pattern end changes (loop / advance).
@@ -127,6 +131,7 @@ void SongScreen::applyLoopToggle() {
     } else if (s.isSongMode()) {
         s.setSongMode(false);   // "Loop Pattern": the current slot repeats
         loopInSong_ = true;
+        loopRun_ = app_.playStartMs();
     } else if (loopInSong_) {
         s.setSongMode(true);    // "Continue Song": advance at this pattern's end
         loopInSong_ = false;
@@ -567,10 +572,18 @@ void SongScreen::draw(Gfx& g) {
         // Word and number as two runs: the stock vertical text advances
         // only 5 px for the space (font 1 is 8) [S snap 010].
         const int t = ft + c;
+        const int x = kHeaderX - 4 + kPitchX * c;
+        // A renamed track shows its name (stock photo; user report: the
+        // Song page kept "Track X" after a rename).
+        char nm[24], def[16];
+        std::snprintf(def, sizeof(def), t < 8 ? "Track %d" : "Midi %d", t + 1);
+        if (a.project.trackName(t, nm, sizeof(nm)) && nm[0] && std::strcmp(nm, def) != 0) {
+            g.textRotated(x, kHeaderBottom - g.textWidth(kFont1, nm), kFont1, white, nm, 1);
+            continue;
+        }
         const char* word = t < 8 ? "Track" : "Midi";
         char num[12];
         std::snprintf(num, sizeof(num), "%d", t + 1);
-        const int x = kHeaderX - 4 + kPitchX * c;
         const int ww = g.textWidth(kFont1, word);
         g.textRotated(x, kHeaderBottom - ww, kFont1, white, word, 1);
         g.textRotated(x, kHeaderBottom - ww - kHeaderSpace - g.textWidth(kFont1, num), kFont1, white, num, 1);
@@ -601,6 +614,15 @@ void SongScreen::draw(Gfx& g) {
             if (used[r][c]) g.rectsAdd(kGridX + 41 - kPitchX + kPitchX * c, kGridY + 2 + kPitchY * r, 36, 22);
     g.rectsEnd();
     g.lineWidth(16);
+    // Playback progress (stock 1.9.2 photo): a 2-px green line across the
+    // grid, moving from the top to the bottom of the playing slot's row as
+    // its pattern plays.
+    if (playing >= first && playing < first + rows) {
+        const int len = a.pattern().tracks[0].lastStep + 1;
+        const int st = clampi(a.seq.step(0), 0, len > 0 ? len - 1 : 0);
+        const int y = kGridY + kPitchY * (playing - first) + (len > 0 ? (kPitchY - 2) * st / len : 0);
+        g.fill(kGridX, y, kPitchX * kTrackCount - 1, 2, th.slot(slot::kSongList + 9));   // 30cb3f
+    }
     if (focus == 0) {
         // Grid selection (edit mode): white 1.5-px outline on the gaps,
         // clipped to the shown columns.
@@ -619,7 +641,9 @@ void SongScreen::draw(Gfx& g) {
         const int slotI = first + r;
         const int num = a.project.playlist[slotI];
         const int cy = kListY0 + 14 + kPitchY * r;
-        const uint32_t c = slotI == playing ? th.slot(slot::kGreen) : white;
+        const uint32_t c = white;   // stock photo: the playing slot keeps white text, marked by the icon
+        if (slotI == playing)       // ▶ while the song plays, the loop arrow while Shift+Play loops it
+            g.icon(kListNumX - 26, cy - 6, loopInSong_ ? kIconLoop : kIconPlay, white);
         g.textf(kListNumX, cy, kFont1, c, IDisplay::kOptCenterY, "%d", num);
         const char* nm = a.names.get(num);
         if (nm[0]) g.text(kListNameX, cy, kFont1, c, nm, IDisplay::kOptCenterY);

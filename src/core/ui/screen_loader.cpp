@@ -528,6 +528,18 @@ void LoaderScreen::moveCursor(int d) {
         }
         sdCursor = nc;
         pendingProjAt_ = ui_.now() + 300;
+        // Preview held: the next file auditions at once, as the instrument
+        // list does (user report: Up / Down went quiet while previewing).
+        if (previewing_ && nc != old) {
+            previewStreamStop(app_);
+            app_.previewAllOff();
+            if (!isDir[nc]) {
+                char path[256];
+                entryPath(nc, path, sizeof(path));
+                if (hasExt(path, ".wav")) previewStreamStart(app_, path);
+                else if (hasExt(path, ".pti")) previewPtiStart(app_, path);
+            }
+        }
     } else if (focus == 1) {
         const int old = insCursor;
         insCursor = clampi(insCursor + d, 0, 47);

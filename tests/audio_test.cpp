@@ -447,6 +447,35 @@ TEST(envelope_timing) {
     CHECK(mn < 0.05f);
 }
 
+// --- bit depth (spec 04 §4.6) -------------------------------------------------
+
+// OpenTracker rounds to the nearest step of stock's mask grid (stock floors,
+// which turns quiet material into a negative pulse train with DC).
+TEST(bit_depth_quantiser_is_mid_tread) {
+    initTables();
+    // -60 dBFS sine at 8 bits (step 256): every sample is within half a step
+    // of 0, so the output is exactly silent (floor: -256 on each negative half).
+    const auto quiet = sine(44100, 441.0f, 0.001f);
+    Instrument ins = plainInstrument(44100, PlayMode::ForwardLoop);
+    ins.bitDepth = 8;
+    Voice v;
+    v.noteOn(&ins, quiet.data(), 44100, 60, -1, 0, 0, 0, 0);
+    auto out = renderVoice(v, 40);
+    float mx = 0.0f;
+    for (size_t i = kBlock; i < out.size(); ++i) mx = std::fmax(mx, std::fabs(out[i]));
+    CHECK_EQ(mx, 0.0f);
+    // 0.89 full-scale sine at 4 bits: no DC (floor: about -1/16).
+    const auto loud = sine(44100, 441.0f, 0.89f);
+    ins.bitDepth = 4;
+    Voice w;
+    w.noteOn(&ins, loud.data(), 44100, 60, -1, 0, 0, 0, 0);
+    out = renderVoice(w, 101);
+    double sum = 0.0;
+    for (size_t i = kBlock; i < out.size(); ++i) sum += out[i];
+    const double mean = sum / double(out.size() - kBlock);
+    CHECK(std::fabs(mean) < 1.0 / 256.0);
+}
+
 // --- filter (spec 04 §4.4) ----------------------------------------------------
 
 namespace {
@@ -538,6 +567,42 @@ TEST(delay_time_accuracy) {
     CHECK(en(R, 1000) > 0.3f && en(L, 1000) < 0.01f);
     CHECK(en(L, 2000) > 0.2f && en(R, 2000) < 0.01f);
     CHECK(en(R, 3000) > 0.1f);
+}
+
+// Switching ping-pong while echoes ring continues the tail (stock writes all
+// three lines every sample; the mode only picks the output).
+TEST(delay_pingpong_switch_keeps_tail) {
+    initTables();
+    for (int dir = 0; dir < 2; ++dir) {
+        std::vector<int16_t> mem(Delay::kMemorySamples);
+        Delay d;
+        d.init(mem.data());
+        d.setFilter(20000.0f);
+        d.setTimeSamples(1000);
+        d.setFeedbackK(delayFeedbackK(80));
+        d.setPingPong(dir == 1);
+        float x[kBlock], l[kBlock], r[kBlock];
+        uint32_t n = 0;
+        auto rms = [&]() {
+            double e = 0;
+            for (uint32_t i = 0; i < kBlock; ++i) e += double(l[i]) * l[i] + double(r[i]) * r[i];
+            return std::sqrt(e / (2.0 * kBlock));
+        };
+        // 2048-sample sine burst, then silence while the echoes ring.
+        double before = 0;
+        for (int b = 0; b < 40; ++b) {
+            for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = n < 2048 ? 0.5f * std::sin(2.0f * kPiF * 300.0f * float(n) / 44100.0f) : 0.0f;
+            d.process(x, l, r);
+            before = rms();
+        }
+        CHECK(before > 0.05);
+        d.setPingPong(dir == 0);
+        for (uint32_t i = 0; i < kBlock; ++i) x[i] = 0.0f;
+        d.process(x, l, r);
+        const double after = rms();
+        std::printf("  ping-pong %s: rms %.4f -> %.4f\n", dir == 0 ? "on" : "off", before, after);
+        CHECK(after > before * 0.5 && after < before * 2.0);   // within 6 dB
+    }
 }
 
 // --- limiter (spec 04 §5.3) ---------------------------------------------------
@@ -847,7 +912,8 @@ TEST(deterministic_render_hash) {
     CHECK_EQ(ha, hb);
     std::printf("  scripted render hash: %016llx\n", (unsigned long long)ha);
     // Golden value (host x86-64 SSE float); update deliberately when the DSP changes.
-    CHECK_EQ(ha, 0x4e126ff813060a1bull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
+    // 1.9.9: bit depth rounds to nearest (was 0x4e126ff813060a1b with the floor).
+    CHECK_EQ(ha, 0xe2e2f8dd73d3e8d6ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
 }
 
 TEST(export_stems_wav) {

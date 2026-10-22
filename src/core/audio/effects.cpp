@@ -24,8 +24,8 @@ inline uint32_t mag(int32_t v) { return uint32_t(v ^ (v >> 31)); }
 
 // Block working buffers (SRAM). One engine renders at a time.
 int16_t gX[kBlock];
-int16_t gR0[kBlock], gR1[kBlock];
-int16_t gW0[kBlock], gW1[kBlock];
+int16_t gR0[kBlock], gR1[kBlock], gR2[kBlock];
+int16_t gW0[kBlock], gW1[kBlock], gW2[kBlock];
 }  // namespace
 
 // --- Delay (spec 04 §5.1) ----------------------------------------------------
@@ -43,10 +43,76 @@ void Delay::clear() {
     xa_ = xb_ = xc_ = ya_ = yb_ = yc_ = 0;
     w_ = 0;
     quiet_ = kDelayLineLen;    // an empty ring is silent
-    fresh_ = kDelayLineLen;
     zeroed_ = kDelayLineLen;   // all lines are zero
     bypass_ = false;
 }
+
+namespace {
+// One chunk of n <= t samples of the ping-pong lines A/B (reads ra_/rb_ at
+// w - t, writes wa_/wb_) and of the mono line C. Every line is written every
+// sample (spec 04 §5.1); OUT selects whether the set feeds the outputs. The
+// two sets are independent, so they run as two lean loops. st = {x1, y1}
+// filter state per line. Return the OR of the read/written magnitudes.
+// Inlined into Delay::process, which runs from SRAM_L on the device (fastrun.h).
+template <bool OUT>
+__attribute__((always_inline)) inline uint32_t delayChunkAB(const int16_t* __restrict x, uint32_t n, int32_t b, int32_t c, int32_t k, int32_t* st,
+                      const int16_t* __restrict ra_, const int16_t* __restrict rb_, int16_t* __restrict wa_,
+                      int16_t* __restrict wb_, float* __restrict oL, float* __restrict oR) {
+    int32_t xa = st[0], xb = st[1], ya = st[2], yb = st[3];
+    uint32_t loud = 0;
+    for (uint32_t j = 0; j < n; ++j) {
+        const int32_t ra = ra_[j], rb = rb_[j];
+        // One-pole filter per tap (spec 07 Q9): y = (x*b + x1*b - y1*c) >> 10.
+        const int32_t fa = (ra * b + xa * b - ya * c) >> 10;
+        const int32_t fb = (rb * b + xb * b - yb * c) >> 10;
+        xa = ra;
+        xb = rb;
+        ya = fa;
+        yb = fb;
+        if (OUT) {
+            oL[j] = s16ToF(sat16(fa));
+            oR[j] = s16ToF(sat16(fb));
+        }
+        // Ping-pong cross-feed A<->B (spec 04 §5.1).
+        const int32_t wb = sat16(x[j] + ((fa * k) >> 8));
+        const int32_t wa = sat16((fb * k) >> 8);
+        wb_[j] = int16_t(wb);
+        wa_[j] = int16_t(wa);
+        loud |= mag(ra) | mag(rb) | mag(wa) | mag(wb);
+    }
+    st[0] = xa;
+    st[1] = xb;
+    st[2] = ya;
+    st[3] = yb;
+    return loud;
+}
+
+template <bool OUT>
+__attribute__((always_inline)) inline uint32_t delayChunkC(const int16_t* __restrict x, uint32_t n, int32_t b, int32_t c, int32_t k, int32_t* st,
+                     const int16_t* __restrict rc_, int16_t* __restrict wc_, float* __restrict oL,
+                     float* __restrict oR) {
+    int32_t xc = st[0], yc = st[1];
+    uint32_t loud = 0;
+    for (uint32_t j = 0; j < n; ++j) {
+        const int32_t rc = rc_[j];
+        const int32_t fc = (rc * b + xc * b - yc * c) >> 10;
+        xc = rc;
+        yc = fc;
+        if (OUT) {
+            const float o = s16ToF(sat16(fc));
+            oL[j] = o;
+            oR[j] = o;
+        }
+        // Mono line C (spec 04 §5.1).
+        const int32_t wc = sat16(x[j] + ((fc * k) >> 8));
+        wc_[j] = int16_t(wc);
+        loud |= mag(rc) | mag(wc);
+    }
+    st[0] = xc;
+    st[1] = yc;
+    return loud;
+}
+}  // namespace
 
 OT_FASTRUN_FN bool Delay::process(const float* in, float* outL, float* outR) {
     if (disabled_ || !a_) {
@@ -63,15 +129,7 @@ OT_FASTRUN_FN bool Delay::process(const float* in, float* outL, float* outR) {
     }
     const uint32_t t = time_;
     const bool pp = pingpong_;
-    if (pp != activePP_) {
-        // The other line set becomes active: it starts empty.
-        activePP_ = pp;
-        fresh_ = 0;
-        quiet_ = 0;
-        zeroed_ = 0;
-        xa_ = xb_ = xc_ = ya_ = yb_ = yc_ = 0;
-    }
-    const uint32_t yq = pp ? (mag(ya_) | mag(yb_)) : mag(yc_);
+    const uint32_t yq = mag(ya_) | mag(yb_) | mag(yc_);
     if (any == 0 && quiet_ >= t && yq <= uint32_t(kQuiet)) {
         // Bypass: silent input, decayed tail.
         bypass_ = true;
@@ -80,23 +138,21 @@ OT_FASTRUN_FN bool Delay::process(const float* in, float* outL, float* outR) {
             zeroFloats(outR, kBlock);
         }
         if (zeroed_ < kDelayLineLen) {
-            if (pp) {
-                ringZero(a_, kDMask, w_, kBlock);
-                ringZero(b_, kDMask, w_, kBlock);
-            } else {
-                ringZero(c_, kDMask, w_, kBlock);
-            }
+            ringZero(a_, kDMask, w_, kBlock);
+            ringZero(b_, kDMask, w_, kBlock);
+            ringZero(c_, kDMask, w_, kBlock);
             zeroed_ += kBlock;
         }
         xa_ = xb_ = xc_ = ya_ = yb_ = yc_ = 0;
         w_ = (w_ + kBlock) & kDMask;
         if (quiet_ < 0x7FFFFFFFu) quiet_ += kBlock;
-        if (fresh_ < kDelayLineLen) fresh_ += kBlock;
         return false;
     }
     bypass_ = false;
     zeroed_ = 0;   // the ring is no longer known to be clear
     const int32_t b = b_coef_, c = c_coef_, k = k_;
+    int32_t sab[4] = {xa_, xb_, ya_, yb_};
+    int32_t sc[2] = {xc_, yc_};
     uint32_t w = w_;
     uint32_t loud = 0;
     for (uint32_t i0 = 0; i0 < kBlock;) {
@@ -108,62 +164,28 @@ OT_FASTRUN_FN bool Delay::process(const float* in, float* outL, float* outR) {
         const int16_t* x = gX + i0;
         float* oL = outL + i0;
         float* oR = outR + i0;
+        ringIn(a_, kDMask, r, gR0, n);
+        ringIn(b_, kDMask, r, gR1, n);
+        ringIn(c_, kDMask, r, gR2, n);
         if (pp) {
-            ringIn(a_, kDMask, r, gR0, n);
-            ringIn(b_, kDMask, r, gR1, n);
-            if (fresh_ < t)
-                for (uint32_t j = 0; j < n && fresh_ + j < t; ++j) gR0[j] = gR1[j] = 0;
-            int32_t xa = xa_, xb = xb_, ya = ya_, yb = yb_;
-            for (uint32_t j = 0; j < n; ++j) {
-                const int32_t ra = gR0[j], rb = gR1[j];
-                // One-pole filter per tap (spec 07 Q9): y = (x*b + x1*b - y1*c) >> 10.
-                const int32_t fa = (ra * b + xa * b - ya * c) >> 10;
-                const int32_t fb = (rb * b + xb * b - yb * c) >> 10;
-                xa = ra;
-                xb = rb;
-                ya = fa;
-                yb = fb;
-                oL[j] = s16ToF(sat16(fa));
-                oR[j] = s16ToF(sat16(fb));
-                // Ping-pong cross-feed A<->B (spec 04 §5.1).
-                const int32_t wb = sat16(x[j] + ((fa * k) >> 8));
-                const int32_t wa = sat16((fb * k) >> 8);
-                gW1[j] = int16_t(wb);
-                gW0[j] = int16_t(wa);
-                loud |= mag(ra) | mag(rb) | mag(wa) | mag(wb);
-            }
-            xa_ = xa;
-            xb_ = xb;
-            ya_ = ya;
-            yb_ = yb;
-            ringOut(a_, kDMask, w, gW0, n);
-            ringOut(b_, kDMask, w, gW1, n);
+            loud |= delayChunkAB<true>(x, n, b, c, k, sab, gR0, gR1, gW0, gW1, oL, oR);
+            loud |= delayChunkC<false>(x, n, b, c, k, sc, gR2, gW2, oL, oR);
         } else {
-            ringIn(c_, kDMask, r, gR0, n);
-            if (fresh_ < t)
-                for (uint32_t j = 0; j < n && fresh_ + j < t; ++j) gR0[j] = 0;
-            int32_t xc = xc_, yc = yc_;
-            for (uint32_t j = 0; j < n; ++j) {
-                const int32_t rc = gR0[j];
-                const int32_t fc = (rc * b + xc * b - yc * c) >> 10;
-                xc = rc;
-                yc = fc;
-                const float o = s16ToF(sat16(fc));
-                oL[j] = o;
-                oR[j] = o;
-                // Mono line C (spec 04 §5.1).
-                const int32_t wc = sat16(x[j] + ((fc * k) >> 8));
-                gW0[j] = int16_t(wc);
-                loud |= mag(rc) | mag(wc);
-            }
-            xc_ = xc;
-            yc_ = yc;
-            ringOut(c_, kDMask, w, gW0, n);
+            loud |= delayChunkAB<false>(x, n, b, c, k, sab, gR0, gR1, gW0, gW1, oL, oR);
+            loud |= delayChunkC<true>(x, n, b, c, k, sc, gR2, gW2, oL, oR);
         }
+        ringOut(a_, kDMask, w, gW0, n);
+        ringOut(b_, kDMask, w, gW1, n);
+        ringOut(c_, kDMask, w, gW2, n);
         w = (w + n) & kDMask;
         i0 += n;
-        fresh_ = fresh_ + n > kDelayLineLen ? kDelayLineLen : fresh_ + n;
     }
+    xa_ = sab[0];
+    xb_ = sab[1];
+    ya_ = sab[2];
+    yb_ = sab[3];
+    xc_ = sc[0];
+    yc_ = sc[1];
     w_ = w;
     if (loud > uint32_t(kQuiet)) quiet_ = 0;
     else if (quiet_ < 0x7FFFFFFFu) quiet_ += kBlock;

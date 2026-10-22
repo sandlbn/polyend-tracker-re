@@ -589,3 +589,25 @@ TEST(loader_sd_preview_plays_pti) {
         CHECK(!a.engine.previewBufferActive());
     }
 }
+
+// User report: with Preview held, Down to the next SD file must audition it
+// (the instrument list already did; the SD list kept the old file / went quiet).
+TEST(loader_sd_preview_follows_the_cursor) {
+    Harness h;
+    App& a = *h.app;
+    std::vector<int16_t> quiet(44100, 40), loud(44100);
+    for (size_t i = 0; i < loud.size(); ++i) loud[i] = int16_t((i / 50) % 2 ? 12000 : -12000);
+    putWavCh(h, "a_quiet.wav", quiet, 1);
+    putWavCh(h, "b_loud.wav", loud, 1);
+    h.tap(btn::SampleLoader);
+    CHECK(selectSd(h, "a_quiet.wav") >= 0);
+    h.down(btn::F3);
+    CHECK(a.engine.previewBufferActive());
+    CHECK(h.audio.pump(4) < 1000);   // the quiet file
+    h.tap(btn::Down);                // to b_loud.wav, Preview still held
+    h.run(50);
+    CHECK(a.engine.previewBufferActive());
+    CHECK(h.audio.pump(8) > 5000);   // the loud file plays now
+    h.up(btn::F3);
+    CHECK(!a.engine.previewBufferActive());
+}

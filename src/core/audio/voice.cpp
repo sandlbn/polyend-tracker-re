@@ -77,7 +77,7 @@ void fusedChain(const float* __restrict p, const float* __restrict eg, OutRamps 
                 float* __restrict mR, float& last) {
     const bool hsOn = kExtra && cf.hs != 1.0f, crush = kExtra && cf.mask != -1, odOn = kExtra && cf.od > 0.0f;
     const float hs = cf.hs, odg = cf.od;
-    const int32_t m = cf.mask;
+    const int32_t m = cf.mask, half = (((~m) & 0xFFFF) + 1) >> 1;   // mid-tread rounding
     float dfm = 0.0f, ddp = 0.0f, f = 0.0f, d = 0.0f, l = 0.0f, b = 0.0f, ip = 0.0f;
     if (kFilt) {
         dfm = (cf.fmT - svf.fm) / float(kBlock);
@@ -91,7 +91,7 @@ void fusedChain(const float* __restrict p, const float* __restrict eg, OutRamps 
     float x = 0.0f;
     for (uint32_t i = 0; i < kBlock; ++i) {
         x = hsOn ? p[i] * (eg[i] * hs) : p[i] * eg[i];
-        if (crush) x = float(int32_t(toS16(x)) & m) * (1.0f / 32768.0f);
+        if (crush) x = float((int32_t(toS16(x)) + half) & m) * (1.0f / 32768.0f);
         if (odOn) {
             const float y = x * odg;
             const float a = y < 0.0f ? -y : y;
@@ -1073,10 +1073,14 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     } else {
         for (uint32_t i = 0; i < kBlock; ++i) x[i] *= eg[i] * hs;
     }
-    // Bit crusher: AND mask on the int16 sample (§4.6).
+    // Bit crusher on the int16 sample (§4.6), on stock's mask grid but rounded
+    // to the nearest step (mid-tread): stock's plain AND rounds toward -inf,
+    // which turns quiet signals and release tails into a negative pulse train
+    // with DC (hiss). OpenTracker deviation, deliberate.
     if (mask_ != 0xFFFF) {
         const int32_t m = int32_t(int16_t(mask_));
-        for (uint32_t i = 0; i < kBlock; ++i) x[i] = float(int32_t(toS16(x[i])) & m) * (1.0f / 32768.0f);
+        const int32_t half = ((~m & 0xFFFF) + 1) >> 1;
+        for (uint32_t i = 0; i < kBlock; ++i) x[i] = float((int32_t(toS16(x[i])) + half) & m) * (1.0f / 32768.0f);
     }
     // Overdrive (§4.5): pre-gain then 3u / 1-(2-4u)^2/4 / hard 1.
     if (odGain_ > 0.0f) {

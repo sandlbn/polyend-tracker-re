@@ -6,6 +6,7 @@
 // 0x14. Overdrive is stored as a raw percent (tracker-lib writes x100).
 #include "formats/instrument_pti.h"
 
+#include <cmath>
 #include <cstring>
 
 #include "formats/bytes.h"
@@ -118,6 +119,15 @@ void encodeBody(const Instrument& ins, uint8_t* b) {
     b[kReserved173] = ins.reserved173;
 }
 
+// Float fields of a damaged file: non-finite -> the field's default, else
+// clamped to the editor's range (a NaN cutoff/resonance would make the voice
+// filter state NaN for good). OpenTracker check; stock loads them raw.
+float rdF32Range(const uint8_t* p, float def, float lo, float hi) {
+    const float v = rdF32(p);
+    if (!std::isfinite(v)) return def;
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
 void decodeBody(const uint8_t* b, Instrument& ins) {
     ins.active = b[kActive];
     ins.sampleType = b[kSampleType];
@@ -136,22 +146,22 @@ void decodeBody(const uint8_t* b, Instrument& ins) {
     for (int i = 0; i < kAutomationCount; ++i) {
         const uint8_t* e = b + kEnv + i * kEnvSize;
         Envelope& env = ins.env[i];
-        env.amount = rdF32(e + 0);
+        env.amount = rdF32Range(e + 0, Envelope().amount, 0.0f, 1.0f);
         env.delayMs = rdU16(e + 4);
         env.attackMs = rdU16(e + 6);
         env.holdMs = rdU16(e + 8);
         env.decayMs = rdU16(e + 10);
-        env.sustain = rdF32(e + 12);
+        env.sustain = rdF32Range(e + 12, Envelope().sustain, 0.0f, 1.0f);
         env.releaseMs = rdU16(e + 16);
         env.loop = e[18];
         env.enabled = e[19];
         const uint8_t* l = b + kLfo + i * kLfoSize;
         ins.lfo[i].shape = l[0];
         ins.lfo[i].speed = l[1];
-        ins.lfo[i].amount = rdF32(l + 4);
+        ins.lfo[i].amount = rdF32Range(l + 4, Lfo().amount, 0.0f, 1.0f);
     }
-    ins.cutoff = rdF32(b + kCutoff);
-    ins.resonance = rdF32(b + kResonance);
+    ins.cutoff = rdF32Range(b + kCutoff, Instrument().cutoff, 0.0f, 1.0f);
+    ins.resonance = rdF32Range(b + kResonance, Instrument().resonance, 0.0f, 4.3f);   // editor max
     ins.filterType = b[kFilterType];
     ins.filterEnabled = b[kFilterEnabled];
     ins.tune = int8_t(b[kTune]);

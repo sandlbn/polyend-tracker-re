@@ -365,14 +365,17 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
         }
         case kBitcrusher: {
             // Hold H = clamp(round(44117.647 / R), 1, 64) samples; keep the
-            // top B bits (B = 16: hold only).
+            // top B bits (B = 16: hold only). Rounded to the nearest step
+            // (stock truncates toward -inf, which adds hiss and DC to quiet
+            // material) -- OpenTracker deviation, deliberate.
             const int B = clampi(int(p[0]), 1, 16);
             const int H = clampi(int(fm::lroundD(kRateExact / double(p[1] > 0.0f ? p[1] : 1.0f))), 1, 64);
             const int shift = 16 - B;
+            const int32_t half = B == 16 ? 0 : 1 << (shift - 1);
             int32_t held = 0;
             for (uint32_t i = 0; i < w; ++i) {
                 if (i % uint32_t(H) == 0) held = in[i];
-                out[i] = int16_t(B == 16 ? held : (held >> shift) * (1 << shift));
+                out[i] = int16_t(B == 16 ? held : clampi(((held + half) >> shift) * (1 << shift), -32768, 32767));
             }
             break;
         }

@@ -48,11 +48,7 @@ const InstrParam kLfoCols[5] = {InstrParam::AutoType, InstrParam::AutoType, Inst
 constexpr int kMapRows = 11;          // visible list rows (335 px / ~30 px)
 constexpr int kMapRowH = 30;
 
-void instrItem(void* ctx, int i, char* out, int cap) {
-    App* a = static_cast<App*>(ctx);
-    if (i < kSampleInstrumentCount) std::snprintf(out, size_t(cap), "%02d %s", i + 1, a->instrPresent[i] ? a->instruments[i].name : "");
-    else std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
-}
+void instrItem(void* ctx, int i, char* out, int cap) { instrumentChooserItem(ctx, i, out, cap); }
 
 // Stock column layout (snap 011 / 042, VISUAL_DIFF §3.10, §8.26): 8 column
 // panels, white 76-px value bars, value 0 = the 1.5-px line at the bottom
@@ -413,10 +409,14 @@ void InstrumentScreen::onButton(uint8_t id, uint8_t state) {
     }
     if (id == btn::Instr) {
         if (state == kPress) {
-            ui_.picker.open(2, "Instrument", kInstrumentCount, a.currentInstrument(), instrItem, &a);
+            ui_.picker.open(2, "Instrument", kInstrumentChooserCount, a.currentInstrument(), instrItem, &a);
         } else if (state == kRelease && ui_.picker.isOpen()) {
-            a.setCurrentInstrument(ui_.picker.cursor());
+            a.setCurrentInstrument(uint8_t(ui_.picker.cursor()));
             ui_.picker.close();
+            if (isSynthInstrument(a.currentInstrument())) {   // 2.x: the synth slot's page
+                ui_.switchTo(kModInstrument);
+                return;
+            }
             const bool fx = effects;
             start(0);
             effects = fx && mode == 0;

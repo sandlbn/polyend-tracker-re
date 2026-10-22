@@ -1039,8 +1039,11 @@ void Ui::drawTitle(Gfx& g, const char* title, const char* right, bool status) {
     Sequencer& sq = app.seq;
     wg::TitleStatus st;
     st.seconds = sq.isPlaying() ? (now_ - app.playStartMs()) / 1000 : 0;
-    st.transport = !sq.isPlaying() ? wg::Transport::kStopped
-                   : sq.isSongMode() ? wg::Transport::kPlayingSong : wg::Transport::kPlayingPattern;
+    const auto* song = static_cast<const SongScreen*>(screen(kModSong));
+    st.transport = !sq.isPlaying()                         ? wg::Transport::kStopped
+                   : song && song->loopingInSong()         ? wg::Transport::kLoopingInSong
+                   : sq.isSongMode()                       ? wg::Transport::kPlayingSong
+                                                           : wg::Transport::kPlayingPattern;
     st.recording = sq.isRecording();
     st.pattern = sq.currentPatternNumber();
     const int step0 = !sq.isPlaying() && cursorStep_ >= 0 ? cursorStep_ : sq.step(0);

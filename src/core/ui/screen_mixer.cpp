@@ -970,8 +970,8 @@ void MixerScreen::draw(Gfx& g) {
         br[nr++] = wg::ValueBarItem{x, 64, 32, 359, p.u8(kGlobalLevel[i]) / 100.0f, muted ? off : wg::kThemeColour};
         // A muted channel's meters rest in the muted colour too [S round 3,
         // snap 010 Line In].
-        br[nr++] = wg::ValueBarItem{x + 32, 64, 32, 359, 0.0f, muted ? off : green};
-        br[nr++] = wg::ValueBarItem{x + 64, 64, 32, 359, 0.0f, muted ? off : green};
+        br[nr++] = wg::ValueBarItem{x + 32, 64, 32, 359, globalMeter[i][0] / 100.0f, muted ? off : green};
+        br[nr++] = wg::ValueBarItem{x + 64, 64, 32, 359, globalMeter[i][1] / 100.0f, muted ? off : green};
     }
     // 2.x synth slots (manual p.220): the level setting (left) and the
     // actual level (right: the live slot-bus meter), Track Mixer geometry;
