@@ -4,6 +4,7 @@
 #include "hal/hal.h"
 #include "hal/diag.h"
 #include "hal/selftest.h"
+#include "hal/stack_guard.h"
 #include "hal/stack_watch.h"
 #include "hal/fw_update.h"
 #include "hal/sd_storage.h"
@@ -25,11 +26,18 @@ extern "C" int main(void)
     ot::hal::usbStorageInit();
     // Escape hatch back to stock firmware that needs only the rail and the SD card:
     // checked before any other driver runs (docs/HARDWARE_TESTING.md path B).
-    if (ot::hal::boardEarlyInit().sdMounted) {
+    const bool sdMounted = ot::hal::boardEarlyInit().sdMounted;
+    if (sdMounted) {
         ot::hal::diagStage("restore trigger check");
         ot::hal::checkRestoreTrigger(ot::hal::storage());
         ot::hal::diagLog("restore: no trigger");
     }
+    // Stack guard (hal/stack_guard.h): after the restore check, so the way
+    // back never depends on it; /Firmware/ot_noguard.txt leaves it off.
+    ot::hal::stackGuardInit(!(sdMounted && ot::hal::storage().exists("/Firmware/ot_noguard.txt")));
+#if defined(OT_STACK_GUARD_TEST) && OT_STACK_GUARD_TEST
+    if (sdMounted) ot::hal::stackGuardSelfTest(ot::hal::storage());
+#endif
     ot::hal::bootPowerGate();
     const ot::hal::BootReport& boot = ot::hal::boardInit();
     (void)boot;   // unused in SELFTEST builds

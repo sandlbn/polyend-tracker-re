@@ -169,6 +169,16 @@ extern "C" __attribute__((used, noreturn)) void diagFaultC(uint32_t* frame, uint
     diag::Fmt lf(l, sizeof l);
     lf.str("FAULT ").str(diag::exceptionName(f.ipsr)).str(" PC ").hex(f.pc).str(" CFSR ").hex(f.cfsr)
         .str(" BFAR ").hex(f.bfar).str(" at stage ").dec(f.stage);
+    // [I] A SYSMPU denial (e.g. the stack guard, stack_guard.h): CESR SPERR
+    // bit 31 - n flags slave port n; its error address / detail registers
+    // sit at 0x4000D010 + 8 n.
+    const uint32_t cesr = MPU_CESR;
+    for (int port = 0; port < 5; ++port)
+        if (cesr & (1u << (31 - port))) {
+            const volatile uint32_t* er = reinterpret_cast<volatile uint32_t*>(0x4000D010u + 8u * uint32_t(port));
+            lf.str(" MPU port ").dec(uint32_t(port)).str(" EAR ").hex(er[0]).str(" EDR ").hex(er[1]);
+            break;
+        }
     diag::line(gLog, f.ms, l);
     gFaultText = reinterpret_cast<char*>(sdhc::takeBounceForFault(&gFaultCap));
     if (gFaultCap > 4096) gFaultCap = 4096;

@@ -51,7 +51,9 @@ IO_RE = re.compile(r"telemetry: io sd cmds (\d+) read (\d+) B \((\d+) KB/s\) wri
                    r"(?: direct (\d+) bounced (\d+))?(?: \| cache sdram (\w+) \(selftest ([\w-]*)\))?")
 # Stack high-water mark on the render line (src/hal/stack_watch.h): peak since boot, the newlib
 # heap below it, both out of _estack - _ebss.
-STACK_RE = re.compile(r"\| stack peak (\d+) B heap (\d+) B of (\d+) B")
+# "(free F B)" is the device's own figure: S - H - P before the stack guard, S - P
+# with it (S is then the room above the guard and the heap has its own reserve).
+STACK_RE = re.compile(r"\| stack peak (\d+) B heap (\d+) B of (\d+) B(?: \(free (\d+) B\))?")
 UI_RE = re.compile(r"telemetry: ui (\d+) frames \((\d+)\.(\d+) fps\) render avg (\d+)\.(\d+) max (\d+)\.(\d+) ms")
 LOAD_RE = re.compile(r"telemetry: load op (\d+) run (\d) passes (\d+)")
 TS_RE = re.compile(r"^\[\s*(\d+)\.(\d+)\]")
@@ -74,6 +76,9 @@ DEVICE_CPI = 1.94
 LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|stream)[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
 FLASH_FAIL = 720000
 FLASH_WARN = 600000
+# _estack - _ebss holds the stack and newlib's heap (src/hal/stack_watch.h). With the stack
+# guard (src/hal/stack_guard.h) this headroom also holds the 4 KB heap reserve and the 8 KB
+# guard: the stack itself gets at least 78 KiB.
 STACK_MIN = 90 * 1024
 # newlib double-precision libm entry points / kernels (the float ones end in f).
 DOUBLE_LIBM = {"__ieee754_pow", "__ieee754_exp", "__ieee754_log", "__ieee754_log10", "__ieee754_sqrt",
@@ -105,7 +110,9 @@ def windows(lines):
             })
             st = STACK_RE.search(line)
             if st:
-                out[-1]["stack"] = (int(st.group(1)), int(st.group(2)), int(st.group(3)))
+                peak, heap, size = int(st.group(1)), int(st.group(2)), int(st.group(3))
+                free = int(st.group(4)) if st.group(4) else size - heap - peak
+                out[-1]["stack"] = (peak, heap, size, free)
             pending_io, marker = None, False
             continue
         m = UI_RE.search(line)
@@ -266,9 +273,9 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
                 fails.append(f"{where}: loop max {loop_ms:.3f} ms >= {loop_max_ms:g} ms (not loading)")
     stacks = [(w, w["stack"]) for w in ws if "stack" in w]
     if stacks:
-        w, (peak, heap, size) = min(stacks, key=lambda ws_: ws_[1][2] - ws_[1][0] - ws_[1][1])
-        if size - heap - peak < stack_free_min:
-            fails.append(f"line {w['line']} [{w['t']}]: stack free {size - heap - peak} B < {stack_free_min} B "
+        w, (peak, heap, size, free) = min(stacks, key=lambda ws_: ws_[1][3])
+        if free < stack_free_min:
+            fails.append(f"line {w['line']} [{w['t']}]: stack free {free} B < {stack_free_min} B "
                          f"(peak {peak} B, heap {heap} B, of {size} B)")
     # SD streaming (C11): outside loading, a window with streams playing must
     # have no new underrun and keep at least 100 ms read ahead; a slow read
@@ -309,8 +316,8 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
               f"{worst_avg:.1f}% max {worst_max:.1f}%, worst loop {worst_loop:.3f} ms outside loading"
               + (f"; cache {', '.join(caches)}" if caches else ""))
         if stacks:
-            peak, heap, size = min((st for _, st in stacks), key=lambda st: st[2] - st[0] - st[1])
-            print(f"telemetry: stack peak {peak} B, heap {heap} B, of {size} B (free {size - heap - peak} B)")
+            peak, heap, size, free = min((st for _, st in stacks), key=lambda st: st[3])
+            print(f"telemetry: stack peak {peak} B, heap {heap} B, of {size} B (free {free} B)")
         uis = [w["ui"] for w in ws if "ui" in w]
         if uis:
             print(f"telemetry: ui fps min {min(u[1] for u in uis):.1f}, render max {max(u[3] for u in uis):.2f} ms")
@@ -479,7 +486,10 @@ def selftest():
     pk = cpu_lines(SAMPLE_BAD.splitlines())[0]["pk"]
     assert pk["total"] == 380 and ("smp", 160) in pk["parts"] and ("on.syn", 9) in pk["parts"], pk
     assert ("PERC", 21) in pk["parts"] and pk["ev"].startswith("on 8 VAP 4"), pk
-    assert ws[1]["stack"] == (30000, 1000, 97856) and "stack" not in ws[0], ws
+    assert ws[1]["stack"] == (30000, 1000, 97856, 66856) and "stack" not in ws[0], ws
+    # With the stack guard the device prints free = room - peak: the printed figure counts.
+    gws = windows([l.replace("of 97856 B (free 66856 B)", "of 89664 B (free 59664 B)") for l in SAMPLE_OK.splitlines()])
+    assert gws[1]["stack"] == (30000, 1000, 89664, 59664), gws
     ok, fails, _ = check_log(SAMPLE_OK.splitlines(), quiet=True, stack_free_min=70000)
     assert not ok and len(fails) == 1 and "stack free 66856 B" in fails[0], fails
     ok, fails, _ = check_log([], quiet=True)

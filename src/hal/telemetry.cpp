@@ -177,10 +177,11 @@ size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
     o.str(" | i2c errors i2c0 ").dec(s.i2c0Errors).str(" i2c2 ").dec(s.i2c2Errors);
     if (s.i2c0Naks || s.i2c2Naks) o.str(" nak i2c0 ").dec(s.i2c0Naks).str(" i2c2 ").dec(s.i2c2Naks);
     if (s.stackSize) {
-        const uint32_t heap = s.heap < s.stackSize ? s.heap : s.stackSize;
-        const uint32_t peak = s.stackPeak < s.stackSize - heap ? s.stackPeak : s.stackSize - heap;
-        o.str(" | stack peak ").dec(peak).str(" B heap ").dec(heap).str(" B of ").dec(s.stackSize);
-        o.str(" B (free ").dec(s.stackSize - heap - peak).str(" B)");
+        // The heap has its own reserve below the stack guard (stack_guard.h):
+        // the stack's room is all of S.
+        const uint32_t peak = s.stackPeak < s.stackSize ? s.stackPeak : s.stackSize;
+        o.str(" | stack peak ").dec(peak).str(" B heap ").dec(s.heap).str(" B of ").dec(s.stackSize);
+        o.str(" B (free ").dec(s.stackSize - peak).str(" B)");
     }
     o.str(" | rx restarts ").dec(s.rxRestarts).str(" stale ").dec(s.rxStale);
     if (s.dinClocks) {

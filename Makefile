@@ -51,6 +51,12 @@ OT_GAMES ?= 0
 ifeq ($(OT_GAMES),1)
 BUILD     := $(BUILD)/games
 endif
+# [I] Stack guard test build (src/hal/stack_guard.h): 1 = with
+# /Firmware/ot_guardtest.txt on the card, overflows the stack once on purpose.
+OT_STACK_GUARD_TEST ?= 0
+ifeq ($(OT_STACK_GUARD_TEST),1)
+BUILD     := $(BUILD)/guardtest
+endif
 # USB Storage mode (docs/PLAN_2X.md, Tracker Mini manual §13.10): 1 = the USB
 # device adds a mass-storage interface (third_party/teensy3/usb_msc.h) next to
 # MIDI + Serial; 0 = the old MIDI + Serial descriptors exactly (fallback image).
@@ -79,7 +85,7 @@ CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
-             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
+             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_STACK_GUARD_TEST=$(OT_STACK_GUARD_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs
 COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD
 CFLAGS    := $(COMMON) -std=gnu11
