@@ -5,6 +5,7 @@
 
 #include "app/app.h"
 #include "app/project_fields.h"
+#include "remote/remote.h"
 #include "ui/config_help.h"
 #include "ui/notes.h"
 #include "ui/screens.h"
@@ -22,7 +23,8 @@ namespace ot {
 namespace {
 enum Kind : uint8_t { kNum = 2, kEnum = 3, kText = 5, kAction = 7 };
 // kUsb: the live USB Storage mode state (2.x), never stored anywhere.
-enum Store : uint8_t { kCfg = 0, kProj = 1, kNone = 2, kUsb = 3 };
+// kRemote: [I] remote control enabled (App::remoteBridge), never stored.
+enum Store : uint8_t { kCfg = 0, kProj = 1, kNone = 2, kUsb = 3, kRemote = 5 };   // 4 is kDev (upstream 2.0.4, below)
 
 struct Opt {
     const char* name;
@@ -109,6 +111,8 @@ const Opt kMidi[] = {
 // always boots with it Off. No USB audio on this hardware.
 const Opt kUsbOpts[] = {
     {"USB Storage", kEnum, kUsb, 0, 0, 2, kOffOn, 0},
+    // [I] The panel as the simulator's front panel (core/remote). Off after power-on.
+    {"Remote control", kEnum, kRemote, 0, 0, 2, kOffOn, 0},
 };
 const Opt kMetronome[] = {
     {"State", kEnum, kCfg, CF(metronome), 0, 2, kOffOn, 0},
@@ -285,6 +289,7 @@ static void optValueText(App& a, const Opt& o, int index, char* out, int cap) {
 
 static int optIndex(App& a, const Opt& o) {
     if (o.store == kUsb) return a.usbStorageActive() ? 1 : 0;
+    if (o.store == kRemote) return a.remoteBridge() && a.remoteBridge()->enabled() ? 1 : 0;
     uint8_t* v = optVar(a, o);
     if (!v) return 0;
     return clampi(int(*v) - (o.kind == kNum ? o.min : 0), 0, optCount(o) - 1);
@@ -483,6 +488,17 @@ void ConfigScreen::apply() {
         // Off leaves it like the page's Exit. Refusals show a notice.
         editing = false;
         ui_.setUsbStorageMode(picker == 1);
+        return;
+    }
+    if (o.store == kRemote) {
+        editing = false;
+        remote::DeviceBridge* r = a.remoteBridge();
+        if (!r) {
+            if (picker == 1) ui_.notify("Remote control: not available here");
+            return;
+        }
+        r->setEnabled(picker == 1);
+        ui_.notify(picker == 1 ? "Remote control on: start the simulator with --remote" : "Remote control off", 3000);
         return;
     }
     uint8_t* v = optVar(a, o);

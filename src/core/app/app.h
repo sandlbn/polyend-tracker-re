@@ -23,6 +23,10 @@
 #include "ui/ui.h"
 
 namespace ot {
+namespace remote {
+class DeviceBridge;
+}
+
 
 // Interfaces handed to the app (mirrors hal::HalSet without depending on src/hal).
 struct HalRefs {
@@ -54,6 +58,9 @@ struct HalRefs {
     // 2.x USB Storage mode (Config > USB > USB Storage). Null: not available
     // in this build (OT_USB_MSC=0).
     IUsbStorage* usbStorage = nullptr;
+    // [I] Remote control bridge (core/remote/remote.h, Config > USB > Remote
+    // control). Null: not available (simulator, host tests).
+    remote::DeviceBridge* remote = nullptr;
 };
 
 // Large buffers (SDRAM on the device, spec 02 §8.2 for the sample bank).
@@ -286,6 +293,7 @@ public:
     void loadConfig();                            // boot: EEPROM, else import the file once
     void setNvStore(INvStore* nv) { hal_.nvstore = nv; }
     void setUsbStorage(IUsbStorage* u) { hal_.usbStorage = u; }
+    void setRemoteBridge(remote::DeviceBridge* r) { hal_.remote = r; }   // [I] tests
 
     // ---- 2.x USB Storage mode (Tracker Mini manual §13.10) ----------------
     // Enter: refused while a project job other than the autosave runs, while
@@ -299,6 +307,15 @@ public:
     UsbEnter enterUsbStorage();
     void exitUsbStorage();
     bool usbStorageActive() const { return usbActive_; }
+    remote::DeviceBridge* remoteBridge() const { return hal_.remote; }
+    // [I] Remote drive mode (core/remote/remote.h): one status line,
+    // "@RC S key=value ..." (spaces in values as '_'), incl. performance.
+    int remoteStatus(char* out, int cap);
+    // Main loop: answers the bridge's status query, meters while driven,
+    // redraws when drive mode starts / ends (its title-bar marker).
+    void serviceRemote();
+    bool remoteDrivingShown_ = false;
+    bool remoteCacheOff_ = false, remoteCacheWas_ = true;   // fragment cache off for a recorded frame
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
     }

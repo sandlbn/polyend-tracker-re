@@ -149,7 +149,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
         {"Build", 5, 2, 0, 0, -1},           {"Reset config", 7, 2, 0, 0, -1},
     };
     // 2.x USB Storage: live state, never stored (store 3), Off at boot.
-    const Want usb[] = {{"USB Storage", 3, 3, 2, 0, 0}};
+    // [I] Remote control: live bridge state (store 5; 4 is kDev), Off at boot.
+    const Want usb[] = {{"USB Storage", 3, 3, 2, 0, 0}, {"Remote control", 3, 5, 2, 0, 0}};
     const Want info[] = {{"Licenses", 7, 2, 0, 0, -1},
                          // 2.x [I] (spec 2x-02 §2.2)
                          {"CPU overruns", 5, 2, 0, 0, -1},
@@ -162,7 +163,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
     };
     const CatWant cats[] = {
         {"Project Settings", project, 10}, {"General", general, 13}, {"MIDI", midi, 11},
-        {"USB", usb, 1},                   // [I] 2.x (Tracker Mini order)
+        {"USB", usb, 2},                   // [I] 2.x (Tracker Mini order)
         {"Metronome", metro, 5},           {"Firmware", firmware, 4}, {"Info", info, 4},
     };
     CHECK_EQ(ConfigScreen::categoryCount(), 7);
@@ -182,7 +183,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
             if (w.def >= 0) CHECK_EQ(c.optionIndex(k, i), w.def);
         }
     }
-    CHECK_EQ(total, 48);   // stock 42 + 2.x CPU meter, Synth voices, three Info lines, USB Storage
+    CHECK_EQ(total, 49);   // stock 42 + 2.x CPU meter, Synth voices, three Info lines, USB Storage, Remote control
     char t[48];
     c.optionText(3, 0, t, sizeof t);   // USB Storage: Off
     CHECK_STR(t, "Off");
@@ -203,8 +204,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
             CHECK_EQ(o.help != nullptr, want);
             helps += o.help != nullptr;
         }
-    CHECK_EQ(helps, 28);   // stock 25 + 2.x CPU meter, Synth voices and USB Storage
-    CHECK_EQ(configHelpCount(), 28);
+    CHECK_EQ(helps, 29);   // stock 25 + 2.x CPU meter, Synth voices, USB Storage and Remote control
+    CHECK_EQ(configHelpCount(), 29);
     c.optionText(5, 1, t, sizeof t);
     CHECK(std::strlen(t) > 0);
 }

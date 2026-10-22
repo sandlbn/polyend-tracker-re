@@ -58,6 +58,10 @@ const char* const kUsbHelp[] = {
     "On shows the SD card on a connected computer as a USB drive, for copying projects and samples. "
     "Playback stops and the project is saved first. Eject the drive on the computer before Exit or Off; "
     "the project then reloads from the card. Always Off after power-on.",
+    // [I] not in stock.
+    "On lets the desktop simulator use this Tracker as its front panel over the USB cable (start it with "
+    "--remote). While it does, the controls drive the simulator; a short press of the power switch hands "
+    "them back. Always Off after power-on.",
 };
 // spec 15 §2.5 Firmware: only Firmware update.
 const char* const kFirmwareHelp[] = {

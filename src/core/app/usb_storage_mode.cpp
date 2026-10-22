@@ -63,6 +63,9 @@ void App::loopUsbStorage(uint32_t now) {
             }
         }
     }
+    // [I] Remote control: status and screenshots answer here too (the
+    // bridge reads app state and the display, never the card).
+    serviceRemote();
     ui.update(now);
     ui.renderIfDirty(now);
 }
