@@ -27,6 +27,11 @@
       With nm (default: the size tool's sibling): no double-precision libm in the
       image, and the stack headroom _estack - _ebss: fail below 90 KiB
       (docs/OPTIMIZATION_2X.md OP-4 / OP-5).
+  telemetry_check.py frames <build dir> [--guard-header src/hal/stack_guard.h]
+      Per-function stack frames from the build's -fstack-usage .su files against
+      the stack guard (kStackGuardBytes): a frame as large as the guard could
+      step over it, so fail at >= the guard and on unbounded dynamic frames, warn
+      above 75 % of it. Prints the deepest few.
   telemetry_check.py cpi <device.log> <bench_m4 output> [--top 5]
       CPI calibration (docs/OPTIMIZATION_2X.md "CPU round 3"): device cycles per bench-m4
       instruction, per phase and over the render, from the device's peak blocks (the `pk`
@@ -39,6 +44,7 @@
 Exit status: 0 pass, 1 threshold failure, 2 usage / unreadable input.
 """
 import argparse
+import os
 import re
 import sys
 
@@ -436,6 +442,49 @@ def check_symbols(nm_output, quiet=False):
     return ok, head
 
 
+GUARD_HEADER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "hal", "stack_guard.h")
+FRAME_WARN = 0.75   # warn above this share of the guard
+
+
+def guard_bytes(header=GUARD_HEADER):
+    """kStackGuardBytes from src/hal/stack_guard.h."""
+    with open(header) as f:
+        m = re.search(r"kStackGuardBytes\s*=\s*(\d+)", f.read())
+    if not m:
+        raise OSError(f"kStackGuardBytes not found in {header}")
+    return int(m.group(1))
+
+
+def check_frames(su_lines, guard, quiet=False, top=5):
+    """-fstack-usage lines -> (ok, deepest frame bytes). A frame as large as the
+    stack guard could step over it, so the overflow would write the heap
+    reserve instead of faulting: fail at >= guard; warn above FRAME_WARN of it.
+    Dynamic frames (alloca / VLAs) have no bound: they fail too."""
+    frames, dynamic = [], []
+    for line in su_lines:
+        f = line.rstrip("\n").split("\t")
+        if len(f) != 3 or not f[1].isdigit():
+            continue
+        frames.append((int(f[1]), f[0]))
+        if "dynamic" in f[2] and "bounded" not in f[2]:
+            dynamic.append(f[0])
+    frames.sort(reverse=True)
+    deepest = frames[0][0] if frames else 0
+    ok = bool(frames) and deepest < guard and not dynamic
+    if not quiet:
+        if not frames:
+            print("frames: FAIL no -fstack-usage output found")
+        else:
+            state = "FAIL" if deepest >= guard else ("WARN" if deepest > guard * FRAME_WARN else "ok")
+            print(f"frames: {state} deepest {deepest} B of a {guard} B stack guard "
+                  f"({len(frames)} functions); fail >= {guard} B, warn > {int(guard * FRAME_WARN)} B")
+            for size, name in frames[:top]:
+                print(f"  {size:6d} B  {name}")
+        for name in dynamic:
+            print(f"frames: FAIL unbounded dynamic frame: {name}")
+    return ok, deepest
+
+
 SAMPLE_OK = """\
 [  12.000] sd: f_mount result 0
 [  20.001] telemetry: io sd cmds 812 read 4194304 B (819 KB/s) write 0 B (0 KB/s) direct 120 bounced 2 | cache sdram on (selftest ok) | sd->sdram dma read direct write direct
@@ -517,6 +566,13 @@ def selftest():
     assert not ok
     ok, head = check_symbols(["20030000 B _estack", "20023820 B _ebss"], quiet=True)
     assert not ok and head == 51168
+    su = ["a.cpp:1:6:void f()\t6032\tstatic", "b.cpp:2:6:void g()\t96\tstatic", "c.c:3:6:h\t40\tdynamic,bounded"]
+    ok, deep = check_frames(su, 8192, quiet=True)
+    assert ok and deep == 6032, deep
+    assert not check_frames(su + ["d.cpp:4:6:void big()\t8192\tstatic"], 8192, quiet=True)[0]
+    assert not check_frames(su + ["e.cpp:5:6:void vla(int)\t16\tdynamic"], 8192, quiet=True)[0]
+    assert not check_frames([], 8192, quiet=True)[0]
+    assert guard_bytes() > 0
     print("telemetry_check: selftest ok")
 
 
@@ -539,6 +595,9 @@ def main(argv):
     sz.add_argument("--size-tool", default="arm-none-eabi-size")
     sz.add_argument("--nm-tool", default=None)
     sz.add_argument("elf")
+    fr = sub.add_parser("frames")
+    fr.add_argument("build_dir")
+    fr.add_argument("--guard-header", default=GUARD_HEADER)
     cp = sub.add_parser("cpi")
     cp.add_argument("log")
     cp.add_argument("bench")
@@ -576,6 +635,14 @@ def main(argv):
                 return 2
             ok_sym, _ = check_symbols(r.stdout.splitlines())
             ok = ok and ok_sym
+        elif a.cmd == "frames":
+            su = []
+            for root, _, files in os.walk(a.build_dir):
+                for name in files:
+                    if name.endswith(".su"):
+                        with open(os.path.join(root, name), errors="replace") as f:
+                            su.extend(f.read().splitlines())
+            ok, _ = check_frames(su, guard_bytes(a.guard_header))
         else:
             selftest()
             ok = True
