@@ -14,6 +14,16 @@
 
 namespace ot {
 
+// [I] One buffer for the browsers' name lists (SDRAM on the device,
+// screens.cpp): Sample Loader, Synth patch browser, File Open / Save,
+// Import Mod and the firmware-update list. Only one is on screen at a time
+// and each rebuilds its list when it opens (LoaderScreen::start,
+// SynthScreen::openBrowser, FileScreen enterBrowser / F3, ConfigScreen's
+// firmware entry), so they share it; each list's layout static_asserts that
+// it fits. The largest is Import Mod (200 x 56 names + 200 kinds).
+constexpr size_t kBrowserListBytes = 200 * 56 + 200;
+void* browserListMem();
+
 void* createScreens(Ui& ui, App& app, Screen** out);   // returns the owner
 void destroyScreens(void* owner, Screen** screens);
 
@@ -280,8 +290,9 @@ public:
     static constexpr int kMaxDepth = 20;
     char dir[200] = {};
     int count = 0;
-    char entries[kMaxEntries][40];
-    bool isDir[kMaxEntries] = {};
+    // In browserListMem(): names, then the folder flags.
+    char (*entries)[40] = static_cast<char (*)[40]>(browserListMem());
+    bool* isDir = static_cast<bool*>(browserListMem()) + kMaxEntries * 40;
     int sdCursor = 0;
     int insCursor = 0;
     int focus = 0;          // 0 SD, 1 instruments, 2 preview volume
@@ -406,9 +417,6 @@ private:
 
 // ---------------------------------------------------------------------------
 // File (spec 05 §2.12 + appendix E)
-// SDRAM storage of FileScreen::entries (screen_file.cpp); only the pointer
-// is set at construction, the names are written in the main loop.
-char (*fileListNames())[40];
 
 class FileScreen final : public Screen {
 public:
@@ -426,8 +434,8 @@ public:
     int state = 0;          // 0 main, 1 open, 2 import mod, 3 save, 4 export
     int count = 0;
     // Open / Save list names (ProjectBrowser::kMaxEntries x 40). 2.x: 200
-    // entries (stock 80, spec 05 appendix E1.2) in SDRAM (screen_file.cpp).
-    char (*entries)[40] = fileListNames();
+    // entries (stock 80, spec 05 appendix E1.2), in browserListMem().
+    char (*entries)[40] = static_cast<char (*)[40]>(browserListMem());
     int cursor = 0;
     int focus = 0;          // open: 0 SD list, 1 recent
     int pending = 0;        // action after a save prompt: 1 new, 2 open, 3 recent, 4 import, 5 .it
@@ -983,7 +991,8 @@ public:
     static constexpr int kBrowserNameMax = 32;
     int browserCount = 0;
     int browserSel = 0;
-    char browser[kBrowserMax][kBrowserNameMax + 1] = {};
+    // In browserListMem() (filled by listBrowser).
+    char (*browser)[kBrowserNameMax + 1] = static_cast<char (*)[kBrowserNameMax + 1]>(browserListMem());
 
     int32_t engine() const;
     bool available() const;   // the model has an engine in this build
@@ -1030,5 +1039,10 @@ private:
     int browserTop_ = 0;
     int listTop_ = 0;
 };
+
+static_assert(LoaderScreen::kMaxEntries * (40 + sizeof(bool)) <= kBrowserListBytes, "Loader list");
+static_assert(SynthScreen::kBrowserMax * (SynthScreen::kBrowserNameMax + 1) <= kBrowserListBytes, "Synth list");
+static_assert(ProjectBrowser::kMaxEntries * 40 <= kBrowserListBytes, "File list");
+static_assert(ConfigScreen::kFwMax * 48 <= kBrowserListBytes, "Firmware list");
 
 }  // namespace ot

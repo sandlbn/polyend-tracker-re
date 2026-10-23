@@ -1,6 +1,7 @@
 #include "ui/screens.h"
 
 #include "app/app.h"
+#include "sdram_bss.h"
 #include "ui/screen_games.h"
 
 namespace ot {
@@ -32,7 +33,12 @@ struct ScreenSet {
 #endif
     SynthScreen synth;
 };
+
+// The browsers' shared name lists (screens.h browserListMem()).
+OT_SDRAM_BSS alignas(8) unsigned char g_browserLists[kBrowserListBytes];
 }  // namespace
+
+void* browserListMem() { return g_browserLists; }
 
 void* createScreens(Ui& ui, App& app, Screen** out) {
     auto* s = new ScreenSet(ui, app);

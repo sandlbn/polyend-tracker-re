@@ -57,13 +57,14 @@ bool recentPath(App& a, int index, char* folder, int fcap, char* name, int ncap)
 
 // ---- Import Mod browser (state 2; spec 05 appendix E1.2, spec 11 §1.1) ----
 constexpr const char* kModDir = "Mod";
-OT_SDRAM_BSS char g_fileListNames[ProjectBrowser::kMaxEntries][40];   // FileScreen::entries
 constexpr int kModEntries = ProjectBrowser::kMaxEntries;   // the same limit as Open (2.x: 200)
 constexpr int kModNameCap = 56;
 enum : uint8_t { kMbUp = 0, kMbFolder = 1, kMbFile = 2 };
 char g_modPath[ProjectBrowser::kPathMax + 1] = "Mod";
-OT_SDRAM_BSS char g_modNames[kModEntries][kModNameCap];   // SDRAM on the device (OP-5)
-OT_SDRAM_BSS uint8_t g_modKinds[kModEntries];
+// In browserListMem() (screens.h): names, then the kinds.
+static_assert(kModEntries * (kModNameCap + 1) <= kBrowserListBytes, "Import Mod list");
+char (*const g_modNames)[kModNameCap] = static_cast<char (*)[kModNameCap]>(browserListMem());
+uint8_t* const g_modKinds = static_cast<uint8_t*>(browserListMem()) + kModEntries * kModNameCap;
 int g_modCount = 0;
 OT_SDRAM_BSS char g_importPath[ProjectBrowser::kPathMax + kModNameCap + 2];
 char g_importName[kModNameCap];
@@ -972,7 +973,5 @@ void FileScreen::draw(Gfx& g) {
         g.display().drawImage(int16_t(x), int16_t(y), IDisplay::kRamGCover, coverW, coverH);
     }
 }
-
-char (*fileListNames())[40] { return g_fileListNames; }
 
 }  // namespace ot
