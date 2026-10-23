@@ -24,9 +24,11 @@ void put32(uint8_t* p, uint32_t v) {
     for (int i = 0; i < 4; ++i) p[i] = uint8_t(v >> (8 * i));
 }
 
-// One row of pixels (static: no large stack frame; SDRAM on the device, OP-5).
+// One row of pixels (static: no large stack frame; SDRAM on the device, OP-5),
+// read as 0x00RRGGBB words and turned into BMP bytes in place: pixel x's
+// bytes are the 4 bytes of word x, so a byte write never reaches a word that
+// is still to be read.
 OT_SDRAM_BSS uint32_t gRow[kW];
-OT_SDRAM_BSS uint8_t gRowBytes[kW * 4];
 }  // namespace
 
 // BITMAPFILEHEADER + BITMAPINFOHEADER, bottom-up rows, BI_RGB 32 bpp.
@@ -71,14 +73,15 @@ bool App::screenshot(char* pathOut, int cap) {
             ok = false;
             break;
         }
+        uint8_t* const bytes = reinterpret_cast<uint8_t*>(gRow);
         for (uint32_t x = 0; x < kW; ++x) {
             const uint32_t c = gRow[x];
-            gRowBytes[4 * x + 0] = uint8_t(c);         // B
-            gRowBytes[4 * x + 1] = uint8_t(c >> 8);    // G
-            gRowBytes[4 * x + 2] = uint8_t(c >> 16);   // R
-            gRowBytes[4 * x + 3] = 0xFF;
+            bytes[4 * x + 0] = uint8_t(c);         // B
+            bytes[4 * x + 1] = uint8_t(c >> 8);    // G
+            bytes[4 * x + 2] = uint8_t(c >> 16);   // R
+            bytes[4 * x + 3] = 0xFF;
         }
-        ok = f.write(h, gRowBytes, sizeof(gRowBytes)) == int32_t(sizeof(gRowBytes));
+        ok = f.write(h, bytes, sizeof(gRow)) == int32_t(sizeof(gRow));
     }
     f.close(h);
     if (!ok) {
