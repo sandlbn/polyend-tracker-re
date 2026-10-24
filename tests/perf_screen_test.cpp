@@ -457,39 +457,41 @@ TEST(perf_apply_all_covers_16_tracks) {
     for (int t = 0; t < 12; ++t) CHECK_EQ(a.seq.perfPlayMode(t), 0);
 }
 
-TEST(perf_fx_on_tracks_have_red_labels) {
-    // MANUAL_AUDIT_2026-10-23 #5 (manual p.272 "A selected track will be lit
-    // red in the screen button label"; spec 20 §1.2: Performance gives selected
-    // labels a background): FX-on tracks get the red label fill.
+TEST(perf_fx_off_tracks_have_red_labels) {
+    // Stock 1.9.2 (owner photo + note, 2026-10-23): all tracks start with
+    // performance FX on and unlit (spec 06 §3.1 step 3); a track turned off
+    // with its key is lit red. (MANUAL_AUDIT_2026-10-23 #5 read the manual's
+    // older UI the other way round.)
     Harness h;
     h.tap(btn::Performance);
-    auto& p = *static_cast<PerformanceScreen*>(h.app->ui.screen(kModPerformance));
-    auto redFills = [&]() {
-        for (int t = 0; t < 8; ++t) p.fxOn[t] = t == 2;
+    auto redInLabel = [&](int t) {
         h.app->ui.dirty();
         h.run(40);
-        // Label 2's box (x 203..297, y 424..479) filled in cd1818.
         bool red = false, inRed = false;
         for (const std::string& l : h.disp.last) {
             if (l.rfind("COLOR ", 0) == 0) inRed = l == "COLOR CD1818";
             int x, y;
-            if (inRed && std::sscanf(l.c_str(), "VERTEX %d %d", &x, &y) == 2 && x >= 203 && x <= 297 && y >= 424)
+            if (inRed && std::sscanf(l.c_str(), "VERTEX %d %d", &x, &y) == 2 && x >= 100 * t + 3 &&
+                x <= 100 * t + 97 && y >= 424)
                 red = true;
         }
         return red;
     };
-    CHECK(redFills());
-    for (int t = 0; t < 8; ++t) p.fxOn[t] = false;
+    for (int t = 0; t < 8; ++t) CHECK(!redInLabel(t));   // all on, unlit
+    h.tap(btn::F3);                                       // track 3 off
+    CHECK(redInLabel(2));
+    CHECK(!redInLabel(1));
+    h.tap(btn::F3);                                       // on again
+    CHECK(!redInLabel(2));
 }
 
-TEST(perf_fx_names_follow_the_manual) {
-    // MANUAL_AUDIT_2026-10-23 #37: manual p.274 screen figure and p.276 list.
-    const char* const want[] = {"---", "Volume", "Panning", "Tune", "Low-pass cutoff", "High-pass cutoff",
-                                "Band-pass cutoff", "Delay send", "Reverb send", "Sample position", "Sample end",
-                                "Sample Playback", "Volume LFO Speed", "Panning LFO Speed", "Finetune LFO Speed",
-                                "Filter LFO Speed", "Grain/WT LFO Speed", "Step Repeater", "Pattern Play Mode",
-                                "Pattern Length", "Bit Depth", "Overdrive"};
-    for (int i = 0; i < 22; ++i) CHECK(std::string(perf::fx(uint8_t(i)).name) == want[i]);
+TEST(perf_fx_names_follow_stock) {
+    // Stock 1.9.2 screen (owner photo, 2026-10-23), not the manual's list
+    // (MANUAL_AUDIT_2026-10-23 #37 corrected): the first 12 effects.
+    const char* const want[] = {"---", "Volume/Velocity", "Sample panning", "Tune", "Sample LP cutoff",
+                                "Sample HP cutoff", "Sample BP cutoff", "Sample delay send", "Sample reverb snd",
+                                "Sample position", "Sample end", "Sample playback", "Volume LFO speed"};
+    for (int i = 0; i < 13; ++i) CHECK(std::string(perf::fx(uint8_t(i)).name) == want[i]);
 }
 
 TEST(perf_queued_pattern_blinks_and_edit_rows_are_red) {

@@ -744,12 +744,14 @@ void PerformanceScreen::draw(Gfx& g) {
             wg::bottomFade(g, th, nx, 279, 62, 145, bg);   // opaque, no text there
         }
     }
-    // FX-on labels lit red (one batched RECTS list: per-label barFill with its
-    // soft edges cost ~10 display-list words each, over the screen budget).
+    // Labels of tracks with performance FX turned off are lit red (stock 1.9.2,
+    // owner photo 2026-10-23: all tracks start enabled and unlit, spec 06 §3.1
+    // step 3; a track key release turns a track off and its label red). One
+    // batched RECTS list (per-label fills cost ~10 display-list words each).
     {
         bool any = false;
         for (int t = 0; t < 8; ++t) {
-            if (!ui_.bar.label[t].highlight) continue;
+            if (ui_.bar.label[t].highlight) continue;   // highlight = FX on
             if (!any) g.rectsBegin(th.slot(slot::kFocusFrame));
             any = true;
             g.rectsAdd(100 * t + 3, 424, 95, 56);
@@ -761,10 +763,9 @@ void PerformanceScreen::draw(Gfx& g) {
         const int cx = wg::labelCentre(t);
         uint32_t tc = th.slot(l.enabled && l.highlight ? slot::kBottomLabel : slot::kBottomLabelOff);
         uint32_t vc = th.slot((l.enabled ? slot::kBottomLabel : slot::kBottomLabelOff) + 3);
-        if (l.highlight) {
-            // FX applied: the label is lit red (manual p.272; spec 20 §1.2
-            // "Performance 0x47d08" adds the background), white text while
-            // audible, black when muted (MANUAL_AUDIT_2026-10-23 #5).
+        if (!l.highlight) {
+            // On the red fill: white text while audible, black when muted
+            // (manual p.272 text colours).
             tc = vc = l.enabled ? 0xFFFFFFu : 0x000000u;
         }
         g.text(cx, wg::kLabelY1, kFont3, tc, l.top, IDisplay::kOptCenter);

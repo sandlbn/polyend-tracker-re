@@ -22,21 +22,22 @@ const char* const kRepeater[] = {"Off", "16", "12", "8", "6", "4", "3", "2", "1"
 const char* const kLength[] = {"---", "1", "2", "4", "8", "16", "32", "64", "128"};
 
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
-// Names: manual p.274 screen figure / p.276 list (MANUAL_AUDIT_2026-10-23 #37).
+// Names: stock 1.9.2 screen (owner photo 2026-10-23) for the first 12; the rest
+// from the manual p.276 list until a stock capture shows them [I].
 const FxDesc kFx[kFxCount] = {
     {"---", 0, 0, nullptr, 0, 0, false},
-    {"Volume", -100, 100, nullptr, 0, 0, false},
-    {"Panning", -100, 100, nullptr, 0, 0, false},
+    {"Volume/Velocity", -100, 100, nullptr, 0, 0, false},
+    {"Sample panning", -100, 100, nullptr, 0, 0, false},
     {"Tune", -48, 48, nullptr, 0, 0, false},
-    {"Low-pass cutoff", -100, 100, nullptr, kHighPass, kBandPass, false},
-    {"High-pass cutoff", -100, 100, nullptr, kLowPass, kBandPass, false},
-    {"Band-pass cutoff", -100, 100, nullptr, kLowPass, kHighPass, false},
-    {"Delay send", -100, 100, nullptr, 0, 0, false},
-    {"Reverb send", -100, 100, nullptr, 0, 0, false},
+    {"Sample LP cutoff", -100, 100, nullptr, kHighPass, kBandPass, false},
+    {"Sample HP cutoff", -100, 100, nullptr, kLowPass, kBandPass, false},
+    {"Sample BP cutoff", -100, 100, nullptr, kLowPass, kHighPass, false},
+    {"Sample delay send", -100, 100, nullptr, 0, 0, false},
+    {"Sample reverb snd", -100, 100, nullptr, 0, 0, false},
     {"Sample position", -100, 100, nullptr, 0, 0, false},
     {"Sample end", -100, 100, nullptr, 0, 0, false},
-    {"Sample Playback", 0, 1, kDirection, 0, 0, false},
-    {"Volume LFO Speed", -23, 23, nullptr, 0, 0, false},
+    {"Sample playback", 0, 1, kDirection, 0, 0, false},
+    {"Volume LFO speed", -23, 23, nullptr, 0, 0, false},
     {"Panning LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Finetune LFO Speed", -28, 28, nullptr, 0, 0, false},
     {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
