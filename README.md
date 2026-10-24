@@ -13,6 +13,32 @@ Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install
 the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
 and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
 
+### Screenshots (2.2.1-semi, simulator, Early Cyber theme unless named)
+
+| **Generate: Acid** | **Acid line on the ACD synth (Glide, accents)** |
+|---|---|
+| ![Generate: Acid](screenshots/2.2.1-semi/gen-acid.png) | ![Acid line on the ACD synth (Glide, accents)](screenshots/2.2.1-semi/acid-result.png) |
+| **Generate: Call+Resp** | **Generate: BBCut procedures** |
+| ![Generate: Call+Resp](screenshots/2.2.1-semi/gen-callresp.png) | ![Generate: BBCut procedures](screenshots/2.2.1-semi/gen-bbcut.png) |
+| **Generate: Turnaround** | **Generate: Genotype** |
+| ![Generate: Turnaround](screenshots/2.2.1-semi/gen-turnaround.png) | ![Generate: Genotype](screenshots/2.2.1-semi/gen-genotype.png) |
+| **Generate: Station** | **Config: 16 display themes** |
+| ![Generate: Station](screenshots/2.2.1-semi/gen-station.png) | ![Config: 16 display themes](screenshots/2.2.1-semi/cfg-themes.png) |
+| **Sample Editor: Transcode** | **Transcode applied (G.726, 8 generations, bit errors)** |
+| ![Sample Editor: Transcode](screenshots/2.2.1-semi/fx-transcode.png) | ![Transcode applied (G.726, 8 generations, bit errors)](screenshots/2.2.1-semi/fx-transcode-applied.png) |
+| **Sample Editor: DCT Crush** | **Data screen: Barcode** |
+| ![Sample Editor: DCT Crush](screenshots/2.2.1-semi/fx-dct.png) | ![Data screen: Barcode](screenshots/2.2.1-semi/data-barcode.png) |
+| **Data screen: Matrix** | **Theme: Corporate** |
+| ![Data screen: Matrix](screenshots/2.2.1-semi/data-matrix.png) | ![Theme: Corporate](screenshots/2.2.1-semi/theme-corporate.png) |
+| **Theme: Amber CRT** | **Theme: Green Phosphor** |
+| ![Theme: Amber CRT](screenshots/2.2.1-semi/theme-amber.png) | ![Theme: Green Phosphor](screenshots/2.2.1-semi/theme-green.png) |
+| **Theme: Datamatic** | **Theme: Thermal** |
+| ![Theme: Datamatic](screenshots/2.2.1-semi/theme-datamatic.png) | ![Theme: Thermal](screenshots/2.2.1-semi/theme-thermal.png) |
+| **Theme: Rave Flyer** | **Theme: Jungle** |
+| ![Theme: Rave Flyer](screenshots/2.2.1-semi/theme-rave.png) | ![Theme: Jungle](screenshots/2.2.1-semi/theme-jungle.png) |
+| **Theme: Teletext** | |
+| ![Theme: Teletext](screenshots/2.2.1-semi/theme-teletext.png) | |
+
 ### Generate (Pattern, page 3, F3, edit mode on)
 A Fill-style popup: F1 picks the generator, F2..F7 its parameters, F8 writes it into the
 selection (or the cursor track). One undo step per Generate; Seed 0 is random, any other seed
