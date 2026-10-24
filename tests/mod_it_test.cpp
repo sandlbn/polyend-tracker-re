@@ -1281,3 +1281,42 @@ TEST(file_screen_import_refused_keeps_project) {
     runJob(h);
     CHECK_STR(a.project.name, "Keep");
 }
+
+// File > Import Mod on a .it (here one written by Export As .it): the
+// project gets the module's samples and notes, like a .mod import.
+TEST(file_screen_import_it) {
+    Harness h;
+    App& a = *h.app;
+    ModBuilder m;
+    m.smp[0].name = "square";
+    for (int i = 0; i < 4000; ++i) m.smp[0].data.push_back(int8_t((i / 20) % 2 ? 90 : -90));
+    m.cell(0, 0, 0, 428, 1, 0, 0);
+    m.cell(0, 4, 1, 214, 1, 0, 0);
+    h.fs.dirs.insert("Mod");
+    h.fs.files["Mod/Tune.mod"] = m.build();
+    h.tap(btn::File);
+    h.tap(btn::F3);
+    h.tap(btn::F8);
+    runJob(h);
+    CHECK_EQ(a.bank.frames(0), 4000u);
+    // Export As .it (Don't Save), then only the .it is left to import.
+    h.tap(btn::File);
+    h.tap(btn::F6);
+    h.tap(btn::F5);
+    h.tap(btn::F7);
+    runJob(h);
+    CHECK(h.fs.files.count("Mod/Tune.it"));
+    h.fs.files.erase("Mod/Tune.mod");
+    a.newProject();
+    CHECK_EQ(a.bank.frames(0), 0u);
+    h.tap(btn::F8);   // Back from the Export page
+    h.tap(btn::F3);
+    h.tap(btn::F8);
+    runJob(h);
+    CHECK_STR(a.ui.notice(), "Module imported");
+    CHECK_STR(a.project.name, "Tune");
+    CHECK(a.instrPresent[0]);
+    CHECK_EQ(a.bank.frames(0), 4000u);
+    CHECK_EQ(int(a.stored(1).tracks[0].steps[0].note), 31);
+    CHECK_EQ(int(a.stored(1).tracks[1].steps[4].note), 43);
+}

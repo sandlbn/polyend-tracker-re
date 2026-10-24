@@ -201,6 +201,15 @@ static void importModule(FileScreen& s, App& a) {
     char name[mt::kNameMax + 1];
     moduleProjectName(g_importName, name, sizeof(name));
     a.project.setName(name);
+    // newProject() resolves and saves the synth patches through the same
+    // scratch buffer (resolvePatch, savePatch), so the tables begin() read
+    // into it are gone (the IT sample and pattern offsets): read them again.
+    if (g_importKind == ModuleKind::Mod) ok = modImport().begin(a.fs(), g_importPath, m.scratch, m.scratchBytes);
+    else ok = itImport().begin(a.fs(), g_importPath, m.scratch, m.scratchBytes);
+    if (!ok) {
+        a.ui.notify(importError());
+        return;
+    }
     ModuleTarget t;
     t.project = &a.project;
     t.instruments = a.instruments;
