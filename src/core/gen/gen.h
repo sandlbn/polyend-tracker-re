@@ -50,7 +50,7 @@ enum Kind : uint8_t {
     kKindCount
 };
 
-constexpr int kParams = 5;   // F2..F6 of the popup
+constexpr int kParams = 6;   // F2..F7 of the popup; the last one is always Seed
 
 struct ParamDesc {
     const char* name;
@@ -92,7 +92,8 @@ struct Target {
 struct Result {
     bool ok = false;
     char msg[40] = {};
-    uint32_t seed = 0;             // the seed actually used
+    uint32_t seed = 0;             // the Seed parameter (0 = random)
+    uint32_t rngSeed = 0;          // the generator's RNG seed (rebuilds the same result)
 };
 
 Result generate(int kind, const int16_t* params, Target& t);
@@ -117,6 +118,17 @@ struct MonoStep {
 // Inactive steps are cleared. normalVol > 0 writes Volume on normal notes too.
 void writeMono(Pattern& p, int t, int s0, const MonoStep* steps, int n, uint8_t instr, uint8_t glide = 30,
                uint8_t normalVol = 0);
+
+// Acid phrase (genAcid without writing) and TB-3PO style mutation: each step
+// has `amount` (0..1) chance to re-roll its state or its pitch. v = the Acid
+// parameters (Density, Accent, Slide, Range, Mutate, Seed).
+// BBCut play table for the sequencer's B modes: 128 steps of cuts from
+// procedure `proc` (default parameters), entry = {offset 0..127 (1/128 of the
+// track at the cut start), steps since the cut start, roll selector}.
+void bbPlayTable(int proc, uint32_t seed, uint8_t out[128][3]);
+
+void acidPhrase(const int16_t* v, const Target& t, Rng& rng, MonoStep* out, int n);
+void acidMutate(const int16_t* v, const Target& t, Rng& rng, MonoStep* ph, int n, float amount);
 
 }  // namespace gen
 }  // namespace ot

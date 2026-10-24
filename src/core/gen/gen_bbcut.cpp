@@ -822,5 +822,54 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r) {
     r.ok = true;
 }
 
+void bbPlayTable(int proc, uint32_t seed, uint8_t out[128][3]) {
+    Rng rng(seed);
+    State& s = *new (gScratch) State();
+    s.r = &rng;
+    s.type = proc < 0 ? 0 : (proc >= kBBProcCount ? kBBProcCount - 1 : proc);
+    const ParamDesc* pa = bbProcParam(s.type, 0);
+    const ParamDesc* pb = bbProcParam(s.type, 1);
+    s.a = pa ? pa->def : 0;
+    s.b = pb ? pb->def : 0;
+    s.loopBeats = 4;
+    s.bpsd = 0.5f;
+    constexpr int kSpb = 4;
+    for (int k = 0; k < 128; ++k) {   // default: straight
+        out[k][0] = 0;
+        out[k][1] = uint8_t(k);
+        out[k][2] = 0;
+    }
+    float pos = 0;
+    int guard = 0;
+    while (pos < 32.0f - 0.0001f && ++guard < 2048) {
+        chooseblockFor(s);
+        const Block& b = s.out;
+        float cpos = pos;
+        for (int i = 0; i < b.n; ++i) {
+            const Cut& c = b.c[i];
+            float prop;
+            if (c.off >= 0) prop = c.off;
+            else if (b.offProp >= 0) prop = b.offProp;
+            else if (b.offBeats >= 0) prop = b.offBeats / s.loopBeats;
+            else prop = 0;
+            prop -= std::floor(prop);
+            const int st0 = int(std::floor(cpos * kSpb + 0.02f));
+            const int st1 = int(std::floor((cpos + c.ioi) * kSpb + 0.02f));
+            const bool sub = c.ioi * kSpb < 0.75f;
+            const float hits = sub ? 1.0f / (c.ioi * kSpb) : 1.0f;
+            // 16 steps = the loop: an offset prop is prop * 128 of the track.
+            const uint8_t off = uint8_t(int(prop * 128.0f + 0.5f) & 127);
+            for (int st = st0; st < (st1 > st0 ? st1 : st0 + 1) && st < 128; ++st) {
+                out[st][0] = off;
+                out[st][1] = uint8_t(sub ? 0 : (st - st0 > 127 ? 127 : st - st0));
+                out[st][2] = uint8_t(sub ? (hits >= 2.5f ? 3 : 9) : 0);   // 100 % rolls: 4 hits / 2 hits
+            }
+            cpos += c.ioi;
+        }
+        pos += b.len;
+    }
+    s.~State();
+}
+
 }  // namespace gen
 }  // namespace ot

@@ -24,30 +24,35 @@ KindDesc gKinds[kKindCount] = {
       {"Accent", 0, 100, 40, nullptr},
       {"Slide", 0, 100, 25, nullptr},
       {"Range", 0, 2, 1, kOctLabels},
+      {"Mutate", 0, 100, 0, nullptr},
       {"Seed", 0, 999, 0, nullptr}}},
     {"Call+Resp", "Call phrase, then the answer (Nordl3 C/R Generator)",
      {{"Style", 0, kCrStyleCount - 1, 0, nullptr},
       {"Answer", 0, kCrStrategyCount - 1, 0, nullptr},
       {"Density", 0, 100, 0, nullptr},
       {"Layout", 0, 2, 0, kCrLayout},
+      {nullptr, 0, 0, 0, nullptr},
       {"Seed", 0, 999, 0, nullptr}}},
     {"BBCut", "Rearrange a sliced break (BBCut / BBenCut procs)",
      {{"Proc", 0, kBBProcCount - 1, 0, nullptr},
       {"A", 0, 100, 50, nullptr},
       {"B", 0, 100, 50, nullptr},
       {"Source", 0, 5, 0, kBBSource},
+      {nullptr, 0, 0, 0, nullptr},
       {"Seed", 0, 999, 0, nullptr}}},
     {"Turnaround", "Phrase-end rolls, stutters and drops on a budget",
      {{"Phrase", 0, 3, 1, kTaPhrase},
       {"Budget", 1, 16, 4, nullptr},
       {"Style", 0, 5, 5, kTaStyle},
       {"Intensity", 0, 100, 60, nullptr},
+      {nullptr, 0, 0, 0, nullptr},
       {"Seed", 0, 999, 0, nullptr}}},
     {"Genotype", "Learn the track, play a variation of it",
      {{"Mode", 0, 2, 2, kGtMode},
       {"Identity", 0, 100, 60, nullptr},
       {"Order", 1, 2, 1, nullptr},
       {"Variety", 0, 100, 40, nullptr},
+      {nullptr, 0, 0, 0, nullptr},
       {"Seed", 0, 999, 0, nullptr}}},
 };
 
@@ -166,6 +171,7 @@ Result generate(int k, const int16_t* params, Target& t) {
     }
     const uint32_t seed = v[kParams - 1] > 0 ? uint32_t(v[kParams - 1]) * 2654435761u : (t.entropy | 1u);
     r.seed = v[kParams - 1] > 0 ? uint32_t(v[kParams - 1]) : 0;
+    r.rngSeed = seed;
     Rng rng(seed);
     switch (k) {
         case kAcid: genAcid(v, t, rng, r); break;

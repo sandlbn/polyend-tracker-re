@@ -1,4 +1,5 @@
 #include "app/app.h"
+#include "app/live_gen.h"
 
 #include <cstdio>
 #include <cstring>
@@ -457,6 +458,7 @@ void App::loop() {
         patternEdited();
     }
     serviceResample();
+    live::service(*this);   // OT fork: BBCut play tables, Acid mutate
     // Project manager (spec 05 §1.3 step 5, appendix E3/E4): one bounded
     // step of the running job, else the periodic autosave check.
     if (jobBusy()) serviceProjectJob();

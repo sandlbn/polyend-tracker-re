@@ -80,7 +80,7 @@ TEST(perf_preset_defaults_and_labels) {
     CHECK_EQ(perf::fx(perf::kTune).max, 48);
     CHECK_EQ(perf::fx(perf::kVolLfo).min, -23);
     CHECK_EQ(perf::fx(perf::kPanLfo).max, 28);
-    CHECK_EQ(perf::fx(perf::kPlayMode).max, 22);
+    CHECK_EQ(perf::fx(perf::kPlayMode).max, 32);   // OT fork: B1..B10 BBCut modes
     CHECK(perf::fx(perf::kPatternLength).global);
 }
 
@@ -235,7 +235,7 @@ TEST(perf_cc_slot_live_value) {
     CHECK_EQ(p.cur[5], 0);
     // Step repeater 0..15: v 127 -> 15; play mode 0..22.
     CHECK_EQ(perf::ccToValue(perf::kRepeater, 127), 15);
-    CHECK_EQ(perf::ccToValue(perf::kPlayMode, 127), 22);
+    CHECK_EQ(perf::ccToValue(perf::kPlayMode, 127), 32);   // OT fork: B1..B10
     CHECK_EQ(perf::ccToValue(perf::kVolume, 1), -99);   // truncates toward zero
 }
 

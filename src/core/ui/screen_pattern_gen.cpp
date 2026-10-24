@@ -1,9 +1,10 @@
 // Pattern screen: Generate popup (OT fork; generators in src/core/gen).
 //
 // Opened from Pattern page 3 (More > More) "Generate" in edit mode. Laid out
-// like the Fill popup: F1 picks the generator (list), F2..F6 its parameters
-// (lists or value bars), F7 Cancel, F8 Generate. Pads set the selected field,
-// the encoder / Up / Down change it, Left / Right move between fields.
+// like the Fill popup: F1 picks the generator (list), F2..F7 its parameters
+// (lists or value bars; the last is Seed), F8 Generate; Pattern or Rec closes
+// it. Pads set the selected field, the encoder / Up / Down change it, Left /
+// Right move between fields.
 // The target is the selection, or the cursor track from step 1 to the
 // pattern length with a single-cell cursor. One undo step per Generate.
 #include <cmath>
@@ -11,6 +12,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "app/live_gen.h"
 #include "gen/gen.h"
 #include "ui/notes.h"
 #include "ui/screens.h"
@@ -86,12 +88,12 @@ void PatternScreen::genDelta(int d, bool wrap) {
 }
 
 void PatternScreen::genButton(uint8_t id) {
-    if (id <= btn::F6) {
+    if (id <= btn::F7) {
         const int f = int(id);
         if (genFieldBlank(f)) return;
         if (genField == f) genDelta(1, true);   // pressing the selected field again steps it, with wrap
         genField = f;
-    } else if (id == btn::F7) {
+    } else if (id == btn::Pattern || id == btn::Rec) {
         genOpen = false;
     } else if (id == btn::F8) {
         genApply();
@@ -191,6 +193,7 @@ void PatternScreen::genApply() {
         ui_.notify(res.msg);
         return;
     }
+    if (genKind == gen::kAcid) live::acid(a, genVals[genKind], t, res.rngSeed);   // Mutate: keeps changing per loop
     a.patternEdited();
     genOpen = false;
     ui_.notify(res.msg);
@@ -208,7 +211,6 @@ void PatternScreen::genBar(BottomBar& b) {
         genValueText(f, v, sizeof(v));
         b.set(f, d.name, v);
     }
-    b.set(6, "Cancel");
     b.set(7, "Generate");
 }
 
@@ -257,8 +259,9 @@ void PatternScreen::drawGen(Gfx& g) {
             wg::valueBar(g, th, wg::columnX(f), kTop, wg::columnW(), kBarH, span > 0 ? float(v - d.min) / span : 0);
         }
     }
-    wg::panel(g, th, wg::columnX(6), kTop, wg::columnW(), kListH);
     wg::panel(g, th, wg::columnX(7), kTop, wg::columnW(), kListH);
+    if (genKind == gen::kAcid && live::acidActive(track))
+        g.text(wg::columnX(7) + 48, kTop + 20, kFont2, th.slot(slot::kTitle), "LIVE", IDisplay::kOptCenterX);
     wg::focusFrame(g, th, wg::columnX(genField), kTop, wg::columnX(genField) + wg::columnW(), 422);
 }
 

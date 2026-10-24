@@ -91,7 +91,7 @@ TEST(table_complete) {
 TEST(acid_deterministic_and_valid) {
     int16_t v[gen::kParams];
     defaults(gen::kAcid, v);
-    v[4] = 42;
+    v[5] = 42;
     gen::Target t = target(0, 15);
     gen::Result r = gen::generate(gen::kAcid, v, t);
     CHECK(r.ok);
@@ -118,7 +118,7 @@ TEST(acid_density_extremes) {
     int16_t v[gen::kParams];
     defaults(gen::kAcid, v);
     v[0] = 0;   // density 0: still one note
-    v[4] = 7;
+    v[5] = 7;
     gen::Target t = target(0, 31);
     gen::generate(gen::kAcid, v, t);
     CHECK_EQ(notesIn(0, 0, 31), 1);
@@ -141,7 +141,7 @@ TEST(callresponse_all_strategies) {
         for (int st = 0; st < gen::kCrStrategyCount; ++st) {
             v[0] = int16_t(style);
             v[1] = int16_t(st);
-            v[4] = int16_t(1 + st);
+            v[5] = int16_t(1 + st);
             gen::Target t = target(0, 31);
             gen::Result r = gen::generate(gen::kCallResponse, v, t);
             CHECK(r.ok);
@@ -153,7 +153,7 @@ TEST(callresponse_all_strategies) {
 TEST(callresponse_layouts) {
     int16_t v[gen::kParams];
     defaults(gen::kCallResponse, v);
-    v[4] = 9;
+    v[5] = 9;
     // Two tracks: the answer goes to the next track.
     v[3] = 2;
     gen::Target t = target(0, 15, 2, 2);
@@ -184,7 +184,7 @@ TEST(bbcut_every_proc) {
         defaults(gen::kBBCut, v);
         v[0] = int16_t(proc);
         for (int i = 1; i < 3; ++i) v[i] = gen::param(gen::kBBCut, i, v).def;
-        v[4] = int16_t(100 + proc);
+        v[5] = int16_t(100 + proc);
         gen::Target t = slicedTarget(0, 63);
         gen::Result r = gen::generate(gen::kBBCut, v, t);
         CHECK(r.ok);
@@ -201,7 +201,7 @@ TEST(bbcut_every_proc) {
 TEST(bbcut_slice_mode_and_errors) {
     int16_t v[gen::kParams] = {};
     defaults(gen::kBBCut, v);
-    v[4] = 5;
+    v[5] = 5;
     gen::Target t = slicedTarget(0, 31);
     t.slices.beatSlice = false;   // Slice mode: unity note + Slice FX
     CHECK(gen::generate(gen::kBBCut, v, t).ok);
@@ -246,7 +246,7 @@ TEST(turnaround_styles) {
             g_pat.tracks[0].steps[s].instrument = 1;
         }
         v[2] = int16_t(style);
-        v[4] = int16_t(3 + style);
+        v[5] = int16_t(3 + style);
         gen::Result r = gen::generate(gen::kTurnaround, v, t);
         CHECK(r.ok);
         CHECK(patternValid());
@@ -258,7 +258,7 @@ TEST(turnaround_styles) {
     v[1] = 4;
     v[2] = 2;
     v[3] = 100;
-    v[4] = 11;
+    v[5] = 11;
     gen::generate(gen::kTurnaround, v, t);
     CHECK_EQ(int(g_pat.tracks[0].steps[28].note), int(kNoteOff));
     CHECK_EQ(int(g_pat.tracks[0].steps[60].note), int(kNoteOff));
@@ -275,7 +275,7 @@ TEST(genotype_identity_and_vocabulary) {
     }
     Pattern orig = g_pat;
     v[1] = 100;   // identity 100: unchanged
-    v[4] = 3;
+    v[5] = 3;
     gen::generate(gen::kGenotype, v, t);
     bool same = true;
     for (int s = 0; s < 16; ++s) same = same && orig.tracks[0].steps[s] == g_pat.tracks[0].steps[s];
@@ -285,7 +285,7 @@ TEST(genotype_identity_and_vocabulary) {
         v[0] = int16_t(mode);
         v[1] = 0;
         v[3] = 80;
-        v[4] = int16_t(20 + mode);
+        v[5] = int16_t(20 + mode);
         gen::generate(gen::kGenotype, v, t);
         // Every output step is one of the learnt steps.
         for (int s = 0; s < 16; ++s) {
@@ -308,3 +308,51 @@ TEST(scale_helpers) {
 }
 
 
+
+TEST(acid_mutate_changes_some_steps) {
+    int16_t v[gen::kParams];
+    defaults(gen::kAcid, v);
+    v[5] = 17;
+    gen::Target t = target(0, 31);
+    gen::Rng rng(99);
+    gen::MonoStep a[32], b[32];
+    gen::acidPhrase(v, t, rng, a, 32);
+    for (int i = 0; i < 32; ++i) b[i] = a[i];
+    gen::acidMutate(v, t, rng, b, 32, 0.0f);
+    int diff = 0;
+    for (int i = 0; i < 32; ++i) diff += a[i].active != b[i].active || a[i].note != b[i].note;
+    CHECK_EQ(diff, 0);   // amount 0: unchanged (Lock)
+    gen::acidMutate(v, t, rng, b, 32, 0.5f);
+    diff = 0;
+    for (int i = 0; i < 32; ++i) diff += a[i].active != b[i].active || a[i].note != b[i].note;
+    CHECK(diff > 0 && diff < 32);
+    // The generate's phrase is rebuilt from Result::rngSeed.
+    t = target(0, 31);
+    gen::Result r = gen::generate(gen::kAcid, v, t);
+    gen::Rng again(r.rngSeed);
+    gen::acidPhrase(v, t, again, b, 32);
+    bool same = true;
+    for (int i = 0; i < 32; ++i)
+        same = same && (b[i].active ? g_pat.tracks[0].steps[i].note == b[i].note : g_pat.tracks[0].steps[i].note < 0);
+    CHECK(same);
+}
+
+TEST(bb_play_tables) {
+    uint8_t tab[128][3];
+    for (int proc = 0; proc < gen::kBBProcCount; ++proc) {
+        gen::bbPlayTable(proc, 1234u + uint32_t(proc), tab);
+        int rolls = 0, jumps = 0;
+        for (int k = 0; k < 128; ++k) {
+            CHECK(tab[k][0] < 128);
+            CHECK(tab[k][2] <= 15);
+            rolls += tab[k][2] != 0;
+            if (k > 0) {
+                const int prev = (tab[k - 1][0] * 16 / 128 + tab[k - 1][1]) % 16;
+                const int cur = (tab[k][0] * 16 / 128 + tab[k][1]) % 16;
+                jumps += cur != (prev + 1) % 16;
+            }
+        }
+        (void)rolls;
+        if (proc != 7) CHECK(jumps > 0);   // rearranges something (TimelineCut only regroups)
+    }
+}
