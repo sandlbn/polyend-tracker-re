@@ -208,6 +208,10 @@ const uint8_t kPlayModeTables[kPlayModeTableCount][kPlayModeTableLen][2] = {
         {2,0}, {1,0}, {5,0}, {2,0}, {2,0}, {1,0}, {2,0}, {1,0}, {5,0}, {2,0}, {2,0}, {1,0}, {2,0}, {2,0}, {5,0}, {5,0},
     },
 };
+// OT fork: BBCut tables (straight playback until the app builds them).
+uint8_t gBBPlayTables[kBBModeCount][kPlayModeTableLen][3];
+bool gBBPlayTablesReady = false;
+
 // [BIN:0xc8f40..0xc8f53] by group g0..g4 (spec 12 §D).
 const uint8_t kRollInjectValue[5] = {4, 13, 11, 1, 10};
 
@@ -231,7 +235,8 @@ void applyRollSelector(StepFx& inject, uint8_t rollSel, ParkMiller& rng, bool fi
 const char* playModeLabel(uint8_t mode) {
     static const char kLabels[kPlayModeCount][5] = {
         "Fwd", "Back", "Rnd", "C1",  "C2",  "C3",  "C4",  "C5",  "C6",  "C7",  "C8", "C9",
-        "C10", "C11",  "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20"};
+        "C10", "C11",  "C12", "C13", "C14", "C15", "C16", "C17", "C18", "C19", "C20",
+        "B1",  "B2",   "B3",  "B4",  "B5",  "B6",  "B7",  "B8",  "B9",  "B10"};
     return mode < kPlayModeCount ? kLabels[mode] : "";
 }
 

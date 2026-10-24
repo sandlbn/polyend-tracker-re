@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstring>
 
+#include "app/sample_fx_ot.h"
 #include "fmath.h"
 
 namespace ot {
@@ -73,6 +74,23 @@ const EffectDesc kEffects[kEffectCount] = {
     {"Timestretch Note", 2, {{"Length", 0.1f, 8, 0.01f, 1, kFmtSeconds, nullptr}, {"Granule", 10, 1000, 1, 100, kFmtMs, nullptr}}},
     {"Fade In", 0, {}},
     {"Fade Out", 0, {}},
+    // OT fork: codec generation loss and spectral crush (sample_fx_ot.cpp).
+    {"Transcode",
+     7,
+     {{"Codec", 0, 5, 1, 3, kFmtLabel, kTcCodecs},
+      {"Rate", 0, 3, 1, 0, kFmtLabel, kTcRates},
+      {"Generations", 1, 16, 1, 1, kFmtInt, nullptr},
+      {"Bit errors", 0, 100, 1, 0, kFmtInt, nullptr},
+      {"Loss", 0, 50, 1, 0, kFmtPercent, nullptr},
+      {"Conceal", 0, 2, 1, 1, kFmtLabel, kTcConceal},
+      {"Mix", 0, 100, 1, 100, kFmtPercent, nullptr}}},
+    {"DCT Crush",
+     5,
+     {{"Block", 0, 3, 1, 2, kFmtLabel, kDcBlocks},
+      {"Keep", 1, 100, 1, 12, kFmtPercent, nullptr},
+      {"Bits", 1, 12, 1, 4, kFmtInt, nullptr},
+      {"Freeze", 0, 100, 1, 0, kFmtPercent, nullptr},
+      {"Mix", 0, 100, 1, 100, kFmtPercent, nullptr}}},
 };
 
 // y = sat(trunc(v)): the stock results truncate toward zero and saturate to
@@ -536,6 +554,8 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             // SPEC GAP: granule samples = granule ms * 44.1 (the stock
             // constants at bin:0x7a5a8/0x7a5ac are not given in the spec).
             return wsola(in, n, m, uint32_t(double(p[1]) * 44.1), out, cap);
+        case kTranscode: transcode(p, in, w, out); break;
+        case kDctCrush: dctCrush(p, in, w, out); break;
         case kFadeIn:
             // Linear ramp a = 0 -> 1, y = trunc(x a).
             // SPEC GAP: start/step (lg:0x79608) not decoded; a = i / n.

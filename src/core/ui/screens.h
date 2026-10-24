@@ -8,6 +8,8 @@
 #include "app/pattern_ops.h"
 #include "app/perf_presets.h"
 #include "app/project_browser.h"
+#include "app/sample_fx.h"
+#include "gen/gen.h"
 #include "model/synth_patch.h"
 #include "ui/ui.h"
 #include "ui/wave.h"
@@ -66,6 +68,13 @@ public:
     float fillValueFrac(int val) const;             // From/To bar fraction 0..1
     int fillField = 0;
     pops::FillParams fill[4];
+    // Generate popup (OT fork: Acid, Call & Answer, BBCut, Turnaround, Genotype).
+    bool genOpen = false;
+    int genKind = 0;
+    int genField = 0;                                  // 0 generator, 1..5 parameters
+    int16_t genVals[gen::kKindCount][gen::kParams] = {};
+    char genMsg[40] = {};
+    void genValueText(int field, char* out, int cap) const;
     uint8_t colMask = 0;            // column-view mask (spec 06 §1.9)
     bool recArmPage = false;
     // Live-REC arm per track (spec 06 §1.3; 2.x: 16 tracks, 2x-01 §2.4).
@@ -129,6 +138,17 @@ private:
     void fillApply();
     uint8_t fillFxType() const;                // Fx id of the Fill "Fx Type" index (>= 0)
     void clampFillValues();                    // From/To into the chosen Fx's range
+    void genInitDefaults();
+    void genOpenPopup();
+    bool genFieldBlank(int field) const;
+    void genSet(int field, int value, bool wrap = false);
+    int genGet(int field) const;
+    void genDelta(int d, bool wrap = false);
+    void genButton(uint8_t id);
+    void genPad(uint8_t pad);
+    void genApply();
+    void genBar(BottomBar& b);
+    void drawGen(Gfx& g);
     void pageButton(int f, uint8_t state);
     void drawGrid(Gfx& g);
     void drawGridVertical(Gfx& g, bool threeTracks);
@@ -166,6 +186,7 @@ private:
     bool recBlink_ = false;         // 500 ms blink while a recording waits to start
     bool recWaitShown_ = false;
     bool fillNoteInit_ = false;     // Fill note defaults taken from the project (spec 06 §1.10)
+    bool genInit_ = false;          // Generate parameters set to their defaults
     uint32_t countInUntil_ = 0;     // "Counting in" popup end (ms), 0 = none
     bool countInDrawn_ = false;
     int8_t padVoice_[48];
@@ -713,7 +734,7 @@ public:
     int page = 1;           // 1 markers/effect list, 2 effect parameters
     int paramPage = 0;      // 4-parameter page on page 2
     int paramFocus = 0;     // parameter index on page 2
-    float params[17][9] = {};
+    float params[sfx::kEffectCount][sfx::kMaxParams] = {};   // OT fork: 19 effects
     bool undoAvail = false;
     int previewState = 0;   // 0 dirty, 1 processed (spec 06 §6.4 F7)
     // What the processed preview was made from: a different selection or
@@ -825,6 +846,12 @@ private:
     uint32_t lastRadioCheckAt_ = 0;   // radio source re-route (update)
     uint32_t lastLen_ = 0;
     bool seeking_ = false;
+    // OT fork: station scan (Shift + seek): seek on after kScanDwellMs per station.
+    bool scanning_ = false;
+    bool scanUp_ = true;
+    uint32_t scanAt_ = 0;
+    char rdsShown_[9] = {};
+    static constexpr uint32_t kScanDwellMs = 4000;
     bool countIn_ = false;
     bool previewing_ = false;
     // Preview playhead (owner request): x of the line drawn in the last frame,

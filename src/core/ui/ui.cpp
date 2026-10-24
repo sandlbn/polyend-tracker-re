@@ -578,7 +578,8 @@ bool Ui::encoderOnList() const {
 }
 #endif
 
-const Theme& Ui::th() const { return theme(app.cfg.theme); }
+// OT fork: a fork palette (uiTheme 3+) wins over the stock theme byte.
+const Theme& Ui::th() const { return theme(app.cfg.uiTheme >= kThemeCount ? app.cfg.uiTheme : app.cfg.theme); }
 
 void Ui::start() {
     if (!screenOwner_) screenOwner_ = createScreens(*this, app, screens_);

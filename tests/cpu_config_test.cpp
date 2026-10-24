@@ -35,7 +35,7 @@ TEST(cpu_config_extension_record) {
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 2, 1, 4, 5);
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 4, 1, 4, 0, 0, 5);   // OT fork: + sliceDetector, uiTheme
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -77,7 +77,7 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 2, 0, 6, 6);
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 4, 0, 6, 0, 0, 6);   // OT fork payload 4
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -169,4 +169,32 @@ TEST(cpu_cell_poll_and_frame) {
     h.run(300);
     CHECK(!a.ui.cpuCell().shown());
     audio::CpuMeter::setCycleSource(nullptr);
+}
+
+TEST(ot_fork_extension_fields) {
+    // Auto slice and a fork theme ride in the extension record; the stock
+    // image keeps the base theme so a stock firmware shows something sane.
+    FakeNvStore nv;
+    Config c;
+    c.sliceDetector = 1;
+    c.uiTheme = 3;   // Early Cyber (base Original)
+    CHECK(c.save(nv));
+    CHECK_EQ(nv.mem[0xD5], 0);
+    Config r;
+    CHECK(r.load(nv));
+    CHECK_EQ(r.sliceDetector, 1);
+    CHECK_EQ(r.uiTheme, 3);
+    c.uiTheme = 8;   // Workstation (base Monochrome)
+    CHECK(c.save(nv));
+    CHECK_EQ(nv.mem[0xD5], 1);
+    CHECK(r.load(nv));
+    CHECK_EQ(r.uiTheme, 8);
+    // A stock theme byte without a record: the UI theme follows it.
+    FakeNvStore nv2;
+    Config s;
+    s.theme = 2;
+    CHECK(s.save(nv2));
+    Config t;
+    CHECK(t.load(nv2));
+    CHECK_EQ(t.uiTheme, 2);
 }

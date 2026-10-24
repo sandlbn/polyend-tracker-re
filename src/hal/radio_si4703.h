@@ -82,6 +82,8 @@ public:
     bool seek(bool up) override;
     bool busy() const override;
     float frequency() const override { return freq_; }
+    const char* rdsName() const override { return psName_; }
+    uint16_t rdsPi() const override { return pi_; }
 
     // kUnreset: never reset, or a reset is due after an I2C failure.
     // kStandby: crystal running, not enabled (after boot and after powerOff).
@@ -99,6 +101,8 @@ private:
     void startSeek();
     void logDone(const char* what, uint32_t now);
     void fail(const char* what);
+    void decodeRds();
+    void clearRds();
 
     Port port_;
     uint16_t regs_[16] = {};
@@ -116,6 +120,11 @@ private:
     int rssi_ = 0;
     bool stereo_ = false;
     uint32_t errors_ = 0, tuneFailures_ = 0, tunesDone_ = 0;
+    // OT fork: RDS programme service name (two matching receptions per segment).
+    char psName_[9] = {};
+    char psCand_[8] = {};
+    uint8_t psSeen_ = 0;            // bit n: segment n confirmed
+    uint16_t pi_ = 0;
 };
 
 Si4703Radio& radio();

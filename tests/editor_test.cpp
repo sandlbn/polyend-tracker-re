@@ -43,7 +43,7 @@ TEST(sfx_catalogue_and_dsp) {
     CHECK_STR(sfx::effect(14).name, "Timestretch Note");
     CHECK_STR(sfx::effect(15).name, "Fade In");
     CHECK_STR(sfx::effect(16).name, "Fade Out");
-    const int counts[17] = {1, 0, 0, 1, 2, 2, 2, 2, 4, 9, 3, 4, 2, 4, 2, 0, 0};
+    const int counts[sfx::kEffectCount] = {1, 0, 0, 1, 2, 2, 2, 2, 4, 9, 3, 4, 2, 4, 2, 0, 0, 7, 5};   // OT fork: Transcode, DCT Crush
     for (int e = 0; e < sfx::kEffectCount; ++e) CHECK_EQ(sfx::effect(e).params, counts[e]);
     float p[9];
     sfx::defaults(sfx::kDelay, p);

@@ -33,7 +33,9 @@ enum Effect : uint8_t {
     kStretchNote,
     kFadeIn,
     kFadeOut,
-    kEffectCount = 17,
+    kTranscode,    // OT fork (sample_fx_ot.cpp)
+    kDctCrush,     // OT fork
+    kEffectCount = 19,
 };
 
 constexpr int kMaxParams = 9;

@@ -8,6 +8,7 @@
 #include "ui/config_help.h"
 #include "ui/notes.h"
 #include "ui/screens.h"
+#include "ui/theme.h"
 #include "sdram_bss.h"
 
 #ifndef OT_VERSION
@@ -36,7 +37,12 @@ struct Opt {
 
 const char* const kOffOn[] = {"Off", "On"};
 const char* const kLowMedHigh[] = {"Low", "Medium", "High"};
-const char* const kThemes[] = {"Original", "Monochrome", "Anniversary"};
+// OT fork: the stock three, then the fork palettes (ui/theme.cpp).
+const char* const kThemes[] = {"Original",   "Monochrome", "Anniversary",    "Early Cyber", "Corporate", "Amber CRT",
+                               "Green Phosphor", "Thermal", "Workstation", "Datamatic", "Dubplate",  "Rave Flyer",
+                               "Jungle", "Ice", "Sunset", "Teletext"};
+static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label per theme");
+const char* const kSliceModes[] = {"Stock", "Breaks"};
 const char* const kFonts[] = {"Original", "New"};
 const char* const kRegions[] = {"Europe", "US", "Australia", "Japan"};
 const char* const kPreview[] = {"Off", "Track", "Pattern"};
@@ -77,7 +83,7 @@ const Opt kProject[] = {
 const Opt kGeneral[] = {
     {"Radio region", kEnum, kCfg, CF(radioRegion), 0, 4, kRegions, 0},
     {"Display brightness", kEnum, kCfg, CF(brightness), 0, 3, kLowMedHigh, 0},
-    {"Display theme", kEnum, kCfg, CF(theme), 0, 3, kThemes, 0},
+    {"Display theme", kEnum, kCfg, CF(uiTheme), 0, kThemeTotal, kThemes, 0},   // OT fork: 16 themes
     {"Display font", kEnum, kCfg, CF(font), 0, 2, kFonts, 0},
     {"Pads brightness", kEnum, kCfg, CF(padsBrightness), 0, 3, kLowMedHigh, 0},
     {"Pads preview", kEnum, kCfg, CF(padsPreview), 0, 3, kPreview, 0},
@@ -89,6 +95,7 @@ const Opt kGeneral[] = {
     {"CPU meter", kEnum, kCfg, CF(cpuMeter), 0, 3, kCpuMeter, 0},   // [I] 2.x
     // [I] 2.x: the synth voice budget (governor budget B, OPTIMIZATION_2X item 10 / OP-8).
     {"Synth voices", kNum, kCfg, CF(synthVoices), 1, Config::kMaxSynthVoices, nullptr, 0},
+    {"Auto slice", kEnum, kCfg, CF(sliceDetector), 0, 2, kSliceModes, 0},   // OT fork
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},
@@ -492,6 +499,7 @@ void ConfigScreen::apply() {
         a.markConfigDirty();
         a.applySequencerSettings();
         if (v == &a.cfg.brightness) applyBacklight(a);
+        if (v == &a.cfg.uiTheme) a.cfg.theme = themeBase(a.cfg.uiTheme);   // OT fork: keep the stock byte valid
     } else {
         a.markProjectDirty();
         a.refreshPadNotes();

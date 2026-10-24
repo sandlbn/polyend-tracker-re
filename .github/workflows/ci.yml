@@ -78,12 +78,12 @@ jobs:
       - name: Build
         run: make -j"$(nproc)"
       - name: Flash, stack headroom and libm checks
-        run: python3 tools/telemetry_check.py size --size-tool arm-none-eabi-size build/opentracker.elf
+        run: python3 tools/telemetry_check.py size --size-tool arm-none-eabi-size build/nogames/opentracker.elf
       - name: Upload firmware image
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ github.sha }}
-          path: build/*.ptf
+          path: build/nogames/*.ptf
           if-no-files-found: error
 
   # The PR (GitHub's merge commit) against its base: tools/size_report.py
@@ -102,13 +102,13 @@ jobs:
           release: '14.2.Rel1'
       - name: Build this PR
         run: |
-          make -j"$(nproc)"
-          cp build/opentracker.elf "$RUNNER_TEMP/head.elf"
+          make -j"$(nproc)" OT_GAMES=0
+          cp build/nogames/opentracker.elf "$RUNNER_TEMP/head.elf"
       - name: Build the base
         run: |
           git worktree add "$RUNNER_TEMP/base" "${{ github.event.pull_request.base.sha }}"
-          make -C "$RUNNER_TEMP/base" -j"$(nproc)"
-          cp "$RUNNER_TEMP/base/build/opentracker.elf" "$RUNNER_TEMP/base.elf"
+          make -C "$RUNNER_TEMP/base" -j"$(nproc)" OT_GAMES=0   # same image kind on both sides
+          cp "$RUNNER_TEMP/base/build/nogames/opentracker.elf" "$RUNNER_TEMP/base.elf"
       - name: Memory report
         run: |
           python3 tools/size_report.py "$RUNNER_TEMP/base.elf" "$RUNNER_TEMP/head.elf" \

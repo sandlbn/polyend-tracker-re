@@ -285,3 +285,37 @@ TEST(region_change_rewrites_band_bits_before_the_tune) {
     CHECK_EQ(c.r[0x03] & 0x3FF, 53);        // trunc(10.6 / 0.2 + 0.5)
     CHECK(!c.rmwViolation);
 }
+
+// OT fork: RDS is enabled with the region bits and the PS name is decoded from
+// group 0A blocks (two matching receptions per segment), cleared on a tune.
+TEST(rds_ps_name_decoded_and_cleared_on_tune) {
+    FakeChip c;
+    gChip = &c;
+    Si4703Radio r;
+    bringUp(r, c);
+    run(r, c, 400);
+    CHECK(c.r[0x04] & 0x1000);   // SYSCONFIG1.RDS
+    CHECK_STR(r.rdsName(), "");
+    const char* ps = "JUNGLEFM";
+    auto group = [&](int seg, bool bad) {
+        c.r[0x0A] = uint16_t((c.r[0x0A] & ~0x0600) | 0x8000);   // RDSR, BLERA 0
+        c.r[0x0C] = 0xC204;                                     // PI
+        c.r[0x0D] = uint16_t(0x0000 | seg);                     // group 0A, segment
+        c.r[0x0F] = uint16_t((uint8_t(ps[2 * seg]) << 8) | uint8_t(ps[2 * seg + 1]));
+        c.r[0x0B] = uint16_t((c.r[0x0B] & 0x03FF) | (bad ? 0x4000 : 0));   // BLERB
+        run(r, c, 45);
+    };
+    for (int pass = 0; pass < 2; ++pass)
+        for (int seg = 0; seg < 4; ++seg) group(seg, false);
+    CHECK_STR(r.rdsName(), "JUNGLEFM");
+    CHECK_EQ(r.rdsPi(), 0xC204);
+    // A corrupted block B is ignored.
+    ps = "XXXXXXXX";
+    group(0, true);
+    group(0, true);
+    CHECK_STR(r.rdsName(), "JUNGLEFM");
+    r.tune(99.5f);
+    run(r, c, 5);
+    CHECK_STR(r.rdsName(), "");
+    CHECK(!c.rmwViolation);
+}
