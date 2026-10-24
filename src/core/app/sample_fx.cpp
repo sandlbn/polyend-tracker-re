@@ -119,7 +119,17 @@ int smootherSource(const float* p, uint32_t len) {
 // used up.
 // SPEC GAP: overlap O = N/4 and seek range +-min(N/4, 512) are OpenTracker's
 // (the stock sizes, lg:0x7a650, are not decoded); the correlation is
-// sub-sampled to at most 256 points per candidate.
+// sub-sampled to at most 256 points per candidate (at most 511 when O < 512).
+//
+// The weight and the continuation do not depend on the candidate, so their
+// product is built once per segment (an int32 kernel) and each candidate is
+// one integer multiply-add per point, summed exactly in int64: the M4 has no
+// double FPU, and the old double sum per candidate took ~50 s on a 0.45 s
+// sample. The kernel is exact while (O/2)^2 * 32768 fits an int32 (O < 512);
+// above that it is scaled down by the fewest bits that fit, which can only
+// change which candidate wins on a near-tie.
+constexpr uint32_t kWsolaPoints = 512;   // > the most sampled points (511, at O = 511)
+
 uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* out, uint32_t cap) {
     const uint32_t w = m < cap ? m : cap;
     for (uint32_t i = 0; i < w; ++i) out[i] = 0;
@@ -133,6 +143,11 @@ uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* o
     const uint32_t Hs = N - O;
     const int64_t S = int64_t(O < 512 ? O : 512);
     const uint32_t stride = O > 256 ? O / 256 : 1;
+    const uint32_t P = (O + stride - 1) / stride;   // sampled points, i = 0, stride, ...
+    // Kernel scale: |w(i) * x| <= (O/2)^2 * 32768 must fit an int32.
+    int shift = 0;
+    while ((uint64_t(O) * O / 4) * 32768u >> shift > 0x7FFFFFFFu) ++shift;
+    int32_t kern[kWsolaPoints];
     const double alpha = double(n) / double(m);
     const int64_t last = int64_t(n) - int64_t(N);
     // First segment: straight copy.
@@ -144,15 +159,33 @@ uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* o
         const int64_t nominal = int64_t(double(o0) * alpha);
         if (nominal > last) break;   // source used up: the rest stays zero
         const int64_t nat = prev + int64_t(Hs);   // natural continuation
+        for (uint32_t j = 0; j < P; ++j) {
+            const uint32_t i = j * stride;
+            const int64_t wt = int64_t(O - i) * int64_t(i);
+            const int64_t x = nat + i < int64_t(n) ? in[nat + i] : 0;
+            kern[j] = int32_t((wt * x) >> shift);
+        }
         int64_t best = nominal;
-        double bestC = -1e300;
+        int64_t bestC = INT64_MIN;
         const int64_t lo = nominal - S < 0 ? 0 : nominal - S;
         const int64_t hi = nominal + S > last ? last : nominal + S;
         for (int64_t s = lo; s <= hi; ++s) {
-            double c = 0.0;
-            for (uint32_t i = 0; i < O; i += stride) {
-                const double wt = double(O - i) * double(i);
-                c += wt * double(at(in, n, nat + i)) * double(in[s + i]);
+            const int16_t* y = in + s;
+            int64_t c = 0;
+            if (stride == 1) {
+                // Every point (O < 512, the common case): four at a time.
+                uint32_t j = 0;
+                int64_t c1 = 0, c2 = 0, c3 = 0;
+                for (; j + 4 <= P; j += 4) {
+                    c += int64_t(kern[j]) * y[j];
+                    c1 += int64_t(kern[j + 1]) * y[j + 1];
+                    c2 += int64_t(kern[j + 2]) * y[j + 2];
+                    c3 += int64_t(kern[j + 3]) * y[j + 3];
+                }
+                for (; j < P; ++j) c += int64_t(kern[j]) * y[j];
+                c += c1 + c2 + c3;   // exact: the order of an integer sum does not matter
+            } else {
+                for (uint32_t j = 0; j < P; ++j) c += int64_t(kern[j]) * y[j * stride];
             }
             if (c > bestC) {
                 bestC = c;
@@ -162,12 +195,12 @@ uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* o
         for (uint32_t i = 0; i < N; ++i) {
             const uint64_t o = o0 + i;
             if (o >= w) break;
-            double v = in[best + i];
             if (i < O) {
                 const double a = double(i) / double(O);
-                v = double(at(in, n, nat + i)) * (1.0 - a) + v * a;
+                out[o] = sat(double(at(in, n, nat + i)) * (1.0 - a) + double(in[best + i]) * a);
+            } else {
+                out[o] = in[best + i];   // sat(double(x)) == x for an int16
             }
-            out[o] = sat(v);
         }
         prev = best;
     }

@@ -25,6 +25,11 @@ $(OUT)/%_test: %_test.cpp $(OUT)/libcore.a
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $< $(OUT)/libcore.a $(LDFLAGS) -o $@
 
+# The Sample Editor effects against their pre-speed-work copy (sample_fx_ref.cpp).
+$(OUT)/sample_fx_speed_test: sample_fx_speed_test.cpp sample_fx_ref.cpp sample_fx_ref.h $(OUT)/libcore.a
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $< sample_fx_ref.cpp $(OUT)/libcore.a $(LDFLAGS) -o $@
+
 # USB descriptor check (usb_desc_test.cpp): the device's usb_desc.c compiled on
 # the host, once with the mass-storage interface and once without (symbols
 # prefixed nomsc_).
@@ -110,6 +115,26 @@ audio-tables:
 bench-m4: $(BENCH_OUT)/audio_bench_m4.elf $(PEAK_TRACE)
 	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
 	    -kernel $<
+
+# Sample Editor effects (bench_m4/sfx_bench.cpp): M4 instructions per effect
+# under QEMU, and an output checksum per effect; sfx-bench is the host build.
+SFX_SRCS := bench_m4/sfx_bench.cpp $(SRC)/core/app/sample_fx.cpp $(SRC)/core/fmath.cpp
+$(BENCH_OUT)/sfx_bench_m4.elf: $(SFX_SRCS) $(SRC)/core/app/sample_fx.h bench_m4/startup.c bench_m4/mps2.ld $(SRC)/hal/fast_mem.c
+	@mkdir -p $(dir $@)
+	$(M4_CC) $(M4_FLAGS) -c bench_m4/startup.c -o $(BENCH_OUT)/startup_m4.o
+	$(M4_CC) $(M4_FLAGS) -std=gnu11 -c $(SRC)/hal/fast_mem.c -o $(BENCH_OUT)/fast_mem_m4.o
+	$(M4_CXX) $(M4_FLAGS) -std=gnu++17 -fno-exceptions -fno-rtti -DOT_BENCH_M4 -I$(SRC)/core -I$(SRC) -I. \
+	    $(SFX_SRCS) $(BENCH_OUT)/startup_m4.o $(BENCH_OUT)/fast_mem_m4.o -T bench_m4/mps2.ld -nostartfiles --specs=nano.specs --specs=rdimon.specs -u _printf_float \
+	    -Wl,--gc-sections -lm -o $@
+sfx-bench-m4: $(BENCH_OUT)/sfx_bench_m4.elf
+	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
+	    -kernel $<
+$(BENCH_OUT)/sfx_bench: $(SFX_SRCS) $(SRC)/core/app/sample_fx.h
+	@mkdir -p $(dir $@)
+	$(CXX) -std=c++17 -O2 -I$(SRC)/core -I$(SRC) -I. $(SFX_SRCS) -o $@
+sfx-bench: $(BENCH_OUT)/sfx_bench
+	$<
+.PHONY: sfx-bench sfx-bench-m4
 
 # Executed instructions per function in the song 5 replay (QEMU TCG plugin,
 # tests/bench_m4/hot_plugin.c + hot_funcs.py): the .fastrun candidates
