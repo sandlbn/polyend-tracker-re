@@ -22,13 +22,27 @@ BUILD     := build
 # DIAG_N numbers successive diagnostic selftest images (one digit).
 DIAG_N    ?= 2
 VERNUM    := $(subst .,,$(VERSION))
+# OT fork (semi): FORK names the build. The image becomes
+# PolyendTrackerOTs<ver>.ptf (still 24 characters, so the update bootloader
+# takes it) and the version string "<ver>-<fork>" (boot splash, Config > Info).
+# FORK= (empty) builds the upstream names.
+FORK      ?= semi
+ifneq ($(FORK),)
+OT_VER_STR := $(VERSION)-$(FORK)
+else
+OT_VER_STR := $(VERSION)
+endif
 # make SELFTEST=1 builds a hardware bring-up image that always runs the selftest.
 ifeq ($(SELFTEST),1)
 BUILD     := build/selftest
 DEFS_EXTRA := -DOT_FORCE_SELFTEST=1
 PTF_NAME  := PolyendTracker_OTst$(DIAG_N).ptf
 else
+ifneq ($(FORK),)
+PTF_NAME  := PolyendTrackerOTs$(VERNUM).ptf
+else
 PTF_NAME  := PolyendTrackerOTv$(VERNUM).ptf
+endif
 endif
 # LMEM system cache for the SDRAM (src/hal/sdram_cache.h): 1 = on (boot self-test
 # can still turn it off), 0 = never enabled. Own build dir so objects never mix.
@@ -74,7 +88,7 @@ SIZE      := $(CROSS)size
 CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
-             -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
+             -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(OT_VER_STR)\" -DOT_TARGET_DEVICE=1 \
              -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs
 COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD

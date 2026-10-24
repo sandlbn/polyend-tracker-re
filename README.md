@@ -1,5 +1,10 @@
 # OpenTracker
 
+> **This is the semi fork (2.2.1-semi).** Pattern generators (Acid with live Mutate, Call+Resp,
+> BBCut, Turnaround, Genotype, Station), BBCut play modes B1..B10, Transcode / DCT Crush sample
+> effects, the Breaks auto-slice detector, 16 themes, RDS + station scan and a Data screen:
+> see **[FORK.md](FORK.md)**. Image: `PolyendTrackerOTs221.ptf`.
+
 OpenTracker is an open-source, clean-room firmware for the **original Polyend Tracker**,
 written from behavioural specifications. It contains no Polyend code, fonts, icons or
 graphics, and is not affiliated with or endorsed by Polyend.

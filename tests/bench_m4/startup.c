@@ -21,6 +21,10 @@ void Reset_Handler(void) {
     for (;;) {}
 }
 
+// GCC 13 (Ubuntu arm-none-eabi 13.2) emits __cxa_atexit(…, &__dso_handle)
+// for static objects; -nostartfiles drops crtbegin, which defines it.
+void* __dso_handle = 0;
+
 void _init(void) {}
 void _fini(void) {}
 
