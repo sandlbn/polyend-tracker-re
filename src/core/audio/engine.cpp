@@ -142,11 +142,25 @@ bool SampleBank::replaceFromTail(int idx, uint32_t frames, bool stereo) {
     if (n == 0 || n > cap_ - reserved_ - used) return false;
     const uint32_t start = slots_[idx].off;
     const uint32_t old = slots_[idx].samples();
-    // [C][B][N] -> [N][C][B] -> [N][B][C]
-    std::rotate(pool_ + start, pool_ + used, pool_ + used + n);
-    std::rotate(pool_ + start + n, pool_ + start + n + old, pool_ + used + n);
-    for (int j = idx + 1; j < kSlots; ++j)
-        if (slots_[j].loaded) slots_[j].off = slots_[j].off - old + n;
+    if (n == old) {
+        // Same size (most Sample Editor effects, and their undo): C and N
+        // swap places, the rest of the bank stays where it is. Block copies
+        // through a small buffer instead of rotating everything after the
+        // slot twice (a few hundred ms per apply in a loaded project).
+        int16_t buf[128];
+        for (uint32_t i = 0; i < n; i += 128) {
+            const size_t k = (n - i < 128 ? n - i : 128) * sizeof(int16_t);
+            std::memcpy(buf, pool_ + start + i, k);
+            std::memcpy(pool_ + start + i, pool_ + used + i, k);
+            std::memcpy(pool_ + used + i, buf, k);
+        }
+    } else {
+        // [C][B][N] -> [N][C][B] -> [N][B][C]
+        std::rotate(pool_ + start, pool_ + used, pool_ + used + n);
+        std::rotate(pool_ + start + n, pool_ + start + n + old, pool_ + used + n);
+        for (int j = idx + 1; j < kSlots; ++j)
+            if (slots_[j].loaded) slots_[j].off = slots_[j].off - old + n;
+    }
     slots_[idx].frames = frames;
     slots_[idx].stereo = stereo;
     return true;
