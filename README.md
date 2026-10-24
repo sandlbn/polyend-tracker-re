@@ -1,13 +1,62 @@
 # OpenTracker
 
-> **This is the semi fork (2.2.1-semi).** Pattern generators (Acid with live Mutate, Call+Resp,
-> BBCut, Turnaround, Genotype, Station), BBCut play modes B1..B10, Transcode / DCT Crush sample
-> effects, the Breaks auto-slice detector, 16 themes, RDS + station scan and a Data screen:
-> see **[FORK.md](FORK.md)**. Image: `PolyendTrackerOTs221.ptf`.
+> **This is the semi fork (2.2.1-semi).** What it adds is listed right below, under
+> [New in 2.2.1-semi](#new-in-221-semi-this-fork); the full guide is **[FORK.md](FORK.md)**.
 
 OpenTracker is an open-source, clean-room firmware for the **original Polyend Tracker**,
 written from behavioural specifications. It contains no Polyend code, fonts, icons or
 graphics, and is not affiliated with or endorsed by Polyend.
+
+## New in 2.2.1-semi (this fork)
+
+Image: `PolyendTrackerOTs221.ptf` (installs like the upstream image, see Install). Everything
+the generators write is ordinary steps and step FX, so the patterns also play on stock 1.9.x
+and on the Tracker Mini. Full guide with every parameter: **[FORK.md](FORK.md)**.
+
+### Generate (Pattern, page 3, F3, edit mode on)
+A Fill-style popup: F1 picks the generator, F2..F7 its parameters, F8 writes it into the
+selection (or the cursor track). One undo step per Generate; Seed 0 is random, any other seed
+gives the same result again.
+- **Acid:** a 303 line in the project scale in the TB-3PO manner (density, accent, slide,
+  range). Slides become Glide, accents Volume 100, short notes Gate.
+- **Call+Resp:** a call phrase and its answer, after Nordl3's Call / Response Generator
+  (46 styles, 38 answer strategies). It can also answer a call you wrote yourself.
+- **BBCut:** Nick Collins' BBCut procedures (via the BBenCut Ableton extension) on a sliced
+  break: Classic, ChooseCut, ChooseBlk, WarpCut, SQPusher1, SQPusher2, CageCut, Timeline,
+  Permute, ThrashCut. Short cuts become Roll FX, off-grid starts Micro-move.
+- **Turnaround:** phrase-end edits on a budget (rolls, stutters, drops, reverse, builds) at the
+  end of every phrase, half and quarter phrase.
+- **Genotype:** learns the selected steps and plays a variation made only of them, as a
+  Markov walk, a bouncing TILT ball, or both.
+- **Station:** a numbers-station line read from the radio (RDS name, PI code, frequency) in
+  groups of five, as notes or as slices of a voice counting 0..9.
+
+### Live
+- **Acid Mutate:** the generated acid line re-rolls part of its steps at every loop end while
+  it plays (two tracks at a time; Mutate 0 locks it).
+- **Play modes B1..B10:** Performance "Pattern Play Mode" gets ten BBCut modes after C20. They
+  cut and roll any track's own steps; a new cut set is built at every stop.
+
+### Sample Editor effects
+- **Transcode:** codec generation loss: G.711 u-law / A-law and G.726 40k / 32k / 24k / 16k at
+  8 to 22 kHz, up to 16 tandem passes, bit errors, packet loss with three concealment modes.
+- **DCT Crush:** spectral block crush: keep the strongest bins, quantise them, freeze frames.
+
+### Config
+- **Auto slice: Breaks:** a spectral-flux onset detector that finds every hit of a fast break
+  (up to 48 slices, 46 ms apart), next to the stock detector.
+- **16 display themes** (13 new): Early Cyber, Corporate, Amber CRT, Green Phosphor, Thermal,
+  Workstation, Datamatic, Dubplate, Rave Flyer, Jungle, Ice, Sunset, Teletext.
+
+### Radio and Data screen
+- **RDS:** the station name shows in the Sample Recorder title. **Shift + seek** scans the band
+  (4 s per station); record while it scans for a radio collage.
+- **Data screen** (File, F7): an Ikeda / datamatics style view of what plays: Barcode, Matrix
+  and raw Numbers, with the next steps on the pads.
+
+### Build
+- The fork builds without Games by default (with Games the image does not fit the 720 KB
+  flash limit). Image size 698 KB; all host tests, simulator checks and CI pass.
 
 ## Screenshots (2.2.1, on an original Tracker)
 
@@ -109,7 +158,7 @@ the whole 2.x line (2.0 to 2.2.1); the full list is in the release notes of the
 
 ## Install
 
-1. Copy `PolyendTrackerOTv221.ptf` to `/Firmware` on the SD card. Keep the name; the
+1. Copy `PolyendTrackerOTv221.ptf` (this fork: `PolyendTrackerOTs221.ptf`) to `/Firmware` on the SD card. Keep the name; the
    bootloader only accepts 24-character names.
 2. Go to **Config > Firmware update**, select it and confirm. If the screen stays dark
    after the update, press the power button once.

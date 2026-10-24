@@ -114,6 +114,4 @@ same toolchain as the upstream releases where possible.
 
 Sources: TB-3PO idea (Phazerville Hemisphere / charlesvestal schwung-tb3po),
 Nordl3 Call / Response Generator (MIT), bencodec/BBenCut and Nick Collins'
-BBCut, ITU-T G.711 / G.726, Silicon Labs AN230 (RDS registers). Note: the
-upstream repository has no LICENSE file yet; ask its author before
-redistributing builds.
+BBCut, ITU-T G.711 / G.726, Silicon Labs AN230 (RDS registers).
