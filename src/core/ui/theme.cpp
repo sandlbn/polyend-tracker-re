@@ -158,7 +158,103 @@ const Theme* themes() {
 }
 }  // namespace
 
-const Theme& theme(uint8_t index) { return themes()[index < kThemeCount ? index : 0]; }
+// --- OT fork palettes ---------------------------------------------------------
+//
+// Each palette recolours the base theme: grey levels become a blend from the
+// background to the text colour (a tint for the whole UI), and the base's
+// accent / green / pattern-column / signal colours are swapped for the
+// palette's. Colours not named keep the base value.
+struct Palette {
+    const char* name;
+    uint8_t base;          // 0 Original, 1 Monochrome
+    uint32_t bg, text;     // grey 000000 -> bg, ffffff -> text
+    uint32_t accent, good;
+    uint32_t note, instr, fx1, fx2;
+    uint32_t orange, cyan;
+};
+
+const Palette kPalettes[kThemeTotal - kThemeCount] = {
+    {"Early Cyber", 0, 0x04060E, 0xD8E6FF, 0xFF2E88, 0x39FF14, 0x00E5FF, 0xFFD500, 0xB388FF, 0x64FFDA, 0xFF8A00, 0x00E5FF},
+    {"Corporate", 0, 0x0A1120, 0xE8EEF5, 0x2F80ED, 0x27AE60, 0x56CCF2, 0xF2C94C, 0xBB6BD9, 0x6FCF97, 0xF2994A, 0x56CCF2},
+    {"Amber CRT", 0, 0x080400, 0xFFB000, 0xFF5A00, 0xFFD27F, 0xFFC94D, 0xFF9E1B, 0xFF7B00, 0xFFE0A0, 0xFF7B00, 0xFFD27F},
+    {"Green Phosphor", 0, 0x000A02, 0x33FF66, 0xB6FF00, 0x00FF9C, 0x7DFF9B, 0xCCFF66, 0x00D45A, 0x9CFFCE, 0xB6FF00, 0x7DFF9B},
+    {"Thermal", 0, 0x00000E, 0xFFFFFF, 0xFF3300, 0xFFFF00, 0xFF8800, 0xFFEE00, 0xFF0066, 0x00CCFF, 0xFF8800, 0x00CCFF},
+    {"Workstation", 1, 0x3A3A44, 0xFFFFFF, 0x3B5BA5, 0x2E8B57, 0x1F6FB2, 0x8A6D00, 0x7B3FA0, 0x00796B, 0xC0571B, 0x1F6FB2},
+    {"Datamatic", 0, 0x000000, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0xBBBBBB, 0x888888, 0xDDDDDD, 0xFFFFFF, 0xFFFFFF},
+    {"Dubplate", 0, 0x120B07, 0xF4E3C1, 0xE2483D, 0x9BC53D, 0xF4A259, 0xF4E3C1, 0xBC4B51, 0x8CB369, 0xF4A259, 0x8CB369},
+    {"Rave Flyer", 0, 0x0D0221, 0xFFFFFF, 0xFF00A0, 0x00FF9F, 0x00B8FF, 0xFFF000, 0xFF6B00, 0xBD00FF, 0xFF6B00, 0x00B8FF},
+    {"Jungle", 0, 0x050A05, 0xE5F5D0, 0xE63B2E, 0xF6C90E, 0x7ED957, 0xF6C90E, 0xE63B2E, 0x2BB3C0, 0xF39C12, 0x2BB3C0},
+    {"Ice", 0, 0x02060C, 0xDFF6FF, 0x4FC3F7, 0x80DEEA, 0xB3E5FC, 0xE1F5FE, 0x81D4FA, 0x4DD0E1, 0x90CAF9, 0x80DEEA},
+    {"Sunset", 0, 0x140A1E, 0xFFE8D6, 0xFF6F59, 0xF9C80E, 0xFF9F1C, 0xF9C80E, 0xF15BB5, 0x9B5DE5, 0xFF9F1C, 0x9B5DE5},
+    {"Teletext", 0, 0x000000, 0xFFFFFF, 0xFF0000, 0x00FF00, 0x00FFFF, 0xFFFF00, 0xFF00FF, 0x00FF00, 0xFFFF00, 0x00FFFF},
+};
+
+inline uint32_t mix(uint32_t a, uint32_t b, uint32_t t /* 0..255 */) {
+    uint32_t out = 0;
+    for (int sh = 0; sh <= 16; sh += 8) {
+        const uint32_t ca = (a >> sh) & 0xFF, cb = (b >> sh) & 0xFF;
+        out |= ((ca * (255 - t) + cb * t + 127) / 255) << sh;
+    }
+    return out;
+}
+inline uint32_t scaled(uint32_t c, uint32_t num, uint32_t den) {   // c * num / den per channel
+    uint32_t out = 0;
+    for (int sh = 0; sh <= 16; sh += 8) out |= ((((c >> sh) & 0xFF) * num / den) & 0xFF) << sh;
+    return out;
+}
+
+uint32_t recolour(const Palette& p, uint32_t c) {
+    if (c <= 1) return c;   // 0 / 1: the flag slots and black stay as they are
+    const uint32_t r = (c >> 16) & 0xFF, g = (c >> 8) & 0xFF, b = c & 0xFF;
+    switch (c) {
+        case 0xCD1818: case 0xFF0000: case 0xDD2020: case 0xC64E4D: return p.accent;
+        case 0x30CB3F: case 0x00FF00: return p.good;
+        case 0x00E8BE: return p.note;
+        case 0xFEF749: return p.instr;
+        case 0xBB58F1: return p.fx1;
+        case 0x57F1FF: return p.fx2;
+        case 0x003933: return scaled(p.note, 1, 4);    // the column tints
+        case 0x453B1B: return scaled(p.instr, 1, 4);
+        case 0x321F3A: return scaled(p.fx1, 1, 4);
+        case 0x183744: return scaled(p.fx2, 1, 4);
+        case 0xD67022: return p.orange;
+        case 0x3FFFFF: return p.cyan;
+        default: break;
+    }
+    const int mx = r > g ? (r > b ? r : b) : (g > b ? g : b), mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    if (mx - mn <= 4) return mix(p.bg, p.text, uint32_t((r + g + b) / 3));   // a grey
+    return c;
+}
+
+const Theme& theme(uint8_t index) {
+    if (index < kThemeCount) return themes()[index];
+    if (index >= kThemeTotal) return themes()[0];
+    // One derived theme is built at a time (the active one), in RAM.
+    static uint32_t slots[kThemeSlotCount];
+    static Theme t{};
+    static uint8_t built = 0xFF;
+    if (built != index) {
+        const Palette& p = kPalettes[index - kThemeCount];
+        const uint32_t* base = themes()[p.base].slots;
+        for (int i = 0; i < kThemeSlotCount; ++i)
+            slots[i] = i >= slot::kFlagBottomFade ? base[i] : recolour(p, base[i]);
+        // Black frame clear / list backgrounds take the palette background.
+        if (base[slot::kFrameClear] == 0) slots[slot::kFrameClear] = p.bg;
+        t = makeTheme(p.name, slots);
+        built = index;
+    }
+    return t;
+}
+
+const char* themeName(uint8_t index) {
+    if (index < kThemeCount) return themes()[index].name;
+    return index < kThemeTotal ? kPalettes[index - kThemeCount].name : themes()[0].name;
+}
+
+uint8_t themeBase(uint8_t index) {
+    if (index < kThemeCount) return index;
+    return index < kThemeTotal ? kPalettes[index - kThemeCount].base : 0;
+}
 
 const char* fontSetName(uint8_t set) { return set == kFontSetNew ? "New" : "Original"; }
 

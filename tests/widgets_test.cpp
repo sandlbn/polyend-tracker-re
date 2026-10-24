@@ -125,7 +125,7 @@ TEST(theme_roles_point_at_stock_slots) {
     const Theme& a = theme(2);
     CHECK_EQ(a.bg, 0x000000u);
     CHECK_EQ(a.track[0], 0xD0D0D0u);
-    CHECK(std::strcmp(theme(9).name, "Original") == 0);
+    CHECK(std::strcmp(theme(kThemeTotal).name, "Original") == 0);   // OT fork: 3..15 are palettes
 }
 
 // Each channel within +-3 of the stock pixel.

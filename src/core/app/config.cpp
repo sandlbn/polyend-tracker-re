@@ -1,5 +1,7 @@
 #include "app/config.h"
 
+#include "ui/theme.h"
+
 #include <cstddef>
 #include <cstring>
 
@@ -136,6 +138,8 @@ void Config::sanitize() {
     clampField<uint8_t>(recMonitor, 1, 1);
     if (radioFreq10 < 760 || radioFreq10 > 1080) radioFreq10 = 875;
     clampField<uint8_t>(cpuMeter, 2, 0);
+    clampField<uint8_t>(sliceDetector, 1, 0);
+    if (uiTheme >= kThemeTotal) uiTheme = 0;
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
     validateImage(image);
 }
@@ -163,6 +167,8 @@ void Config::toExt(uint8_t* out) const {
     out[4] = uint8_t(kExtPayload);
     out[5] = cpuMeter;
     out[6] = synthVoices;
+    out[7] = sliceDetector;
+    out[8] = uiTheme;
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -178,6 +184,9 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     // Newer versions only append fields: read the ones this build knows.
     cpuMeter = in[5] <= 2 ? in[5] : 0;
     synthVoices = (n >= 2 && in[6] >= 1 && in[6] <= kMaxSynthVoices) ? in[6] : kDefaultSynthVoices;
+    sliceDetector = (n >= 3 && in[7] <= 1) ? in[7] : 0;
+    // A fork palette (3+) replaces the stock theme byte; else the image decides.
+    if (n >= 4 && in[8] >= kThemeCount && in[8] < kThemeTotal) uiTheme = in[8];
     return true;
 }
 
@@ -194,6 +203,8 @@ bool Config::fromImage(const uint8_t* img) {
     c.radioFreq10 = radioFreq10;
     c.cpuMeter = cpuMeter;   // extension record, not in the image
     c.synthVoices = synthVoices;
+    c.sliceDetector = sliceDetector;
+    c.uiTheme = c.theme;     // the stock theme; an extension record may name a fork palette
     c.sanitize();
     *this = c;
     toImage();
@@ -207,19 +218,21 @@ bool Config::load(INvStore& nv) {
     uint8_t ext[kExtSize];
     cpuMeter = 0;
     synthVoices = kDefaultSynthVoices;
+    sliceDetector = 0;
     if (nv.size() >= kExtOffset + kExtSize && nv.read(kExtOffset, ext, kExtSize)) fromExt(ext, kExtSize);
     else if (nv.size() >= kExtOffset + kExtSize - 1 && nv.read(kExtOffset, ext, kExtSize - 1)) fromExt(ext, kExtSize - 1);   // v1 record
     return true;
 }
 
 bool Config::save(INvStore& nv) {
+    if (uiTheme >= kThemeCount && uiTheme < kThemeTotal) theme = themeBase(uiTheme);   // a stock firmware shows the base
     toImage();
     if (nv.size() < kImageSize || !nv.write(0, image, kImageSize)) return false;
     // Extension record (best effort): written once the option leaves its
     // default; a store that never had one keeps its erased bytes past 0xF4.
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
-    if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices) {
+    if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && sliceDetector == 0 && uiTheme < kThemeCount) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
     }
@@ -243,6 +256,7 @@ bool Config::load(IStorage& fs) {
         if (!fromImage(buf + 8)) return false;
         cpuMeter = 0;
         synthVoices = kDefaultSynthVoices;
+        sliceDetector = 0;
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
         return true;
     }
@@ -259,6 +273,7 @@ bool Config::load(IStorage& fs) {
 }
 
 bool Config::save(IStorage& fs) {
+    if (uiTheme >= kThemeCount && uiTheme < kThemeTotal) theme = themeBase(uiTheme);
     toImage();
     fs.mkdir(kConfigDir);
     uint8_t buf[8 + kImageSize + kExtSize] = {};

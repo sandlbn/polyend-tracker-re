@@ -26,7 +26,8 @@ const char* const kProjectHelp[] = {
 const char* const kGeneralHelp[] = {
     "Selects the FM band and channel steps used by the built-in radio in your part of the world.",
     "Sets the backlight level of the screen.",
-    "Selects the colour scheme of the user interface.",
+    "Selects the colour scheme of the user interface. The first three are the stock themes; the others are "
+    "OpenTracker fork palettes (a stock firmware shows their base theme).",
     "Selects the set of fonts used on screen.",
     "Sets how bright the pad lights are.",
     "Lights the pads of the notes on the current pattern line: on the cursor track only, on all tracks, or "
@@ -43,6 +44,9 @@ const char* const kGeneralHelp[] = {
     "time. Off: never.",
     "How many synth voices can sound at once over all three synths (1 to 8, default 4). More voices cost more "
     "processing time; when the load gets too high, voices are taken away for a while.",
+    // OT fork.
+    "How Auto Slice in Sample Playback finds the slices. Stock: the original detector, a quarter second or more "
+    "apart. Breaks: a spectral onset detector that finds every hit of a fast break (46 ms apart at least).",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

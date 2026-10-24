@@ -68,6 +68,11 @@ struct Config {
     // 2.x synth voice budget B (OPTIMIZATION_2X item 10 / OP-8): voices the
     // governor starts from, 1..8. Extension record byte 2.
     uint8_t synthVoices = kDefaultSynthVoices;
+    // OT fork, extension record bytes 3 and 4: the Sample Playback auto-slice
+    // detector (0 Stock, 1 Breaks) and the display theme 0..15 (3+ are the
+    // fork's palettes; the stock image keeps `theme` = their base theme).
+    uint8_t sliceDetector = 0;
+    uint8_t uiTheme = 0;
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;
 
@@ -90,7 +95,7 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 1;
-    static constexpr uint32_t kExtPayload = 2;               // cpuMeter, synthVoices
+    static constexpr uint32_t kExtPayload = 4;               // cpuMeter, synthVoices, sliceDetector, uiTheme
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

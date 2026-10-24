@@ -503,6 +503,7 @@ void PlaybackScreen::slicesAuto() {
     in.sliceCount = 0;
     in.selectedSlice = 0;
     sliceInstr_ = ci;
+    slicer.setMode(app_.cfg.sliceDetector);   // OT fork: Config > General > Auto slice
     if (slicer.start(app_.bank.left(ci), app_.bank.frames(ci), in.slices, &in.sliceCount)) wasBusy_ = true;
     app_.markInstrumentDirty(ci);
 }

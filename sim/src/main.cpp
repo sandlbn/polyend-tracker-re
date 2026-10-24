@@ -22,6 +22,7 @@
 
 #include "app/app.h"
 #include "formats/wav.h"
+#include "ui/theme.h"
 #include "canvas.h"
 #include "host_hal.h"
 #include "host_midi.h"
@@ -631,7 +632,10 @@ struct Headless {
                 // Display theme 0..2 / font set 0..1 (config "Display theme" /
                 // "Display font") without the Config key flow; visual scenes.
                 if (m.app) {
-                    if (cmd == "theme") m.app->cfg.theme = uint8_t(n1);
+                    if (cmd == "theme") {   // 0..2 stock, 3..15 the OT fork palettes
+                        m.app->cfg.uiTheme = uint8_t(n1);
+                        m.app->cfg.theme = ot::themeBase(uint8_t(n1));
+                    }
                     else m.app->cfg.font = uint8_t(n1);
                     m.app->applySequencerSettings();
                     m.app->ui.dirty();

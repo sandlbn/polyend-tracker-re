@@ -124,12 +124,13 @@ TEST(config_menu_lists_all_options_with_defaults) {
     };
     const Want general[] = {
         {"Radio region", 3, 0, 4, 0, 0},      {"Display brightness", 3, 0, 3, 0, 2},
-        {"Display theme", 3, 0, 3, 0, 0},     {"Display font", 3, 0, 2, 0, 0},
+        {"Display theme", 3, 0, 16, 0, 0},    {"Display font", 3, 0, 2, 0, 0},   // OT fork: 16 themes
         {"Pads brightness", 3, 0, 3, 0, 2},   {"Pads preview", 3, 0, 3, 0, 2},
         {"Recording options", 3, 0, 4, 0, 0}, {"Numbering mode", 3, 0, 3, 0, 1},
         {"Pattern arrangement", 3, 0, 3, 0, 0}, {"Pattern top info", 3, 0, 3, 0, 0},
         {"Line in channel", 3, 0, 3, 0, 0},   {"CPU meter", 3, 0, 3, 0, 0},   // 2.x [I]
         {"Synth voices", 2, 0, 8, 1, 3},                                     // 2.x [I], default 4
+        {"Auto slice", 3, 0, 2, 0, 0},                                        // OT fork
     };
     const Want midi[] = {
         {"Clock in", 3, 0, 3, 0, 0},          {"Clock out", 3, 0, 4, 0, 0},
@@ -161,7 +162,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
         int n;
     };
     const CatWant cats[] = {
-        {"Project Settings", project, 10}, {"General", general, 13}, {"MIDI", midi, 11},
+        {"Project Settings", project, 10}, {"General", general, 14}, {"MIDI", midi, 11},
         {"USB", usb, 1},                   // [I] 2.x (Tracker Mini order)
         {"Metronome", metro, 5},           {"Firmware", firmware, 4}, {"Info", info, 4},
     };
@@ -182,7 +183,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
             if (w.def >= 0) CHECK_EQ(c.optionIndex(k, i), w.def);
         }
     }
-    CHECK_EQ(total, 48);   // stock 42 + 2.x CPU meter, Synth voices, three Info lines, USB Storage
+    CHECK_EQ(total, 49);   // stock 42 + 2.x CPU meter, Synth voices, three Info lines, USB Storage; OT Auto slice
     char t[48];
     c.optionText(3, 0, t, sizeof t);   // USB Storage: Off
     CHECK_STR(t, "Off");
@@ -203,8 +204,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
             CHECK_EQ(o.help != nullptr, want);
             helps += o.help != nullptr;
         }
-    CHECK_EQ(helps, 28);   // stock 25 + 2.x CPU meter, Synth voices and USB Storage
-    CHECK_EQ(configHelpCount(), 28);
+    CHECK_EQ(helps, 29);   // stock 25 + 2.x CPU meter, Synth voices and USB Storage; OT Auto slice
+    CHECK_EQ(configHelpCount(), 29);
     c.optionText(5, 1, t, sizeof t);
     CHECK(std::strlen(t) > 0);
 }

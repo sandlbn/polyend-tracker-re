@@ -8,6 +8,7 @@
 #include "app/pattern_ops.h"
 #include "app/perf_presets.h"
 #include "app/project_browser.h"
+#include "app/sample_fx.h"
 #include "gen/gen.h"
 #include "model/synth_patch.h"
 #include "ui/ui.h"
@@ -733,7 +734,7 @@ public:
     int page = 1;           // 1 markers/effect list, 2 effect parameters
     int paramPage = 0;      // 4-parameter page on page 2
     int paramFocus = 0;     // parameter index on page 2
-    float params[17][9] = {};
+    float params[sfx::kEffectCount][sfx::kMaxParams] = {};   // OT fork: 19 effects
     bool undoAvail = false;
     int previewState = 0;   // 0 dirty, 1 processed (spec 06 §6.4 F7)
     // What the processed preview was made from: a different selection or

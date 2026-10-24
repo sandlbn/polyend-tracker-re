@@ -115,7 +115,14 @@ struct Theme {
 
 // 0 = Original, 1 = Monochrome, 2 = Anniversary (config "Display theme").
 constexpr uint8_t kThemeCount = 3;
+// OT fork: 3..kThemeTotal-1 are palettes derived from Original (or
+// Monochrome): the slot table is rebuilt in RAM by recolouring the base
+// theme, so a theme costs a few words of flash, not a 277-word table.
+constexpr uint8_t kThemeTotal = 16;
 const Theme& theme(uint8_t index);
+const char* themeName(uint8_t index);
+// The stock theme an OT theme is drawn from (what a stock firmware shows).
+uint8_t themeBase(uint8_t index);
 
 // Display font sets (config "Display font", spec 20 §2.1): 0 Original
 // (default), 1 New. The active set lives in gfx (setFontSet / fontSet).
