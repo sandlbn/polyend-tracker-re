@@ -147,7 +147,7 @@ void PatternScreen::genApply() {
     auto sliced = [&](uint8_t i) {
         return i < kSampleInstrumentCount && a.instrPresent[i] && a.instruments[i].sliceCount > 0;
     };
-    if (genKind == gen::kBBCut && !sliced(ins)) {
+    if ((genKind == gen::kBBCut || genKind == gen::kStation) && !sliced(ins)) {
         const Track& tr = a.pattern().tracks[t.t0];
         for (int s = 0; s <= tr.lastStep; ++s) {
             const Step& st = tr.steps[s];
@@ -172,6 +172,13 @@ void PatternScreen::genApply() {
         t.slices.beatSlice = in.playMode == uint8_t(PlayMode::BeatSlice);
         const float bpm = a.seq.effectiveTempo();
         t.slices.sampleBeats = bpm > 1 ? float(in.lengthFrames) / 44100.0f * bpm / 60.0f : 0;
+    }
+    if (genKind == gen::kStation) {   // the radio's station: RDS name, PI, frequency
+        t.freq10 = a.cfg.radioFreq10;
+        if (a.radio()) {
+            t.text = a.radio()->rdsName();
+            t.pi = a.radio()->rdsPi();
+        }
     }
     gGenEntropy = gGenEntropy * 1664525u + 1013904223u + uint32_t(step * 131 + track * 7919);
     t.entropy = gGenEntropy;

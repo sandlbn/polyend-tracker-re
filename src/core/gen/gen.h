@@ -13,6 +13,9 @@
 //   Turnaround  phrase-end rolls / stutters / drops with an edit budget
 //   Genotype    learns a Markov chain from the track and plays a variation
 //               (Markov walk, or a bouncing "ball" over the learnt steps)
+//   Station     numbers-station line from the radio: RDS name, PI code or
+//               frequency read as digits (notes, or the slices of a sliced
+//               counting voice), in groups of five
 #pragma once
 
 #include <cstdint>
@@ -47,6 +50,7 @@ enum Kind : uint8_t {
     kBBCut,
     kTurnaround,
     kGenotype,
+    kStation,
     kKindCount
 };
 
@@ -86,6 +90,10 @@ struct Target {
     int stepsPerBeat = 4;
     Slices slices;
     uint32_t entropy = 1;          // seed when the Seed parameter is 0 (random)
+    // Station: the radio text (RDS name), PI code and frequency x 10.
+    const char* text = nullptr;
+    uint16_t pi = 0;
+    uint16_t freq10 = 0;
 };
 
 // Result line for the popup / notify ("Generated 32 steps", "Needs a sliced instrument").

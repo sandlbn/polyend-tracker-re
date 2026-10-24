@@ -170,6 +170,7 @@ void RecorderScreen::stop() {
     if (isMidiInstrument(a.currentInstrument())) lastMidi_ = a.currentInstrument();
     if (seeking_) ui_.progressDone();
     seeking_ = false;
+    scanning_ = false;
 }
 
 void RecorderScreen::setSource(int s) {
@@ -601,9 +602,20 @@ void RecorderScreen::onButton(uint8_t id, uint8_t st) {
             case btn::F3:
             case btn::F4:
                 if (src == 1) {
-                    if (sourceOk && a.radio() && a.radio()->seek(id == btn::F3)) {
+                    // OT fork: Shift + seek starts the station scan (seek, stay
+                    // 4 s, seek on); a seek key without Shift stops it.
+                    if (ui_.shift() && sourceOk && a.radio()) {
+                        scanning_ = !scanning_;
+                        scanUp_ = id == btn::F4;
+                        scanAt_ = 0;
+                        ui_.notify(scanning_ ? "Station scan" : "Scan stopped", 900);
+                        if (!scanning_) break;
+                    } else {
+                        scanning_ = false;
+                    }
+                    if (sourceOk && a.radio() && a.radio()->seek(scanning_ ? scanUp_ : id == btn::F3)) {
                         seeking_ = true;
-                        ui_.notify("Seeking...", 10000);
+                        if (!scanning_) ui_.notify("Seeking...", 10000);
                     }
                 } else if (id == btn::F4) {
                     // Metronome / Config (appendix C §2.9): remember to come back.
@@ -763,15 +775,34 @@ void RecorderScreen::update(uint32_t now) {
         seeking_ = false;
         a.cfg.radioFreq10 = uint16_t(a.radio()->frequency() * 10.0f + 0.5f);
         a.markConfigDirty();
-        ui_.notify("Tuned", 800);
+        if (!scanning_) ui_.notify("Tuned", 800);
+        scanAt_ = now;
         refreshBar();
+    }
+    // OT fork: station scan and the RDS name in the title.
+    if (a.cfg.recSource == 1 && a.radio()) {
+        if (scanning_ && !seeking_ && !a.capture.active() && now - scanAt_ >= kScanDwellMs) {
+            if (a.radio()->seek(scanUp_)) seeking_ = true;
+            scanAt_ = now;
+        }
+        const char* ps = a.radio()->rdsName();
+        if (std::strncmp(ps, rdsShown_, 8) != 0) {
+            std::snprintf(rdsShown_, sizeof(rdsShown_), "%s", ps);
+            ui_.dirty();
+        }
+    } else {
+        scanning_ = false;
     }
 }
 
 void RecorderScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
-    ui_.drawTitle(g, "Sample Recorder");
+    // OT fork: the station's RDS name (and SCAN) on the right of the title.
+    char right[24] = {};
+    if (a.cfg.recSource == 1 && (rdsShown_[0] || scanning_))
+        std::snprintf(right, sizeof(right), "%s%s", scanning_ ? "SCAN  " : "", rdsShown_);
+    ui_.drawTitle(g, "Sample Recorder", right[0] ? right : nullptr);
     if (state == 2) return;   // keyboard
     const uint32_t wave = th.slot(slot::kWave);
     if (a.capture.active()) {

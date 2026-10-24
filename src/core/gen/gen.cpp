@@ -17,6 +17,10 @@ const char* const kBBSource[6] = {"Auto", "1 beat", "2 beats", "1 bar", "2 bars"
 const char* const kTaPhrase[4] = {"1 bar", "2 bars", "4 bars", "8 bars"};
 const char* const kTaStyle[6] = {"Rolls", "Stutter", "Drop", "Reverse", "Build", "Mix"};
 const char* const kGtMode[3] = {"Markov", "Ball", "Ball+Markov"};
+const char* const kStSource[4] = {"RDS name", "PI code", "Frequency", "All"};
+const char* const kStMode[2] = {"Notes", "Slices"};
+const char* const kStRate[3] = {"1/16", "1/8", "1/4"};
+const char* const kStGroups[2] = {"Off", "Fives"};
 
 KindDesc gKinds[kKindCount] = {
     {"Acid", "303 line: density, accent, slide (TB-3PO style)",
@@ -53,6 +57,13 @@ KindDesc gKinds[kKindCount] = {
       {"Order", 1, 2, 1, nullptr},
       {"Variety", 0, 100, 40, nullptr},
       {nullptr, 0, 0, 0, nullptr},
+      {"Seed", 0, 999, 0, nullptr}}},
+    {"Station", "Numbers station from the radio (RDS, PI, frequency)",
+     {{"Source", 0, 3, 3, kStSource},
+      {"Mode", 0, 1, 0, kStMode},
+      {"Rate", 0, 2, 1, kStRate},
+      {"Groups", 0, 1, 1, kStGroups},
+      {"Repeat", 1, 4, 2, nullptr},
       {"Seed", 0, 999, 0, nullptr}}},
 };
 
@@ -179,6 +190,7 @@ Result generate(int k, const int16_t* params, Target& t) {
         case kBBCut: genBBCut(v, t, rng, r); break;
         case kTurnaround: genTurnaround(v, t, rng, r); break;
         case kGenotype: genGenotype(v, t, rng, r); break;
+        case kStation: genStation(v, t, rng, r); break;
         default: std::snprintf(r.msg, sizeof(r.msg), "Unknown generator"); break;
     }
     return r;

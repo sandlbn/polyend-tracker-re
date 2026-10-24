@@ -846,6 +846,12 @@ private:
     uint32_t lastRadioCheckAt_ = 0;   // radio source re-route (update)
     uint32_t lastLen_ = 0;
     bool seeking_ = false;
+    // OT fork: station scan (Shift + seek): seek on after kScanDwellMs per station.
+    bool scanning_ = false;
+    bool scanUp_ = true;
+    uint32_t scanAt_ = 0;
+    char rdsShown_[9] = {};
+    static constexpr uint32_t kScanDwellMs = 4000;
     bool countIn_ = false;
     bool previewing_ = false;
     // Preview playhead (owner request): x of the line drawn in the last frame,

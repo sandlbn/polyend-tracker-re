@@ -9,13 +9,14 @@ namespace hal {
 namespace {
 // Register indices (datasheet §6).
 constexpr int POWERCFG = 0x02, CHANNEL = 0x03, SYSCONFIG1 = 0x04,
-    SYSCONFIG2 = 0x05, SYSCONFIG3 = 0x06, TEST1 = 0x07, STATUSRSSI = 0x0A, READCHAN = 0x0B;
+    SYSCONFIG2 = 0x05, SYSCONFIG3 = 0x06, TEST1 = 0x07, STATUSRSSI = 0x0A, READCHAN = 0x0B,
+    RDSA = 0x0C, RDSB = 0x0D, RDSD = 0x0F;
 // POWERCFG bits.
 constexpr uint16_t PWR_DSMUTE = 0x8000, PWR_DMUTE = 0x4000, PWR_MONO = 0x2000, PWR_RDSM = 0x0800,
     PWR_SKMODE = 0x0400, PWR_SEEKUP = 0x0200, PWR_SEEK = 0x0100, PWR_DISABLE = 0x0040, PWR_ENABLE = 0x0001;
 constexpr uint16_t CH_TUNE = 0x8000;
 constexpr uint16_t SC1_RDS = 0x1000, SC1_DE = 0x0800;   // DE 1 = 50 us, 0 = 75 us
-constexpr uint16_t ST_STC = 0x4000, ST_SFBL = 0x2000, ST_ST = 0x0100;
+constexpr uint16_t ST_RDSR = 0x8000, ST_STC = 0x4000, ST_SFBL = 0x2000, ST_ST = 0x0100;
 // spec 22 §2.2 / §2.3 values.
 constexpr uint16_t kTest1Xosc = 0x8100;        // XOSCEN (+ AN230 reserved bit 8)
 constexpr uint16_t kPowerCfg = PWR_DSMUTE | PWR_DMUTE | PWR_MONO | PWR_RDSM | PWR_ENABLE;   // 0xE801
@@ -23,6 +24,8 @@ static_assert(kPowerCfg == 0xE801, "spec 22 §2.3 POWERCFG");
 constexpr uint16_t kSysCfg2Base = 0x190A;      // SEEKTH 0x19, VOLUME 10
 constexpr uint16_t kSysCfg3Seek = 0x0048;      // SKSNR 4, SKCNT 8
 constexpr uint32_t kStatusPollMs = 500;
+// OT fork: RDS groups arrive about every 88 ms; poll the status faster.
+constexpr uint32_t kRdsPollMs = 40;
 }  // namespace
 
 bool Si4703Radio::readAll() {
@@ -133,6 +136,9 @@ bool Si4703Radio::applyRegion() {
     regs_[SYSCONFIG2] = uint16_t((regs_[SYSCONFIG2] & ~0x00F0u) | (band << 6) | (space << 4));
     uint16_t sc1 = uint16_t(regs_[SYSCONFIG1] & ~SC1_DE);
     if (region_ != 1) sc1 |= SC1_DE;
+    // OT fork: RDS on (stock sets it at power-up too, spec 22 §2.3 step 7's
+    // 0x9004; the interrupt bits stay off: the status is polled).
+    sc1 |= SC1_RDS;
     regs_[SYSCONFIG1] = sc1;
     return writeRegs(true);
 }
@@ -180,6 +186,7 @@ bool Si4703Radio::busy() const {
 }
 
 void Si4703Radio::startTune() {
+    clearRds();
     // spec 22 §2.5 step 2: full read; CHANNEL = (CHANNEL & 0xFC00) | chan | TUNE; write.
     pendingTune_ = false;
     if (regionDirty_) {
@@ -196,6 +203,7 @@ void Si4703Radio::startTune() {
 }
 
 void Si4703Radio::startSeek() {
+    clearRds();
     // spec 22 §2.6 state 1: up -> SKMODE 0 (wrap) | SEEKUP | SEEK; down ->
     // SKMODE 0, SEEKUP 0, SEEK. Read-modify-write.
     const bool up = pendingSeek_ > 0;
@@ -313,12 +321,44 @@ void Si4703Radio::service() {
     }
     if (pendingSeek_ != 0) return startSeek();
     if (pendingTune_) return startTune();
-    if (now - lastStatus_ >= kStatusPollMs) {
+    if (now - lastStatus_ >= kRdsPollMs) {
         lastStatus_ = now;
         if (!readAll()) return fail("status read");
         rssi_ = regs_[STATUSRSSI] & 0xFF;
         stereo_ = regs_[STATUSRSSI] & ST_ST;
+        if (regs_[STATUSRSSI] & ST_RDSR) decodeRds();
     }
+}
+
+void Si4703Radio::clearRds() {
+    for (char& c : psName_) c = 0;
+    for (char& c : psCand_) c = 0;
+    psSeen_ = 0;
+    pi_ = 0;
+}
+
+void Si4703Radio::decodeRds() {
+    // Verbose mode (POWERCFG RDSM): BLERA in STATUSRSSI[10:9], BLERB / BLERD
+    // in READCHAN[15:14] / [11:10]; 0 = no errors.
+    const int blerA = (regs_[STATUSRSSI] >> 9) & 3;
+    const int blerB = (regs_[READCHAN] >> 14) & 3, blerD = (regs_[READCHAN] >> 10) & 3;
+    if (blerA == 0 && regs_[RDSA]) pi_ = regs_[RDSA];
+    if (blerB != 0 || blerD != 0) return;
+    const uint16_t b = regs_[RDSB];
+    if ((b >> 12) != 0) return;   // group 0A / 0B: basic tuning and PS name
+    const int seg = b & 3;
+    const char c0 = char(regs_[RDSD] >> 8), c1 = char(regs_[RDSD] & 0xFF);
+    if (c0 < 0x20 || c0 > 0x7E || c1 < 0x20 || c1 > 0x7E) return;
+    if (psCand_[2 * seg] == c0 && psCand_[2 * seg + 1] == c1) {
+        psName_[2 * seg] = c0;
+        psName_[2 * seg + 1] = c1;
+        psSeen_ = uint8_t(psSeen_ | (1u << seg));
+        for (int i = 0; i < 8; ++i)
+            if (!psName_[i]) psName_[i] = ' ';   // the other segments until they come
+        psName_[8] = 0;
+    }
+    psCand_[2 * seg] = c0;
+    psCand_[2 * seg + 1] = c1;
 }
 
 }  // namespace hal

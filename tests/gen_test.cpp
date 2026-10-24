@@ -356,3 +356,41 @@ TEST(bb_play_tables) {
         if (proc != 7) CHECK(jumps > 0);   // rearranges something (TimelineCut only regroups)
     }
 }
+
+TEST(station_digits) {
+    int16_t v[gen::kParams];
+    defaults(gen::kStation, v);
+    gen::Target t = target(0, 63);
+    t.text = "JUNGLE";
+    t.pi = 0xC204;
+    t.freq10 = 981;
+    v[0] = 0;   // RDS name
+    v[2] = 0;   // 1/16
+    v[3] = 0;   // no groups
+    v[4] = 1;
+    gen::Result r = gen::generate(gen::kStation, v, t);
+    CHECK(r.ok);
+    // J=10 U=21 N=14 G=7 L=12 E=5 -> 1 0 2 1 1 4 7 1 2 5 as scale degrees.
+    static const int kDig[10] = {1, 0, 2, 1, 1, 4, 7, 1, 2, 5};
+    uint8_t deg[12];
+    const int nd = gen::scaleDegrees(0x0AD, deg);
+    for (int i = 0; i < 10; ++i) CHECK_EQ(int(g_pat.tracks[0].steps[i].note), gen::degreeNote(36, deg, nd, kDig[i]));
+    CHECK_EQ(int(g_pat.tracks[0].steps[10].note), int(kNoteEmpty));
+    CHECK(patternValid());
+    // Slices mode with a 16-slice Beat Slice instrument: notes 24 + digit; fives.
+    t = slicedTarget(0, 63);
+    t.freq10 = 981;
+    v[0] = 2;
+    v[1] = 1;
+    v[3] = 1;
+    v[4] = 2;
+    CHECK(gen::generate(gen::kStation, v, t).ok);
+    CHECK_EQ(int(g_pat.tracks[0].steps[0].note), 24 + 9);
+    CHECK_EQ(int(g_pat.tracks[0].steps[1].note), 24 + 8);
+    CHECK_EQ(int(g_pat.tracks[0].steps[2].note), 24 + 1);
+    CHECK(patternValid());
+    // Slices with too few slices: refused.
+    t = slicedTarget(0, 63);
+    t.slices.count = 8;
+    CHECK(!gen::generate(gen::kStation, v, t).ok);
+}

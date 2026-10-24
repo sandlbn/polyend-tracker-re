@@ -417,6 +417,10 @@ public:
     virtual bool seek(bool up) = 0;          // starts a seek; poll busy()
     virtual bool busy() const = 0;
     virtual float frequency() const = 0;     // MHz
+    // OT fork: RDS of the station (group 0A/0B programme service name, 8
+    // chars, "" until two matching receptions; the PI code, 0 = none).
+    virtual const char* rdsName() const { return ""; }
+    virtual uint16_t rdsPi() const { return 0; }
 };
 
 // ---------------------------------------------------------------------------
