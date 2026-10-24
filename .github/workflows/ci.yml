@@ -1,0 +1,115 @@
+# Host unit tests, headless simulator checks, the firmware build with the
+# flash / stack-headroom / libm checks, and the .ptf image as a downloadable
+# artifact.
+# On pull requests also a memory report: flash, SRAM, SDRAM and stack
+# headroom of the PR against its base, in the run's summary.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install GCC 14
+        run: sudo apt-get update && sudo apt-get install -y g++-14
+      # ASan aborts at start-up under the runners' 32-bit mmap randomisation.
+      - name: Limit mmap randomisation for AddressSanitizer
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: Host tests
+        run: |
+          set -o pipefail
+          if ! make -j"$(nproc)" host-test CC=gcc-14 CXX=g++-14 2>&1 | tee host-tests.log; then
+            # Errors as annotations: readable on the run page without log access.
+            grep -E "error:|\*\*\*|FAIL|[1-9][0-9]* failures|Sanitizer|DEADLYSIGNAL|runtime error" host-tests.log \
+              | grep -vE "^(g\+\+|gcc|ar|objcopy)" | head -10 | while IFS= read -r line; do echo "::error::${line}"; done
+            exit 1
+          fi
+      - name: telemetry_check self-test
+        run: python3 tools/telemetry_check.py selftest
+
+  # Headless simulator checks (`make -C sim check`): display-list budget per
+  # screen, key flows, the test songs open and play. The visual diff against
+  # stock snapshots skips (fixtures not in the repo).
+  sim-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install GCC 14 and SDL2
+        run: sudo apt-get update && sudo apt-get install -y g++-14 libsdl2-dev pkg-config
+      - name: Simulator checks
+        run: |
+          set -o pipefail
+          if ! make -C sim -j"$(nproc)" check CXX=g++-14 2>&1 | tee sim-check.log; then
+            # Errors as annotations: readable on the run page without log access.
+            grep -E "error:|\*\*\*|script:[0-9]+|OVER BUDGET|FAIL|fail" sim-check.log \
+              | grep -vE "^(g\+\+|ar) |allow-fail" | head -10 | while IFS= read -r line; do echo "::error::${line}"; done
+            exit 1
+          fi
+      - name: Upload screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-check-${{ github.sha }}
+          path: build/sim/*.png
+          if-no-files-found: ignore
+
+  firmware:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
+    steps:
+      - uses: actions/checkout@v5
+      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.2.Rel1'
+      - name: Build
+        run: make -j"$(nproc)"
+      - name: Flash, stack headroom and libm checks
+        run: python3 tools/telemetry_check.py size --size-tool arm-none-eabi-size build/opentracker.elf
+      - name: Upload firmware image
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ github.sha }}
+          path: build/*.ptf
+          if-no-files-found: error
+
+  # The PR (GitHub's merge commit) against its base: tools/size_report.py
+  # writes a table to the job summary. Reports only; the limits are the
+  # firmware job's checks.
+  size-report:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+        with:
+          release: '14.2.Rel1'
+      - name: Build this PR
+        run: |
+          make -j"$(nproc)"
+          cp build/opentracker.elf "$RUNNER_TEMP/head.elf"
+      - name: Build the base
+        run: |
+          git worktree add "$RUNNER_TEMP/base" "${{ github.event.pull_request.base.sha }}"
+          make -C "$RUNNER_TEMP/base" -j"$(nproc)"
+          cp "$RUNNER_TEMP/base/build/opentracker.elf" "$RUNNER_TEMP/base.elf"
+      - name: Memory report
+        run: |
+          python3 tools/size_report.py "$RUNNER_TEMP/base.elf" "$RUNNER_TEMP/head.elf" \
+            --size-tool arm-none-eabi-size | tee -a "$GITHUB_STEP_SUMMARY"
