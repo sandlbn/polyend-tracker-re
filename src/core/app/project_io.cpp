@@ -2275,6 +2275,17 @@ bool projectFitsMemory(App& a, const char* folder, const char* name) {
     return projectSampleBytes(a, dir) <= a.bank.capacityBytes();
 }
 
+namespace {
+// The Recents list (10 x 500 B) the functions below work on: one copy in
+// SDRAM instead of a 5,000 B local in each. None holds it across a call into
+// another user (Open Recent copies its path out first), so one is enough;
+// as locals, Open Recent nested two on the stack (startOpenRecent ->
+// startOpenProject -> recentsLeaveCurrent).
+OT_SDRAM_BSS Recents g_recents;
+}  // namespace
+
+Recents& recentsBuffer() { return g_recents; }
+
 int loadRecents(App& a, Recents& r) {
     loadRecentsFile(a.fs(), kRecentsPath, r);
     int n = 0;
@@ -2293,7 +2304,7 @@ int loadRecents(App& a, Recents& r) {
 
 void recentsLeaveCurrent(App& a) {
     if (!canDirectSave(a)) return;   // only a project that exists on the card
-    Recents r;
+    Recents& r = recentsBuffer();
     loadRecents(a, r);
     char p[mt::kFolderMax + mt::kNameMax + 2];
     std::snprintf(p, sizeof(p), "%s/%s", a.project.folder, a.project.name);
@@ -2315,7 +2326,7 @@ bool splitProjectPath(const char* path, char* folder, int folderCap, char* name,
 }
 
 bool openRecent(App& a, int index) {
-    Recents r;
+    Recents& r = recentsBuffer();
     const int n = loadRecents(a, r);
     if (index < 0 || index >= n) return false;
     char folder[Recents::kSlotSize], name[Recents::kSlotSize];
@@ -2324,7 +2335,7 @@ bool openRecent(App& a, int index) {
 }
 
 bool startOpenRecent(App& a, int index, void (*done)(void*, bool), void* ctx) {
-    Recents r;
+    Recents& r = recentsBuffer();
     const int n = loadRecents(a, r);
     if (index < 0 || index >= n) return false;
     char folder[Recents::kSlotSize], name[Recents::kSlotSize];

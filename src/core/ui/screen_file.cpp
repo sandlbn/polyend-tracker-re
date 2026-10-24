@@ -49,7 +49,7 @@ void openDone(void* ctx, bool ok) {
 }
 
 bool recentPath(App& a, int index, char* folder, int fcap, char* name, int ncap) {
-    Recents r;
+    Recents& r = recentsBuffer();
     const int n = loadRecents(a, r);
     if (index < 0 || index >= n) return false;
     return splitProjectPath(r.paths[index], folder, fcap, name, ncap);
@@ -303,7 +303,7 @@ void FileScreen::list() {
     projBrowser().list(a);
     count = projBrowser().count();
     // Recent list (spec 02 §7, appendix E2): compacted, last path component.
-    Recents rec;
+    Recents& rec = recentsBuffer();
     recentCount_ = loadRecents(a, rec);
     for (int i = 0; i < recentCount_; ++i) Recents::displayName(rec.paths[i], recent_[i], sizeof(recent_[0]));
     ui_.progressDone();
