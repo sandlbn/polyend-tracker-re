@@ -10,6 +10,7 @@
 #include "formats/it_export.h"
 #include "formats/it_import.h"
 #include "formats/mod_import.h"
+#include "ui/screen_data.h"
 #include "ui/screen_games.h"
 #include "ui/screens.h"
 #include "sdram_bss.h"
@@ -322,6 +323,8 @@ void FileScreen::refreshBar() {
         b.set(5, "Export");
 #if OT_GAMES
         b.set(6, "Games");   // spec 14 §1: File F7 opens the Games browser
+#else
+        b.set(6, "Data");    // OT fork: the Data screen in images without Games
 #endif
     } else if (state == 1 || state == 3) {
         // spec 05 appendix E1.2: labels greyed by selection kind (0x4742c).
@@ -628,6 +631,10 @@ void FileScreen::onButton(uint8_t id, uint8_t st) {
 #if OT_GAMES
             case btn::F7:   // spec 14 §1: Games browser
                 openGames(a);
+                return;
+#else
+            case btn::F7:   // OT fork: Data screen
+                openData(a);
                 return;
 #endif
             case btn::F3:

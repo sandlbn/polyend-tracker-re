@@ -2,6 +2,7 @@
 
 #include "app/app.h"
 #include "sdram_bss.h"
+#include "ui/screen_data.h"
 #include "ui/screen_games.h"
 
 namespace ot {
@@ -14,6 +15,8 @@ struct ScreenSet {
           config(u, a), recorder(u, a), resample(u, a), performance(u, a), mixer(u, a),
 #if OT_GAMES
           games(u, a),
+#else
+          data(u, a),
 #endif
           synth(u, a) {}
     FileScreen file;
@@ -30,6 +33,8 @@ struct ScreenSet {
     MixerScreen mixer;
 #if OT_GAMES
     GamesScreen games;
+#else
+    DataScreen data;   // OT fork: the Games slot shows the Data screen
 #endif
     SynthScreen synth;
 };
@@ -54,6 +59,8 @@ void* createScreens(Ui& ui, App& app, Screen** out) {
     out[kModMaster] = &s->mixer;
 #if OT_GAMES
     out[kModGames] = &s->games;
+#else
+    out[kModGames] = &s->data;
 #endif
     out[kModSynth] = &s->synth;
     return s;
