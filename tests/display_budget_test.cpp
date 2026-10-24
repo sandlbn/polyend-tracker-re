@@ -593,6 +593,11 @@ TEST(overlay_matrix_pattern) {
     CHECK(a.ui.kb.isOpen());
     r.measure("pattern dense + name keyboard");
     h.tap(btn::F7);
+    // OT fork: the Generate popup (page 3 F3), Call+Resp shows the longest lists.
+    h.tap(btn::F3);
+    h.pad(1);
+    r.measure("pattern dense + Generate popup");
+    h.tap(btn::F7);
     h.tap(btn::F8);
     // 8-track column view, while playing.
     h.down(btn::Pattern);

@@ -832,7 +832,7 @@ void PatternScreen::draw(Gfx& g) {
     // The Fill popup's overlay covers the whole grid (spec 20 §4.1 Fill
     // popup: full overlay label (0, 32, 800, 389)); the grid is not drawn.
     if (fillOpen) drawFill(g);
-    if (genOpen) drawGen(g);
+    else if (genOpen) drawGen(g);   // OT fork: the Generate popup covers the grid the same way
     else drawGrid(g);
     if (!ui_.kb.isOpen()) b.drawStrip(g, th);
     // fullScreen(): this screen draws strip, title, hairline and labels
