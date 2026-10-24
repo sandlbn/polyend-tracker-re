@@ -84,6 +84,33 @@ inline int16_t sat(double v) {
     return int16_t(int32_t(v));
 }
 
+// The same in single precision for the per-sample loops: the Cortex-M4F has a
+// single-precision FPU only, so a double per sample is a soft-float call.
+inline int16_t satf(float v) {
+    if (!(v == v)) return 0;
+    if (v >= 32767.0f) return 32767;
+    if (v <= -32768.0f) return -32768;
+    return int16_t(int32_t(v));
+}
+
+// trunc(x * a / d) for d > 0, exactly (toward zero, as the stock results),
+// without the M4's software 64-bit division: est is a float estimate of the
+// quotient (within a few units), corrected with the exact remainder. Every
+// product is 32 x 32 -> 64 bits (one M4 instruction).
+inline int32_t truncMulDiv(int32_t x, int32_t a, int32_t d, float est) {
+    const int64_t q = int64_t(x) * a;
+    int32_t t = int32_t(est);
+    int64_t r = q - int64_t(t) * d;
+    if (q >= 0) {
+        while (r < 0) --t, r += d;
+        while (r >= d) ++t, r -= d;
+    } else {
+        while (r > 0) ++t, r -= d;
+        while (r <= -d) --t, r += d;
+    }
+    return t;
+}
+
 inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 inline float at(const int16_t* in, uint32_t n, int64_t i) { return i >= 0 && i < int64_t(n) ? float(in[i]) : 0.0f; }
@@ -207,11 +234,12 @@ uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* o
     return w;
 }
 
-// Peaking biquad (direct form I, normalised samples).
+// Peaking biquad coefficients (direct form I, normalised samples), designed
+// in double; BiquadF runs them.
 // SPEC GAP: the stock coefficient formula (lg:0x791c0) is not decoded; this
 // is the RBJ peaking EQ with Q = f / bw.
 struct Biquad {
-    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
     void peaking(double f, double lin, double q) {
         // fmath.h double helpers: no double libm on the device
         // (docs/OPTIMIZATION_2X.md OP-4).
@@ -226,8 +254,22 @@ struct Biquad {
         a1 = -2.0 * cs / a0;
         a2 = (1.0 - alpha / A) / a0;
     }
-    double run(double x) {
-        const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
+};
+
+// The same filter run in single precision on int16-scale samples, written
+// around the second differences: with b ~ (1, -2, 1) and a ~ (-2, 1) at low
+// frequencies, float cannot hold a1, a2 themselves precisely enough (the 10 Hz
+// band shifted by up to 133 LSB), but it holds the offsets d = b - (1, -2, 1),
+// e = a - (-2, 1) to full precision, and x - 2 x1 + x2 is exact for int16 x.
+//   y = (x - 2 x1 + x2) + d0 x + d1 x1 + d2 x2 + (2 y1 - y2) - e1 y1 - e2 y2
+struct BiquadF {
+    float d0 = 0, d1 = 0, d2 = 0, e1 = 0, e2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    void set(const Biquad& c) {
+        d0 = float(c.b0 - 1.0), d1 = float(c.b1 + 2.0), d2 = float(c.b2 - 1.0);
+        e1 = float(c.a1 + 2.0), e2 = float(c.a2 - 1.0);
+    }
+    float run(float x) {
+        const float y = (x - 2.0f * x1 + x2) + (d0 * x + d1 * x1 + d2 * x2) + (2.0f * y1 - y2) - (e1 * y1 + e2 * y2);
         x2 = x1;
         x1 = x;
         y2 = y1;
@@ -341,8 +383,17 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 const int a = in[i] < 0 ? -int(in[i]) : in[i];
                 if (a > peak) peak = a;
             }
-            const double g = peak ? double(p[0]) * 32767.0 / 100.0 / double(peak) : 1.0;
-            for (uint32_t i = 0; i < w; ++i) out[i] = sat(double(in[i]) * g);
+            // Exactly: y = trunc(x * level * 32767 / (100 * P)), so the peak
+            // lands on level * 32767 / 100 (32767 at 100 %). Level is whole
+            // percent (step 1).
+            if (!peak) {
+                std::memcpy(out, in, w * sizeof(int16_t));
+                break;
+            }
+            const int32_t num = int32_t(std::lround(p[0])) * 32767, den = 100 * peak;
+            const float g = float(num) / float(den);
+            for (uint32_t i = 0; i < w; ++i)
+                out[i] = int16_t(clampi(truncMulDiv(in[i], num, den, float(in[i]) * g), -32768, 32767));
             break;
         }
         case kCrop: std::memcpy(out, in, w * sizeof(int16_t)); break;
@@ -350,34 +401,34 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             for (uint32_t i = 0; i < w; ++i) out[i] = in[n - 1 - i];
             break;
         case kAmplifier:
-            for (uint32_t i = 0; i < w; ++i) out[i] = sat(double(in[i]) * double(p[0]));
+            for (uint32_t i = 0; i < w; ++i) out[i] = satf(float(in[i]) * p[0]);
             break;
         case kOverdrive: {
             const int type = clampi(int(p[1]), 0, 2);
-            const double g = p[0];
+            const float g = p[0];
             for (uint32_t i = 0; i < w; ++i) {
                 const int x = in[i];
-                const double ax = x < 0 ? -double(x) : double(x);
-                double y;
+                const float ax = x < 0 ? -float(x) : float(x);
+                float y;
                 if (type == 0) {
                     // Piecewise soft clip on s = |x g| / FS.
                     // SPEC GAP: above 2/3 FS the stock behaviour is taken as a
                     // hard clip to FS (spec 18 §2.3 item 5).
-                    const double s = ax * g / 32767.0;
-                    if (s < 1.0 / 3.0) y = 2.0 * s;
-                    else if (s < 2.0 / 3.0) y = (3.0 - (2.0 - 3.0 * s) * (2.0 - 3.0 * s)) / 3.0;
-                    else y = 1.0;
-                    y *= 32767.0;
+                    const float s = ax * g / 32767.0f;
+                    if (s < 1.0f / 3.0f) y = 2.0f * s;
+                    else if (s < 2.0f / 3.0f) y = (3.0f - (2.0f - 3.0f * s) * (2.0f - 3.0f * s)) / 3.0f;
+                    else y = 1.0f;
+                    y *= 32767.0f;
                 } else if (type == 1) {
-                    const double k = 4.0 * g;
-                    y = (1.0 - fm::expD(-k * ax / 32767.0)) * 32767.0;
+                    const float k = 4.0f * g;
+                    y = (1.0f - std::exp(-k * ax / 32767.0f)) * 32767.0f;
                 } else {
                     // The integer truncation is the binary's (spec 18 §2.2).
-                    const double k = 10.0 * g;
-                    const double t = double(int64_t(k * ax / 32767.0));   // >= 0, < 2^63
-                    y = (1.0 - 1.0 / (1.0 + t)) * 32767.0;
+                    const float k = 10.0f * g;
+                    const float t = float(int32_t(k * ax / 32767.0f));   // >= 0, <= 50
+                    y = (1.0f - 1.0f / (1.0f + t)) * 32767.0f;
                 }
-                out[i] = sat(x < 0 ? -y : y);
+                out[i] = satf(x < 0 ? -y : y);
             }
             break;
         }
@@ -395,7 +446,7 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 const uint32_t kLo = i < n ? 0u : (i - n) / D + 1;
                 float acc = 0.0f;
                 for (uint32_t k = kLo; k <= kHi; ++k) acc += gains[k] * float(in[i - k * D]);
-                out[i] = sat(acc);
+                out[i] = satf(acc);
             }
             break;
         }
@@ -450,18 +501,20 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             int off = int(double(L) * double(p[1]) / 100.0);
             if (off > L - 1) off = L - 1;
             if (off < 0) off = 0;
-            const double depth = double(int(p[2]));
+            const float depth = float(int(p[2]));
             const uint32_t incr = uint32_t(double(p[3]) * 2147483648.0 / kRateExact);
+            constexpr float kPhaseToRad = float(2.0 * kPi / 2147483648.0);
             uint32_t phase = 0;
             for (uint32_t i = 0; i < w; ++i) {
-                double d = double(off) + depth * double(std::sin(float(2.0 * kPi / 2147483648.0 * double(phase))));
-                if (d < 0.0) d = 0.0;
-                if (d > double(L - 1)) d = double(L - 1);
-                const double pos = double(i) - d;
-                const double fl = fm::floorD(pos);
-                const double fr = pos - fl;
-                const int64_t i0 = int64_t(fl);
-                const double tap = double(at(in, n, i0)) * (1.0 - fr) + double(at(in, n, i0 + 1)) * fr;
+                float d = float(off) + depth * std::sin(kPhaseToRad * float(phase));
+                if (d < 0.0f) d = 0.0f;
+                if (d > float(L - 1)) d = float(L - 1);
+                // pos = i - d, split so the index stays exact on long samples:
+                // floor(i - d) = i - ceil(d), and the fraction is ceil(d) - d.
+                const int32_t cd = int32_t(d) + (float(int32_t(d)) < d ? 1 : 0);
+                const float fr = float(cd) - d;
+                const int64_t i0 = int64_t(i) - cd;
+                const float tap = at(in, n, i0) * (1.0f - fr) + at(in, n, i0 + 1) * fr;
                 out[i] = int16_t((int32_t(in[i]) + int32_t(tap)) / 2);
                 phase = (phase + incr) & 0x7FFFFFFFu;
             }
@@ -474,6 +527,7 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             // SPEC GAP: UI dB -> linear gain 10^(dB/20) (the stock conversion
             // is open).
             Biquad b[3];
+            BiquadF bf[3];
             bool on[3];
             for (int k = 0; k < 3; ++k) {
                 const double lin = fm::pow10D(double(p[3 * k]) / 20.0);
@@ -482,54 +536,54 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 if (bw > 20000.0) bw = 20000.0;
                 on[k] = lin != 1.0 && bw > 0.0 && f > 0.0;
                 if (on[k]) b[k].peaking(f, lin, f / bw);
+                bf[k].set(b[k]);
             }
+            // On int16-scale samples (the filters are linear): clip(v / FS) * FS.
             for (uint32_t i = 0; i < w; ++i) {
-                double v = double(in[i]) / 32767.0;
+                float v = float(in[i]);
                 for (int k = 0; k < 3; ++k)
-                    if (on[k]) v = b[k].run(v);
-                if (v > 1.0) v = 1.0;
-                if (v < -1.0) v = -1.0;
-                out[i] = sat(v * 32767.0);
+                    if (on[k]) v = bf[k].run(v);
+                if (v > 32767.0f) v = 32767.0f;
+                if (v < -32767.0f) v = -32767.0f;
+                out[i] = satf(v);
             }
             break;
         }
         case kLimiter: {
-            const double thr = fm::pow10D(double(p[0]) / 20.0) * 32767.0;
-            const double ca = dynCoef(p[1]), cr = dynCoef(p[2]);
+            const float thr = float(fm::pow10D(double(p[0]) / 20.0) * 32767.0);
+            const float ca = float(dynCoef(p[1])), cr = float(dynCoef(p[2]));
             // SPEC GAP: c0 (obj+0x74, set at ctor) is not decoded; 1.0 makes
             // e1 the instantaneous |x|.
-            const double c0 = 1.0;
-            double e1 = 0.0, e2 = 0.0, g = 1.0;
+            const float c0 = 1.0f;
+            float e1 = 0.0f, e2 = 0.0f, g = 1.0f;
             for (uint32_t i = 0; i < w; ++i) {
-                const double ax = std::fabs(double(in[i]));
-                e1 = c0 * ax + (1.0 - c0) * e1;
-                const double ce = e1 > e2 ? ca : cr;
-                e2 = ce * e1 + (1.0 - ce) * e2;
-                const double r = e2 > thr ? thr / e2 : 1.0;
-                const double cg = r < g ? ca : cr;
-                g = cg * r + (1.0 - cg) * g;
-                out[i] = sat(double(in[i]) * g);
+                const float ax = std::fabs(float(in[i]));
+                e1 = c0 * ax + (1.0f - c0) * e1;
+                const float ce = e1 > e2 ? ca : cr;
+                e2 = ce * e1 + (1.0f - ce) * e2;
+                const float r = e2 > thr ? thr / e2 : 1.0f;
+                const float cg = r < g ? ca : cr;
+                g = cg * r + (1.0f - cg) * g;
+                out[i] = satf(float(in[i]) * g);
             }
             break;
         }
         case kCompressor: {
-            const double thr = p[0];
-            const double ratio = p[1] < 1.0f ? 1.0 : double(p[1]);
-            const double ca = dynCoef(p[2]), cr = dynCoef(p[3]);
-            double ms = 0.0, G = 1.0;
+            const float thr = p[0];
+            const float slope = float(1.0 - 1.0 / (p[1] < 1.0f ? 1.0 : double(p[1])));
+            const float ca = float(dynCoef(p[2])), cr = float(dynCoef(p[3]));
+            float ms = 0.0f, G = 1.0f;
             for (uint32_t i = 0; i < w; ++i) {
-                const double x = double(in[i]) / 32768.0;
-                ms = 0.002 * x * x + 0.998 * ms;
-                double target = 1.0;
-                if (ms > 0.0) {
-                    // Single-precision transcendental math (Cortex-M4F FPU).
-                    const float L = 10.0f * std::log10(float(ms));
-                    if (double(L) > thr)
-                        target = double(std::pow(10.0f, float((thr - double(L)) * (1.0 - 1.0 / ratio)) / 20.0f));
+                const float x = float(in[i]) / 32768.0f;
+                ms = 0.002f * x * x + 0.998f * ms;
+                float target = 1.0f;
+                if (ms > 0.0f) {
+                    const float L = 10.0f * std::log10(ms);
+                    if (L > thr) target = std::pow(10.0f, (thr - L) * slope / 20.0f);
                 }
-                const double c = target < G ? ca : cr;
-                G = c * target + (1.0 - c) * G;
-                out[i] = sat(double(in[i]) * G);
+                const float c = target < G ? ca : cr;
+                G = c * target + (1.0f - c) * G;
+                out[i] = satf(float(in[i]) * G);
             }
             break;
         }
@@ -548,13 +602,12 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 const int a = int(int64_t(k) * ns / C);
                 const int64_t f0 = firstOf(a), f1 = firstOf(a + 1);
                 const double mcount = double(f1 - f0 > 0 ? f1 - f0 : 1);
-                const double wa = 1.0 - double(k - f0) / mcount;
+                const float wa = float(1.0 - double(k - f0) / mcount);
                 for (int t = 0; t < W; ++t) {
                     const uint32_t o = uint32_t(k) * uint32_t(W) + uint32_t(t);
                     if (o >= w) break;
-                    const double v = wa * double(at(in, n, int64_t(a) * W + t)) +
-                                     (1.0 - wa) * double(at(in, n, int64_t(a + 1) * W + t));
-                    out[o] = sat(v);
+                    const float v = wa * at(in, n, int64_t(a) * W + t) + (1.0f - wa) * at(in, n, int64_t(a + 1) * W + t);
+                    out[o] = satf(v);
                 }
             }
             break;
@@ -572,11 +625,23 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
         case kFadeIn:
             // Linear ramp a = 0 -> 1, y = trunc(x a).
             // SPEC GAP: start/step (lg:0x79608) not decoded; a = i / n.
-            for (uint32_t i = 0; i < w; ++i) out[i] = sat(double(in[i]) * double(i) / double(n));
+            {
+                const float inv = 1.0f / float(n);
+                for (uint32_t i = 0; i < w; ++i)
+                    out[i] = int16_t(truncMulDiv(in[i], int32_t(i), int32_t(n), float(in[i]) * (float(i) * inv)));
+            }
             break;
         case kFadeOut:
             // SPEC GAP: ramp 1 -> 0 assumed (lg:0x79748); a = 1 - i / n.
-            for (uint32_t i = 0; i < w; ++i) out[i] = sat(double(in[i]) * (1.0 - double(i) / double(n)));
+            // y = trunc(x (n - i) / n) exactly (the last sample of a 1000-frame
+            // fade of 10000 is 10, not 9.99...).
+            {
+                const float inv = 1.0f / float(n);
+                for (uint32_t i = 0; i < w; ++i) {
+                    const int32_t left = int32_t(n - i);
+                    out[i] = int16_t(truncMulDiv(in[i], left, int32_t(n), float(in[i]) * (float(left) * inv)));
+                }
+            }
             break;
         default: std::memcpy(out, in, w * sizeof(int16_t)); break;
     }

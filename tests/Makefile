@@ -136,6 +136,18 @@ sfx-bench: $(BENCH_OUT)/sfx_bench
 	$<
 .PHONY: sfx-bench sfx-bench-m4
 
+# Listening test (sfx_render.cpp): old vs new effects to WAV, before / after and
+# blind A / B with key.txt. SFX_RENDER_OUT, SFX_RENDER_IN: output folder, extra WAVs.
+SFX_RENDER_OUT ?= $(BENCH_OUT)/sfx_listen
+$(BENCH_OUT)/sfx_render: sfx_render.cpp sample_fx_ref.cpp sample_fx_ref.h $(SRC)/core/app/sample_fx.cpp $(SRC)/core/fmath.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) -std=c++17 -O2 -Wall -Wextra -I$(SRC)/core -I$(SRC) -I. sfx_render.cpp sample_fx_ref.cpp \
+	    $(SRC)/core/app/sample_fx.cpp $(SRC)/core/fmath.cpp -o $@
+sfx-render: $(BENCH_OUT)/sfx_render
+	@mkdir -p $(SFX_RENDER_OUT)
+	$< $(SFX_RENDER_OUT) $(SFX_RENDER_IN)
+.PHONY: sfx-render
+
 # Executed instructions per function in the song 5 replay (QEMU TCG plugin,
 # tests/bench_m4/hot_plugin.c + hot_funcs.py): the .fastrun candidates
 # (docs/OPTIMIZATION_2X.md item 6). Needs /usr/include/qemu-plugin.h.

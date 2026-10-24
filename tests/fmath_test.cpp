@@ -1,8 +1,10 @@
 // No double libm on the device (docs/OPTIMIZATION_2X.md OP-4): the fmath.h
 // helpers against the libm (rounding exact, transcendentals within a few ulp),
 // the recorder's note-ratio table against std::pow, and the Sample Editor
-// effects that moved off the libm against the former libm formulas (same
-// int16 output on every sample).
+// effects that moved off the libm against the former libm formulas. Those
+// effects now run their per-sample loops in float (the M4 has no double FPU),
+// so they match within the LSB tolerances of tests/sample_fx_speed_test.cpp
+// (EQ 3, Limiter 2, Overdrive 1) instead of on every sample.
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -180,7 +182,7 @@ TEST(fmath_note_ratio_table_is_pow) {
     for (int n = 0; n < 128; ++n) CHECK(fm::kNoteRatio[n] == std::pow(2.0, double(n - 60) / 12.0));
 }
 
-TEST(sample_fx_matches_the_double_libm_results) {
+TEST(sample_fx_within_tolerance_of_the_double_libm_results) {
     const std::vector<int16_t> in = sine(44100, 30000.0, 220.0);
     const std::vector<int16_t> mix = [] {
         std::vector<int16_t> a = sine(44100, 12000.0, 97.0), b = sine(44100, 12000.0, 3100.0);
@@ -197,21 +199,18 @@ TEST(sample_fx_matches_the_double_libm_results) {
         p[6] = 3.0f;
         p[4] = 1200.0f;
         diff(runFx(sfx::kEqualizer, p, mix), refEq(p, mix), maxd, count);
-        CHECK_EQ(maxd, 0);
-        CHECK_EQ(count, size_t(0));
+        CHECK(maxd <= 3);
     }
     {
         float p[9];
         sfx::defaults(sfx::kLimiter, p);
         diff(runFx(sfx::kLimiter, p, in), refLimiter(p, in), maxd, count);
-        CHECK_EQ(maxd, 0);
-        CHECK_EQ(count, size_t(0));
+        CHECK(maxd <= 2);
         p[0] = -20.0f;
         p[1] = 0.3f;
         p[2] = 2000.0f;
         diff(runFx(sfx::kLimiter, p, in), refLimiter(p, in), maxd, count);
-        CHECK_EQ(maxd, 0);
-        CHECK_EQ(count, size_t(0));
+        CHECK(maxd <= 2);
     }
     for (float g : {0.01f, 1.0f, 2.37f, 5.0f}) {
         float p[9];
@@ -219,7 +218,6 @@ TEST(sample_fx_matches_the_double_libm_results) {
         p[0] = g;
         p[1] = 1.0f;
         diff(runFx(sfx::kOverdrive, p, in), refOverdriveExp(double(g), in), maxd, count);
-        CHECK_EQ(maxd, 0);
-        CHECK_EQ(count, size_t(0));
+        CHECK(maxd <= 1);
     }
 }
