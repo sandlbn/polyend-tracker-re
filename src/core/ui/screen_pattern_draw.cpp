@@ -602,7 +602,7 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
 void PatternScreen::drawBar(Gfx& g) {
     const Theme& th = ui_.th();
     if (ui_.askOpen() || ui_.kb.isOpen()) return;   // Ui draws its own labels over the strip
-    if (ui_.shift() && focus < 0 && !pop_.isOpen() && !fillOpen && !recArmPage) {
+    if (ui_.shift() && focus < 0 && !pop_.isOpen() && !fillOpen && !genOpen && !recArmPage) {
         drawMuteBar(g);
         return;
     }
@@ -828,10 +828,11 @@ void PatternScreen::draw(Gfx& g) {
     }
     const bool rightPop = pop_.isOpen();
     BottomBar& b = ui_.bar;
-    b.setStripStyle(fillOpen ? wg::StripStyle::kDark : wg::StripStyle::kNormal);   // 050505 / 434343 under Fill [S snap 019]
+    b.setStripStyle(fillOpen || genOpen ? wg::StripStyle::kDark : wg::StripStyle::kNormal);   // 050505 / 434343 under Fill [S snap 019]
     // The Fill popup's overlay covers the whole grid (spec 20 §4.1 Fill
     // popup: full overlay label (0, 32, 800, 389)); the grid is not drawn.
     if (fillOpen) drawFill(g);
+    if (genOpen) drawGen(g);
     else drawGrid(g);
     if (!ui_.kb.isOpen()) b.drawStrip(g, th);
     // fullScreen(): this screen draws strip, title, hairline and labels

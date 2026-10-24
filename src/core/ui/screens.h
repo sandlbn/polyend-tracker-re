@@ -8,6 +8,7 @@
 #include "app/pattern_ops.h"
 #include "app/perf_presets.h"
 #include "app/project_browser.h"
+#include "gen/gen.h"
 #include "model/synth_patch.h"
 #include "ui/ui.h"
 #include "ui/wave.h"
@@ -66,6 +67,13 @@ public:
     float fillValueFrac(int val) const;             // From/To bar fraction 0..1
     int fillField = 0;
     pops::FillParams fill[4];
+    // Generate popup (OT fork: Acid, Call & Answer, BBCut, Turnaround, Genotype).
+    bool genOpen = false;
+    int genKind = 0;
+    int genField = 0;                                  // 0 generator, 1..5 parameters
+    int16_t genVals[gen::kKindCount][gen::kParams] = {};
+    char genMsg[40] = {};
+    void genValueText(int field, char* out, int cap) const;
     uint8_t colMask = 0;            // column-view mask (spec 06 §1.9)
     bool recArmPage = false;
     // Live-REC arm per track (spec 06 §1.3; 2.x: 16 tracks, 2x-01 §2.4).
@@ -129,6 +137,17 @@ private:
     void fillApply();
     uint8_t fillFxType() const;                // Fx id of the Fill "Fx Type" index (>= 0)
     void clampFillValues();                    // From/To into the chosen Fx's range
+    void genInitDefaults();
+    void genOpenPopup();
+    bool genFieldBlank(int field) const;
+    void genSet(int field, int value, bool wrap = false);
+    int genGet(int field) const;
+    void genDelta(int d, bool wrap = false);
+    void genButton(uint8_t id);
+    void genPad(uint8_t pad);
+    void genApply();
+    void genBar(BottomBar& b);
+    void drawGen(Gfx& g);
     void pageButton(int f, uint8_t state);
     void drawGrid(Gfx& g);
     void drawGridVertical(Gfx& g, bool threeTracks);
@@ -166,6 +185,7 @@ private:
     bool recBlink_ = false;         // 500 ms blink while a recording waits to start
     bool recWaitShown_ = false;
     bool fillNoteInit_ = false;     // Fill note defaults taken from the project (spec 06 §1.10)
+    bool genInit_ = false;          // Generate parameters set to their defaults
     uint32_t countInUntil_ = 0;     // "Counting in" popup end (ms), 0 = none
     bool countInDrawn_ = false;
     int8_t padVoice_[48];

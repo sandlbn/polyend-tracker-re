@@ -93,7 +93,15 @@ struct Profile {
     uint8_t cat;
 };
 
-bool has(const char* s, const char* k) { return std::strstr(s, k) != nullptr; }
+// Substring test (no strstr: it pulls ~1.5 KB of libc into the image).
+bool has(const char* s, const char* k) {
+    for (; *s; ++s) {
+        int i = 0;
+        while (k[i] && s[i] == k[i]) ++i;
+        if (!k[i]) return true;
+    }
+    return false;
+}
 
 Profile profile(int style) {
     const StylePreset& sp = kStyles[style];
@@ -369,12 +377,30 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
     avg = cnt ? avg / float(cnt) : 0;
     const int callContour = contourOf(call, steps);
     auto stable = [&]() { return pickScaled(c, {0, 2, 4, 6}); };
-    auto mapMotif = [&](auto fn) {
+    // Degree transforms of the answer strategies (one non-template mapMotif
+    // keeps the code small on the device).
+    enum Xf { kJit, kJit4, kUp123, kDn112, kInv, kUp234, kDn223, kDn12, kP3, kM1, kP1 };
+    auto xform = [&](int xf, int d) {
+        switch (xf) {
+            case kJit4: return d + pick(c, {-1, 0, 0, 1});
+            case kUp123: return d + pick(c, {1, 2, 3});
+            case kDn112: return d - pick(c, {1, 1, 2});
+            case kInv: return int(avg - (float(d) - avg) + 0.5f) + pick(c, {-1, 0, 1});
+            case kUp234: return d + pick(c, {2, 3, 4});
+            case kDn223: return d - pick(c, {2, 2, 3});
+            case kDn12: return d - pick(c, {1, 2});
+            case kP3: return d + 3;
+            case kM1: return d - 1;
+            case kP1: return d + 1;
+            default: return d + pick(c, {-1, 0, 1});
+        }
+    };
+    auto mapMotif = [&](int xf) {
         for (int i = 0; i < steps; ++i) {
             const CStep& base = call[i % motifLen];
             out[i] = base;
             if (out[i].active) {
-                int d = fn(base.degree);
+                int d = xform(xf, base.degree);
                 if (r.coin(sp.tight * 0.28f) && c.poolN) {
                     const int sl = c.scaleLen > 0 ? c.scaleLen : 1;
                     d = pickFrom(c, c.pool, c.poolN) + (d / sl) * sl;
@@ -383,7 +409,7 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
             }
         }
     };
-    auto jitter = [&](int d) { return d + pick(c, {-1, 0, 1}); };
+    const int jitter = kJit;
     switch (strategy) {
         case 0:
             for (int i = 0; i < steps; ++i) {
@@ -402,7 +428,7 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
             break;
         }
         case 2:
-            mapMotif([&](int d) { return d + pick(c, {-1, 0, 0, 1}); });
+            mapMotif(kJit4);
             for (int i = 0; i < steps; ++i) out[i].active = out[i].active && r.coin(i % 2 == 0 ? 1.0f : 0.35f);
             break;
         case 3:
@@ -433,11 +459,11 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
             }
             break;
         case 6:
-        case 8: mapMotif([&](int d) { return d + pick(c, {1, 2, 3}); }); break;
+        case 8: mapMotif(kUp123); break;
         case 7:
-        case 9: mapMotif([&](int d) { return d - pick(c, {1, 1, 2}); }); break;
+        case 9: mapMotif(kDn112); break;
         case 10:
-        case 11: mapMotif([&](int d) { return int(avg - (float(d) - avg) + 0.5f) + pick(c, {-1, 0, 1}); }); break;
+        case 11: mapMotif(kInv); break;
         case 12:
             for (int i = 0; i < steps; ++i) {
                 out[i].active = call[i].active;
@@ -450,8 +476,8 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
                 out[i].active = r.coin(call[i].active ? 0.68f : 0.22f);
             }
             break;
-        case 14: mapMotif([&](int d) { return d + pick(c, {2, 3, 4}); }); break;
-        case 15: mapMotif([&](int d) { return d - pick(c, {2, 2, 3}); }); break;
+        case 14: mapMotif(kUp234); break;
+        case 15: mapMotif(kDn223); break;
         case 16:
             mapMotif(jitter);
             for (int i = steps > 3 ? steps - 3 : 0; i < steps; ++i)
@@ -463,7 +489,7 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
                 if (out[i].active) out[i].degree = pickScaled(c, {4, 2, 0});
             break;
         case 18:
-            mapMotif([&](int d) { return d - pick(c, {1, 2}); });
+            mapMotif(kDn12);
             for (int i = steps > 2 ? steps - 2 : 0; i < steps; ++i)
                 if (out[i].active) out[i].degree = clampi(out[i].degree - 1, 0, 10);
             break;
@@ -541,9 +567,9 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
             }
             break;
         }
-        case 32: mapMotif([&](int d) { return d + 3; }); break;
-        case 33: mapMotif([&](int d) { return d - 1; }); break;
-        case 34: mapMotif([&](int d) { return d + 1; }); break;
+        case 32: mapMotif(kP3); break;
+        case 33: mapMotif(kM1); break;
+        case 34: mapMotif(kP1); break;
         case 35:
             mapMotif(jitter);
             if (steps >= 2 && out[steps - 2].active) out[steps - 2].degree = pickScaled(c, {1, 3, 5});

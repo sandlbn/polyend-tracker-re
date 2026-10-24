@@ -43,7 +43,7 @@ enum Proc : uint8_t {
     kThrash,
 };
 
-const char* const kProcNames[kBBProcCount] = {"Classic", "ChooseCut", "ChooseBlock", "WarpCut", "SQPusher1",
+const char* const kProcNames[kBBProcCount] = {"Classic", "ChooseCut", "ChooseBlk", "WarpCut", "SQPusher1",
                                               "SQPusher2", "CageCut", "Timeline", "Permute", "ThrashCut"};
 
 const char* const kSubdiv5[5] = {"4", "6", "8", "12", "16"};
@@ -336,21 +336,21 @@ void warpCut(State& s) {
 
 void sqPusher1(State& s) {
     Rng& r = *s.r;
-    static const float kFills[13][6][6] = {
+    static const uint16_t kFills[13][6][6] = {
         // each fill: up to 6 blocks of up to 6 cuts, 0 = end
-        {{0.75f, 0.75f, 0.75f, 0.75f}, {1.0f}},
-        {{0.5f, 1.0f}, {1.0f}, {1.0f, 0.5f}},
-        {{0.5f}, {1.0f, 1.0f, 1.0f}, {0.5f}},
-        {{0.571429f}, {0.571429f, 0.571429f}, {0.571429f, 0.571429f}, {0.571429f}, {0.285714f, 0.285716f}},
-        {{1.0f, 0.5f}, {1.0f, 0.5f}, {0.5f, 0.5f}},
-        {{0.5f, 0.5f}, {0.66f, 0.67f, 0.67f}, {1.01f}},
-        {{0.34f}, {0.33f, 0.33f}, {0.34f, 0.33f}, {2.33f}},
-        {{1.4f}, {0.4f, 0.4f}, {0.6f, 0.2f}, {1.0f}},
-        {{0.167f, 0.167f, 0.166f}, {1.0f, 1.0f, 1.0f}, {0.5f}},
-        {{1.5f, 0.5f, 1.0f}, {0.25f, 0.25f, 0.25f, 0.25f}},
-        {{0.2f, 0.2f}, {0.4f, 0.4f}, {0.4f, 0.4f}, {2.0f}},
-        {{0.75f, 0.75f, 1.0f}, {0.25f, 0.25f, 0.25f, 0.25f, 0.25f, 0.25f}},
-        {{0.5f, 1.0f}, {0.5f}, {0.125f, 0.125f, 0.125f, 0.125f}, {1.0f}, {0.167f, 0.167f, 0.166f}},
+        {{750, 750, 750, 750}, {1000}},
+        {{500, 1000}, {1000}, {1000, 500}},
+        {{500}, {1000, 1000, 1000}, {500}},
+        {{571}, {571, 571}, {571, 571}, {571}, {286, 286}},
+        {{1000, 500}, {1000, 500}, {500, 500}},
+        {{500, 500}, {660, 670, 670}, {1010}},
+        {{340}, {330, 330}, {340, 330}, {2330}},
+        {{1400}, {400, 400}, {600, 200}, {1000}},
+        {{167, 167, 166}, {1000, 1000, 1000}, {500}},
+        {{1500, 500, 1000}, {250, 250, 250, 250}},
+        {{200, 200}, {400, 400}, {400, 400}, {2000}},
+        {{750, 750, 1000}, {250, 250, 250, 250, 250, 250}},
+        {{500, 1000}, {500}, {125, 125, 125, 125}, {1000}, {167, 167, 166}},
     };
     static const float kSqW[8] = {0.0f, 0.3f, 0.0f, 0.5f, 0.7f, 0.8f, 0.9f, 0.6f};
     static const int kEvery[4] = {1, 2, 4, 8};
@@ -362,7 +362,10 @@ void sqPusher1(State& s) {
             const int f = r.below(13);
             for (int bl = 0; bl < 6 && kFills[f][bl][0] > 0; ++bl) {
                 int n = 0;
-                for (int k = 0; k < 6 && kFills[f][bl][k] > 0; ++k) cuts[n++] = Cut{kFills[f][bl][k], kFills[f][bl][k], -1, 1};
+                for (int k = 0; k < 6 && kFills[f][bl][k] > 0; ++k) {
+                    const float d = float(kFills[f][bl][k]) * 0.001f;   // beats
+                    cuts[n++] = Cut{d, d, -1, 1};
+                }
                 seqAdd(s, cuts, n);
             }
         } else {
@@ -397,7 +400,7 @@ void sqPusher2(State& s) {
         int at = 0;
         for (int i = 0; i < bar; ++i) at += 1 + kSqData[at];
         const int n = kSqData[at];
-        float on[16];
+        float on[16] = {};
         for (int i = 0; i < n && i < 16; ++i) {
             float t = float(kSqData[at + 1 + i]) / 64.0f;
             if (q > 0) t = std::floor(t / q + 0.5f) * q;

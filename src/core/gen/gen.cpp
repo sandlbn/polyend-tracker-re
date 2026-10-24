@@ -25,7 +25,7 @@ KindDesc gKinds[kKindCount] = {
       {"Slide", 0, 100, 25, nullptr},
       {"Range", 0, 2, 1, kOctLabels},
       {"Seed", 0, 999, 0, nullptr}}},
-    {"Call & Answer", "Call phrase, then the answer (Nordl3 C/R Generator)",
+    {"Call+Resp", "Call phrase, then the answer (Nordl3 C/R Generator)",
      {{"Style", 0, kCrStyleCount - 1, 0, nullptr},
       {"Answer", 0, kCrStrategyCount - 1, 0, nullptr},
       {"Density", 0, 100, 0, nullptr},
