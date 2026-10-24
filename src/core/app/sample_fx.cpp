@@ -437,16 +437,32 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             uint32_t D;
             int K;
             delayTaps(p, &D, &K);
-            float gains[99];
-            gains[0] = 1.0f;
-            for (int k = 1; k <= K; ++k) gains[k] = float(double(gains[k - 1]) * double(p[0]));
-            for (uint32_t i = 0; i < w; ++i) {
-                // Taps with 0 <= i - kD < n.
-                const uint32_t kHi = i / D < uint32_t(K) ? i / D : uint32_t(K);
-                const uint32_t kLo = i < n ? 0u : (i - n) / D + 1;
-                float acc = 0.0f;
-                for (uint32_t k = kLo; k <= kHi; ++k) acc += gains[k] * float(in[i - k * D]);
-                out[i] = satf(acc);
+            // Computed as the recurrence y[i] = x[i] + f y[i-D] - f^(K+1) x[i-(K+1)D]
+            // (x = 0 outside the selection): three operations per sample
+            // instead of up to K + 1 = 99. Samples D apart form independent
+            // chains, so they run chain by chain, kChains at a time, each with
+            // its running sum y in a small array: no D-sample history (up to
+            // 220,500 at 5 s) and sequential memory access within a block.
+            constexpr uint32_t kChains = 256;
+            const float f = p[0];
+            double gK = 1.0;
+            for (int k = 0; k <= K; ++k) gK *= double(p[0]);   // f^(K+1)
+            const float fK1 = float(gK);
+            const uint64_t lag = uint64_t(K + 1) * D;
+            float y[kChains];
+            for (uint32_t r0 = 0; r0 < D && r0 < w; r0 += kChains) {
+                const uint32_t nb = D - r0 < kChains ? D - r0 : kChains;
+                for (uint32_t b = 0; b < nb; ++b) y[b] = 0.0f;
+                for (uint64_t base = r0; base < w; base += D) {
+                    for (uint32_t b = 0; b < nb; ++b) {
+                        const uint64_t i = base + b;
+                        if (i >= w) break;
+                        const float x = i < n ? float(in[i]) : 0.0f;
+                        const float xo = i >= lag && i - lag < n ? float(in[i - lag]) : 0.0f;
+                        y[b] = x + f * y[b] - fK1 * xo;
+                        out[i] = satf(y[b]);
+                    }
+                }
             }
             break;
         }
