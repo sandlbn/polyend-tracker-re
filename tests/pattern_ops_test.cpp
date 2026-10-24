@@ -5,6 +5,7 @@
 
 #include "app/pattern_ops.h"
 #include "app/undo.h"
+#include "sequencer/seq_tables.h"
 
 using namespace ot;
 
@@ -189,4 +190,20 @@ TEST(write_instrument_selection_moves_off_steps_too) {
     CHECK_EQ(int(t.steps[1].instrument), 5);
     CHECK_EQ(int(t.steps[2].instrument), 5);
     CHECK(t.steps[3].note == kNoteEmpty);
+}
+
+TEST(new_fx_type_value_inside_its_range) {
+    // MANUAL_AUDIT_2026-10-23 #9 (manual p.176 Bit Depth "4-16 Bits"):
+    // choosing an Fx type writes a value inside that Fx's range (Bit Depth
+    // stored 0, shown "E  0").
+    Pattern p;
+    const SelRect r = rect(0, 0, 0, 0);
+    for (int i = 1; i < kFxCount; ++i) {
+        const uint8_t t = kFxMenuOrder[i];
+        pops::writeFxType(p, r, 2, t);
+        const uint8_t v = p.tracks[0].steps[0].fx[fxSlotForColumn(2)].value;
+        CHECK(v >= seq::fxMin(t) && v <= seq::fxMax(t));
+    }
+    pops::writeFxType(p, r, 2, uint8_t(FxId::BitDepth));
+    CHECK_EQ(int(p.tracks[0].steps[0].fx[fxSlotForColumn(2)].value), 4);
 }

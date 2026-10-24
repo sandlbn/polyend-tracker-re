@@ -353,8 +353,8 @@ void LoaderScreen::refreshBar() {
         std::snprintf(v, sizeof(v), "%.3fs", double(trimEnd) / 65535.0 * double(trimLen_ / 44100.0));
         b.set(2, "End", v);
         b.set(5, "Cancel");
-        b.set(6, "Import", "low quality", importAllowed(true));
-        b.set(7, "Import", "Normal", importAllowed(false));
+        b.setName(6, "Import", "low quality", importAllowed(true));
+        b.setName(7, "Import", "Normal", importAllowed(false));
         b.highlight(trimSel ? 2 : 1, true);
         return;
     }
@@ -367,7 +367,7 @@ void LoaderScreen::refreshBar() {
     int f, l;
     listRange(true, &f, &l);
     b.set(4, "Import", nullptr, focus <= 1 && count > 0 && f == l && !isDir[sdCursor] && hasExt(entries[sdCursor], ".wav"));
-    b.set(5, "Delete", "unused", focus == 1);
+    b.setName(5, "Delete", "unused", focus == 1);
     const float g = audio::trkGain(a.cfg.previewVolume);
     if (g <= 0) std::snprintf(v, sizeof(v), "-inf dB");
     else std::snprintf(v, sizeof(v), "%.2f dB", double(20.0f * std::log10(g)));
@@ -938,8 +938,16 @@ void LoaderScreen::draw(Gfx& g) {
         ms.fill = th.slot(slot::kFocusFrame);
         wg::valueBar(g, th, 701, 29, 97, 394, 1.0f, ms);
     } else {
-        if (proj > cur) ms.ref = cur;
-        wg::valueBar(g, th, 701, 29, 97, 394, proj > cur ? proj : cur, ms);
+        // The bar shows the smaller of the two; the difference is a red band
+        // when loading adds memory and a green one when it frees memory
+        // (manual p.44-45; MANUAL_AUDIT_2026-10-23 #20). Fill geometry of
+        // valueBar: x + 11 .. x + w - 11, from row y + h - 15 up by
+        // round((h - 24) v) rows.
+        const float lo = proj < cur ? proj : cur, hi = proj < cur ? cur : proj;
+        wg::valueBar(g, th, 701, 29, 97, 394, lo, ms);
+        auto row = [](float v) { return 29 + 394 - 15 - int((394 - 24) * (v > 1 ? 1 : v) + 0.5f); };
+        const int top = row(hi), bot = row(lo);
+        if (bot > top) g.fill(701 + 11, top + 1, 97 - 22, bot - top, proj > cur ? th.alert : th.good);
     }
 }
 

@@ -185,7 +185,11 @@ void App::preBlock(float seconds) {
     // a pattern shorter or longer than whole bars stays in step with them.
     if (!rendering_) {
         const bool playing = seq.isPlaying();
-        const int32_t st = seq.step(0);
+        // A step counts once its first micro-step has run (its notes fired):
+        // the step number advances one micro-step (12 ticks) earlier, which
+        // started takes up to a block before the downbeat (USER_REPORTS_R3 R3-8).
+        int32_t st = seq.step(0);
+        if (playing && resampleWasPlaying_ && seq.microStep(0) <= 1) st = resampleLastStep_;
         const int32_t bar = resampleBarSteps();
         bool barStart = false;
         if (playing) {
@@ -337,8 +341,10 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     const uint8_t vol = liveVolume(instrument, vel);
     Audition& r = aud_[track];
     if (midi) {
-        const MidiInstrument mi = project.midiInstrument(instrument - kFirstMidiInstrument);
-        const uint8_t ch = mi.channel ? uint8_t((mi.channel - 1) & 15) : uint8_t((instrument - kFirstMidiInstrument) & 15);
+        // MIDI instrument Mn plays on channel n, like the sequencer (spec 03
+        // §4.4); the record's channel byte is 0-based and not used for output
+        // (reading it as 1-based shifted M02..M16 down one, USER_REPORTS_R3 R3-6).
+        const uint8_t ch = uint8_t((instrument - kFirstMidiInstrument) & 15);
         const uint8_t msg[3] = {uint8_t(0x90 | ch), uint8_t(note & 127), uint8_t(vol ? vol : 1)};
         // Routed by Config "MIDI out" like the sequencer (spec 17 §1.4 step 7).
         if (sound) routeMidi(*hal_.midi, uint8_t(cfg.midiOut & 3), msg, 3);
@@ -409,6 +415,16 @@ void App::loop() {
             }
         }
         return;
+    }
+    // Audio output mute line (spec 01 §5.4, spec 05 §1.9): unmuted only once
+    // the start-up project has loaded, and muted while a project loads, as on
+    // stock; unmuting at audio start gave a crack at power-on (R3-4).
+    if (hal_.audio) {
+        const bool loading = jobBusy() && (jobOp() == JobOp::LoadWorkspace || jobOp() == JobOp::Open);
+        if (outputOn_ == loading) {
+            outputOn_ = !loading;
+            hal_.audio->setOutputEnabled(outputOn_);
+        }
     }
     // 2.x USB Storage mode: the computer owns the card. Only the UI (the mode
     // page) and the USB block I/O run; nothing here may touch the card.
@@ -552,7 +568,7 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
     if (noteOn) {
         if (seq.isRecording()) {
             // spec 17 §1.4 step 9: the live-record path (spec 03 §5.2).
-            seq.liveNoteOn(note, d2, 0, currentInstrument(), instrumentVolume(currentInstrument()));
+            seq.liveNoteOn(note, d2, 0, currentInstrument(), recordVolume(currentInstrument()));
             previewOn(voice, currentInstrument(), note, d2, -1, rect.t0);
             return;
         }
@@ -964,10 +980,11 @@ void App::refreshPadNotes() {
 }
 
 uint8_t App::padNote(uint8_t pad) {
-    // spec 05 §4.1, spec 06 §1.6: slice instruments map pads to 24 + pad.
+    // spec 05 §4.1, spec 06 §1.6: Beat Slice (play mode 5) maps pads to
+    // 24 + pad (pad = slice); Slice mode plays the selected slice through the
+    // pad layout like any instrument (manual p.126, MANUAL_AUDIT #2).
     const uint8_t ci = currentInstrument();
-    if (ci < kSampleInstrumentCount &&
-        (instruments[ci].playMode == uint8_t(PlayMode::Slice) || instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)))
+    if (ci < kSampleInstrumentCount && instruments[ci].playMode == uint8_t(PlayMode::BeatSlice))
         return uint8_t(24 + (pad > 47 ? 47 : pad));
     refreshPadNotes();
     return padNotes.note(pad);
@@ -977,6 +994,14 @@ bool App::noteInScale(uint8_t note) { return isInScale(note, project.u8(pf::kRoo
 
 uint8_t App::instrumentVolume(uint8_t instrument) {
     return instrument < kSampleInstrumentCount ? instruments[instrument].volume : 100;
+}
+
+uint8_t App::recordVolume(uint8_t instrument) const {
+    // IV for the live-record Volume FX (spec 03 §5.2, spec 17 §1.4 step 7):
+    // 0..127 like liveVolume(); instrumentVolume()'s 0..100 (the sequencer's
+    // roll volume) recorded a full-velocity note on a volume-100 instrument
+    // as V79 (MANUAL_AUDIT_2026-10-23 #1).
+    return liveVolume(instrument, 127);
 }
 
 void App::markInstrumentDirty(int i, bool sample) {

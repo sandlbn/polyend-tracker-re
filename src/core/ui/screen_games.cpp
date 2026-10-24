@@ -75,7 +75,7 @@ void GamesScreen::refreshBar() {
     ui_.bar.clear();
     ui_.bar.set(0, "B");
     ui_.bar.set(1, "A");
-    ui_.bar.set(6, "Start", "Game", ready_ && roms_.count() > 0);
+    ui_.bar.setName(6, "Start", "Game", ready_ && roms_.count() > 0);
     ui_.bar.set(7, "Back");
     // Stock strip 050505 (VISUAL_DIFF C5); "Start / Game" is the two-line
     // grey set, drawn by draw() [S snap 028].

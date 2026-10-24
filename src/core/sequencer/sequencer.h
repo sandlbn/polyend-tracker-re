@@ -121,7 +121,9 @@ public:
     // the selected instrument's volume used by velocity recording.
     int liveNoteOn(uint8_t note, uint8_t velocity, uint8_t cursorTrack, uint8_t instrument,
                    uint8_t instrumentVolume = 127);
-    void liveNoteOff(uint8_t note);
+    // writeOff = false: release only, no OFF step (Instr / FX column recording,
+    // manual p.95).
+    void liveNoteOff(uint8_t note, bool writeOff = true);
     // Step entry while stopped: write `note` at (step, track) (spec 03 §5.1).
     void stepEntry(uint8_t note, uint8_t velocity, int step, int track, uint8_t instrument);
     void setRecordEnabled(int track, bool en) { if (validTrack(track)) tracks_[track].recEnabled = en; }

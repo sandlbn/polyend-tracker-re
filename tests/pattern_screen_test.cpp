@@ -1,6 +1,7 @@
 // Pattern editor (spec 06 §1): FX value display (03 §3.6), live-record
 // transport (06 §1.4/§1.8), arrangement arrows (06 §1.5), column-view mask
 // (06 §1.9), PERF marker, hold popups, Fill and focus rules.
+#include <cstring>
 #include <string>
 
 #include "test.h"
@@ -521,4 +522,19 @@ TEST(tracks_13_16_selection_copy_paste_entry) {
     a.pattern().tracks[15].steps[3].note = kNoteEmpty;
     h.tap(btn::F7);     // Paste pattern
     CHECK_EQ(int(a.pattern().tracks[15].steps[3].note), 62);
+}
+
+TEST(slide_description_says_16_is_a_semitone) {
+    // Manual p.178-179 "A value of 16 will slide 1 Semitone" (MANUAL_AUDIT #22).
+    CHECK(std::strstr(fxDescription(uint8_t(FxId::SlideUp)), "16 = 1 semitone") != nullptr);
+    CHECK(std::strstr(fxDescription(uint8_t(FxId::SlideDown)), "16 = 1 semitone") != nullptr);
+}
+
+TEST(fx_help_ends_with_the_range) {
+    // MANUAL_AUDIT_2026-10-23 #23 (manual p.142 / spec 16 §B.4: the FX
+    // description window ends with the value range).
+    const char* p = fxHelpText(uint8_t(FxId::Panning));
+    CHECK(std::strstr(p, "From -50 to 50") != nullptr);
+    CHECK(std::strstr(fxHelpText(uint8_t(FxId::BitDepth)), "From 4 to 16") != nullptr);
+    CHECK(std::strstr(fxHelpText(uint8_t(FxId::None)), "From") == nullptr);   // no range
 }

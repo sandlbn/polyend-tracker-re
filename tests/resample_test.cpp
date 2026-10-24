@@ -1198,3 +1198,31 @@ TEST(resample_into_records_the_take_with_its_fx) {
     std::printf("    take 2 vs take 1: difference energy %.1f %% of take 1\n", 100.0 * diff / ref);
     CHECK(diff > 0.05 * ref);
 }
+
+TEST(resample_take_starts_on_the_downbeat_sound) {
+    // USER_REPORTS_R3 R3-8: an internal take began ~0.003 s (one block)
+    // before the bar's first sound. The first audible frame of the take must
+    // be within a few frames of its start, armed before play and while
+    // playing (the next bar).
+    for (int whilePlaying = 0; whilePlaying < 2; ++whilePlaying) {
+        Harness h;
+        App& a = *h.app;
+        setup(h);
+        a.resampleCfg.length = 1;
+        if (whilePlaying) {
+            a.seq.play(0);
+            h.audio.pump(blocksFor(0.7));
+        }
+        CHECK(a.resampleToggle() == App::ResampleAction::kArmed);
+        if (!whilePlaying) a.seq.play(0);
+        h.audio.pump(blocksFor(4.5));
+        h.run(5);
+        CHECK(a.instrPresent[1]);
+        const int16_t* l = a.bank.left(1);
+        uint32_t first = 0;
+        while (l && first < a.bank.frames(1) && std::abs(l[first]) < 200) ++first;
+        std::printf("       %s: first audible frame %u\n", whilePlaying ? "armed while playing" : "armed before play",
+                    unsigned(first));
+        CHECK(first <= 50);   // a retriggered voice first fades the old note for 1 ms (spec 04)
+    }
+}

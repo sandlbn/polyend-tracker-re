@@ -83,6 +83,12 @@ void EditorScreen::enter() {
     for (int e = 0; e < sfx::kEffectCount; ++e) sfx::defaults(e, params[e]);
     const float t = a.project.tempo();
     if (t >= 40.0f && t <= 800.0f) params[sfx::kStretchBeat][0] = float(int(t + 0.5f));
+    {   // Timestretch Note Length starts at the sample's length (manual p.218,
+        // MANUAL_AUDIT_2026-10-23 #14), 0.01 s steps, 0.1..8 s.
+        float sec = float(a.bank.frames(slot_)) / 44100.0f;
+        sec = float(int(sec * 100.0f + 0.5f)) / 100.0f;
+        params[sfx::kStretchNote][0] = sec < 0.1f ? 0.1f : (sec > 8.0f ? 8.0f : sec);
+    }
     previewState = 0;
     refreshBar();
 }

@@ -22,28 +22,29 @@ const char* const kRepeater[] = {"Off", "16", "12", "8", "6", "4", "3", "2", "1"
 const char* const kLength[] = {"---", "1", "2", "4", "8", "16", "32", "64", "128"};
 
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
+// Names: manual p.274 screen figure / p.276 list (MANUAL_AUDIT_2026-10-23 #37).
 const FxDesc kFx[kFxCount] = {
     {"---", 0, 0, nullptr, 0, 0, false},
     {"Volume", -100, 100, nullptr, 0, 0, false},
     {"Panning", -100, 100, nullptr, 0, 0, false},
     {"Tune", -48, 48, nullptr, 0, 0, false},
-    {"Low-pass", -100, 100, nullptr, kHighPass, kBandPass, false},
-    {"High-pass", -100, 100, nullptr, kLowPass, kBandPass, false},
-    {"Band-pass", -100, 100, nullptr, kLowPass, kHighPass, false},
+    {"Low-pass cutoff", -100, 100, nullptr, kHighPass, kBandPass, false},
+    {"High-pass cutoff", -100, 100, nullptr, kLowPass, kBandPass, false},
+    {"Band-pass cutoff", -100, 100, nullptr, kLowPass, kHighPass, false},
     {"Delay send", -100, 100, nullptr, 0, 0, false},
     {"Reverb send", -100, 100, nullptr, 0, 0, false},
-    {"Start pos", -100, 100, nullptr, 0, 0, false},
-    {"End pos", -100, 100, nullptr, 0, 0, false},
-    {"Direction", 0, 1, kDirection, 0, 0, false},
-    {"Vol LFO", -23, 23, nullptr, 0, 0, false},
-    {"Pan LFO", -28, 28, nullptr, 0, 0, false},
-    {"Fine LFO", -28, 28, nullptr, 0, 0, false},
-    {"Filter LFO", -28, 28, nullptr, 0, 0, false},
-    {"Pos LFO", -28, 28, nullptr, 0, 0, false},
-    {"Repeater", 0, 15, kRepeater, 0, 0, false},
-    {"Play mode", 0, 22, nullptr, 0, 0, false},   // labels: seq::playModeLabel
-    {"Length", 0, 8, kLength, 0, 0, true},
-    {"Bit depth", -12, 12, nullptr, 0, 0, false},
+    {"Sample position", -100, 100, nullptr, 0, 0, false},
+    {"Sample end", -100, 100, nullptr, 0, 0, false},
+    {"Sample Playback", 0, 1, kDirection, 0, 0, false},
+    {"Volume LFO Speed", -23, 23, nullptr, 0, 0, false},
+    {"Panning LFO Speed", -28, 28, nullptr, 0, 0, false},
+    {"Finetune LFO Speed", -28, 28, nullptr, 0, 0, false},
+    {"Filter LFO Speed", -28, 28, nullptr, 0, 0, false},
+    {"Grain/WT LFO Speed", -28, 28, nullptr, 0, 0, false},
+    {"Step Repeater", 0, 15, kRepeater, 0, 0, false},
+    {"Pattern Play Mode", 0, 22, nullptr, 0, 0, false},   // labels: seq::playModeLabel
+    {"Pattern Length", 0, 8, kLength, 0, 0, true},
+    {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},
 };
 }  // namespace

@@ -709,7 +709,7 @@ void PatternScreen::drawListPopup(Gfx& g) {
         char buf[48];
         popupItem(&ctx, pop_.cursor(), buf, sizeof(buf));
         g.text(x + 13, 34 + 13, kFont1, th.slot(slot::kList + 4), buf, IDisplay::kOptCenterY);
-        wg::textBox(g, th, x + 8, 62, 232, 360, kFont5, fxDescription(kFxMenuOrder[pop_.cursor() < kFxCount ? pop_.cursor() : 0]), 3);
+        wg::textBox(g, th, x + 8, 62, 232, 360, kFont5, fxHelpText(kFxMenuOrder[pop_.cursor() < kFxCount ? pop_.cursor() : 0]), 3);
     }
 }
 
@@ -759,8 +759,9 @@ bool PatternScreen::popupMove(uint8_t id) {
     switch (id) {
         case btn::Up: d = keys ? 12 : -1; break;
         case btn::Down: d = keys ? -12 : 1; break;
-        case btn::Left: d = -1; break;
-        case btn::Right: d = 1; break;
+        // Lists page with Left / Right (manual p.101 / 103, MANUAL_AUDIT #19).
+        case btn::Left: d = keys ? -1 : -wg::listVisibleRows(pop_.kind() == 3 ? 409 : 394); break;
+        case btn::Right: d = keys ? 1 : wg::listVisibleRows(pop_.kind() == 3 ? 409 : 394); break;
         default: return false;
     }
     pop_.move(d);

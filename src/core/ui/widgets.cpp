@@ -501,7 +501,13 @@ void barLabel(Gfx& g, const Theme& th, int i, bool wide, const char* top, const 
     const bool two = bottom && *bottom;
     const int y1 = two || st.pages > 1 ? kLabelY1 : (st.topAligned ? kLabelYTop : kLabelY);
     if (top && *top) g.text(cx, y1, kFont3, tc, top, IDisplay::kOptCenter);
-    if (two) g.text(cx, kLabelY2, kFont2, vc, bottom, IDisplay::kOptCenter);
+    if (two) {
+        // Set +0x44 names ("Export / Song") stay grey in font 3; a value that
+        // does not fit the label in the 10-px mono uses font 3 too.
+        const int maxW = wide ? 194 : 94;
+        const uint8_t f = st.nameLines || textWidth(kFont2, bottom) > maxW ? kFont3 : kFont2;
+        g.text(cx, kLabelY2, f, st.nameLines ? tc : vc, bottom, IDisplay::kOptCenter);
+    }
     else pageDots(g, th, cx, st.pages, st.page, st.dotOff);
     barUnderline(g, th, cx, st.underline);
     if (st.focus) barFocus(g, th, i, wide);

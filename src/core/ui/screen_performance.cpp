@@ -584,6 +584,14 @@ void PerformanceScreen::update(uint32_t now) {
             labelsDirty_ = true;
         }
     }
+    // A queued track pattern blinks on its label (manual p.278, MANUAL_AUDIT #39).
+    bool queued = false;
+    for (int t = 0; t < 8; ++t) queued = queued || pending_[t] || a.seq.queuedTrackPattern(t) != 0;
+    const bool on = !queued || (now / 200u) % 2u == 0;
+    if (on != blinkOn_) {
+        blinkOn_ = on;
+        ui_.dirty();
+    }
     if (labelsDirty_ && now - lastLabels_ >= kLabelPollMs) {
         lastLabels_ = now;
         labelsDirty_ = false;
@@ -629,7 +637,9 @@ void PerformanceScreen::draw(Gfx& g) {
     // reading upwards (bottom y 265), and a body y 279..413 + fade with the
     // four stored rows at a 30-px pitch, the active row green [S snap 021].
     const int set = slot::kPerfPanels;
-    const uint32_t bg = th.slot(set + 1), textC = th.slot(set), hiC = th.slot(set + 2);
+    // Edit mode: the active rows are red (manual p.274, spec 06 §3.3 "the cell
+    // colour differs in edit mode"; MANUAL_AUDIT_2026-10-23 #41).
+    const uint32_t bg = th.slot(set + 1), textC = th.slot(set), hiC = edit ? th.alert : th.slot(set + 2);
     // Drawn in layers over all 12 columns instead of column by column: the
     // RECTS batches keep the display list (RAM_DL, 8 KB) small enough for
     // the FT81x -- column by column this screen expanded past it on
@@ -734,13 +744,32 @@ void PerformanceScreen::draw(Gfx& g) {
             wg::bottomFade(g, th, nx, 279, 62, 145, bg);   // opaque, no text there
         }
     }
+    // FX-on labels lit red (one batched RECTS list: per-label barFill with its
+    // soft edges cost ~10 display-list words each, over the screen budget).
+    {
+        bool any = false;
+        for (int t = 0; t < 8; ++t) {
+            if (!ui_.bar.label[t].highlight) continue;
+            if (!any) g.rectsBegin(th.slot(slot::kFocusFrame));
+            any = true;
+            g.rectsAdd(100 * t + 3, 424, 95, 56);
+        }
+        if (any) g.rectsEnd();
+    }
     for (int t = 0; t < 8; ++t) {
         const BarLabel& l = ui_.bar.label[t];
         const int cx = wg::labelCentre(t);
-        const uint32_t tc = th.slot(l.enabled && l.highlight ? slot::kBottomLabel : slot::kBottomLabelOff);
-        const uint32_t vc = th.slot((l.enabled ? slot::kBottomLabel : slot::kBottomLabelOff) + 3);
+        uint32_t tc = th.slot(l.enabled && l.highlight ? slot::kBottomLabel : slot::kBottomLabelOff);
+        uint32_t vc = th.slot((l.enabled ? slot::kBottomLabel : slot::kBottomLabelOff) + 3);
+        if (l.highlight) {
+            // FX applied: the label is lit red (manual p.272; spec 20 §1.2
+            // "Performance 0x47d08" adds the background), white text while
+            // audible, black when muted (MANUAL_AUDIT_2026-10-23 #5).
+            tc = vc = l.enabled ? 0xFFFFFFu : 0x000000u;
+        }
         g.text(cx, wg::kLabelY1, kFont3, tc, l.top, IDisplay::kOptCenter);
-        g.text(cx, wg::kLabelY2, kFont2, vc, l.bottom, IDisplay::kOptCenter);
+        const bool queued = pending_[t] || app_.seq.queuedTrackPattern(t) != 0;
+        if (!queued || blinkOn_ || ui_.shift()) g.text(cx, wg::kLabelY2, kFont2, vc, l.bottom, IDisplay::kOptCenter);
     }
 }
 

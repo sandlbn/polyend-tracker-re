@@ -718,3 +718,16 @@ TEST(song_cursor_free_between_slot_changes) {
     CHECK(a.seq.isPlaying());
     h.tap(btn::Play);
 }
+
+TEST(output_unmuted_only_after_the_startup_load) {
+    // USER_REPORTS_R3 R3-4 ("big crack in the headphones during start"): stock
+    // keeps the audio mute line (pin 21) low through start-up and drives it
+    // high only when the start-up project has loaded (spec 05 §1.9 state 3 ->
+    // 4, spec 01 §5.4); we unmuted as soon as audio started.
+    Harness h(false);
+    CHECK(h.audio.started);
+    CHECK(!h.audio.outputOn());   // audio running, output still muted
+    h.app->boot();
+    h.run(20);
+    CHECK(h.audio.outputOn());    // unmuted once loaded
+}

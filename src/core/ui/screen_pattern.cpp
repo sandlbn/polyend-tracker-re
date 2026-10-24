@@ -459,20 +459,20 @@ void PatternScreen::refreshBar() {
             break;
         }
         case 1:
-            b.set(0, "Render", "selection", e);
+            b.setName(0, "Render", "selection", e);
             b.set(1, "Invert", nullptr, e);
             b.set(2, "Duplicate", nullptr, e);
             b.set(3, "Expand", nullptr, e);
             b.set(4, "Shrink", nullptr, e);
-            b.set(5, "Copy", "pattern", e);
-            b.set(6, "Paste", "pattern", e);
+            b.setName(5, "Copy", "pattern", e);
+            b.setName(6, "Paste", "pattern", e);
             b.set(7, "More");
             for (int i = 0; i < 7; ++i) b.underline(i, wg::kUnderlineEditMode);
             b.pages(7, 3, page);
             break;
         default:
-            b.set(0, "Pattern", "name");
-            b.set(1, "Track", "name");
+            b.setName(0, "Pattern", "name");
+            b.setName(1, "Track", "name");
             b.set(7, "More");
             b.underline(0, wg::kUnderlineAvailable);
             b.underline(1, wg::kUnderlineAvailable);
@@ -1098,7 +1098,8 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     if (state == kRelease) {
         if (padVoice_[pad] >= 0) a.previewOff(uint16_t(padVoice_[pad]));
         padVoice_[pad] = -1;
-        if (a.seq.isRecording() && col <= 1) a.seq.liveNoteOff(col == 1 ? 60 : a.padNote(pad));
+        // Instr column: release only, no OFF step (manual p.95, MANUAL_AUDIT #4).
+        if (a.seq.isRecording() && col <= 1) a.seq.liveNoteOff(col == 1 ? 60 : a.padNote(pad), col == 0);
         return;
     }
     if (state != kPress) return;
@@ -1135,7 +1136,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
             ins = uint8_t(isMidiTrack(track) ? synthui::midiTrackPadInstrument(pad) : pad);
             n = 60;
         }
-        a.seq.liveNoteOn(n, 127, uint8_t(track), ins, a.instrumentVolume(ins));
+        a.seq.liveNoteOn(n, 127, uint8_t(track), ins, a.recordVolume(ins));
         a.previewOn(voice, ins, n, 127);
         padVoice_[pad] = int8_t(pad);
         return;
@@ -1241,7 +1242,7 @@ void PatternScreen::openPicker(int which) {
     } else {
         const int slot = fxSlotForColumn(which);
         pop_.open(3, "FX", kFxCount, pops::fxOrderIndex(st.fx[slot].type), fxItem, nullptr);
-        pop_.setDescription([](void*, int i) { return fxDescription(kFxMenuOrder[i < kFxCount ? i : 0]); });
+        pop_.setDescription([](void*, int i) { return fxHelpText(kFxMenuOrder[i < kFxCount ? i : 0]); });
     }
     // Stock popup header band over the title bar (Ui; Part 2 §7.2).
     ui_.openPopupHeader(which == 0 ? "Notes" : (which == 1 ? "Instruments" : "Fx"),
@@ -1397,12 +1398,41 @@ void PatternScreen::clampFillValues() {
     f.to = int16_t(clampi(f.to, seq::fxMin(ft), seq::fxMax(ft)));
 }
 
+namespace {
+void fillInstrCode(int val, char* out) {
+    const int i = clampi(val, 0, 255);
+    if (i < kSampleInstrumentCount) std::snprintf(out, 8, "%02d", i + 1);
+    else if (isSynthInstrument(uint8_t(i))) std::snprintf(out, 8, "S%d", synthSlotOf(uint8_t(i)) + 1);
+    else std::snprintf(out, 8, "M%02d", (i - kFirstMidiInstrument + 1) % 100);
+}
+}  // namespace
+
 void PatternScreen::fillValueText(int val, char* out) const {
-    // spec 16 §B.3: note names; instruments 1..48 (MIDI n+3); Fx values as
-    // the plain number.
+    // spec 16 §B.3: note names; Fx values as the plain number. Instruments:
+    // stock shows bare numbers (1..48, MIDI n+3); 2.x writes them like the
+    // grid, 07 / M01 / S1 (USER_REPORTS_R3 R3-5).
     if (col == 0) noteName(int8_t(clampi(val, 0, 127)), out);
-    else if (col == 1) std::snprintf(out, 8, "%d", clampi(val, 0, 255) + (val < kSampleInstrumentCount ? 1 : 3));
-    else std::snprintf(out, 8, "%d", clampi(val, 0, 255));
+    else if (col == 1) fillInstrCode(val, out);
+    else if (fill[col].scaleOrFx < 0) std::snprintf(out, 8, "%d", clampi(val, 0, 255));   // random type
+    else {
+        // The Fx's display value, as in the grid (Panning -50..50; manual
+        // p.87, MANUAL_AUDIT_2026-10-23 #8), without the grid's padding.
+        char t[5];
+        fxValueText(fillFxType(), uint8_t(clampi(val, 0, 255)), t);
+        const char* p = t;
+        while (*p == ' ') ++p;
+        std::snprintf(out, 8, "%s", p);
+    }
+}
+
+float PatternScreen::fillValueFrac(int v) const {
+    if (col == 0) return v / 127.0f;
+    if (col == 1) return v / 63.0f;
+    // The engine range (Roll, Chord, LFOs and Bit Depth differ from the
+    // file-format table; MANUAL_AUDIT_2026-10-23 #24).
+    const uint8_t t = fillFxType();
+    const int lo = seq::fxMin(t), span = seq::fxMax(t) - lo;
+    return span > 0 ? float(v - lo) / float(span) : 0.0f;
 }
 
 void PatternScreen::fillDelta(int d, bool wrap) {
@@ -1564,8 +1594,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
     if (edit()) {
         if (col == 0) {
             const uint8_t ci = a.currentInstrument();
-            if (ci < kSampleInstrumentCount && (a.instruments[ci].playMode == uint8_t(PlayMode::Slice) ||
-                                                a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice))) {
+            if (ci < kSampleInstrumentCount && a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)) {
                 for (int p = 0; p < a.instruments[ci].sliceCount && p < 48; ++p) lv[p] = dim;
                 if (st.note >= 24 && st.note < 72) lv[st.note - 24] = full;
             } else if (st.note >= 0) {
@@ -1790,6 +1819,26 @@ void PatternScreen::drawFill(Gfx& g) {
     constexpr int kTop = 58, kListH = 365, kBarH = 364;
     g.fill(0, wg::kMainTop, kScreenW, kTop - wg::kMainTop, th.slot(slot::kTitle + 1));
     g.text(10, wg::kMainTop + 12, kFont4, th.slot(slot::kTitle), kTitles[col], IDisplay::kOptCenterY);
+    if (col == 1) {   // 2.x: the From / To instruments by name (R3-5)
+        App& a = app_;
+        auto name = [&](int v, char* out, int cap) {
+            char code[8];
+            fillInstrCode(v, code);
+            const int i = clampi(v, 0, 255);
+            if (i < kSampleInstrumentCount) std::snprintf(out, size_t(cap), "%s %s", code, a.instrPresent[i] ? a.instruments[i].name : "");
+            else if (isSynthInstrument(uint8_t(i))) std::snprintf(out, size_t(cap), "Synth %d", synthSlotOf(uint8_t(i)) + 1);
+            else std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
+        };
+        char n1[48], n2[48], line[112];
+        name(f.from, n1, sizeof(n1));
+        if (f.type != 0) {
+            name(f.to, n2, sizeof(n2));
+            std::snprintf(line, sizeof(line), "From %s   To %s", n1, n2);
+        } else {
+            std::snprintf(line, sizeof(line), "From %s", n1);
+        }
+        g.text(790, wg::kMainTop + 12, kFont3, th.slot(slot::kTitle), line, IDisplay::kOptCenterY | IDisplay::kOptRightX);
+    }
     struct ListCtx {
         int first;
         void (*fn)(int, char*, int);
@@ -1818,13 +1867,7 @@ void PatternScreen::drawFill(Gfx& g) {
         wg::valueBar(g, th, wg::columnX(k), kTop, wg::columnW(), kBarH, frac < 0 ? 0 : (frac > 1 ? 1 : frac));
     };
     auto empty = [&](int k) { wg::panel(g, th, wg::columnX(k), kTop, wg::columnW(), kListH); };
-    const auto& fx = fxInfo(fillFxType());
-    auto valueFrac = [&](int v) {
-        if (col == 0) return v / 127.0f;
-        if (col == 1) return v / 63.0f;
-        const int span = fx.maxValue - fx.minValue;
-        return span > 0 ? float(v - fx.minValue) / float(span) : 0.0f;
-    };
+    auto valueFrac = [&](int v) { return fillValueFrac(v); };
     list(0, 7, 0, clampi(f.where, 0, 6), [](int i, char* o, int c) { std::snprintf(o, size_t(c), "%s", kWhereNames[i]); });
     if (f.where >= 4) bar(1, (f.param[f.where] - 1) / 127.0f);
     else empty(1);

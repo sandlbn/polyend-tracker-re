@@ -682,3 +682,75 @@ TEST(global_mixer_meters_follow_the_buses) {
     CHECK(mx[2][0] > 0 && mx[2][1] > 0);   // dry
     CHECK_EQ(mx[3][0] + mx[3][1], 0);      // no line input
 }
+
+TEST(song_grid_dims_muted_tracks_with_steps) {
+    // MANUAL_AUDIT_2026-10-23 #10 (manual p.225: "Dimmed Tracks: Track is
+    // muted and has active steps"): a muted used track is drawn dim, not white.
+    Harness h;
+    App& a = *h.app;
+    a.pattern().tracks[2].steps[0].note = 60;
+    h.tap(btn::Song);
+    const uint32_t dim = h.app->ui.th().slot(slot::kSongList + 2);
+    char want[24];
+    std::snprintf(want, sizeof(want), "COLOR %06X", unsigned(dim & 0xFFFFFF));
+    auto dimCount = [&]() {
+        a.ui.dirty();
+        h.run(40);
+        int n = 0;
+        for (const std::string& l : h.disp.last) n += l == want;
+        return n;
+    };
+    const int before = dimCount();
+    a.setTrackMute(2, true);
+    CHECK(dimCount() > before);
+    a.setTrackMute(2, false);
+}
+
+TEST(song_preview_track_plays_once) {
+    // MANUAL_AUDIT_2026-10-23 #11 (manual p.232: Preview Track "Plays through
+    // once fully"): Shift + F1 on a single-track selection does not loop.
+    Harness h;
+    App& a = *h.app;
+    a.pattern().tracks[0].steps[0].note = 60;
+    h.tap(btn::Song);
+    song(h).focus = 0;   // grid, one track selected
+    h.down(btn::Shift);
+    h.tap(btn::F1);
+    h.up(btn::Shift);
+    h.audio.pump(4);
+    h.run(10);
+    CHECK(a.seq.isPlaying());
+    // 32 steps at 130 BPM ~ 3.7 s; run 6 s.
+    for (int i = 0; i < 600; ++i) {
+        h.audio.pump(3);
+        h.run(10);
+    }
+    CHECK(!a.seq.isPlaying());
+}
+
+TEST(mixer_limiter_threshold_minimum_reads_inf) {
+    // Manual p.243 "Limiter Thr: -Inf dB to 0dB" (MANUAL_AUDIT_2026-10-23 #36).
+    Harness h;
+    App& a = *h.app;
+    a.project.setU16(pf::kLimThreshold, 0);
+    h.tap(btn::Master);
+    MixerScreen& m = mixer(h);
+    m.page = 0;
+    m.sub = 3;
+    h.tap(btn::Up);   // any key: the bar is rebuilt
+    h.tap(btn::Down);
+    CHECK(std::string(a.ui.bar.label[2].bottom) == "-inf dB");
+}
+
+TEST(mixer_track_rename_saves_with_save) {
+    // Manual p.69 / spec 16 §A.16: the rename keyboard's F8 reads "Save"
+    // (MANUAL_AUDIT_2026-10-23 #17).
+    Harness h;
+    h.tap(btn::Master);
+    MixerScreen& m = mixer(h);
+    m.page = 1;
+    m.rename = true;
+    h.tap(btn::F1);
+    CHECK(h.app->ui.kb.isOpen());
+    CHECK(h.disp.lastHasText("Save"));
+}

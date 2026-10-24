@@ -164,7 +164,7 @@ void SongScreen::refreshBar() {
     b.set(1, st >= 2 ? "Stop" : "Play", st >= 2 ? "" : "Song");
     b.set(2, "Undo", nullptr, edit);
     b.set(3, "Add", ui_.shift() ? "Empty Slot" : "Slot", edit);
-    b.set(4, "Delete", "Slot", edit);
+    b.setName(4, "Delete", "Slot", edit);
     b.setWide(5, "Pattern", nullptr, edit);   // "◀◀ Pattern ▶▶" (icons 3 / 4)
     // Edit-only keys: red underline while disabled, green when available.
     for (int i = 2; i <= 5; ++i) b.underline(i, edit ? wg::kUnderlineGreen : wg::kUnderlineRed);
@@ -335,7 +335,8 @@ void SongScreen::onButton(uint8_t id, uint8_t state) {
                 togglePending_ = false;
                 if (ui_.shift() && focus == 0 && selTracks == 1) {
                     a.selectPattern(a.project.playlist[selRow0]);
-                    s.playSelection(0, a.pattern().tracks[0].lastStep, selTrack0, selTrack0, true);
+                    // Preview Track plays the clip once (manual p.232, MANUAL_AUDIT #11).
+                    s.playSelection(0, a.pattern().tracks[selTrack0].lastStep, selTrack0, selTrack0, false);
                 } else {
                     a.selectPattern(a.project.playlist[cursor]);
                     s.play(0);
@@ -608,11 +609,19 @@ void SongScreen::draw(Gfx& g) {
         for (int c = 0; c < kGridCols; ++c)
             if (!used[r][c]) g.rectsAdd(kGridX + 1 + kPitchX * c, kGridY + 1 + kPitchY * r, 37, 24);
     g.rectsEnd();
-    g.rectsBegin(white);
-    for (int r = 0; r < rows; ++r)
-        for (int c = 0; c < kGridCols; ++c)
-            if (used[r][c]) g.rectsAdd(kGridX + 41 - kPitchX + kPitchX * c, kGridY + 2 + kPitchY * r, 36, 22);
-    g.rectsEnd();
+    // Used cells: white, or dim on a muted track (manual p.225 "Dimmed
+    // Tracks", MANUAL_AUDIT_2026-10-23 #10).
+    for (int pass = 0; pass < 2; ++pass) {
+        bool any = false;
+        for (int r = 0; r < rows; ++r)
+            for (int c = 0; c < kGridCols; ++c)
+                if (used[r][c] && a.trackMuted(ft + c) == (pass == 1)) {
+                    if (!any) g.rectsBegin(pass ? th.slot(slot::kSongList + 2) : white);
+                    any = true;
+                    g.rectsAdd(kGridX + 41 - kPitchX + kPitchX * c, kGridY + 2 + kPitchY * r, 36, 22);
+                }
+        if (any) g.rectsEnd();
+    }
     g.lineWidth(16);
     // Playback progress (stock 1.9.2 photo): a 2-px green line across the
     // grid, moving from the top to the bottom of the playing slot's row as

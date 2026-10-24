@@ -22,6 +22,10 @@ void fxCellText(uint8_t type, uint8_t value, char out[8]);
 // F7/F8). The wording is OpenTracker's own, written from the spec 03 §3.6
 // meanings.
 const char* fxDescription(uint8_t type);
+// The FX help window text (spec 16 §B.4, manual p.142): the description, a
+// blank line and the value range ("From -50 to 50") from the engine range;
+// no range for None / Off / Break. Returns a static buffer (UI thread).
+const char* fxHelpText(uint8_t type);
 
 constexpr int kFxCellChars = 4;
 

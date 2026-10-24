@@ -61,6 +61,7 @@ public:
     void setCallback(FillFn fn, void* ctx) override;
     bool start() override;
     void stop() override;
+    void setOutputEnabled(bool on) override;
     // spec 18 §1: Master EQ / Bass Boost / Space on the codec DAP (I2C writes,
     // main-loop context only; never from the audio ISR).
     void applyMasterDsp(const float eq[5], uint8_t bassBoost, uint8_t space) override;

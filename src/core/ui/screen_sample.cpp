@@ -105,13 +105,52 @@ void PlaybackScreen::update(uint32_t now) {
     // is requested only when its pixel moves (or it appears / disappears).
     if (now - headAt_ >= kHeadPollMs) {
         headAt_ = now;
-        if (playheadX() != headX_) ui_.dirty();
+        const uint8_t ci = app_.currentInstrument();
+        const bool wt = ci < kSampleInstrumentCount && (app_.instruments[ci].playMode & 7) == uint8_t(PlayMode::Wavetable);
+        const bool gr = ci < kSampleInstrumentCount && (app_.instruments[ci].playMode & 7) == uint8_t(PlayMode::Granular);
+        if (wt) {
+            if (wavetableShownWindow() != wtShown_) ui_.dirty();   // the window moves (LFO / envelope)
+        } else if (playheadX() != headX_ || (gr && granularShownPosition() != grainShown_)) {
+            ui_.dirty();
+        }
     }
 }
 
 void PlaybackScreen::followHead(uint16_t voiceId) {
     headTrack_ = app_.auditionTrack(voiceId);
     headAt_ -= kHeadPollMs;   // poll on the next pass
+}
+
+uint32_t PlaybackScreen::wavetableShownWindow() const {
+    const App& a = app_;
+    const uint8_t ci = a.currentInstrument();
+    if (ci >= kSampleInstrumentCount) return 0;
+    const Instrument& in = a.instruments[ci];
+    if (headTrack_ >= 0 && headTrack_ < audio::kVoices && a.engine.voice(headTrack_).instrument() == &in &&
+        a.engine.voicePlayhead(headTrack_) >= 0)
+        return a.engine.voice(headTrack_).wavetableWindow();
+    return in.wavetableCurrentWindow;
+}
+
+uint16_t PlaybackScreen::granularShownPosition() const {
+    const App& a = app_;
+    const uint8_t ci = a.currentInstrument();
+    if (ci >= kSampleInstrumentCount) return 0;
+    const Instrument& in = a.instruments[ci];
+    if (headTrack_ >= 0 && headTrack_ < audio::kVoices && a.engine.voice(headTrack_).instrument() == &in &&
+        a.engine.voicePlayhead(headTrack_) >= 0)
+        return a.engine.voice(headTrack_).grainPosition();
+    return in.granularPosition;
+}
+
+int PlaybackScreen::wavetablePositionX() const {
+    const App& a = app_;
+    const uint8_t ci = a.currentInstrument();
+    if (ci >= kSampleInstrumentCount || (a.instruments[ci].playMode & 7) != uint8_t(PlayMode::Wavetable)) return -1;
+    const uint32_t n = a.instruments[ci].wavetableWindowCount;
+    const uint32_t w = wavetableShownWindow();
+    const float f = n > 1 ? float(w < n ? w : n - 1) / float(n - 1) : 0.0f;
+    return kWaveX + 10 + int(f * float(kWaveW - 20) + 0.5f);
 }
 
 int PlaybackScreen::playheadX() const {
@@ -209,8 +248,8 @@ void PlaybackScreen::refreshBar() {
         b.set(5, "More");
     } else if (isSlice(mode)) {
         // b) page 1 ("More").
-        b.set(0, "Slice", "Auto");
-        b.set(1, "Slice", "Evenly");
+        b.setName(0, "Slice", "Auto");
+        b.setName(1, "Slice", "Evenly");
         std::snprintf(v, sizeof(v), "%d", a.cfg.sliceCount);
         b.set(2, "No of Slices", v);
         b.set(3, "", nullptr, false);
@@ -707,6 +746,16 @@ void PlaybackScreen::onEncoder(int d) {
     refreshBar();
 }
 
+uint32_t PlaybackScreen::markerColour(int i) const {
+    // spec 13 §H.2: green = the played position lies on a zero crossing; the
+    // selected (or held) point is red "but will change to green" on one
+    // (manual p.123 / 125; MANUAL_AUDIT_2026-10-23 #13).
+    const Theme& th = ui_.th();
+    if ((zeroMask() >> i) & 1) return th.good;
+    if (sel == i + 1 || ((heldPoints >> i) & 1)) return th.accent;
+    return th.slot(slot::kWave);
+}
+
 void PlaybackScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
@@ -722,6 +771,27 @@ void PlaybackScreen::draw(Gfx& g) {
     float v0, v1;
     view.window(&v0, &v1);
     const int mode = in.playMode & 7;
+    if (mode == int(PlayMode::Wavetable) && in.wavetableWindowSize && in.wavetableWindowCount) {
+        // One window as the graph, its position on a bar below (manual
+        // p.130-131; spec 05 appB §1.4d; MANUAL_AUDIT_2026-10-23 #12).
+        const uint32_t size = in.wavetableWindowSize, n = in.wavetableWindowCount;
+        uint32_t w = wavetableShownWindow();
+        if (w >= n) w = n - 1;
+        const uint32_t len = a.bank.frames(ci);
+        const uint32_t off = w * size;
+        const uint32_t cnt = off + size <= len ? size : (len > off ? len - off : 0);
+        const int graphH = kWaveH - 30;
+        waveCentre(g, th, kWaveX, kWaveW, kWaveY + graphH / 2);
+        if (cnt) drawWaveData(g, th, a.bank.left(ci) + off, cnt, 0.0f, 1.0f, kWaveX, kWaveY, kWaveW, graphH, th.slot(slot::kWave));
+        const int by = kWaveY + kWaveH - 14;
+        g.fill(kWaveX + 10, by, kWaveW - 20, 1, th.slot(slot::kWave));
+        const int mx = wavetablePositionX();
+        g.fill(mx - 4, by - 3, 8, 7, sel == 1 ? th.accent : th.slot(slot::kWave));
+        wtShown_ = w;
+        headX_ = -1;
+        drawModeList(g, th, mode);
+        return;
+    }
     auto clampX = [](int x) { return x < kWaveX ? kWaveX : (x > kWaveX + kWaveW - 1 ? kWaveX + kWaveW - 1 : x); };
     // Strip under the played part: the loop in the loop modes, start..end
     // in 1-Shot, the whole sample otherwise [S snap 008, 025].
@@ -752,13 +822,7 @@ void PlaybackScreen::draw(Gfx& g) {
     }
     auto inView = [&](int x) { return x >= kWaveX && x < kWaveX + kWaveW; };
     if (mode <= 3) {
-        // spec 13 §H.2: green = the played position lies on a zero crossing;
-        // the selected (or held) point is red.
-        const uint8_t z = zeroMask();
-        auto col = [&](int i) {
-            if (sel == i + 1 || ((heldPoints >> i) & 1)) return th.accent;
-            return (z >> i) & 1 ? th.good : th.slot(slot::kWave);
-        };
+        auto col = [&](int i) { return markerColour(i); };
         auto mark = [&](uint16_t m, int i, int dir, bool loop) {
             const int x = markerX(m, v0, v1);
             if (inView(x)) waveMarker(g, th, x, col(i), dir, !loop, loop, kMarkTop, loop ? kLoopBottom : kMarkBottom);
@@ -778,12 +842,25 @@ void PlaybackScreen::draw(Gfx& g) {
             else g.vline(x, kWaveY, kWaveH, th.yellow);
         }
     } else if (mode == 7) {
-        const int x = markerX(in.granularPosition, v0, v1);
-        if (inView(x)) waveMarker(g, th, x, sel == 1 ? th.accent : th.slot(slot::kWave), 1, true, false,
-                                  kMarkTop, kMarkBottom);
+        // The grain as a blue span (its length) around the blue position
+        // line; the play head is red (manual p.135-136, MANUAL_AUDIT #28).
+        // The position follows the preview voice (LFO / envelope).
+        const uint16_t pos = granularShownPosition();
+        const uint32_t len = a.bank.frames(ci);
+        const uint32_t half = len ? uint32_t(uint64_t(in.grainLength) * 65535u / len / 2) : 0;
+        const int xa = markerX(uint16_t(pos > half ? pos - half : 0), v0, v1);
+        const int xb = markerX(uint16_t(pos + half < 65535u ? pos + half : 65535u), v0, v1);
+        if (xb >= kWaveX && xa < kWaveX + kWaveW) {
+            g.alpha(70);
+            g.fill(clampX(xa), kWaveY, clampX(xb) - clampX(xa) + 1, kWaveH, kGrainColour);
+            g.alpha(255);
+        }
+        const int x = markerX(pos, v0, v1);
+        if (inView(x)) waveMarker(g, th, x, sel == 1 ? th.accent : kGrainColour, 1, true, false, kMarkTop, kMarkBottom);
+        grainShown_ = pos;
     }
     headX_ = playheadX();
-    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, th.good);
+    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, mode == 7 ? th.alert : th.good);
     drawModeList(g, th, mode);
 }
 

@@ -7,6 +7,7 @@
 #include "ui_fakes.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <string>
 
 #include "ui/widgets.h"
@@ -253,6 +254,39 @@ TEST(bottom_strip_and_labels) {
     CHECK(hasRect(p, 0xCD1818, 255, 603, 424, 697, 479));
     CHECK(hasRect(p, 0xCD1818, wg::kEdgeA, 602, 424, 602, 479));
     CHECK(hasRect(p, 0xCD1818, wg::kEdgeA, 603, 423, 697, 423));
+}
+
+// Stock two-line labels (VISUAL_DIFF_1.9.4 §"Two-line grey set"): a name
+// split over two lines ("Export / Song", "New / project") draws both lines
+// grey in font 3; a value stays white in font 2 unless it is too wide for
+// the label ("Line in ST" in the 10-px mono), then it falls back to font 3.
+static std::string fontOf(const std::string& line) {
+    const size_t f = line.find(" f");
+    return f == std::string::npos ? "" : line.substr(f + 1, line.find(' ', f + 1) - f - 1);
+}
+TEST(bar_label_names_and_long_values_use_the_label_font) {
+    RecordingDisplay d;
+    d.customFonts = true;
+    applyFontSet(&d, 0);
+    CHECK(customFontsBound());
+    char f2[8], f3[8];
+    std::snprintf(f2, sizeof(f2), "f%u", unsigned(romFontFor(kFont2)));
+    std::snprintf(f3, sizeof(f3), "f%u", unsigned(romFontFor(kFont3)));
+    Gfx g(d);
+    g.beginFrame(0);
+    wg::BarLabelStyle name;
+    name.nameLines = true;
+    wg::barLabel(g, O(), 0, false, "New", "project", name);
+    wg::BarLabelStyle val;
+    wg::barLabel(g, O(), 1, false, "Source", "Line in ST", val);
+    wg::barLabel(g, O(), 2, false, "Start", "0.000s", val);
+    g.endFrame();
+    const auto& dl = d.last;
+    CHECK(fontOf(textLine(dl, "project")) == f3);
+    CHECK(fontOf(textLine(dl, "Line in ST")) == f3);
+    CHECK(fontOf(textLine(dl, "0.000s")) == f2);
+    d.customFonts = false;
+    applyFontSet(&d, 0);
 }
 
 TEST(panels_lists_value_bars) {

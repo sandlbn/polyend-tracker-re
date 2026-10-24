@@ -384,7 +384,9 @@ void MixerScreen::refreshBar() {
             b.set(1, "LimiterRls", v);
             // Displayed threshold = 20 log10(LIMTHR[v*100/32767] / 32767) (spec 07 Q2).
             const float thr = audio::limiterThreshold(p.u16(pf::kLimThreshold) > 32767 ? 32767 : p.u16(pf::kLimThreshold));
-            std::snprintf(v, sizeof(v), "%.2f dB", thr > 0.0f ? double(20.0f * std::log10(thr)) : -96.0);
+            // Threshold 0 reads "-inf dB" (manual p.243, MANUAL_AUDIT #36).
+            if (thr > 0.0f) std::snprintf(v, sizeof(v), "%.2f dB", double(20.0f * std::log10(thr)));
+            else std::snprintf(v, sizeof(v), "-inf dB");
             b.set(2, "LimiterThr", v);   // "-6.00 dB" [S round 3, snap 008]
             // Read-only meter (spec 06 §4.3): one centred line, no value
             // [S round 3, snap 008].
@@ -535,7 +537,7 @@ void MixerScreen::mixerKey(int i, uint8_t state) {
             static int renameTrack;
             renameTrack = bank * 8 + i;
             trk::name(a, renameTrack, nm, sizeof(nm));
-            ui_.kb.open("Track name", nm, 7, "Enter",
+            ui_.kb.open("Track name", nm, 7, "Save",   // spec 16 §A.16, manual p.69 (MANUAL_AUDIT #17)
                         [](void* ctx, bool ok, const char* text) {
                             if (!ok) return;
                             trk::setName(*static_cast<App*>(ctx), renameTrack, text);

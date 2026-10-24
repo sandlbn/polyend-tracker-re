@@ -220,6 +220,11 @@ private:
     int32_t start_ = 0, end_ = 0, loop1_ = 0, loop2_ = 0;
     // wavetable
     uint32_t wtSize_ = 2048, wtOffset_ = 0;
+public:
+    // Wavetable window the voice plays (Sample Playback view, MANUAL_AUDIT #12).
+    uint32_t wavetableWindow() const { return wtSize_ ? wtOffset_ / wtSize_ : 0; }
+    uint16_t grainPosition() const { return grainPos_; }
+private:
     // granular
     int32_t gStart_ = 0, gEnd_ = 1;
     bool grainDirty_ = false;

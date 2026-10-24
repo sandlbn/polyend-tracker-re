@@ -217,7 +217,7 @@ void RecorderScreen::refreshBar() {
             b.set(2, "", nullptr, sourceOk);
             b.set(3, "", nullptr, sourceOk);
         } else {
-            b.set(3, "Metronome");
+            b.set(3, "Metronome", "Config");   // spec 05 appC §2.3, manual p.195 (MANUAL_AUDIT #29)
         }
         b.set(4, "Level");
         std::snprintf(v, sizeof(v), "%d", a.cfg.recGain[src]);
@@ -632,7 +632,8 @@ void RecorderScreen::onButton(uint8_t id, uint8_t st) {
             case btn::F5: crop(); break;
             case btn::F6: undoCrop(); break;
             case btn::F7:
-                ui_.ask("Sample Recorder", "Changes will be lost. Continue?", nullptr, "Cancel", "Continue",
+                ui_.ask("Sample Recorder", "Changes will be lost. Continue?", nullptr, "Cancel", "Yes",   // manual p.196 (MANUAL_AUDIT #30)
+                       
                         [](void* c, int key) {
                             auto* s = static_cast<RecorderScreen*>(c);
                             if (key != btn::F8) return;

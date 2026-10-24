@@ -299,6 +299,11 @@ public:
     virtual void setCallback(FillFn fn, void* ctx) = 0;
     virtual bool start() = 0;
     virtual void stop() = 0;
+    // Audio output mute line (spec 01 §5.4 pin 21, LOW = muted). start() runs
+    // the audio with the output still muted; the app enables it once the
+    // start-up project has loaded and mutes it around project loads, like
+    // stock (spec 05 §1.9). Default: no mute line.
+    virtual void setOutputEnabled(bool on) { (void)on; }
     // Codec post-processing for the Master EQ (5 band gains -1..1), Bass Boost
     // (0..100) and Space (0..8), spec 18 §1. Main-loop context, called every
     // pass with the project values; the driver writes only what changed. It

@@ -1,6 +1,8 @@
 // Step-FX text for the pattern grid (spec 03 §3.5/§3.6, spec 06 §1.2).
 #include "ui/fx_text.h"
 
+#include "sequencer/seq_tables.h"
+
 #include <cstdio>
 #include <cstring>
 
@@ -76,12 +78,32 @@ const char* const kDescription[kFxCount] = {
     "Amount of overdrive on the note.",   // 38 Overdrive
     "Reduces the bit depth of the note for a crushed sound.",   // 39 Bit Depth
     "Transposes the note in semitones.",   // 40 Tune
-    "Bends the pitch upwards while the note plays. Higher values slide faster.",   // 41 Slide Up
-    "Bends the pitch downwards while the note plays. Higher values slide faster.",   // 42 Slide Down
+    "Slides the pitch up by value/16 semitones over one step (16 = 1 semitone), then holds.",   // 41 Slide Up (manual p.178)
+    "Slides the pitch down by value/16 semitones over one step (16 = 1 semitone), then holds.",   // 42 Slide Down (manual p.179)
 };
 }  // namespace
 
 const char* fxDescription(uint8_t type) { return type < kFxCount ? kDescription[type] : kDescription[0]; }
+
+const char* fxHelpText(uint8_t type) {
+    static char buf[256];
+    const char* d = fxDescription(type);
+    const FxId id = static_cast<FxId>(type);
+    if (type >= kFxCount || id == FxId::None || id == FxId::Off || id == FxId::BreakPattern ||
+        seq::fxMin(type) >= seq::fxMax(type)) {
+        std::snprintf(buf, sizeof(buf), "%s", d);
+        return buf;
+    }
+    char lo[5], hi[5];
+    fxValueText(type, seq::fxMin(type), lo);
+    fxValueText(type, seq::fxMax(type), hi);
+    const char* a = lo;
+    const char* b = hi;
+    while (*a == ' ') ++a;
+    while (*b == ' ') ++b;
+    std::snprintf(buf, sizeof(buf), "%s\n\nFrom %s to %s", d, a, b);
+    return buf;
+}
 
 void fxValueText(uint8_t type, uint8_t v, char out[5]) {
     // At most 3 characters (spec 16 §A.8: symbol + 3-character value).

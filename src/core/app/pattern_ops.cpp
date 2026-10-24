@@ -243,13 +243,20 @@ void writeInstrument(Pattern& p, const SelRect& r, uint8_t instr) {
         }
 }
 
+// The value a step gets when its Fx type changes: the default, inside the
+// engine range (Bit Depth defaulted to 0 below its 4..16; manual p.176,
+// MANUAL_AUDIT_2026-10-23 #9).
+static uint8_t newFxValue(uint8_t type) {
+    return uint8_t(clampi(fxInfo(type).defaultValue, seq::fxMin(type), seq::fxMax(type)));
+}
+
 void writeFxType(Pattern& p, const SelRect& r, int col, uint8_t type) {
     if (!validRect(r) || col < 2) return;
     const int slot = fxSlotForColumn(col);
     for (int t = r.t0; t <= r.t1; ++t)
         for (int s = r.s0; s <= r.s1; ++s) {
             StepFx& f = p.tracks[t].steps[s].fx[slot];
-            if (f.type != type) f.value = fxInfo(type).defaultValue;
+            if (f.type != type) f.value = newFxValue(type);
             f.type = type;
         }
 }
@@ -326,7 +333,7 @@ void stepFxType(Pattern& p, const SelRect& r, int col, int delta) {
             // Wraps to "none" past the end (spec 06 §1.7).
             if (idx >= kFxCount || idx < 0) idx = 0;
             const uint8_t nt = kFxMenuOrder[idx];
-            if (nt != f.type) f.value = fxInfo(nt).defaultValue;
+            if (nt != f.type) f.value = newFxValue(nt);
             f.type = nt;
         }
 }

@@ -22,7 +22,8 @@ namespace ot {
 // firmware entry), so they share it; each list's layout static_asserts that
 // it fits. The largest is Import Mod (200 x 56 names + 200 kinds).
 constexpr size_t kBrowserListBytes = 200 * 56 + 200;
-void* browserListMem();
+extern unsigned char g_browserLists[kBrowserListBytes];   // screens.cpp (.sdram_bss on the device)
+inline void* browserListMem() { return g_browserLists; }
 
 void* createScreens(Ui& ui, App& app, Screen** out);   // returns the owner
 void destroyScreens(void* owner, Screen** screens);
@@ -61,6 +62,8 @@ public:
     int focus = -1;                 // -1 none, 0 pattern, 1 length, 2 step jump, 5 undo, 6 redo
     int page = 0;
     bool fillOpen = false;
+    void fillValueText(int val, char* out) const;   // From/To display text (8 bytes)
+    float fillValueFrac(int val) const;             // From/To bar fraction 0..1
     int fillField = 0;
     pops::FillParams fill[4];
     uint8_t colMask = 0;            // column-view mask (spec 06 §1.9)
@@ -126,7 +129,6 @@ private:
     void fillApply();
     uint8_t fillFxType() const;                // Fx id of the Fill "Fx Type" index (>= 0)
     void clampFillValues();                    // From/To into the chosen Fx's range
-    void fillValueText(int val, char* out) const;   // From/To display text (8 bytes)
     void pageButton(int f, uint8_t state);
     void drawGrid(Gfx& g);
     void drawGridVertical(Gfx& g, bool threeTracks);
@@ -571,9 +573,21 @@ public:
     // auditioned voice's play position in the waveform, -1 when none shows.
     static constexpr uint32_t kHeadPollMs = 5;
     int playheadX() const;
+    // Wavetable mode (manual p.130-131, spec 05 appB §1.4d): the window shown
+    // (the preview voice's, so an LFO animates it; else the instrument's) and
+    // the x of its marker on the position bar (-1 when not in Wavetable).
+    uint32_t wavetableShownWindow() const;
+    uint16_t granularShownPosition() const;   // Granular: the preview voice's grain position, else the instrument's
+    static constexpr uint32_t kGrainColour = 0x5A8CDC;   // the manual's blue grain (p.135) [OT shade]
+    int wavetablePositionX() const;
+    uint32_t wtShown_ = 0xFFFFFFFFu;
+    uint16_t grainShown_ = 0;   // wavetable window last drawn (update redraws on change)
     int drawnHeadX() const { return headX_; }
     // Marker-on-crossing bits (spec 13 §H.2, obj+0xab3): same order as heldPoints.
     uint8_t zeroMask() const;
+    // Marker i (0 start, 1 loop 1, 2 loop 2, 3 end): green on a zero crossing,
+    // else red when selected / held, else the wave colour.
+    uint32_t markerColour(int i) const;
     // Slice operations (appendix B §1.10) on the current instrument.
     void addSlice();
     void removeSlice();
@@ -666,6 +680,7 @@ private:
     uint8_t trackCcVal_[8] = {};
     uint8_t lastPattern_ = 0;
     uint32_t lastPoll_ = 0, lastLabels_ = 0;
+    bool blinkOn_ = true;          // queued-pattern label blink phase
     bool labelsDirty_ = false;
     KeepAlive keepAlive_ = KeepAlive::None;
     uint32_t keepEnds_ = 0;     // App::patternEndCount() when UntilPatternEnd began

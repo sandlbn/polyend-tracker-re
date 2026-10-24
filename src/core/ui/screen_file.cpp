@@ -63,8 +63,8 @@ enum : uint8_t { kMbUp = 0, kMbFolder = 1, kMbFile = 2 };
 char g_modPath[ProjectBrowser::kPathMax + 1] = "Mod";
 // In browserListMem() (screens.h): names, then the kinds.
 static_assert(kModEntries * (kModNameCap + 1) <= kBrowserListBytes, "Import Mod list");
-char (*const g_modNames)[kModNameCap] = static_cast<char (*)[kModNameCap]>(browserListMem());
-uint8_t* const g_modKinds = static_cast<uint8_t*>(browserListMem()) + kModEntries * kModNameCap;
+char (*const g_modNames)[kModNameCap] = reinterpret_cast<char (*)[kModNameCap]>(g_browserLists);
+uint8_t* const g_modKinds = g_browserLists + kModEntries * kModNameCap;
 int g_modCount = 0;
 OT_SDRAM_BSS char g_importPath[ProjectBrowser::kPathMax + kModNameCap + 2];
 char g_importName[kModNameCap];
@@ -305,7 +305,7 @@ void FileScreen::refreshBar() {
     BottomBar& b = ui_.bar;
     b.clear();
     if (state == 0) {
-        b.set(0, "New", "project");
+        b.setName(0, "New", "project");
         b.set(1, "Open");
         b.set(2, "Import Mod");
         b.set(3, "Save");
@@ -330,12 +330,12 @@ void FileScreen::refreshBar() {
         b.set(6, "Cancel");
         b.set(7, "Import", nullptr, modIsFile(cursor));
     } else if (state == 4) {
-        b.set(0, "Export", "Song");
-        b.set(1, "Export", "Song Stems");
-        b.set(2, "Export", "Pattern");
-        b.set(3, "Export", "Patt Stems");   // [S snap 027]
-        b.set(4, "Export", "As .it");
-        b.set(5, "Export", "Samples");
+        b.setName(0, "Export", "Song");
+        b.setName(1, "Export", "Song Stems");
+        b.setName(2, "Export", "Pattern");
+        b.setName(3, "Export", "Patt Stems");   // [S snap 027]
+        b.setName(4, "Export", "As .it");
+        b.setName(5, "Export", "Samples");
         b.set(7, "Back");
         // Two-line grey set (+0x44): both lines font 3, drawn by draw()
         // [S snap 027]; the labels keep their text and enable state.

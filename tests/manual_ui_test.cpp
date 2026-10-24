@@ -199,7 +199,9 @@ TEST(fill_window_lists_and_labels) {
     CHECK(std::string(fxInfo(kFxMenuOrder[p.fill[2].scaleOrFx]).name) == "Panning");
     h.tap(btn::F5);
     for (int i = 0; i < 30; ++i) h.enc(-10);
-    CHECK(std::string(a.ui.bar.label[4].bottom) == "0");   // plain number (spec 16 §B.3)
+    // Panning at its minimum reads -50 as in the grid (manual p.87; spec 16
+    // §B.3 "a number" is ambiguous; MANUAL_AUDIT_2026-10-23 #8).
+    CHECK(std::string(a.ui.bar.label[4].bottom) == "-50");
     CHECK(std::string(a.ui.bar.label[4].top) == "Fx Value");
     h.tap(btn::F7);
 }
@@ -594,4 +596,41 @@ TEST(track_mixer_meters_restart_empty) {
     h.tap(btn::Master);
     CHECK_EQ(m.meter[0], 0);
     CHECK_EQ(m.meterHold[0], 0);
+}
+
+TEST(hold_master_and_up_down_from_pattern_sets_master_volume) {
+    // MANUAL_AUDIT_2026-10-23 #3 (manual p.16: "Alternatively the [Up] and
+    // [Down] buttons can be used instead of the Jog wheel"): held from another
+    // page, Up / Down act on the Master hold state (main page, volume) even
+    // before the hold tick, like the Jog; the Master screen was last left on
+    // the Track Mixer here.
+    Harness h;
+    App& a = *h.app;
+    MixerScreen& m = *static_cast<MixerScreen*>(a.ui.screen(kModMaster));
+    h.tap(btn::Master);
+    m.page = 1;
+    h.tap(btn::Pattern);
+    const uint8_t v0 = a.cfg.masterVolume;
+    h.down(btn::Master);
+    h.tap(btn::Down);
+    CHECK_EQ(int(a.cfg.masterVolume), int(v0) - 1);
+    h.tap(btn::Up);
+    h.tap(btn::Up);
+    CHECK_EQ(int(a.cfg.masterVolume), int(v0) + 1);
+    h.up(btn::Master);
+}
+
+TEST(hold_song_with_another_key_still_returns_on_release) {
+    // MANUAL_AUDIT_2026-10-23 #21 (manual p.225 "reverting back ... when
+    // [Song] is released"; spec 16 §A.7): Song held from Pattern, Down pressed
+    // inside the 333 ms window, still held past the hold tick: the release
+    // returns to Pattern.
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.ui.active() == kModPattern);
+    h.down(btn::Song);
+    h.tap(btn::Down);
+    h.run(400);
+    h.up(btn::Song);
+    CHECK(a.ui.active() == kModPattern);
 }

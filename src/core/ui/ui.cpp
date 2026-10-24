@@ -90,6 +90,12 @@ void BottomBar::set(int i, const char* top, const char* bottom, bool enabled) {
     l.wide = false;
     l.hidden = false;
     l.highlight = false;
+    l.name = false;
+}
+
+void BottomBar::setName(int i, const char* line1, const char* line2, bool enabled) {
+    set(i, line1, line2, enabled);
+    if (i >= 0 && i < 8) label[i].name = true;
 }
 
 void BottomBar::setWide(int i, const char* top, const char* bottom, bool enabled) {
@@ -135,6 +141,7 @@ void BottomBar::drawLabels(Gfx& g, const Theme& th) const {
         st.pages = l.pages;
         st.page = l.page;
         st.dotOff = l.dotOff;
+        st.nameLines = l.name;
         st.topAligned = labelStrip;
         wg::barLabel(g, th, i, l.wide, l.top, l.bottom, st);
     }
@@ -802,7 +809,11 @@ void Ui::handle(const InputEvent& ev, uint32_t now) {
 void Ui::dispatchButton(uint8_t id, uint8_t state) {
     Screen* s = current();
     if (!s || progressOpen_) return;
-    if (state == kPress && id != enterKey_) deliverEnteringKey();
+    // Up / Down while Master is held act on its hold state like the Jog
+    // (manual p.16; MANUAL_AUDIT_2026-10-23 #3).
+    if (state == kPress && id != enterKey_)
+        deliverEnteringKey(enterKey_ == btn::Master && (id == btn::Up || id == btn::Down));
+    if (state == kRelease && id == btn::Song) songHandedEarly_ = false;
     if (state == kRelease && id == enterKey_) enterKey_ = 0;
     // Releases only go to the screen that received the press.
     if (state == kPress) pressGen_[id] = gen_;
@@ -910,6 +921,9 @@ void Ui::deliverEnteringKey(bool asHold) {
         return;
     pressGen_[id] = gen_;   // its hold tick and release now reach the screen
     s->onButton(id, kPress);
+    // Song entered from another page and handed over early (another key
+    // inside the hold window): its hold tick still makes it temporary.
+    if (id == btn::Song && !asHold) songHandedEarly_ = true;
     if (asHold && !((holdSent_ >> id) & 1)) {
         holdSent_ |= 1ull << id;
         s->onButton(id, kHold);
@@ -988,12 +1002,13 @@ void Ui::update(uint32_t now) {
         if (!isDown(id) || btn::autoRepeats(id) || ((holdSent_ >> id) & 1)) continue;
         if (now - downAt_[id] >= kHoldMs) {
             holdSent_ |= 1ull << id;
-            if (id == enterKey_) {
-                deliverEnteringKey();
-                // spec 16 §A.7: Song held from another page shows it only
-                // temporarily; the release returns to the previous page.
-                if (id == btn::Song && pressGen_[id] == gen_) songTemporary_ = true;
-            }
+            const bool entering = id == enterKey_;
+            if (entering) deliverEnteringKey();
+            // spec 16 §A.7: Song held from another page shows it only
+            // temporarily; the release returns to the previous page (also
+            // when another key handed the press over early; MANUAL_AUDIT #21).
+            if (id == btn::Song && (entering || songHandedEarly_) && pressGen_[id] == gen_) songTemporary_ = true;
+            if (id == btn::Song) songHandedEarly_ = false;
             if (pressGen_[id] == gen_ && !askOpen_ && !progressOpen_ && !kb.isOpen() && !powerOpen_ &&
                 !factory.active() && !usb.active()) {
                 Screen* s = current();

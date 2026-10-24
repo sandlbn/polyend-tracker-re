@@ -3,6 +3,7 @@
 // one-level undo, and the length limits.
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 #include "test.h"
 #include "ui_fakes.h"
@@ -36,7 +37,12 @@ std::vector<int16_t> slot0(App& a) { return std::vector<int16_t>(a.bank.left(0),
 TEST(sfx_catalogue_and_dsp) {
     // spec 06 §6.4: 17 effects; parameter counts and defaults.
     CHECK_STR(sfx::effect(0).name, "Normalizer");
-    CHECK_STR(sfx::effect(16).name, "Fade out");
+    // Title case as in the stock list (manual p.207, STRINGS_DIFF_1.9.3 §4;
+    // MANUAL_AUDIT_2026-10-23 #31).
+    CHECK_STR(sfx::effect(13).name, "Timestretch Beat");
+    CHECK_STR(sfx::effect(14).name, "Timestretch Note");
+    CHECK_STR(sfx::effect(15).name, "Fade In");
+    CHECK_STR(sfx::effect(16).name, "Fade Out");
     const int counts[17] = {1, 0, 0, 1, 2, 2, 2, 2, 4, 9, 3, 4, 2, 4, 2, 0, 0};
     for (int e = 0; e < sfx::kEffectCount; ++e) CHECK_EQ(sfx::effect(e).params, counts[e]);
     float p[9];
@@ -415,4 +421,65 @@ TEST(editor_preview_shows_a_playhead) {
     h.push(InputEvent::kPadUp, 0);
     h.run(10);
     CHECK(e.playheadFrac() < 0.0f);
+}
+
+TEST(editor_timestretch_length_starts_at_the_sample_length) {
+    // MANUAL_AUDIT_2026-10-23 #14 (manual p.218: Timestretch Note "Length
+    // 3.198 s" = the sample's length): the Length starts at the sample's
+    // length (clamped to 0.1..8 s), not 1.00 s.
+    Harness h(true, 400000);
+    App& a = *h.app;
+    addNoise(h, "n.wav", 3 * 44100 / 2);   // 1.5 s
+    CHECK(a.importSample("n.wav", 0));
+    a.setCurrentInstrument(0);
+    h.tap(btn::SampleEditor);
+    CHECK(std::fabs(ed(h).params[sfx::kStretchNote][0] - 1.5f) < 0.011f);
+}
+
+TEST(editor_db_values_show_their_step) {
+    // MANUAL_AUDIT_2026-10-23 #15 (manual p.213 "Low 0.00 dB"; thresholds
+    // "-6 dB"): EQ gains step 0.05 dB and show two decimals; the 1-dB
+    // thresholds show whole dB.
+    char a[24], b[24];
+    sfx::formatParam(sfx::kEqualizer, 0, 0.05f, a, sizeof(a));
+    sfx::formatParam(sfx::kEqualizer, 0, 0.10f, b, sizeof(b));
+    CHECK(std::string(a) == "0.05 dB");
+    CHECK(std::string(b) == "0.10 dB");
+    sfx::formatParam(sfx::kLimiter, 0, -6.0f, a, sizeof(a));
+    CHECK(std::string(a) == "-6 dB");
+}
+
+TEST(loader_memory_bar_shows_the_change_in_colour) {
+    // MANUAL_AUDIT_2026-10-23 #20 (manual p.44-45: "red element if memory will
+    // increase and green bar if memory will decrease").
+    Harness h(true, 2000000);
+    App& a = *h.app;
+    addNoise(h, "big.wav", 88200);
+    addNoise(h, "small.wav", 4410);
+    CHECK(a.importSample("big.wav", 0));    // slot 1 holds the big sample
+    h.tap(btn::SampleLoader);
+    h.run(2000);
+    LoaderScreen& l = *static_cast<LoaderScreen*>(a.ui.screen(kModLoader));
+    auto pointAt = [&](const char* name, int slot) {
+        l.insCursor = slot;
+        int idx = -1;
+        for (int i = 0; i < l.count; ++i)
+            if (std::strcmp(l.entries[i], name) == 0) idx = i;
+        CHECK(idx >= 0);
+        for (int g = 0; g < 200 && l.sdCursor != idx; ++g) h.tap(l.sdCursor < idx ? btn::Down : btn::Up);
+        h.run(500);
+        a.ui.dirty();
+        h.run(40);
+    };
+    auto hasColour = [&](uint32_t c) {
+        char want[16];
+        std::snprintf(want, sizeof(want), "COLOR %06X", unsigned(c & 0xFFFFFF));
+        for (const std::string& s : h.disp.last)
+            if (s == want) return true;
+        return false;
+    };
+    pointAt("big.wav", 2);    // into an empty slot: memory grows
+    CHECK(hasColour(a.ui.th().alert));
+    pointAt("small.wav", 0);  // replaces the big sample: memory shrinks
+    CHECK(hasColour(a.ui.th().good));
 }

@@ -5,6 +5,9 @@
 #include "ui_fakes.h"
 
 #include "ui/screens.h"
+#include "ui/widgets.h"
+
+#include <cmath>
 
 using namespace ot;
 
@@ -155,4 +158,79 @@ TEST(pattern_cursor_red_while_recording) {
     h.tap(btn::Play);   // stop
     h.run(20);
     CHECK(!pe(h).recordCursor());
+}
+
+TEST(fill_instruments_show_grid_codes_and_names) {
+    // USER_REPORTS_R3 R3-5 (2.x): the Fill Instruments From / To values were
+    // bare numbers 1..66 (stock style); they now read like the grid (07, M01,
+    // S1) and the header names the From / To instruments.
+    Harness h;
+    App& a = *h.app;
+    char v[8];
+    pe(h).col = 1;
+    pe(h).fillValueText(6, v);
+    CHECK(std::string(v) == "07");
+    pe(h).fillValueText(kFirstMidiInstrument, v);
+    CHECK(std::string(v) == "M01");
+    pe(h).fillValueText(kFirstMidiInstrument + 15, v);
+    CHECK(std::string(v) == "M16");
+    pe(h).fillValueText(kInstrumentCount, v);
+    CHECK(std::string(v) == "S1");
+    std::snprintf(a.instruments[6].name, sizeof(a.instruments[6].name), "Kick");
+    a.instrPresent[6] = true;
+    h.tap(btn::Rec);
+    pe(h).col = 1;
+    h.tap(btn::F4);   // Fill
+    CHECK(pe(h).fillOpen);
+    pe(h).fill[1].from = 6;
+    render(h);
+    CHECK(hasText(h, "From 07 Kick"));
+}
+
+TEST(fill_fx_values_read_like_the_grid) {
+    // MANUAL_AUDIT_2026-10-23 #8 (manual p.87 / 92: Fill Fx Panning "From -50
+    // ... To 50"): Fx From / To show the Fx's display value, not the raw byte.
+    Harness h;
+    int idx = -1;
+    for (int i = 0; i < kFxCount; ++i)
+        if (kFxMenuOrder[i] == uint8_t(FxId::Panning)) idx = i;
+    CHECK(idx >= 0);
+    pe(h).col = 2;
+    pe(h).fill[2].scaleOrFx = int8_t(idx);
+    char v[8];
+    pe(h).fillValueText(0, v);
+    CHECK(std::string(v) == "-50");
+    pe(h).fillValueText(100, v);
+    CHECK(std::string(v) == "50");
+    pe(h).fill[2].scaleOrFx = -1;   // random type: plain number
+    pe(h).fillValueText(7, v);
+    CHECK(std::string(v) == "7");
+}
+
+TEST(popup_left_right_page_through_lists) {
+    // MANUAL_AUDIT_2026-10-23 #19 (manual p.101 "[Left]/[Right] to scroll by
+    // page of slots"; p.103 FX popup "large steps"): list popups page.
+    Harness h;
+    h.down(btn::Instr);
+    h.run(250);
+    CHECK(pe(h).popup().isOpen());
+    const int c0 = pe(h).popup().cursor();
+    h.tap(btn::Right);
+    CHECK_EQ(pe(h).popup().cursor(), c0 + wg::listVisibleRows(394));
+    h.tap(btn::Left);
+    CHECK_EQ(pe(h).popup().cursor(), c0);
+    h.up(btn::Instr);
+}
+
+TEST(fill_fx_bar_uses_the_engine_range) {
+    // MANUAL_AUDIT_2026-10-23 #24: the Fill Fx From / To bar fraction uses
+    // the engine range (seq::fxMin/fxMax), not the file-format table.
+    Harness h;
+    int idx = -1;
+    for (int i = 0; i < kFxCount; ++i)
+        if (kFxMenuOrder[i] == uint8_t(FxId::BitDepth)) idx = i;
+    pe(h).col = 2;
+    pe(h).fill[2].scaleOrFx = int8_t(idx);
+    CHECK(std::fabs(pe(h).fillValueFrac(4) - 0.0f) < 1e-6f);    // 4 bits = the bottom
+    CHECK(std::fabs(pe(h).fillValueFrac(16) - 1.0f) < 1e-6f);
 }

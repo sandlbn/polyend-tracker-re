@@ -90,6 +90,7 @@ TEST(recorder_record_trim_crop_undo) {
     // Cancel (b6) asks; Continue discards and returns to the setup state.
     h.tap(btn::F7);
     CHECK(a.ui.askOpen());
+    CHECK(h.disp.lastHasText("Yes"));   // manual p.196 "Confirm cancel with [Yes]" (MANUAL_AUDIT #30)
     h.tap(btn::F8);
     CHECK_EQ(r.state, 0);
 }
@@ -797,4 +798,16 @@ TEST(recorder_preview_shows_a_playhead) {
     h.up(btn::F1);
     h.run(10);
     CHECK_EQ(r.playheadX(), -1);
+}
+
+TEST(recorder_metronome_label_two_lines) {
+    // Manual p.195-196 / spec 05 appC §2.3: F4 "Metronome / Config"
+    // (MANUAL_AUDIT_2026-10-23 #29).
+    Harness h;
+    h.tap(btn::SampleRecorder);
+    const BarLabel& l = h.app->ui.bar.label[3];
+    if (l.top[0]) {
+        CHECK(std::string(l.top) == "Metronome");
+        CHECK(std::string(l.bottom) == "Config");
+    }
 }

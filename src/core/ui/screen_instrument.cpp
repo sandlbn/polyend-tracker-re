@@ -94,6 +94,21 @@ void listColumn(Gfx& g, const Theme& th, int col, int span, const char* const* i
     wg::list(g, th, v);
 }
 
+// MIDI instrument CC A-F: 131-item lists of CC names (spec 19 §4, manual
+// p.256-261; MANUAL_AUDIT_2026-10-23 #6).
+void ccItem(void*, int i, char* out, int cap) { midicc::ccValueName(i, out, cap); }
+void ccListColumn(Gfx& g, const Theme& th, int col, int sel) {
+    wg::ListView v;
+    v.x = wg::columnX(col);
+    v.w = wg::columnW(1);
+    v.count = midicc::kCcValueCount;
+    v.sel = sel;
+    v.top = wg::listFollow(sel, v.count, wg::listVisibleRows(v.h), 0);
+    v.selStyle = wg::ListSel::kWhite;
+    v.item = ccItem;
+    wg::list(g, th, v);
+}
+
 int firstRow(int sel, int count) {
     int f = sel - kMapRows / 2;
     if (f > count - kMapRows) f = count - kMapRows;
@@ -626,7 +641,7 @@ void InstrumentScreen::drawMapping(Gfx& g) {
     const Theme& th = ui_.th();
     char sub[48], row[48];
     const int mi = clampi(a.ccMapInstrument, 0, kSampleInstrumentCount - 1);
-    std::snprintf(sub, sizeof(sub), "%02d %s", mi + 1, a.instrPresent[mi] ? a.instruments[mi].name : "(empty)");
+    std::snprintf(sub, sizeof(sub), "%d. %s", mi + 1, a.instrPresent[mi] ? a.instruments[mi].name : "(empty)");
     ui_.drawTitle(g, "Instrument MIDI Mapping", sub);
     // Hint text box (appendix C §2, x=10 y=30 w=780 h=30). SPEC GAP: wording.
     g.text(10, 45, kFontSmall, a.seq.isPlaying() ? th.alert : th.dim,
@@ -638,9 +653,9 @@ void InstrumentScreen::drawMapping(Gfx& g) {
         const int i = first + r;
         const int y = 80 + 4 + r * kMapRowH;
         if (i == ccScroll) g.fill(3, y, 393, kMapRowH - 2, column == 0 ? th.accent : th.panel2);
-        std::snprintf(row, sizeof(row), "CC %d", midicc::kCcList[i].cc);
+        // "Name = CC" (spec 16 §A.13, manual p.265).
+        std::snprintf(row, sizeof(row), "%s = %d", midicc::kCcList[i].label, midicc::kCcList[i].cc);
         g.text(12, y + kMapRowH / 2, kFontText, th.text, row, IDisplay::kOptCenterY);
-        g.text(100, y + kMapRowH / 2, kFontText, th.text, midicc::kCcList[i].label, IDisplay::kOptCenterY);
     }
     // Right pane: the 48 sample instruments (x=401 y=80 w=297 h=335).
     g.fill(401, 80, 297, 335, th.panelDark);
@@ -674,7 +689,7 @@ void InstrumentScreen::draw(Gfx& g) {
     else std::snprintf(title, sizeof(title), "Instrument Parameters 1/2");
     if (ci < kSampleInstrumentCount) std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instrPresent[ci] ? a.instruments[ci].name : "(empty)");
     else if (isSynthInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
-    else std::snprintf(sub, sizeof(sub), "MIDI %d", ci - 47);
+    else std::snprintf(sub, sizeof(sub), "%d. MIDI Channel %d", ci + 1, ci - kFirstMidiInstrument + 1);
     ui_.drawTitle(g, title, sub);
     char v[24];
     float fr;
@@ -716,6 +731,11 @@ void InstrumentScreen::draw(Gfx& g) {
             if (mode == 0 && !effects && c == 4) {
                 const int ft = in.filterEnabled ? in.filterType + 1 : 0;
                 listColumn(g, th, c, 1, kFilterNames, 4, clampi(ft, 0, 3));
+                continue;
+            }
+            if (mode == 3 && c >= 2) {
+                const MidiInstrument m = a.project.midiInstrument(ci - kFirstMidiInstrument);
+                ccListColumn(g, th, c, clampi(m.cc[c - 2], 0, midicc::kCcValueCount - 1));
                 continue;
             }
             valueText(c, v, sizeof(v), &fr, &bi);

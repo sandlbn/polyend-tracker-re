@@ -50,7 +50,8 @@ enum Fmt : uint8_t {
     kFmtMsF,        // "%.1f ms"
     kFmtHz,         // "%d Hz"
     kFmtHzF,        // "%.1f Hz"
-    kFmtDb,         // "%.1f dB" / "%d dB"
+    kFmtDb,         // "%d dB" (1-dB steps: thresholds)
+    kFmtDb2,        // "%.2f dB" (0.05-dB steps: EQ gains)
     kFmtSamplesMs,  // samples shown in ms (x 1000 / 44100)
     kFmtQuarter,    // shown x0.25
     kFmtSeconds,    // "%.2f s"

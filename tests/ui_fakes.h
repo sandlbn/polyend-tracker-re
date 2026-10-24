@@ -422,6 +422,10 @@ public:
     }
     bool start() override { return started = true; }
     void stop() override { started = false; }
+    // Output mute line (pin 21): history of setOutputEnabled calls, 1 = on.
+    std::vector<int> outputLog;
+    bool outputOn() const { return !outputLog.empty() && outputLog.back() == 1; }
+    void setOutputEnabled(bool on) override { outputLog.push_back(on ? 1 : 0); }
     // Last Master EQ / Bass Boost / Space push (spec 18 §1) and the call count.
     float dspEq[5] = {0, 0, 0, 0, 0};
     uint8_t dspBass = 0, dspSpace = 0;

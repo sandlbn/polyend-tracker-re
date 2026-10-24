@@ -193,3 +193,94 @@ TEST(midi_note_step_entry_with_a_synth_instrument) {
         CHECK(a.pattern().tracks[r.t0 + 1].steps[r.s0].note == 67);
     }
 }
+
+TEST(pad_audition_midi_instrument_uses_its_channel) {
+    // USER_REPORTS_R3 R3-6: with playback stopped, the pads played MIDI
+    // instrument M01 and M02 on channel 1 and M16 on channel 15 (the record's
+    // 0-based channel byte was read as 1-based). Mn plays on channel n, like
+    // the sequencer (spec 03 §4.4).
+    Harness h;
+    App& a = *h.app;
+    a.cfg.midiOut = 3;
+    for (int i = 0; i < 8; ++i) h.tap(btn::Right);
+    for (int k = 0; k < 16; ++k) {
+        a.setCurrentInstrument(uint8_t(kFirstMidiInstrument + k));
+        h.midi.sent.clear();
+        h.pad(12);
+        bool on = false;
+        for (size_t i = 0; i + 2 < h.midi.sent.size(); ++i)
+            if ((h.midi.sent[i] & 0xF0) == 0x90 && h.midi.sent[i + 2] > 0) {
+                CHECK_EQ(int(h.midi.sent[i] & 15), k);
+                if ((h.midi.sent[i] & 15) != k) std::printf("       M%02d -> channel %d\n", k + 1, (h.midi.sent[i] & 15) + 1);
+                on = true;
+                break;
+            }
+        CHECK(on);
+    }
+}
+
+TEST(live_record_velocity_keeps_full_scale) {
+    // MANUAL_AUDIT_2026-10-23 #1 (manual p.258, spec 03 §5.2 / 17 §1.4 step 7):
+    // Recording options = Velocity, a full-velocity pad on a volume-100
+    // instrument records Volume 100, not 79 (the instrument volume 0..100 was
+    // used where the formula expects 0..127).
+    Harness h;
+    App& a = *h.app;
+    a.cfg.recordingOptions = 2;
+    a.applySequencerSettings();
+    a.instruments[0].volume = 100;
+    a.setCurrentInstrument(0);
+    h.down(btn::Rec);
+    h.tap(btn::Play);
+    h.up(btn::Rec);
+    for (int i = 0; i < 20 && !a.seq.isPlaying(); ++i) { h.audio.pump(4); h.run(10); }
+    CHECK(a.seq.isPlaying());
+    h.pad(12);
+    int vol = -1;
+    for (int s = 0; s < 128 && vol < 0; ++s) {
+        const Step& st = a.pattern().tracks[0].steps[s];
+        if (st.note >= 0 && st.fx[0].type == 18) vol = st.fx[0].value;
+    }
+    CHECK_EQ(vol, 100);
+}
+
+TEST(slice_mode_pads_follow_the_pad_layout) {
+    // MANUAL_AUDIT_2026-10-23 #2 (manual p.126; spec 05 §4.1, 06 §1.6: the
+    // 24 + pad map is for play mode 5 only): Slice pads play the selected
+    // slice melodically through the pad layout; Beat Slice pads = slices.
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(0);
+    a.instruments[0].playMode = uint8_t(PlayMode::OneShot);
+    const uint8_t layout0 = a.padNote(0), layout12 = a.padNote(12);
+    a.instruments[0].playMode = uint8_t(PlayMode::Slice);
+    CHECK_EQ(int(a.padNote(0)), int(layout0));
+    CHECK_EQ(int(a.padNote(12)), int(layout12));
+    a.instruments[0].playMode = uint8_t(PlayMode::BeatSlice);
+    CHECK_EQ(int(a.padNote(0)), 24);
+    CHECK_EQ(int(a.padNote(12)), 36);
+}
+
+TEST(instr_column_live_record_writes_no_off) {
+    // MANUAL_AUDIT_2026-10-23 #4 (manual p.95: with [Instrument] or [FX]
+    // "A 'Note Off' value is not recorded"): recording on the Instr column
+    // writes the note-60 step but no OFF on the pad release.
+    Harness h;
+    App& a = *h.app;
+    pe(h).col = 1;
+    h.down(btn::Rec);
+    h.tap(btn::Play);
+    h.up(btn::Rec);
+    for (int i = 0; i < 20 && !a.seq.isPlaying(); ++i) { h.audio.pump(4); h.run(10); }
+    CHECK(a.seq.isPlaying());
+    h.pad(5);
+    for (int i = 0; i < 10; ++i) { h.audio.pump(4); h.run(10); }
+    int notes = 0, offs = 0;
+    for (int s = 0; s < 128; ++s) {
+        const Step& st = a.pattern().tracks[0].steps[s];
+        if (st.note >= 0) ++notes;
+        if (st.note == kNoteOff) ++offs;
+    }
+    CHECK_EQ(notes, 1);
+    CHECK_EQ(offs, 0);
+}

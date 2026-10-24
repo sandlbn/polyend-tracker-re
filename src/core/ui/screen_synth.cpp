@@ -205,8 +205,8 @@ void SynthScreen::refreshBar() {
             b.set(4, "Reverb Send", v, !ro);
             synthui::sendText(r.delaySend, v, sizeof(v));
             b.set(5, "Delay Send", v, !ro);
-            b.set(6, "Load", "Patch", !ro);
-            b.set(7, "Edit", "Patch");
+            b.setName(6, "Load", "Patch", !ro);
+            b.setName(7, "Edit", "Patch");
             b.highlight(param, true);
             break;
         }
@@ -231,7 +231,7 @@ void SynthScreen::refreshBar() {
             // arrows are drawn by drawEdit).
             b.set(0, "Save", nullptr, !ro);
             b.set(1, "Save As", nullptr, !ro);
-            b.set(2, "Init", "Patch", !ro);
+            b.setName(2, "Init", "Patch", !ro);
             b.label[3].hidden = b.label[4].hidden = b.label[6].hidden = true;
             const synthui::Section* sec = nullptr;
             const int n = synthui::sections(engine(), &sec);
@@ -677,9 +677,10 @@ void SynthScreen::savePatchAs() {
 
 void instrumentChooserItem(void* ctx, int i, char* out, int cap) {
     App* a = static_cast<App*>(ctx);
+    // "N. name" / "N. MIDI Channel n" (manual p.256 / 265; MANUAL_AUDIT #26).
     if (i < kSampleInstrumentCount)
-        std::snprintf(out, size_t(cap), "%02d %s", i + 1, a->instrPresent[i] ? a->instruments[i].name : "");
-    else if (i < kInstrumentCount) std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
+        std::snprintf(out, size_t(cap), "%d. %s", i + 1, a->instrPresent[i] ? a->instruments[i].name : "");
+    else if (i < kInstrumentCount) std::snprintf(out, size_t(cap), "%d. MIDI Channel %d", i + 1, i - kFirstMidiInstrument + 1);
     else synthui::slotLabel(*a, i - kFirstSynthInstrument, out, cap);
 }
 

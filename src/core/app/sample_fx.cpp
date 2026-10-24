@@ -39,13 +39,13 @@ const EffectDesc kEffects[kEffectCount] = {
       {"Rate", 0.1f, 5, 0.1f, 1, kFmtHzF, nullptr}}},
     {"Equalizer",
      9,
-     {{"Low gain", -12, 12, 0.05f, 0, kFmtDb, nullptr},
+     {{"Low gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
       {"Low freq", 10, 200, 1, 80, kFmtHz, nullptr},
       {"Low width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
-      {"Mid gain", -12, 12, 0.05f, 0, kFmtDb, nullptr},
+      {"Mid gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
       {"Mid freq", 100, 8000, 10, 800, kFmtHz, nullptr},
       {"Mid width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr},
-      {"High gain", -12, 12, 0.05f, 0, kFmtDb, nullptr},
+      {"High gain", -12, 12, 0.05f, 0, kFmtDb2, nullptr},
       {"High freq", 8000, 20000, 100, 12000, kFmtHz, nullptr},
       {"High width", 0.5f, 5, 0.05f, 1, kFmtFloat2, nullptr}}},
     {"Limiter",
@@ -63,16 +63,16 @@ const EffectDesc kEffects[kEffectCount] = {
      2,
      {{"Window Num", 1, 256, 1, 256, kFmtInt, nullptr}, {"Window Len", 1, 2048, 1, 2048, kFmtInt, nullptr}}},
     // SPEC GAP: no default tempo in the table; 120 BPM (the screen sets the project tempo on entry).
-    {"Timestretch beat",
+    {"Timestretch Beat",
      4,
      {{"Tempo", 40, 800, 1, 120, kFmtBpm, nullptr},
       {"Steps", 1, 64, 1, 16, kFmtInt, nullptr},
       {"Micro-step", 0, 1, 0.01f, 0, kFmtFloat2, nullptr},
       {"Granule", 1, 10, 1, 4, kFmtQuarter, nullptr}}},
     // SPEC GAP: no default length; 1.00 s.
-    {"Timestretch note", 2, {{"Length", 0.1f, 8, 0.01f, 1, kFmtSeconds, nullptr}, {"Granule", 10, 1000, 1, 100, kFmtMs, nullptr}}},
-    {"Fade in", 0, {}},
-    {"Fade out", 0, {}},
+    {"Timestretch Note", 2, {{"Length", 0.1f, 8, 0.01f, 1, kFmtSeconds, nullptr}, {"Granule", 10, 1000, 1, 100, kFmtMs, nullptr}}},
+    {"Fade In", 0, {}},
+    {"Fade Out", 0, {}},
 };
 
 // y = sat(trunc(v)): the stock results truncate toward zero and saturate to
@@ -248,7 +248,10 @@ void formatParam(int fx, int i, float v, char* out, int cap) {
         case kFmtMsF: std::snprintf(out, c, "%.1f ms", double(v)); break;
         case kFmtHz: std::snprintf(out, c, "%d Hz", int(std::lround(v))); break;
         case kFmtHzF: std::snprintf(out, c, "%.1f Hz", double(v)); break;
-        case kFmtDb: std::snprintf(out, c, "%.1f dB", double(v)); break;
+        // EQ gains step 0.05 dB: two decimals; thresholds step 1 dB (manual
+        // p.213, MANUAL_AUDIT_2026-10-23 #15).
+        case kFmtDb: std::snprintf(out, c, "%d dB", int(std::lround(v))); break;
+        case kFmtDb2: std::snprintf(out, c, "%.2f dB", double(v)); break;
         case kFmtSamplesMs: std::snprintf(out, c, "%.1f ms", double(v * 1000.0f / kRate)); break;
         case kFmtQuarter: std::snprintf(out, c, "%.2f", double(v * 0.25f)); break;
         case kFmtSeconds: std::snprintf(out, c, "%.2f s", double(v)); break;

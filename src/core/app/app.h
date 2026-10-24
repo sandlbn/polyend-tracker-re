@@ -456,6 +456,7 @@ public:
     uint32_t patternEndCount() const { return patternEnds_; }
     bool noteInScale(uint8_t note) override;
     uint8_t instrumentVolume(uint8_t instrument) override;
+    uint8_t recordVolume(uint8_t instrument) const;   // live-record IV, 0..127
     void markPatternDirty() override {
         patternEditedFromSeq_ = true;
         engine.noteSeqWork(audio::kSeqLiveRecord);
@@ -631,6 +632,7 @@ private:
     volatile bool stepChanged_ = false;
     volatile uint32_t patternEnds_ = 0;
     volatile bool patternEditedFromSeq_ = false;
+    bool outputOn_ = false;    // audio mute line state (setOutputEnabled)
     bool booted_ = false;
     bool usbActive_ = false;   // USB Storage mode: the computer owns the card
     bool wasPlaying_ = false;

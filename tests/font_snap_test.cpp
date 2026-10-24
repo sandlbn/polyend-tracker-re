@@ -99,6 +99,10 @@ TEST(config_snap_to_zero_drives_playback_and_markers) {
     CHECK(audio::gSnapToZero);
     CHECK_EQ(p.zeroMask() & 1, 1);
     CHECK_EQ(a.instruments[0].startPoint, 10700);   // stored markers unchanged
+    // The selected marker turns green on a zero crossing too (manual p.123 /
+    // 125: "red but will change to green"; MANUAL_AUDIT_2026-10-23 #13).
+    p.sel = 1;
+    CHECK_EQ(p.markerColour(0), a.ui.th().good);
 
     h.tap(btn::F8);
     h.tap(btn::Up);
@@ -107,4 +111,5 @@ TEST(config_snap_to_zero_drives_playback_and_markers) {
     h.audio.pump(1);
     CHECK(!audio::gSnapToZero);
     CHECK_EQ(p.zeroMask() & 1, 0);
+    CHECK_EQ(p.markerColour(0), a.ui.th().accent);   // selected, no crossing: red
 }

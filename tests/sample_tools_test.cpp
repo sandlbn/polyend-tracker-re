@@ -3,6 +3,8 @@
 // (spec 13 §H.2), Sample Loader gating and list filter (06 §5.2/§5.5),
 // Instrument automation destination keys and Enc-push audition (App. C §3).
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -641,4 +643,64 @@ TEST(import_into_existing_instrument_keeps_its_settings) {
     // An empty slot still starts from the defaults.
     CHECK(a.importSample("chord_a.wav", 5));
     CHECK_EQ(int(a.instruments[5].volume), 50);
+}
+
+TEST(playback_wavetable_shows_one_window_and_its_position) {
+    // MANUAL_AUDIT_2026-10-23 #12 (manual p.130-131, spec 05 appB §1.4d:
+    // a single-window graph and the position on a bar under it).
+    Harness h(true, 400000);
+    App& a = *h.app;
+    std::vector<int16_t> s(2048 * 4);
+    for (size_t i = 0; i < s.size(); ++i) s[i] = int16_t(8000 * std::sin(double(i) * 0.05));
+    std::vector<uint8_t> wav(s.size() * 2 + 64);
+    wav.resize(wavEncode(s.data(), uint32_t(s.size()), 1, wav.data(), wav.size()));
+    h.fs.files["wt.wav"] = wav;
+    CHECK(a.importSample("wt.wav", 0));
+    a.setCurrentInstrument(0);
+    h.tap(btn::SamplePlayback);
+    PlaybackScreen& p = *static_cast<PlaybackScreen*>(a.ui.screen(kModPlayback));
+    Instrument& in = a.instruments[0];
+    in.playMode = uint8_t(PlayMode::Wavetable);
+    in.sampleType = 1;
+    in.wavetableWindowSize = 2048;
+    in.wavetableWindowCount = 4;
+    in.wavetableCurrentWindow = 2;
+    a.ui.dirty();
+    h.run(40);
+    CHECK_EQ(p.wavetableShownWindow(), 2u);
+    // The marker of window 2 of 4 sits at 2/3 of the position bar.
+    const int mx = p.wavetablePositionX();
+    CHECK(mx > 0);
+    bool found = false;
+    for (const std::string& l : h.disp.last) {
+        int x, y;
+        if (std::sscanf(l.c_str(), "VERTEX %d %d", &x, &y) == 2 && std::abs(x - mx) <= 5 && y > 300 && y < 340) found = true;
+    }
+    CHECK(found);
+}
+
+TEST(playback_granular_shows_the_grain_span) {
+    // MANUAL_AUDIT_2026-10-23 #28 (manual p.135-136: the grain as a blue
+    // span around the blue position line, the play head red).
+    Harness h(true, 400000);
+    App& a = *h.app;
+    std::vector<int16_t> s(44100);
+    for (size_t i = 0; i < s.size(); ++i) s[i] = int16_t(8000 * std::sin(double(i) * 0.05));
+    std::vector<uint8_t> wav(s.size() * 2 + 64);
+    wav.resize(wavEncode(s.data(), uint32_t(s.size()), 1, wav.data(), wav.size()));
+    h.fs.files["g.wav"] = wav;
+    CHECK(a.importSample("g.wav", 0));
+    a.setCurrentInstrument(0);
+    Instrument& in = a.instruments[0];
+    in.playMode = uint8_t(PlayMode::Granular);
+    in.granularPosition = 32768;
+    in.grainLength = 4410;   // 100 ms of a 1 s sample: ~60 px wide
+    h.tap(btn::SamplePlayback);
+    a.ui.dirty();
+    h.run(40);
+    char want[16];
+    std::snprintf(want, sizeof(want), "COLOR %06X", unsigned(PlaybackScreen::kGrainColour & 0xFFFFFF));
+    bool blue = false;
+    for (const std::string& l : h.disp.last) blue = blue || l == want;
+    CHECK(blue);
 }

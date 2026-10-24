@@ -33,12 +33,10 @@ struct ScreenSet {
 #endif
     SynthScreen synth;
 };
+}  // namespace
 
 // The browsers' shared name lists (screens.h browserListMem()).
 OT_SDRAM_BSS alignas(8) unsigned char g_browserLists[kBrowserListBytes];
-}  // namespace
-
-void* browserListMem() { return g_browserLists; }
 
 void* createScreens(Ui& ui, App& app, Screen** out) {
     auto* s = new ScreenSet(ui, app);

@@ -1,5 +1,8 @@
 // MIDI CC input (spec 12 §B, spec 05 §2.5 + appendix C §8) and the
 // Instrument MIDI Mapping page. PLAN_PHASE2 B2 (T2a, T2b).
+#include <cstdio>
+#include <string>
+
 #include "test.h"
 #include "ui_fakes.h"
 
@@ -44,8 +47,16 @@ TEST(port_and_channel_filter) {
 TEST(cc_list_layout) {
     // 47 rows = 11 parameters + 6 automation blocks of 6 (appendix C §8).
     CHECK_EQ(midicc::kCcListCount, 47);
-    const uint8_t singles[11] = {1, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15};
+    // Stock table order, "Name = CC" (spec 16 §A.13, manual p.265;
+    // MANUAL_AUDIT_2026-10-23 #7): Tune first ... Finetune Amount = 119 last.
+    const uint8_t singles[11] = {5, 3, 7, 10, 9, 1, 11, 12, 13, 14, 15};
     for (int i = 0; i < 11; ++i) CHECK_EQ(midicc::kCcList[i].cc, singles[i]);
+    CHECK(std::string(midicc::kCcList[0].label) == "Tune");
+    CHECK(std::string(midicc::kCcList[1].label) == "FineTune");
+    CHECK(std::string(midicc::kCcList[11].label) == "Volume Automation Type");
+    CHECK(std::string(midicc::kCcList[12].label) == "Volume Attack - Shape LFO");
+    CHECK_EQ(midicc::kCcList[46].cc, 119);
+    CHECK(std::string(midicc::kCcList[46].label) == "Finetune Amount");
     const uint8_t bases[6] = {20, 26, 83, 102, 108, 114};
     for (int d = 0; d < 6; ++d)
         for (int k = 0; k < 6; ++k) {
@@ -409,4 +420,63 @@ TEST(ui_edit_and_cc_agree) {
     a.ui.dirty();
     h.run(20);
     CHECK(std::strcmp(a.ui.bar.label[3].bottom, "-100") == 0);
+}
+
+TEST(cc_list_rows_fit_the_reference_pane) {
+    // "Name = CC" rows are drawn at x 12 in a 397-px pane (screen_instrument).
+    for (int fonts = 0; fonts < 2; ++fonts) {
+        RecordingDisplay d;
+        d.customFonts = fonts == 1;
+        applyFontSet(&d, 0);
+        for (int i = 0; i < midicc::kCcListCount; ++i) {
+            char row[48];
+            std::snprintf(row, sizeof(row), "%s = %d", midicc::kCcList[i].label, midicc::kCcList[i].cc);
+            CHECK(textWidth(kFontText, row) <= 397 - 12 - 4);
+            if (textWidth(kFontText, row) > 381) std::printf("       too wide (%d): %s\n", textWidth(kFontText, row), row);
+        }
+        d.customFonts = false;
+        applyFontSet(&d, 0);
+    }
+}
+
+TEST(midi_instrument_cc_columns_are_lists) {
+    // MANUAL_AUDIT_2026-10-23 #6 (manual p.256-261, spec 19 §4: CC A-F are
+    // six 131-item list controls): the columns list CC names around the
+    // chosen one, not a value bar.
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(uint8_t(kFirstMidiInstrument));
+    h.tap(btn::InstrParams);
+    auto& s = *static_cast<InstrumentScreen*>(a.ui.screen(kModInstrument));
+    CHECK_EQ(s.mode, 3);
+    a.ui.dirty();
+    h.run(40);
+    char want[16];
+    midicc::ccValueName(2, want, sizeof(want));   // CC A default 1: its neighbour 2
+    CHECK(h.disp.lastHasText(want));
+    // Six lists still fit the FT81x display list, ROM and custom fonts.
+    for (int fonts = 0; fonts < 2; ++fonts) {
+        h.disp.customFonts = fonts == 1;
+        applyFontSet(&h.disp, 0);
+        a.ui.dirty();
+        h.run(40);
+        std::printf("MIDI instrument page, %s fonts: %u DL words\n", fonts ? "custom" : "ROM", unsigned(a.ui.lastDlWords()));
+        CHECK(a.ui.lastDlWords() < 1900);
+    }
+    h.disp.customFonts = false;
+    applyFontSet(&h.disp, 0);
+}
+
+TEST(midi_instrument_title_names_the_channel) {
+    // Manual p.256 "51. MIDI Channel 1" style / spec 20 §1.2 (pattern screen
+    // already prints "N. MIDI Channel n"): MANUAL_AUDIT_2026-10-23 #26.
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(uint8_t(kFirstMidiInstrument));
+    h.tap(btn::InstrParams);
+    a.ui.dirty();
+    h.run(40);
+    char want[32];
+    std::snprintf(want, sizeof(want), "%d. MIDI Channel 1", kFirstMidiInstrument + 1);
+    CHECK(h.disp.lastHasText(want));
 }

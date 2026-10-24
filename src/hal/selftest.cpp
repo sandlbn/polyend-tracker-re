@@ -281,6 +281,7 @@ void runSelftest() {
     diagStage("selftest: audio start");
     audio().setCallback(toneFill, nullptr);
     audio().start();
+    audio().setOutputEnabled(true);   // the selftest plays its tones at once
     audio().setHeadphoneVolume(0.5f);
     diagLogf("audio: started, blocks %lu", static_cast<unsigned long>(audio().blocksRendered()));
     sdBenchmark(sdramFull);

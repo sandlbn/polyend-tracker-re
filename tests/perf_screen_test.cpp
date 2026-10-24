@@ -456,3 +456,78 @@ TEST(perf_apply_all_covers_16_tracks) {
     r.h.tap(btn::Pattern);
     for (int t = 0; t < 12; ++t) CHECK_EQ(a.seq.perfPlayMode(t), 0);
 }
+
+TEST(perf_fx_on_tracks_have_red_labels) {
+    // MANUAL_AUDIT_2026-10-23 #5 (manual p.272 "A selected track will be lit
+    // red in the screen button label"; spec 20 §1.2: Performance gives selected
+    // labels a background): FX-on tracks get the red label fill.
+    Harness h;
+    h.tap(btn::Performance);
+    auto& p = *static_cast<PerformanceScreen*>(h.app->ui.screen(kModPerformance));
+    auto redFills = [&]() {
+        for (int t = 0; t < 8; ++t) p.fxOn[t] = t == 2;
+        h.app->ui.dirty();
+        h.run(40);
+        // Label 2's box (x 203..297, y 424..479) filled in cd1818.
+        bool red = false, inRed = false;
+        for (const std::string& l : h.disp.last) {
+            if (l.rfind("COLOR ", 0) == 0) inRed = l == "COLOR CD1818";
+            int x, y;
+            if (inRed && std::sscanf(l.c_str(), "VERTEX %d %d", &x, &y) == 2 && x >= 203 && x <= 297 && y >= 424)
+                red = true;
+        }
+        return red;
+    };
+    CHECK(redFills());
+    for (int t = 0; t < 8; ++t) p.fxOn[t] = false;
+}
+
+TEST(perf_fx_names_follow_the_manual) {
+    // MANUAL_AUDIT_2026-10-23 #37: manual p.274 screen figure and p.276 list.
+    const char* const want[] = {"---", "Volume", "Panning", "Tune", "Low-pass cutoff", "High-pass cutoff",
+                                "Band-pass cutoff", "Delay send", "Reverb send", "Sample position", "Sample end",
+                                "Sample Playback", "Volume LFO Speed", "Panning LFO Speed", "Finetune LFO Speed",
+                                "Filter LFO Speed", "Grain/WT LFO Speed", "Step Repeater", "Pattern Play Mode",
+                                "Pattern Length", "Bit Depth", "Overdrive"};
+    for (int i = 0; i < 22; ++i) CHECK(std::string(perf::fx(uint8_t(i)).name) == want[i]);
+}
+
+TEST(perf_queued_pattern_blinks_and_edit_rows_are_red) {
+    // MANUAL_AUDIT_2026-10-23 #39 (manual p.278 "The pattern will flash red
+    // to show this is cued"): a queued track pattern blinks on its label.
+    // #41 (manual p.274 "Values and bounding box are red"; spec 06 §3.3): the
+    // active rows are drawn in the alert colour in edit mode.
+    PerfRig r;
+    App& a = r.a();
+    putPattern(a, 2, 40);
+    putPattern(a, 3, 41);
+    r.h.tap(btn::Performance);
+    r.h.down(btn::F4);
+    r.h.tap(btn::Right);
+    r.h.tap(btn::Right);
+    r.h.up(btn::F4);
+    CHECK_EQ(a.seq.queuedTrackPattern(3), 3);
+    int shown = 0, hidden = 0;
+    for (int i = 0; i < 6; ++i) {
+        a.ui.dirty();
+        r.h.run(110);
+        if (r.h.disp.lastHasText("Patt: 3")) ++shown;
+        else ++hidden;
+    }
+    CHECK(shown > 0);
+    CHECK(hidden > 0);
+    // Edit mode: alert-coloured rows.
+    char want[16];
+    std::snprintf(want, sizeof(want), "COLOR %06X", unsigned(a.ui.th().alert & 0xFFFFFF));
+    auto count = [&]() {
+        a.ui.dirty();
+        r.h.run(40);
+        int n = 0;
+        for (const std::string& l : r.h.disp.last) n += l == want;
+        return n;
+    };
+    const int before = count();
+    r.p().edit = true;
+    CHECK(count() > before);
+    r.p().edit = false;
+}

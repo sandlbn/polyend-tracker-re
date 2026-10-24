@@ -517,9 +517,14 @@ void Sgtl5000Audio::setCallback(FillFn fn, void* ctx) {
 }
 
 bool Sgtl5000Audio::start() {
+    // The mute line stays LOW: the app unmutes after the start-up load
+    // (setOutputEnabled; unmuting here gave a crack at power-on, R3-4).
     gRunning = true;
-    digitalWriteFast(board::kTeensyMute, HIGH);   // spec 01 §5.4: HIGH after start-up
     return codecOk_;
+}
+
+void Sgtl5000Audio::setOutputEnabled(bool on) {
+    digitalWriteFast(board::kTeensyMute, on ? HIGH : LOW);   // spec 01 §5.4
 }
 
 void Sgtl5000Audio::stop() {

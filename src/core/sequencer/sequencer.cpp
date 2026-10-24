@@ -1439,7 +1439,7 @@ int Sequencer::liveNoteOn(uint8_t note, uint8_t velocity, uint8_t cursorTrack, u
     return t;
 }
 
-void Sequencer::liveNoteOff(uint8_t note) {
+void Sequencer::liveNoteOff(uint8_t note, bool writeOff) {
     int t = -1;
     for (int k = 0; k < kTracks; ++k) {
         if (tracks_[k].liveHeld && tracks_[k].liveNote == note) { t = k; break; }
@@ -1448,6 +1448,10 @@ void Sequencer::liveNoteOff(uint8_t note) {
     TrackState& tr = tracks_[t];
     noteOffTrack(t, NoteOffMode::Off);
     tr.liveHeld = false;
+    if (!writeOff) {
+        tr.liveStep = -1;
+        return;
+    }
     if (!(playing_ && recording_ && cur_) || tr.liveStep < 0) return;
     int target = 0;
     const bool micro = liveTargetStep(t, target);

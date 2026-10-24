@@ -222,7 +222,7 @@ constexpr int kLicenseLineCount = int(sizeof(kLicenseLines) / sizeof(kLicenseLin
 
 // Firmware-update file list (spec 06 §7.5): at most 101 entries, sorted.
 constexpr int kFwMax = ConfigScreen::kFwMax;
-char (*const gFw)[48] = static_cast<char (*)[48]>(browserListMem());   // shared (screens.h)
+char (*const gFw)[48] = reinterpret_cast<char (*)[48]>(g_browserLists);   // shared (screens.h)
 int gFwCount = 0;
 bool gFwMode = false;
 struct FwCtx {

@@ -13,33 +13,36 @@ bool channelAccepted(uint8_t ccInChannel, uint8_t channel) {
     return ccInChannel == 0 || ccInChannel == uint8_t((channel & 15) + 1);
 }
 
-// spec 05 appendix C §8 CC list. SPEC GAP: the row texts are OpenTracker
-// wording; the spec gives the CC -> parameter mapping, not the strings.
-#define OT_AUTO_ROWS(base, d, nm)                                   \
-    {uint8_t(base + 0), InstrParam::AutoType, d, nm " type"},        \
-    {uint8_t(base + 1), InstrParam::AutoAttackShape, d, nm " attack/shape"}, \
-    {uint8_t(base + 2), InstrParam::AutoDecaySpeed, d, nm " decay/speed"},   \
-    {uint8_t(base + 3), InstrParam::AutoSustain, d, nm " sustain"},  \
-    {uint8_t(base + 4), InstrParam::AutoRelease, d, nm " release"},  \
-    {uint8_t(base + 5), InstrParam::AutoAmount, d, nm " amount"}
+// spec 05 appendix C §8 CC list, in the stock table order with the stock
+// "Name = CC" names (spec 16 §A.13: 47 rows, parameter order, Tune = 5 first,
+// Finetune Amount = 119 last; manual p.265 shows rows 1-13). The automation
+// row names past "Attack - Shape LFO" follow that pattern [I].
+// MANUAL_AUDIT_2026-10-23 #7.
+#define OT_AUTO_ROWS(base, d, nm)                                          \
+    {uint8_t(base + 0), InstrParam::AutoType, d, nm " Automation Type"},    \
+    {uint8_t(base + 1), InstrParam::AutoAttackShape, d, nm " Attack - Shape LFO"}, \
+    {uint8_t(base + 2), InstrParam::AutoDecaySpeed, d, nm " Decay - Speed LFO"},   \
+    {uint8_t(base + 3), InstrParam::AutoSustain, d, nm " Sustain"},         \
+    {uint8_t(base + 4), InstrParam::AutoRelease, d, nm " Release"},         \
+    {uint8_t(base + 5), InstrParam::AutoAmount, d, nm " Amount"}
 
 const CcRow kCcList[kCcListCount] = {
-    {1, InstrParam::Cutoff, 0, "Cutoff"},
-    {3, InstrParam::Finetune, 0, "Finetune"},
     {5, InstrParam::Tune, 0, "Tune"},
+    {3, InstrParam::Finetune, 0, "FineTune"},
     {7, InstrParam::Volume, 0, "Volume"},
-    {9, InstrParam::FilterType, 0, "Filter type"},
     {10, InstrParam::Panning, 0, "Panning"},
+    {9, InstrParam::FilterType, 0, "Filter type"},
+    {1, InstrParam::Cutoff, 0, "Cutoff"},
     {11, InstrParam::Resonance, 0, "Resonance"},
     {12, InstrParam::Overdrive, 0, "Overdrive"},
-    {13, InstrParam::BitDepth, 0, "Bit depth"},
-    {14, InstrParam::ReverbSend, 0, "Reverb send"},
-    {15, InstrParam::DelaySend, 0, "Delay send"},
-    OT_AUTO_ROWS(20, 0, "Vol"),
-    OT_AUTO_ROWS(26, 1, "Pan"),
+    {13, InstrParam::BitDepth, 0, "Bit Depth"},
+    {14, InstrParam::ReverbSend, 0, "Reverb Send"},
+    {15, InstrParam::DelaySend, 0, "Delay Send"},
+    OT_AUTO_ROWS(20, 0, "Volume"),
+    OT_AUTO_ROWS(26, 1, "Panning"),
     OT_AUTO_ROWS(83, 2, "Cutoff"),
-    OT_AUTO_ROWS(102, 3, "WT pos"),
-    OT_AUTO_ROWS(108, 4, "Gran pos"),
+    OT_AUTO_ROWS(102, 3, "Wavetable Position"),
+    OT_AUTO_ROWS(108, 4, "Granular Position"),
     OT_AUTO_ROWS(114, 5, "Finetune"),
 };
 #undef OT_AUTO_ROWS
