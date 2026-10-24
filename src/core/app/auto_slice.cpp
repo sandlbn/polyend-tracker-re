@@ -6,6 +6,7 @@
 
 #include "app/sample_fx_ot.h"
 #include "fmath.h"
+#include "sdram_bss.h"
 
 namespace ot {
 
@@ -55,7 +56,7 @@ struct FluxScratch {
     uint32_t candPos[kMaxCand];
     float candVal[kMaxCand];
 };
-FluxScratch gFlux;
+OT_SDRAM_BSS FluxScratch gFlux;   // main loop only (zero-initialised POD)
 }  // namespace
 
 bool AutoSlicer::start(const int16_t* data, uint32_t len, uint16_t* out, uint8_t* outCount) {

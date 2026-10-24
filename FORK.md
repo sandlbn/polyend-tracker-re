@@ -94,10 +94,15 @@ pads show the next 12 steps of the four track groups.
 
 ## Building and checks
 
+The fork builds **without Games by default** (`OT_GAMES ?= 0`): with Games the
+image is 745 KB, over the 720 KB flash gate. The CI workflow checks
+`build/nogames/` accordingly. `make OT_GAMES=1` still builds the Games image
+for experiments.
+
 ```
-make OT_GAMES=0 VERSION=2.2.1          # build/nogames/PolyendTrackerOTs221.ptf
+make VERSION=2.2.1                      # build/nogames/PolyendTrackerOTs221.ptf
 make host-test                          # all host tests (gen_test, sample_fx_ot_test, ot_fork_misc_test, ...)
-make perf-gate OT_GAMES=0               # QEMU instruction counts + flash size
+make perf-gate                          # QEMU instruction counts + flash size
 make -C sim                             # desktop simulator
 ```
 

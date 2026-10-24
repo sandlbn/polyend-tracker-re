@@ -58,7 +58,9 @@ BUILD     := $(BUILD)/nofastrun
 endif
 # Games (spec 14): 1 = NES player + Games screen + menu entry (2.0.0 default),
 # 0 = compiled out (docs/OPTIMIZATION_2X.md OP-4). Own build dir.
-OT_GAMES ?= 1
+# semi fork: no Games by default (the fork's features fill the flash gate that
+# Games would need; `make OT_GAMES=1` still builds it, over the 720 KB gate).
+OT_GAMES ?= 0
 ifeq ($(OT_GAMES),0)
 BUILD     := $(BUILD)/nogames
 endif
