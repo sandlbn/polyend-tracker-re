@@ -122,35 +122,60 @@ OT_MEM_FN void* memmove(void* dst, const void* src, size_t n) {
         copyForward(d, s, n);
         return dst;
     }
-    // Overlap with dst above src: copy backwards.
+    // Overlap with dst above src: copy backwards. As forward: aligned word
+    // stores, fed by aligned or (mutually misaligned pointers) unaligned word
+    // loads; each block is read before the bytes it overwrites. A byte loop
+    // here made a misaligned move one SDRAM access per byte (shifting the
+    // sample bank up by an odd number of int16 samples took seconds).
     d += n;
     s += n;
-    if (n >= 8 && !(((uintptr_t)d ^ (uintptr_t)s) & 3u)) {
+    if (n >= 8) {
         while ((uintptr_t)d & 3u) {
             OT_MEM_BARRIER();
             *--d = *--s;
             --n;
         }
         ot_w32* dw = (ot_w32*)d;
-        const ot_w32* sw = (const ot_w32*)s;
-        while (n >= 16) {
-            OT_MEM_BARRIER();
-            const uint32_t w3 = sw[-1], w2 = sw[-2], w1 = sw[-3], w0 = sw[-4];
-            dw[-1] = w3;
-            dw[-2] = w2;
-            dw[-3] = w1;
-            dw[-4] = w0;
-            dw -= 4;
-            sw -= 4;
-            n -= 16;
-        }
-        while (n >= 4) {
-            OT_MEM_BARRIER();
-            *--dw = *--sw;
-            n -= 4;
+        if (!((uintptr_t)s & 3u)) {
+            const ot_w32* sw = (const ot_w32*)s;
+            while (n >= 16) {
+                OT_MEM_BARRIER();
+                const uint32_t w3 = sw[-1], w2 = sw[-2], w1 = sw[-3], w0 = sw[-4];
+                dw[-1] = w3;
+                dw[-2] = w2;
+                dw[-3] = w1;
+                dw[-4] = w0;
+                dw -= 4;
+                sw -= 4;
+                n -= 16;
+            }
+            while (n >= 4) {
+                OT_MEM_BARRIER();
+                *--dw = *--sw;
+                n -= 4;
+            }
+            s = (const uint8_t*)sw;
+        } else {
+            while (n >= 16) {
+                OT_MEM_BARRIER();
+                const uint32_t w3 = ((const ot_uw32*)(s - 4))->v, w2 = ((const ot_uw32*)(s - 8))->v;
+                const uint32_t w1 = ((const ot_uw32*)(s - 12))->v, w0 = ((const ot_uw32*)(s - 16))->v;
+                dw[-1] = w3;
+                dw[-2] = w2;
+                dw[-3] = w1;
+                dw[-4] = w0;
+                dw -= 4;
+                s -= 16;
+                n -= 16;
+            }
+            while (n >= 4) {
+                OT_MEM_BARRIER();
+                *--dw = ((const ot_uw32*)(s - 4))->v;
+                s -= 4;
+                n -= 4;
+            }
         }
         d = (uint8_t*)dw;
-        s = (const uint8_t*)sw;
     }
     while (n) {
         OT_MEM_BARRIER();
