@@ -1,15 +1,16 @@
 // Synth parameter labels, sections and value texts for the synth screens
 // (2.x WP-G). Indices and ranges: spec 21 §8 with the docs/MINI_PLAN.md
 // corrections (formats/patch_pb.cpp holds the ranges); labels, sections,
-// enum names and display units: Tracker Mini manual p.153-170 [MAN]. Where
-// the manual gives no labels (WTFM Ratio) the stored index is shown as a
-// number [OT]. Display units only scale the shown value; the stored values
+// enum names and display units: Tracker Mini manual p.153-170 [MAN]; WTFM
+// Ratio shows its value 0.25 .. 12.00 (Polyend Synth manual WTFM range,
+// spec 2x-08 §1). Display units only scale the shown value; the stored values
 // stay those of spec 21 §8.
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 
 #include "audio/audio_tables.h"
+#include "audio/engines/wtfm.h"
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
 #include "ui/notes.h"
@@ -126,7 +127,7 @@ const uint8_t kVapVoice[] = {35, 36, 39};
 // --- WTFM (63) -----------------------------------------------------------------
 #define MODROW(k) {"Src " #k, E(kModSrc)}, {"Dest " #k, E(kWtfmDest)}, {"Amt " #k, F(kFmtPctMax)}
 const ParamUi kWtfm[63] = {
-    {"Ratio 1", F(kFmtInt)},       {"Ratio 2", F(kFmtInt)},       {"Finetune 1", F(kFmtCents)},
+    {"Ratio 1", F(kFmtRatio)},     {"Ratio 2", F(kFmtRatio)},     {"Finetune 1", F(kFmtCents)},
     {"Finetune 2", F(kFmtCents)},  {"Shape 1", F(kFmtVal100)},    {"Shape 2", F(kFmtVal100)},
     {nullptr, F(kFmtVal100)},      {nullptr, F(kFmtVal100)},      {"Oversampling", F(kFmtOnOff)},
     {"Character 1", E(kCharacter)}, {"Character 2", E(kCharacter)}, {"FM", F(kFmtPct)},
@@ -322,6 +323,7 @@ void formatValue(int32_t engine, int index, float v, char* out, int cap) {
         case kFmtSemi: std::snprintf(out, c, "%d st", roundi(v)); break;
         case kFmtCents: std::snprintf(out, c, "%d c", roundi(v)); break;
         case kFmtInt: std::snprintf(out, c, "%d", roundi(v)); break;
+        case kFmtRatio: std::snprintf(out, c, "%.2f", double(audio::wtfm::ratioOf(roundi(v)))); break;
         case kFmtMs: std::snprintf(out, c, "%.1f ms", double(v)); break;
         case kFmtDb: std::snprintf(out, c, "%.1f dB", double(v)); break;
         case kFmtNote: {
@@ -383,6 +385,7 @@ float stepValue(int32_t engine, int index, float v, int d) {
         case kFmtEnum:
         case kFmtOnOff:
         case kFmtInt:
+        case kFmtRatio:
         case kFmtSemi:
         case kFmtCents:
         case kFmtNote:

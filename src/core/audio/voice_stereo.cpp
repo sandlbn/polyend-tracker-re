@@ -290,11 +290,18 @@ void Voice::renderPlayerSt(float* outL, float* outR, uint32_t n) {
     constexpr int32_t kWin = 32;
     uint32_t win[kWin];
     uint32_t wb = 0x80000000u;
-    const bool useWin = int32_t(frames_) >= kWin && rate < 4.0f && targetRate_ < 4.0f;
+    const StreamSource* const st = stream_;
+    const bool useWin = int32_t(frames_) >= kWin && (st || (rate < 4.0f && targetRate_ < 4.0f));
     auto fill = [&](int32_t b) {
         if (b > int32_t(frames_) - kWin) b = int32_t(frames_) - kWin;
         if (b < 0) b = 0;
         wb = uint32_t(b);
+        if (st) {   // streamed: both channels from the head / loop head / ring
+            int16_t tl[kWin], tr[kWin];
+            streamRead(*st, ring_, streamGen_, b, uint32_t(kWin), tl, tr);
+            for (int32_t j = 0; j < kWin; ++j) win[j] = uint16_t(tl[j]) | (uint32_t(uint16_t(tr[j])) << 16);
+            return;
+        }
         OT_SDRAM_ACCESS(kWin + 2);
         const int16_t* l = dL + b;
         const int16_t* r = dR + b;
@@ -463,6 +470,10 @@ void Voice::renderPlayerSt(float* outL, float* outR, uint32_t n) {
     pos_ = pos;
     frac_ = frac;
     dir_ = int8_t(dir);
+    if (st && ring_) {
+        if (playing_) ring_->need = uint32_t(pos > 0 ? pos : 0);
+        else ring_->src = nullptr;
+    }
 }
 
 OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* dsend, float* rsend, float* mixL, float* mixR) {

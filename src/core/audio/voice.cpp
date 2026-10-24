@@ -202,6 +202,7 @@ uint32_t Voice::rnd(uint32_t n) {
 
 void Voice::stop() {
     playing_ = false;
+    if (ring_) ring_->src = nullptr;   // the stream service leaves the ring alone
     env_.stop();
     pending_.valid = false;
     stBlock_ = stereo_;
@@ -303,7 +304,8 @@ void Voice::resetFx() {
 // --- note on / off ----------------------------------------------------------
 
 void Voice::noteOn(const Instrument* ins, const int16_t* data, uint32_t frames, uint8_t note, int8_t volume,
-                   uint8_t aT, uint8_t aV, uint8_t bT, uint8_t bV, const int16_t* dataR) {
+                   uint8_t aT, uint8_t aV, uint8_t bT, uint8_t bV, const int16_t* dataR,
+                   const StreamSource* stream, StreamRing* ring) {
     if (!ins || !data || frames == 0) return;
     noteVolume_ = volume;
     for (auto& m : mods_) m.stepOn = curStep0_;   // S_on latch at note-on (spec 07 Q5)
@@ -314,6 +316,8 @@ void Voice::noteOn(const Instrument* ins, const int16_t* data, uint32_t frames, 
     pending_.ins = ins;
     pending_.data = data;
     pending_.dataR = dataR;
+    pending_.stream = stream;
+    pending_.ring = ring;
     pending_.frames = frames;
     pending_.note = note;
     pending_.valid = true;
@@ -348,6 +352,8 @@ void Voice::startNote() {
     data_ = pending_.data;
     dataR_ = pending_.dataR;
     frames_ = pending_.frames;
+    stream_ = pending_.stream;
+    if (pending_.ring) ring_ = pending_.ring;
     pending_.valid = false;
     mode_ = ins_->playMode > 7 ? 0 : ins_->playMode;
     stereo_ = dataR_ != nullptr && stereoPlayMode(mode_);
@@ -369,6 +375,16 @@ void Voice::startNote() {
     if (ov_.position >= 0) grainPos_ = uint16_t(uint32_t(ov_.position) * 65535u / 100u);
     computePoints();
     playing_ = true;
+    if (ring_) {
+        if (stream_) {   // a new stream: position first, the generation last
+            ring_->src = stream_;
+            ring_->need = uint32_t(pos_ > 0 ? pos_ : 0);
+            streamFadeReset(*ring_);
+            ring_->gen = ++streamGen_;
+        } else {
+            ring_->src = nullptr;
+        }
+    }
     // Pitch, glide (spec 04 §2.4).
     const float prevRate = targetRate_ + glideOff_;
     glideOff_ = 0.0f;
@@ -392,7 +408,7 @@ void Voice::computePoints() {
     end_ = pointToFrames(len, uint32_t(clampi(int32_t(ins_->endPoint) + perf_.end, 0, 65535)));
     loop1_ = pointToFrames(len, ins_->loopPoint1);
     loop2_ = pointToFrames(len, ins_->loopPoint2);
-    if (gSnapToZero) {   // Snap to zero hook: playback only, markers unchanged (spec 13 §H.2)
+    if (gSnapToZero && !stream_) {   // Snap to zero hook: playback only, markers unchanged (spec 13 §H.2)
         start_ = snapToZero(data_, len, start_);
         loop1_ = snapToZero(data_, len, loop1_);
         loop2_ = snapToZero(data_, len, loop2_);
@@ -792,13 +808,17 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
     constexpr int32_t kWin = 32;
     int16_t win[kWin];
     uint32_t wb = 0x80000000u;   // window start (frame index); invalid
-    const bool useWin = int32_t(frames_) >= kWin && rate < 4.0f && targetRate_ < 4.0f;
+    // A streamed sample always reads through the window (its frames are not
+    // all in memory: streamRead takes them from the head, loop head or ring).
+    const StreamSource* const st = stream_;
+    const bool useWin = int32_t(frames_) >= kWin && (st || (rate < 4.0f && targetRate_ < 4.0f));
     auto fill = [&](int32_t b) {
         if (b > int32_t(frames_) - kWin) b = int32_t(frames_) - kWin;
         if (b < 0) b = 0;
         wb = uint32_t(b);
         OT_SDRAM_ACCESS(kWin / 2 + 1);
-        spanIn(d + b, win, uint32_t(kWin));
+        if (st) streamRead(*st, ring_, streamGen_, b, uint32_t(kWin), win, nullptr);
+        else spanIn(d + b, win, uint32_t(kWin));
     };
     auto rd = [&](int32_t idx) -> int32_t {
         if (!useWin) {
@@ -960,6 +980,10 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
     pos_ = pos;
     frac_ = frac;
     dir_ = int8_t(dir);
+    if (st && ring_) {
+        if (playing_) ring_->need = uint32_t(pos > 0 ? pos : 0);
+        else ring_->src = nullptr;
+    }
 }
 
 // --- block render (spec 04 §4.1 order) ----------------------------------------

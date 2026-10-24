@@ -313,11 +313,17 @@ TEST(develop_hp_level) {
     CHECK_EQ(info.count, 8);
     // Labels match volume(v): HP_CTRL = 0x80 - round(v * 129), 0x18 = 0 dB.
     char t[32], want[32];
+    // Entry 4 is the boot level: +1 dB over the first builds' 0.70 (owner
+    // decision 2026-10-23, USER_REPORTS_R2 §2), HP_CTRL 0x24 = -6.0 dB.
+    const float vals[8] = {0.50f, 0.55f, 0.60f, 0.65f, 0.715f, 0.75f, 0.80f, 0.85f};
+    CHECK(std::fabs(kHeadphoneBootLevel - 0.715f) < 1e-6f);
+    CHECK_EQ(0x80 - int(kHeadphoneBootLevel * 129.0f + 0.5f), 0x24);
     for (int i = 0; i < 8; ++i) {
-        const float v = 0.5f + 0.05f * float(i);
+        const float v = vals[i];
         const int reg = 0x80 - int(v * 129.0f + 0.5f);
         const float db = float(0x18 - reg) * 0.5f;
-        std::snprintf(want, sizeof(want), "%.2f (%s%.1f dB)", double(v), db >= 0 ? "+" : "", double(db));
+        std::snprintf(want, sizeof(want), i == 4 ? "%.3f (%s%.1f dB)" : "%.2f (%s%.1f dB)", double(v),
+                      db >= 0 ? "+" : "", double(db));
         c.category = fw;
         c.focus = 1;
         c.option = 4;
@@ -334,5 +340,5 @@ TEST(develop_hp_level) {
     c.picker = 4;
     h.tap(btn::F8);
     c.optionText(fw, 4, t, sizeof(t));
-    CHECK(std::strcmp(t, "0.70 (-7.0 dB)") == 0);
+    CHECK(std::strcmp(t, "0.715 (-6.0 dB)") == 0);
 }

@@ -18,6 +18,7 @@
 
 #include "audio/audio_tables.h"
 #include "audio/dsp.h"
+#include "audio/stream_source.h"
 #include "model/instrument.h"
 
 namespace ot {
@@ -106,7 +107,7 @@ public:
     // block of a planar stereo instrument (nullptr = mono).
     void noteOn(const Instrument* ins, const int16_t* data, uint32_t frames, uint8_t note, int8_t volume,
                 uint8_t fxAType, uint8_t fxAValue, uint8_t fxBType, uint8_t fxBValue,
-                const int16_t* dataR = nullptr);
+                const int16_t* dataR = nullptr, const StreamSource* stream = nullptr, StreamRing* ring = nullptr);
     void noteOff(int8_t mode);   // NoteOffMode values: -2 fade, -3 cut, -4 off
     void applyFx(uint8_t slot, uint8_t type, uint8_t value);
     void resetFx();
@@ -155,6 +156,8 @@ private:
         uint8_t note = 60;
         bool valid = false;
         const int16_t* dataR = nullptr;   // right block (stereo), else nullptr
+        const StreamSource* stream = nullptr;   // streamed instrument (data = its head), else nullptr
+        StreamRing* ring = nullptr;             // the track's read-ahead ring
     };
     struct Mod {          // automation slots 1..5 (spec 04 §4.8)
         uint8_t mode = 0; // 0 off, 1 envelope, 2 LFO
@@ -199,6 +202,10 @@ private:
     const Instrument* ins_ = nullptr;
     const int16_t* data_ = nullptr;
     uint32_t frames_ = 0;
+    // SD streaming (audio/stream_source.h): frames come through streamRead.
+    const StreamSource* stream_ = nullptr;
+    StreamRing* ring_ = nullptr;
+    uint32_t streamGen_ = 0;
     uint8_t note_ = 60;
     uint8_t sliceNote_ = 60;   // the note before the Beat Slice unity override
     Pending pending_;

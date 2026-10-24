@@ -37,6 +37,22 @@ public:
     // `bufLen` chunks from `buf`, reads it back (checking chunk tags), deletes it.
     struct Bench { bool ok = false; uint32_t bytes = 0, writeUs = 0, readUs = 0, verifyErrors = 0; };
     bool benchmark(uint8_t* buf, uint32_t bufLen, uint32_t totalBytes, Bench& r);
+    // SD streaming feasibility probe (docs/PLAN_SD_STREAMING.md P0): a temp file
+    // of fileBytes written in 32 KB chunks, read back sequentially, then random
+    // reads of 32 / 16 / 4 KB through the FatFs fast-seek cluster map, then
+    // reads right behind 32 KB writes + f_sync (the autosave case). buf: at
+    // least 32 KB in SDRAM (the ADMA2 path the streamer would use).
+    struct Probe {
+        struct Rnd { uint32_t size = 0, n = 0, minUs = 0, avgUs = 0, p99Us = 0, maxUs = 0; };
+        bool ok = false;
+        const char* err = "";
+        uint32_t fileBytes = 0, clusterBytes = 0, fragments = 0;
+        uint32_t writeKBps = 0, writeChunkMaxUs = 0;
+        uint32_t seqKBps = 0, seqChunkMaxUs = 0;
+        Rnd rnd[3];
+        uint32_t mixWriteMaxUs = 0, mixReadMaxUs = 0, mixReadAvgUs = 0;
+    };
+    bool streamProbe(uint8_t* buf, uint32_t bufLen, uint32_t fileBytes, Probe& r);
     // Boot: sdhc::checkSdramDirect() on the first FAT sectors of the mounted
     // volume (real data). `scratch`: >= 65 KB of free SDRAM. True = direct reads on.
     bool checkDirectDma(uint8_t* scratch);

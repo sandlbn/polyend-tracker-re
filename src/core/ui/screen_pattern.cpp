@@ -196,6 +196,7 @@ bool PatternScreen::midiChordEntry(int t, uint8_t note, uint8_t velocity) {
 
 int PatternScreen::len() const { return pops::length(app_.pattern()); }
 bool PatternScreen::edit() const { return app_.editMode; }
+bool PatternScreen::recordCursor() const { return edit() || app_.seq.isRecording(); }
 int PatternScreen::lastNote() const {
     int8_t n = int8_t(app_.project.u8(pf::kLastNote));
     return n < 0 ? 48 : n;

@@ -1093,7 +1093,9 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
         tr.gate = 0;
         tr.gateLimit = -1;
         tr.delayActive = false;
-        tr.skipStep = -1;
+        // A note recorded at the end of the count-in already sounds: step 0
+        // must not trigger it again.
+        if (!afterCountIn) tr.skipStep = -1;
         clearRoll(tr);
         clearArp(tr);
     }
@@ -1377,12 +1379,18 @@ int Sequencer::liveNoteOn(uint8_t note, uint8_t velocity, uint8_t cursorTrack, u
     const int8_t vol = int8_t(velocity > 127 ? 100 : velocity * 100 / 127);
     int t = cursorTrack;
     int target = 0;
-    if (playing_ && recording_ && cur_) {
+    // The last half step of a Pre-roll count-in rounds to step 0, like a note
+    // late in a step rounds to the next one: a note meant for the first beat
+    // that comes a little early is recorded, not just played (OpenTracker
+    // rule, the specs do not say; USER_REPORTS_R3 R3-1).
+    const bool countInEnd = !playing_ && recording_ && cur_ && countInSteps_ > 0 &&
+                            countInTicksLeft() <= uint32_t(kTicksPerStep / 2);
+    if ((playing_ && recording_ && cur_) || countInEnd) {
         const uint8_t opt = settings_.recordingOptions;
         int found = -1;
         bool micro = false;
         for (int k = cursorTrack; k < kTracks; ++k) {
-            micro = liveTargetStep(k, target);
+            micro = countInEnd ? false : liveTargetStep(k, target);
             if (tracks_[k].recEnabled && cellFree(cur_->tracks[k].steps[target])) { found = k; break; }
         }
         if (found < 0) return -1;
@@ -1405,8 +1413,9 @@ int Sequencer::liveNoteOn(uint8_t note, uint8_t velocity, uint8_t cursorTrack, u
         TrackState& tr = tracks_[t];
         tr.liveHeld = true;
         tr.liveNote = note;
+        tr.liveInstr = instr;
         tr.liveStep = int16_t(target);
-        if (target != tr.step) tr.skipStep = int16_t(target);
+        if (target != tr.step || countInEnd) tr.skipStep = int16_t(target);
         instrument = instr;
     } else {
         if (t >= 8 && instrument < 48) instrument = 48;
@@ -1449,6 +1458,7 @@ void Sequencer::liveNoteOff(uint8_t note) {
     Step& cell = cur_->tracks[t].steps[target];
     if (cell.note == kNoteEmpty) {
         cell.note = kNoteOff;
+        cell.instrument = tr.liveInstr;   // not 0 (USER_REPORTS_R3 R3-2)
         if (micro && target == tr.step) {
             cell.fx[1].type = 2;
             cell.fx[1].value = uint8_t(clampi((masterMicro_ - 1) * 100 / 47, 0, 100));

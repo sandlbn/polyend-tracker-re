@@ -93,8 +93,29 @@ void EditorScreen::stop() {
     undoAvail = false;
 }
 
+// Where the preview plays, as a fraction of the sample (the processed
+// selection maps back onto the selection), -1 when nothing plays.
+float EditorScreen::playheadFrac() const {
+    if (!previewPlaying || playOut_ == 0) return -1.0f;
+    const int32_t p = app_.engine.previewBufferPos();
+    const uint32_t len = app_.bank.frames(slot_);
+    if (p < 0 || len == 0) return -1.0f;
+    const double inSel = double(p) * double(playSel_) / double(playOut_);
+    return float((double(playS0_) + inSel) / double(len));
+}
+
 void EditorScreen::update(uint32_t now) {
-    (void)now;
+    // Preview playhead: polled every 5 ms, a frame only when its pixel moves
+    // (any change of the fraction worth a pixel at the widest view).
+    if (now - headAt_ >= 5) {
+        headAt_ = now;
+        const float f = playheadFrac();
+        const int x = f < 0.0f ? -1 : int(f * 2000.0f);
+        if (x != headX_) {
+            headX_ = x;
+            ui_.dirty();
+        }
+    }
     // [I] A resample take holds the free bank tail, where the undo data
     // lives: the take records over it.
     if (undoAvail && app_.bank.reserved()) {
@@ -237,6 +258,10 @@ bool EditorScreen::preview(int note) {
     // 16.16 step; Preview and MIDI notes keep the own pitch.
     a.engine.previewBuffer(out, outSel, stereo, 0xFFFFFFFFu, App::previewStep(note));
     previewPlaying = true;
+    playS0_ = s0;
+    playSel_ = sel;
+    playOut_ = outSel;
+    headAt_ = 0;
     refreshBar();
     return true;
 }
@@ -513,8 +538,18 @@ void EditorScreen::draw(Gfx& g) {
             if (k == paramFocus) wg::panelFocus(g, th, x, wg::columnW());
         }
         waveRegion(g, th, 401, 798, kWaveY, kWaveH);
-        drawWaveData(g, th, a.bank.left(ci), len, v0, v1, 401, kWaveY, 398, kWaveH, wave);
+        if (a.bank.stereo(ci)) {   // L over R, like the main page
+            drawWaveData(g, th, a.bank.left(ci), len, v0, v1, 401, kWaveY, 398, 109, wave);
+            drawWaveData(g, th, a.bank.right(ci), len, v0, v1, 401, kWaveY + 110, 398, 109, wave);
+        } else {
+            drawWaveData(g, th, a.bank.left(ci), len, v0, v1, 401, kWaveY, 398, kWaveH, wave);
+        }
         if (previewPlaying) g.text(600, 370, kFontText, th.dim, "Playing", IDisplay::kOptCenter);
+        const float hf = playheadFrac();
+        if (hf >= 0.0f) {
+            const int hx = 401 + int((hf - v0) / (v1 - v0) * 397.0f + 0.5f);
+            if (hx >= 401 && hx <= 798) g.vline(hx, kWaveY, kWaveH, th.good);
+        }
         return;
     }
     auto mx = [&](uint16_t m) { return int((float(m) / 65535.0f - v0) / (v1 - v0) * 599.0f + 0.5f); };
@@ -531,6 +566,13 @@ void EditorScreen::draw(Gfx& g) {
     }
     if (xs >= 0 && xs < 600) waveMarker(g, th, xs, focus == 0 ? th.accent : wave, 1, true, false, kMarkTop, kMarkBottom);
     if (xe >= 0 && xe < 600) waveMarker(g, th, xe, focus == 1 ? th.accent : wave, -1, true, false, kMarkTop, kMarkBottom);
+    {   // Preview playhead (the Playback screen's look: a 1-px line, th.good).
+        const float hf = playheadFrac();
+        if (hf >= 0.0f) {
+            const int hx = int((hf - v0) / (v1 - v0) * 599.0f + 0.5f);
+            if (hx >= 0 && hx < 600) g.vline(hx, kWaveY, kWaveH, th.good);
+        }
+    }
     // Effect list (601, 29, 197, 394): 14 visible rows of 17.
     wg::ListView v;
     v.x = kListX;

@@ -771,3 +771,30 @@ TEST(recorder_monitor_only_on_setup_and_while_recording) {
     h.run(20);
     if (rec(h).state == 0) CHECK(!a.inputMonitorMuted);
 }
+
+// Preview playhead (owner request): while Preview plays the selection, a
+// line follows the play position across the waveform; none when it stops.
+TEST(recorder_preview_shows_a_playhead) {
+    Harness h;
+    App& a = *h.app;
+    toneBlocks(h, 0, 400);
+    h.tap(btn::SampleRecorder);
+    RecorderScreen& r = rec(h);
+    recordSome(h, 400);   // ~1.16 s
+    CHECK_EQ(r.state, 1);
+    r.startM = 0;
+    r.endM = 65535;
+    CHECK_EQ(r.playheadX(), -1);
+    h.down(btn::F1);      // Preview (held)
+    h.audio.pump(20);
+    const int x0 = r.playheadX();
+    h.audio.pump(150);
+    const int x1 = r.playheadX();
+    CHECK(x0 >= 100 && x0 < 700);
+    CHECK(x1 > x0);       // it moves with the playback
+    h.run(10);
+    CHECK(a.ui.lastDlWords() > 0);
+    h.up(btn::F1);
+    h.run(10);
+    CHECK_EQ(r.playheadX(), -1);
+}

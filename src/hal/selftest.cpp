@@ -163,6 +163,90 @@ void sdBenchmark(bool sdramOk) {
              si.adma ? "ADMA2" : "PIO", static_cast<unsigned long>(si.clockHz));
 }
 
+// SD streaming probe (docs/PLAN_SD_STREAMING.md P0), with audio running:
+// sequential / random / behind-write reads of a 16 MB temp file. The result
+// goes to the serial log, to /OT_SDPROBE.TXT on the card and to the screen.
+enum class ProbeVerdict : uint8_t { kNone, kGo, kConditional, kNoGo };
+ProbeVerdict gProbeVerdict = ProbeVerdict::kNone;
+char gProbeLine[48] = {};
+
+void sdStreamProbe(bool sdramOk) {
+    if (!storage().mounted() || !sdramOk) {
+        diagLogf("sd probe: skipped (mounted %d, SDRAM ok %d)", int(storage().mounted()), int(sdramOk));
+        return;
+    }
+    diagStage("selftest: SD streaming probe");
+    IDisplay& d = display();
+    d.dlStart();
+    d.clearColorRGB(0, 0, 40);
+    d.clear(true, true, true);
+    d.colorRGB(255, 255, 255);
+    d.text(400, 225, 29, IDisplay::kOptCenter, "Testing SD streaming (16 MB)...");
+    d.text(400, 260, 26, IDisplay::kOptCenter, "about 20-60 s, do not remove the card");
+    d.swap();
+    uint8_t* buf = reinterpret_cast<uint8_t*>(board::kSdramBase + board::kSdramSize - 65536);
+    uint32_t cMin, cAvg, cMax;
+    audio().renderCyclesWindow(cMin, cAvg, cMax);   // reset the window
+    const uint32_t b0 = audio().blocksRendered(), t0 = micros();
+    SdStorage::Probe r;
+    storage().streamProbe(buf, 65536, 16u << 20, r);
+    const uint32_t us = micros() - t0, blocks = audio().blocksRendered() - b0;
+    audio().renderCyclesWindow(cMin, cAvg, cMax);
+    const uint32_t expect = uint32_t(uint64_t(us) * 44118u / 128u / 1000000u);
+    const uint32_t missing = expect > blocks + 1 ? expect - blocks : 0;
+    uint32_t stall = r.writeChunkMaxUs;
+    for (uint32_t v : {r.seqChunkMaxUs, r.rnd[0].maxUs, r.rnd[1].maxUs, r.rnd[2].maxUs, r.mixReadMaxUs, r.mixWriteMaxUs})
+        if (v > stall) stall = v;
+    if (!r.ok) gProbeVerdict = ProbeVerdict::kNoGo;
+    else if (r.seqKBps >= 6000 && r.rnd[0].p99Us <= 8000 && stall <= 250000 && missing == 0)
+        gProbeVerdict = ProbeVerdict::kGo;
+    else if (r.seqKBps >= 3000 && stall <= 600000 && missing == 0)
+        gProbeVerdict = ProbeVerdict::kConditional;
+    else
+        gProbeVerdict = ProbeVerdict::kNoGo;
+    const char* v = gProbeVerdict == ProbeVerdict::kGo ? "GO" : gProbeVerdict == ProbeVerdict::kConditional ? "COND" : "NO-GO";
+    snprintf(gProbeLine, sizeof(gProbeLine), "stream %s %lu.%luMB/s stall %lums", v,
+             static_cast<unsigned long>(r.seqKBps / 1024), static_cast<unsigned long>(r.seqKBps % 1024 * 10 / 1024),
+             static_cast<unsigned long>(stall / 1000));
+    // The report (serial log and the card file get the same lines).
+    char lines[12][120];
+    int n = 0;
+    const sdhc::Info& si = sdhc::info();
+    snprintf(lines[n++], sizeof(lines[0]), "sd probe: %s %s (%s), %lu MB file, cluster %lu B, fragments %lu, %s %lu Hz",
+             v, r.ok ? "ok" : "FAIL", r.err, static_cast<unsigned long>(r.fileBytes >> 20),
+             static_cast<unsigned long>(r.clusterBytes), static_cast<unsigned long>(r.fragments),
+             si.adma ? "ADMA2" : "PIO", static_cast<unsigned long>(si.clockHz));
+    snprintf(lines[n++], sizeof(lines[0]), "sd probe: write %lu KB/s (32 KB chunk max %lu us)",
+             static_cast<unsigned long>(r.writeKBps), static_cast<unsigned long>(r.writeChunkMaxUs));
+    snprintf(lines[n++], sizeof(lines[0]), "sd probe: sequential read %lu KB/s (32 KB chunk max %lu us)",
+             static_cast<unsigned long>(r.seqKBps), static_cast<unsigned long>(r.seqChunkMaxUs));
+    for (const SdStorage::Probe::Rnd& x : r.rnd)
+        snprintf(lines[n++], sizeof(lines[0]), "sd probe: random %lu KB x%lu: min %lu avg %lu p99 %lu max %lu us",
+                 static_cast<unsigned long>(x.size / 1024), static_cast<unsigned long>(x.n),
+                 static_cast<unsigned long>(x.minUs), static_cast<unsigned long>(x.avgUs),
+                 static_cast<unsigned long>(x.p99Us), static_cast<unsigned long>(x.maxUs));
+    snprintf(lines[n++], sizeof(lines[0]), "sd probe: behind writes: write+sync max %lu us, read avg %lu max %lu us",
+             static_cast<unsigned long>(r.mixWriteMaxUs), static_cast<unsigned long>(r.mixReadAvgUs),
+             static_cast<unsigned long>(r.mixReadMaxUs));
+    snprintf(lines[n++], sizeof(lines[0]), "sd probe: worst single operation %lu us; audio blocks %lu of %lu expected (missing %lu)",
+             static_cast<unsigned long>(stall), static_cast<unsigned long>(blocks), static_cast<unsigned long>(expect),
+             static_cast<unsigned long>(missing));
+    snprintf(lines[n++], sizeof(lines[0]), "sd probe: render cycles during probe min %lu avg %lu max %lu (budget 522240)",
+             static_cast<unsigned long>(cMin), static_cast<unsigned long>(cAvg), static_cast<unsigned long>(cMax));
+    snprintf(lines[n++], sizeof(lines[0]),
+             "sd probe: GO = seq >= 6000 KB/s, random 32 KB p99 <= 8000 us, stall <= 250000 us, no missing audio block");
+    for (int i = 0; i < n; ++i) diagLogf("%s", lines[i]);
+    IStorage& fs = storage();
+    IStorage::Handle h = fs.open("OT_SDPROBE.TXT", IStorage::kWrite);
+    if (h >= 0) {
+        for (int i = 0; i < n; ++i) {
+            fs.write(h, lines[i], uint32_t(strlen(lines[i])));
+            fs.write(h, "\r\n", 2);
+        }
+        fs.close(h);
+    }
+}
+
 void drawBox(IDisplay& d, int x, int y, int w, int h, bool on, int id) {
     if (on) d.colorRGB(255, 200, 40); else d.colorRGB(60, 60, 70);
     d.rect(int16_t(x), int16_t(y), int16_t(x + w), int16_t(y + h));
@@ -200,6 +284,7 @@ void runSelftest() {
     audio().setHeadphoneVolume(0.5f);
     diagLogf("audio: started, blocks %lu", static_cast<unsigned long>(audio().blocksRendered()));
     sdBenchmark(sdramFull);
+    sdStreamProbe(sdramFull);
     diagStage("selftest: main loop");
     diagFreezeBoot();
     gPhaseInc = incForHz(440.0f);
@@ -293,6 +378,7 @@ void runSelftest() {
                      sdhc::directCheckName(wc));
             label(d, 300, 198, buf, rc == sdhc::DirectCheck::Ok || rc == sdhc::DirectCheck::Skipped);
         }
+        if (gProbeVerdict != ProbeVerdict::kNone) label(d, 300, 154, gProbeLine, gProbeVerdict == ProbeVerdict::kGo);
 
         d.colorRGB(200, 200, 255);
         snprintf(buf, sizeof(buf), "enc %ld  btn raw 0x%02X  pad raw 0x%02X",

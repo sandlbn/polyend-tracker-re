@@ -41,11 +41,21 @@
 # all three lines every sample like stock (ping-pong switches keep the echo tail; delay
 # 4.6k -> 8.7k insn/block), plus the drift since 2.0.7 (idle / synth4 had been +3.6..4.1 %).
 # Est. load stays inside the budget: mix 64.8 %, peak 59.4 %, alarm 70 %.
+# wtfminit / wtfmworst / mixwtfm (2.2, WTFM engine, docs/specs/2x-08-wtfm-engine.md): one WTFM
+# voice per block incl. prepare, Init patch (limit 12k) and the costliest settings with
+# Oversampling On (limit 32k: the carrier at 2 fs adds ~8k; without it ~22k), and the mix set with
+# 4 worst-case WTFM voices in Synth 1. mixwtfm est. 73 % of the block budget: above the 70 %
+# alarm, so the governor may take a voice in a busy song with four such voices.
+# stream8 (SD streaming P1, docs/PLAN_SD_STREAMING.md): the stereo8 set with 3 s stereo
+# instruments streamed (resident head, the rest through the track rings; the refill is the
+# main loop's work and not timed). Gated absolutely by the stream.lim line: <= stereo8 + 5 %
+# (recorded +4.3 %, 0 underruns).
 idle     11112
 idle2    11470
 play8    145418
 worst    244349
 stereo8  174615
+stream8  182222
 synth4   66860
 vapinit  9027
 vapworst 17150
@@ -58,3 +68,6 @@ mixfat   257346
 pswitch  145180
 peakavg  147318
 peak     228560
+wtfminit 9626
+wtfmworst 30214
+mixwtfm  299814

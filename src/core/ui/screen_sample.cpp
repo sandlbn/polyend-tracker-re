@@ -733,10 +733,23 @@ void PlaybackScreen::draw(Gfx& g) {
         ra = markerX(in.startPoint, v0, v1);
         rb = markerX(in.endPoint, v0, v1);
     }
-    waveCentre(g, th, kWaveX, kWaveW, kWaveY + kWaveH / 2);
+    // Stereo: L in the upper lane, R in the lower one (the Sample Editor's
+    // 109 + 1 + 109 split; Tracker+ draws stereo samples the same way).
+    const bool st = a.bank.stereo(ci);
     if (rb >= kWaveX && ra < kWaveX + kWaveW) waveRegion(g, th, clampX(ra), clampX(rb), kWaveY, kWaveH);
-    drawWaveData(g, th, a.bank.left(ci), a.bank.frames(ci), v0, v1, kWaveX, kWaveY, kWaveW, kWaveH,
-                 th.slot(slot::kWave));
+    if (st) {
+        constexpr int kLaneH = (kWaveH - 1) / 2;
+        waveCentre(g, th, kWaveX, kWaveW, kWaveY + kLaneH / 2);
+        waveCentre(g, th, kWaveX, kWaveW, kWaveY + kLaneH + 1 + kLaneH / 2);
+        drawWaveData(g, th, a.bank.left(ci), a.bank.frames(ci), v0, v1, kWaveX, kWaveY, kWaveW, kLaneH,
+                     th.slot(slot::kWave));
+        drawWaveData(g, th, a.bank.right(ci), a.bank.frames(ci), v0, v1, kWaveX, kWaveY + kLaneH + 1, kWaveW,
+                     kLaneH, th.slot(slot::kWave));
+    } else {
+        waveCentre(g, th, kWaveX, kWaveW, kWaveY + kWaveH / 2);
+        drawWaveData(g, th, a.bank.left(ci), a.bank.frames(ci), v0, v1, kWaveX, kWaveY, kWaveW, kWaveH,
+                     th.slot(slot::kWave));
+    }
     auto inView = [&](int x) { return x >= kWaveX && x < kWaveX + kWaveW; };
     if (mode <= 3) {
         // spec 13 §H.2: green = the played position lies on a zero crossing;

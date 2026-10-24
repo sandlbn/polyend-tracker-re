@@ -4,13 +4,13 @@
 
 namespace ot {
 
-// Waveform columns (stock Sample Editor / Playback, VISUAL_DIFF §3.5, §8.14):
-// one 2-px column per pixel pair (3-px in half-height views); zoomed out a
-// stem from the centre row to the sample at the column, zoomed in (under 2
-// samples per column) the min..max of the interpolated samples it covers, so
-// the columns join into a line (stock 025 draws a thin line there). Drawn in
-// colour c on top of whatever the caller put below (background, selection
-// strip, centre line).
+// Waveform columns: one 2-px column per pixel pair (3-px in half-height
+// views), each the min..max of the samples it covers, so the view shows the
+// sample's envelope like the Tracker Mini / Tracker+ (2.x; stock 1.9 drew a
+// stem from the centre to one sample per column, VISUAL_DIFF §3.5, §8.14).
+// A column reads every sample it covers up to 512, strided beyond (at most
+// ~1024 reads): a redraw stays bounded on long samples. Drawn in colour c on top of whatever
+// the caller put below (background, selection strip, centre line).
 void drawWaveData(Gfx& g, const Theme& th, const int16_t* d, uint32_t len, float v0, float v1, int x0, int y0, int w,
                   int h, uint32_t c) {
     if (!d || !len) {
@@ -35,19 +35,13 @@ void drawWaveData(Gfx& g, const Theme& th, const int16_t* d, uint32_t len, float
         const int cw = x + pitch <= w ? pitch : w - x;
         const float p0 = (v0 + (v1 - v0) * float(x) / float(w)) * float(len);
         const float p1 = (v0 + (v1 - v0) * float(x + pitch) / float(w)) * float(len);
-        if (p1 - p0 >= 2.0f) {
-            // Zoomed out: a stem from the centre to the sample (stock 006 / 008).
-            const int y = mid - int(at(p0) * float(amp) / 32768.0f);
-            g.rectsAdd(x0 + x, y < mid ? y : mid, cw, (y < mid ? mid - y : y - mid) + 1);
-            continue;
-        }
         float mn = at(p0), mx = mn;
         const float e = at(p1);
         if (e < mn) mn = e;
         if (e > mx) mx = e;
         uint32_t s = p0 < 0 ? 0 : uint32_t(p0) + 1;
         const uint32_t s1 = p1 > last ? len - 1 : uint32_t(p1);
-        const uint32_t stride = (s1 > s ? s1 - s : 1) / 32 + 1;
+        const uint32_t stride = (s1 > s ? s1 - s : 1) / 512 + 1;
         for (; s <= s1 && s < len; s += stride) {
             if (d[s] < mn) mn = d[s];
             if (d[s] > mx) mx = d[s];

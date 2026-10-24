@@ -992,6 +992,8 @@ TEST(record_quantised) {
     CHECK_EQ(int(r.step(1, 2).note), 64);
     r.seq.liveNoteOff(60);
     CHECK_EQ(int(r.step(0, 3).note), int(kNoteOff));  // release at same step -> next step
+    // USER_REPORTS_R3 R3-2: the OFF carries the played note's instrument, not 0.
+    CHECK_EQ(int(r.step(0, 3).instrument), 3);
     // Late in step 5 -> step 6.
     r.runUntil([&] { return r.seq.step(0) == 5 && r.seq.microStep(0) >= 30; });
     CHECK_EQ(r.seq.liveNoteOn(67, 127, 0, 3), 0);
@@ -1004,6 +1006,33 @@ TEST(record_quantised) {
     // Next loop it plays.
     r.runUntil([&] { return r.seq.step(0) == 7 && r.host.patternEnds == 1; });
     CHECK(r.sink.of(Ev::NoteOn, 0).size() > before);
+}
+
+TEST(record_note_just_before_the_count_in_ends_lands_on_step_0) {
+    // USER_REPORTS_R3 R3-1: with Pre-roll, a note meant for the first beat
+    // that comes a little early (inside the count-in's last half step) was
+    // played but not recorded. It now lands on step 0 (the same rounding as
+    // "late in a step -> the next step") and is not triggered again there.
+    Rig r(40.0f);
+    r.seq.settings().preRoll = 1;
+    r.seq.record();
+    CHECK(r.seq.isCountingIn());
+    // Early in the count-in: played only, not recorded.
+    r.runUntil([&] { return r.seq.countInTicksLeft() <= 3u * seq::kTicksPerStep; });
+    CHECK_EQ(r.seq.liveNoteOn(55, 127, 0, 2), 0);
+    r.seq.liveNoteOff(55);
+    for (int s = 0; s < 16; ++s) CHECK_EQ(int(r.step(0, s).note), int(kNoteEmpty));
+    // A quarter step before the downbeat: recorded on step 0.
+    r.runUntil([&] { return r.seq.countInTicksLeft() <= seq::kTicksPerStep / 4; });
+    CHECK(!r.seq.isPlaying());
+    CHECK_EQ(r.seq.liveNoteOn(60, 127, 0, 2), 0);
+    CHECK_EQ(int(r.step(0, 0).note), 60);
+    CHECK_EQ(int(r.step(0, 0).instrument), 2);
+    const size_t ons = r.sink.of(Ev::NoteOn, 0).size();
+    r.runUntil([&] { return r.seq.isPlaying() && r.seq.step(0) == 2; });
+    CHECK_EQ(r.sink.of(Ev::NoteOn, 0).size(), ons);   // step 0 did not re-trigger it
+    r.seq.liveNoteOff(60);
+    CHECK_EQ(int(r.step(0, 2).note), int(kNoteOff));
 }
 
 TEST(record_microtiming_and_velocity) {

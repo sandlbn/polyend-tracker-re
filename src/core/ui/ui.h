@@ -265,6 +265,11 @@ struct DevStats {
     uint32_t loopMaxUs = 0;
 };
 
+// Headphone-amp boot level (volume(v), spec 01 §5.1; the stock value is not
+// in the specs): 0.715 = HP_CTRL 0x24 = -6.0 dB, +1 dB over the first
+// builds' 0.70 after a "stock is louder" report (USER_REPORTS_R2 §2).
+constexpr float kHeadphoneBootLevel = 0.715f;
+
 // Optional platform extras injected by the device glue (null on host / sim).
 struct UiPlatform {
     bool (*devStats)(DevStats& out) = nullptr;

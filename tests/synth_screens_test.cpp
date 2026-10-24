@@ -518,7 +518,9 @@ TEST(macro_section_editing) {
 TEST(not_available_is_read_only) {
     Harness h;
     App& a = *h.app;
-    // A New Project's Synth 1 is ACD in 2.0; WTFM has no engine.
+    // A New Project's Synth 1 is ACD in 2.0. Every Mini model has an engine
+    // since 2.2: WTFM is hidden here to test the "not available" path.
+    audio::synthEngineHide(kSynthEngineWtfm, true);
     CHECK(a.synthSlot(0).model == uint32_t(SynthModel::ACD));
     a.setSynthModel(0, int(SynthModel::WTFM));
     CHECK(a.synthSlot(0).model == uint32_t(SynthModel::WTFM));
@@ -561,6 +563,7 @@ TEST(not_available_is_read_only) {
     CHECK(a.synthSlot(0).model == uint32_t(SynthModel::PERC));
     CHECK(s.available());
     CHECK(frameHas(h, "Synth 1 (PERC)"));
+    audio::synthEngineHide(kSynthEngineWtfm, false);
 }
 
 // FAT has an engine since 2.1: the header names it without "not available",
@@ -867,9 +870,17 @@ TEST(unavailable_slot_notice_on_open) {
     g_notes.clear();
     CHECK(a.openProject("Projects", "AllPlay"));
     CHECK(g_notes.find("not available") == std::string::npos);
+    // WTFM plays since 2.2: no notice either.
+    g_notes.clear();
+    CHECK(a.openProject("Projects", "Dead"));
+    CHECK(g_notes.find("not available") == std::string::npos);
+    // An engine missing from the build is named once (WTFM hidden).
+    audio::synthEngineHide(kSynthEngineWtfm, true);
+    CHECK(a.newProject());
     g_notes.clear();
     CHECK(a.openProject("Projects", "Dead"));
     CHECK_STR(g_notes.c_str(), "Synth 3 (WTFM) not available\n");
+    audio::synthEngineHide(kSynthEngineWtfm, false);
 }
 
 // Edit Patch bottom bar (manual p.153): Save, Save As, Init Patch, -, Up,
@@ -942,9 +953,11 @@ TEST(section_reset_and_no_disabled_focus) {
     h.tap(btn::F8);
     CHECK(frameHas(h, "Oscillator"));
     h.tap(btn::F8);
-    // Params: F4 selected, then the slot becomes read-only (WTFM).
+    // Params: F4 selected, then the slot becomes read-only (WTFM hidden:
+    // a model without an engine in this build).
     h.tap(btn::F4);
     CHECK_EQ(s.param, 3);
+    audio::synthEngineHide(kSynthEngineWtfm, true);
     a.setSynthModel(1, int(SynthModel::WTFM));
     h.app->ui.dirty();
     h.run(40);
@@ -956,6 +969,7 @@ TEST(section_reset_and_no_disabled_focus) {
     h.app->ui.dirty();
     h.run(40);
     for (int k = 0; k < 8; ++k) CHECK(!a.ui.bar.label[k].highlight);
+    audio::synthEngineHide(kSynthEngineWtfm, false);
 }
 
 // "Discard edits?" before Load / a model change when the patch was edited;
@@ -1430,4 +1444,20 @@ TEST(instr_hold_chooser_on_the_synth_page) {
     h.run(60);
     CHECK_EQ(a.currentInstrument(), kFirstSynthInstrument + 1);
     CHECK(a.ui.active() == kModSynth);
+}
+
+TEST(wtfm_ratio_shows_its_value) {
+    // WTFM Ratio (spec 2x-08 §1): index i shown as (i + 1) / 4, one index per detent.
+    char t[16];
+    synthui::formatValue(kSynthEngineWtfm, 0, 3.0f, t, sizeof t);
+    CHECK_STR(t, "1.00");
+    synthui::formatValue(kSynthEngineWtfm, 1, 0.0f, t, sizeof t);
+    CHECK_STR(t, "0.25");
+    synthui::formatValue(kSynthEngineWtfm, 0, 47.0f, t, sizeof t);
+    CHECK_STR(t, "12.00");
+    CHECK_NEAR(synthui::stepValue(kSynthEngineWtfm, 0, 3.0f, 1), 4.0f, 1e-6);
+    CHECK_NEAR(synthui::stepValue(kSynthEngineWtfm, 1, 3.0f, -2), 1.0f, 1e-6);
+    // FM 0..10 reads 0..1000 %.
+    synthui::formatValue(kSynthEngineWtfm, 11, 10.0f, t, sizeof t);
+    CHECK_STR(t, "1000 %");
 }

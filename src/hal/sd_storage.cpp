@@ -390,6 +390,139 @@ bool SdStorage::benchmark(uint8_t* buf, uint32_t bufLen, uint32_t totalBytes, Be
     return r.ok;
 }
 
+namespace {
+// Timings of one random-read series: sorted in place for the percentile.
+void rndStats(uint32_t* t, uint32_t n, SdStorage::Probe::Rnd& r) {
+    for (uint32_t i = 1; i < n; ++i)
+        for (uint32_t j = i; j > 0 && t[j] < t[j - 1]; --j) {
+            const uint32_t x = t[j];
+            t[j] = t[j - 1];
+            t[j - 1] = x;
+        }
+    uint64_t sum = 0;
+    for (uint32_t i = 0; i < n; ++i) sum += t[i];
+    r.n = n;
+    r.minUs = n ? t[0] : 0;
+    r.maxUs = n ? t[n - 1] : 0;
+    r.avgUs = n ? uint32_t(sum / n) : 0;
+    r.p99Us = n ? t[(n * 99) / 100 < n ? (n * 99) / 100 : n - 1] : 0;
+}
+uint32_t kbps(uint64_t bytes, uint32_t us) { return us ? uint32_t(bytes * 1000u / 1024u * 1000u / us) : 0; }
+}  // namespace
+
+bool SdStorage::streamProbe(uint8_t* buf, uint32_t bufLen, uint32_t fileBytes, Probe& r) {
+    r = Probe();
+    constexpr uint32_t kChunk = 32768;
+    if (!mounted_ || !buf || bufLen < kChunk) {
+        r.err = "not mounted / no buffer";
+        return false;
+    }
+    static const char kPath[] = "/OT_PROBE.TMP";
+    static const char kPath2[] = "/OT_PROBE2.TMP";
+    const uint32_t chunks = fileBytes / kChunk;
+    r.fileBytes = chunks * kChunk;
+    r.clusterBytes = uint32_t(gFs.csize) * 512u;
+    FIL f;
+    maybeCheckDirectWrite(buf, kChunk);
+    // 1. Write the test file (sequential, 32 KB chunks).
+    if (f_open(&f, kPath, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
+        r.err = "create failed";
+        return false;
+    }
+    bool ok = true;
+    uint32_t t0 = micros();
+    for (uint32_t i = 0; i < chunks && ok; ++i) {
+        memset(buf, int(i & 0xFF), kChunk);
+        const uint32_t c0 = micros();
+        UINT bw = 0;
+        ok = f_write(&f, buf, kChunk, &bw) == FR_OK && bw == kChunk;
+        const uint32_t dt = micros() - c0;
+        if (dt > r.writeChunkMaxUs) r.writeChunkMaxUs = dt;
+    }
+    ok = f_sync(&f) == FR_OK && ok;
+    r.writeKBps = kbps(r.fileBytes, micros() - t0);
+    f_close(&f);
+    if (!ok) {
+        f_unlink(kPath);
+        r.err = "write failed (card full?)";
+        return false;
+    }
+    // 2. Sequential read + the cluster map (fast seek), as a streamed instrument would.
+    DWORD clmt[128];   // on the stack: the probe runs once at boot (no .bss in the app image)
+    if (f_open(&f, kPath, FA_READ | FA_OPEN_EXISTING) != FR_OK) {
+        r.err = "open failed";
+        return false;
+    }
+    clmt[0] = 128;
+    f.cltbl = clmt;
+    if (f_lseek(&f, CREATE_LINKMAP) == FR_OK) {
+        r.fragments = (clmt[0] - 1) / 2;
+    } else {
+        f.cltbl = nullptr;   // too fragmented for 63 entries: plain FAT walk
+        r.fragments = 0xFFFF;
+    }
+    t0 = micros();
+    for (uint32_t i = 0; i < chunks && ok; ++i) {
+        const uint32_t c0 = micros();
+        UINT br = 0;
+        ok = f_read(&f, buf, kChunk, &br) == FR_OK && br == kChunk && buf[0] == uint8_t(i & 0xFF) &&
+             buf[kChunk - 1] == uint8_t(i & 0xFF);
+        const uint32_t dt = micros() - c0;
+        if (dt > r.seqChunkMaxUs) r.seqChunkMaxUs = dt;
+    }
+    r.seqKBps = kbps(r.fileBytes, micros() - t0);
+    // 3. Random reads: 64 each of 32, 16 and 4 KB, size-aligned offsets.
+    uint32_t t[64];
+    const uint32_t sizes[3] = {32768, 16384, 4096};
+    uint32_t rng = 0x1234567u;
+    for (int k = 0; k < 3 && ok; ++k) {
+        r.rnd[k].size = sizes[k];
+        const uint32_t slots = r.fileBytes / sizes[k];
+        for (uint32_t i = 0; i < 64 && ok; ++i) {
+            rng = rng * 1664525u + 1013904223u;
+            const uint32_t off = ((rng >> 8) % slots) * sizes[k];
+            const uint32_t c0 = micros();
+            UINT br = 0;
+            ok = f_lseek(&f, off) == FR_OK && f_read(&f, buf, sizes[k], &br) == FR_OK && br == sizes[k];
+            t[i] = micros() - c0;
+        }
+        rndStats(t, 64, r.rnd[k]);
+    }
+    // 4. Reads right behind writes: 16 x (32 KB write + f_sync to a second
+    //    file, then one random 32 KB read of the first): the autosave case.
+    FIL w;
+    if (ok && f_open(&w, kPath2, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) {
+        uint64_t sum = 0;
+        for (uint32_t i = 0; i < 16 && ok; ++i) {
+            memset(buf, 0xA5, kChunk);
+            uint32_t c0 = micros();
+            UINT bw = 0;
+            ok = f_write(&w, buf, kChunk, &bw) == FR_OK && bw == kChunk && f_sync(&w) == FR_OK;
+            uint32_t dt = micros() - c0;
+            if (dt > r.mixWriteMaxUs) r.mixWriteMaxUs = dt;
+            rng = rng * 1664525u + 1013904223u;
+            const uint32_t off = ((rng >> 8) % chunks) * kChunk;
+            c0 = micros();
+            UINT br = 0;
+            ok = ok && f_lseek(&f, off) == FR_OK && f_read(&f, buf, kChunk, &br) == FR_OK && br == kChunk;
+            dt = micros() - c0;
+            sum += dt;
+            if (dt > r.mixReadMaxUs) r.mixReadMaxUs = dt;
+        }
+        r.mixReadAvgUs = uint32_t(sum / 16);
+        f_close(&w);
+        f_unlink(kPath2);
+    } else if (ok) {
+        ok = false;
+        r.err = "second file failed";
+    }
+    f_close(&f);
+    f_unlink(kPath);
+    if (!ok && !r.err[0]) r.err = "read failed";
+    r.ok = ok;
+    return ok;
+}
+
 int32_t SdStorage::listDir(const char* path, DirFn fn, void* ctx) {
     if (!mounted_) return -1;
     DIR d;

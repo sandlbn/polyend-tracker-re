@@ -1,6 +1,6 @@
 # OpenTracker preset pack
 
-Our own synth patches for the ACD, FAT, VAP and PERC engines of OpenTracker 2.x, written by
+Our own synth patches for the ACD, FAT, VAP, WTFM and PERC engines of OpenTracker 2.x, written by
 `reimpl/tools/make_patches` (`make -C reimpl patches`) through the firmware's own Save As path.
 Every patch starts from the engine's built-in Init patch; no factory patch is used.
 
@@ -10,7 +10,7 @@ then use Load Patch on a synth page.
 Macros: M1-M6 (FX CC A-F). A bipolar macro (+-) at 63 and a unipolar macro at 0 play the
 patch as saved. M7 is Velocity (Volume FX), as in the Init patch. Levels are voiced for the
 default slot gain (-9 dB); `tests/patches_test.cpp` checks that every patch is audible, stays
-at least 1 dB below full scale (VAP and FAT Poly 4: 4-voice chords; PERC: five drums at once, toms
+at least 1 dB below full scale (VAP, FAT and WTFM Poly 4: 4-voice chords; PERC: five drums at once, toms
 alone) and does not clip with all macros at either extreme.
 
 Poly: the suggested slot polyphony (1 = mono, 4 = chords). It is a slot setting on the synth
@@ -67,6 +67,41 @@ page, not part of the patch.
 | OT Dark Drone | Low resonant drone, very slow filter and pitch drift; hold a note. | 4 | Cutoff (+-), Resonance (+-), Motion, Attack (+-), Release (+-), Detune (+-) |
 | OT Organ Keys | Square + triangle an octave up, instant on/off, light vibrato. | 4 | Tone (+-), Drawbar (+-), Vibrato, Shape (+-), Release (+-), Detune (+-) |
 
+## WTFM (30)
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT FM E-Piano | Classic FM electric piano: 1:1 operators, bright attack that mellows. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Tine Piano | Bell-like tine on top of a soft body: the modulator at 12x, short decay. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Mellow Tines | Darker, rounder FM piano for chords. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Bright Keys | Glassy 2:1 keys with a sharp attack. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT FM Clav | Funky clavinet: saw-like carrier, 3:1 bite and a quick filter. | 1 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT FM Harpsi | Plucked harpsichord: 4:1 modulator, no sustain. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT FM Organ | Drawbar-style organ: hollow odd row, 2:1 FM, gentle vibrato. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Perc Organ | Organ with a percussive click from a fast FM envelope. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Glass Bell | Clear bell: 3.5:1 inharmonic partials that ring out. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Tubular Bell | Deep church bell: 2.75:1 with a long, darkening tail. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT FM Marimba | Wooden mallet: 4:1 modulator, very short FM envelope. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT FM Vibes | Vibraphone: soft 4:1 strike and a motor tremolo. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Kalimba | Thumb piano: 5:1 ping on a sine. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT Music Box | Tiny music box: an octave up, 6:1 sparkle. | 4 | Brightness (+-), Feedback, Decay (+-), Release (+-), Tone (+-), Ratio 2 (+-) |
+| OT FM Bass | Punchy 1:1 FM bass with a decaying growl. | 1 | Brightness (+-), Cutoff (+-), Feedback, Decay (+-), Glide, Grit |
+| OT Solid Bass | Round, solid 80s FM bass: modulator feedback, quick bite. | 1 | Brightness (+-), Cutoff (+-), Feedback, Decay (+-), Glide, Grit |
+| OT Slap Bass | Slapped bass: 3:1 snap on attack, then a plain body. | 1 | Brightness (+-), Cutoff (+-), Feedback, Decay (+-), Glide, Grit |
+| OT Wood Bass | Upright-style bass: soft 1:1 pluck, short sustain. | 1 | Brightness (+-), Cutoff (+-), Feedback, Decay (+-), Glide, Grit |
+| OT Sub Thump | Deep sine sub with a short FM thump. | 1 | Brightness (+-), Cutoff (+-), Feedback, Decay (+-), Glide, Grit |
+| OT Growl Bass | Wild, moving bass: folded carrier, LFO on the FM depth. | 1 | Brightness (+-), Cutoff (+-), Feedback, Decay (+-), Glide, Grit |
+| OT FM Brass | Brass section: the FM depth swells in with the attack. | 4 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
+| OT Square Lead | Hollow square lead with feedback edge and vibrato. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
+| OT Reed Lead | Clarinet-like reed: the odd-harmonic row, soft vibrato. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
+| OT Metal Lead | Screaming lead: folded row, heavy feedback, oversampled. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
+| OT FM Strings | Soft string ensemble: saw-like carrier, slow attack, slow shape motion. | 4 | Brightness (+-), Cutoff (+-), Shape (+-), Attack (+-), Release (+-), Motion |
+| OT Crystal Pad | Shimmering 3:1 pad, the FM depth drifting slowly. | 4 | Brightness (+-), Cutoff (+-), Shape (+-), Attack (+-), Release (+-), Motion |
+| OT Choir Pad | Airy choir: the Add 5 row through a low-pass, slow swell. | 4 | Brightness (+-), Cutoff (+-), Shape (+-), Attack (+-), Release (+-), Motion |
+| OT Hollow Pad | Hollow odd-harmonic pad that slowly opens. | 4 | Brightness (+-), Cutoff (+-), Shape (+-), Attack (+-), Release (+-), Motion |
+| OT Noise Hit | Metallic noise burst: Add 11 row, full feedback, short. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
+| OT Laser Zap | Falling FM zap: the pitch and FM depth drop together. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
+
 ## PERC (8)
 
 Notes (MIDI numbers): kick 60, snare 62, hi-hats 64-67 (closed to open), cymbal 69, perc 71; any other
@@ -83,4 +118,4 @@ note plays the tom at that pitch.
 | OT Kit Studio | Tight acoustic-like kit: beater kick, ringing toms, crisp snare, washy cymbal. | 1 | Tone (+-), Decay (+-), Pitch (+-), Snap (+-), Drive (+-), Space (+-) |
 | OT Kit Glitch | Glitch kit: bit-twisted bodies, crushed bus, delays on hats and shaker. | 1 | Tone (+-), Decay (+-), Pitch (+-), Snap (+-), Drive (+-), Space (+-) |
 
-Total: 44 patches.
+Total: 74 patches.

@@ -163,7 +163,8 @@ expect-master PAGE SUB      fail unless Master is active on PAGE (0 Master, 1 Tr
                             Mixer, 2 Global Mixer) and sub-page SUB (0 main, 1 Reverb,
                             2 Delay, 3 Limiter, 4 EQ)
 fps-reset / expect-fps N    fail if fewer than N frames/s were rendered since fps-reset
-tone-sample SLOT FRAMES     write a test WAV to the card, import it into SLOT (1-based)
+tone-sample SLOT FRAMES [stereo]
+                            write a test WAV (stereo: a drum-like loop) to the card, import it into SLOT (1-based)
                             and make it the current instrument
 expect-playhead on|off      fail unless Sample Playback does (not) draw its playhead
 ```

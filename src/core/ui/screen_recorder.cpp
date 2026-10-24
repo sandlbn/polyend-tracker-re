@@ -47,12 +47,9 @@ constexpr float kMinBar = 1.0f / float(wg::kPanelH - 25);
 // Waveform (recording / edit): x 100..699, rows 116..334, markers 108..334.
 constexpr int kWaveX = 100, kWaveW = 600, kWaveY = 116, kWaveH = 219;
 // Stereo take: two lanes, L on top, R below (like the Tracker+ recorder),
-// split by a 5-row gap; the markers still span the whole area [I].
+// split by a 5-row gap, unlabelled like Tracker+; the markers still span
+// the whole area [I].
 constexpr int kLaneH = (kWaveH - 5) / 2, kLaneY2 = kWaveY + kLaneH + 5;
-void laneTags(Gfx& g, const Theme& th) {
-    g.text(kWaveX - 12, kWaveY + kLaneH / 2, kFontText, th.dim, "L", IDisplay::kOptCenter);
-    g.text(kWaveX - 12, kLaneY2 + kLaneH / 2, kFontText, th.dim, "R", IDisplay::kOptCenter);
-}
 
 void listItem(void* ctx, int i, char* out, int cap) {
     std::snprintf(out, size_t(cap), "%s", static_cast<const char* const*>(ctx)[i]);
@@ -508,6 +505,8 @@ void RecorderScreen::play(int note) {
     const uint32_t step = App::previewStep(note);
     a.previewPitched(data() + s0, r ? r + s0 : nullptr, n, note);
     previewing_ = true;
+    playS0_ = s0;
+    headAt_ = 0;   // poll the playhead on the next pass
     playNote = note;
     playFrames = n > 1 ? uint32_t((uint64_t(n - 1) << 16) / step + 1) : n;
 }
@@ -684,8 +683,26 @@ int RecorderScreen::arrowSel(int sel, int dir, int state, bool radio) {
     return slots[0];
 }
 
+// x of the preview playhead in the edit view, -1 when nothing plays or it is
+// outside the zoom window (the Playback screen's look: a 1-px line, th.good).
+int RecorderScreen::playheadX() const {
+    if (state != 1 || !previewing_) return -1;
+    const int32_t p = app_.engine.previewBufferPos();
+    if (p < 0 || len == 0) return -1;   // len: the take as cropped (the edit view's length)
+    float v0, v1;
+    view.window(&v0, &v1);
+    const float f = float(playS0_ + uint32_t(p)) / float(len);
+    const int x = kWaveX + int((f - v0) / (v1 - v0) * 599.0f + 0.5f);
+    return x >= kWaveX && x < kWaveX + kWaveW ? x : -1;
+}
+
 void RecorderScreen::update(uint32_t now) {
     App& a = app_;
+    // Preview playhead: polled every 5 ms, a frame only when its pixel moves.
+    if (now - headAt_ >= 5) {
+        headAt_ = now;
+        if (playheadX() != headX_) ui_.dirty();
+    }
     // Monitor (appendix C §2.7) only on the setup page and while recording:
     // after a take, the input (e.g. the radio) no longer plays under Preview
     // and the pads while the recording is trimmed (owner request).
@@ -763,7 +780,6 @@ void RecorderScreen::draw(Gfx& g) {
             waveRegion(g, th, kWaveX, kWaveX + kWaveW - 1, kLaneY2, kLaneH);
             drawWaveData(g, th, a.capture.buffer(), l, 0.0f, 1.0f, kWaveX, kWaveY, kWaveW, kLaneH, wave);
             drawWaveData(g, th, a.capture.bufferR(), l, 0.0f, 1.0f, kWaveX, kLaneY2, kWaveW, kLaneH, wave);
-            laneTags(g, th);
         } else {
             waveRegion(g, th, kWaveX, kWaveX + kWaveW - 1, kWaveY, kWaveH);
             drawWaveData(g, th, a.capture.buffer(), l, 0.0f, 1.0f, kWaveX, kWaveY, kWaveW, kWaveH, wave);
@@ -847,13 +863,14 @@ void RecorderScreen::draw(Gfx& g) {
         }
         drawWaveData(g, th, data(), len, v0, v1, kWaveX, kWaveY, kWaveW, kLaneH, wave);
         drawWaveData(g, th, r, len, v0, v1, kWaveX, kLaneY2, kWaveW, kLaneH, wave);
-        laneTags(g, th);
     } else {
         if (xe >= kWaveX && xs <= last) waveRegion(g, th, clampi(xs, kWaveX, last), clampi(xe, kWaveX, last), kWaveY, kWaveH);
         drawWaveData(g, th, data(), len, v0, v1, kWaveX, kWaveY, kWaveW, kWaveH, wave);
     }
     if (xs >= kWaveX && xs <= last) waveMarker(g, th, xs, sel == 1 ? th.accent : wave, 1, true, false, 108, 334);
     if (xe >= kWaveX && xe <= last) waveMarker(g, th, xe, sel == 2 ? th.accent : wave, -1, true, false, 108, 334);
+    headX_ = playheadX();
+    if (headX_ >= 0) g.vline(headX_, kWaveY, kWaveH, th.good);
     g.textf(400, 80, kFontText, th.text, IDisplay::kOptCenter, "Recorded %.2f s   crop levels %d/%d", double(len) / 44100.0,
             undoDepth, kUndoLevels);
 }

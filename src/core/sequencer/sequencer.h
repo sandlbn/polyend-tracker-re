@@ -174,6 +174,12 @@ public:
     bool isSongMode() const { return songMode_; }
     bool isSelectionPlaying() const { return playing_ && selection_; }
     bool isCountingIn() const { return countInSteps_ > 0; }
+    // Ticks until the count-in ends and playback starts (0 when not counting in).
+    uint32_t countInTicksLeft() const {
+        if (countInSteps_ <= 0) return 0;
+        const uint32_t total = uint32_t(countInSteps_) * uint32_t(seq::kTicksPerStep);
+        return countInTicks_ < total ? total - countInTicks_ : 0;
+    }
     float effectiveTempo() const;
     float tickPeriodUs() const;
     float externalTempo() const { return extBpm_; }
@@ -268,6 +274,7 @@ private:
         // live input
         bool liveHeld = false;
         uint8_t liveNote = 0;
+        uint8_t liveInstr = 0;   // the held live note's instrument (its recorded OFF gets it)
         int16_t liveStep = -1;
         int16_t skipStep = -1;
     };

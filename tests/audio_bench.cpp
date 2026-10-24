@@ -17,6 +17,10 @@
 //             (the device feeds the codec input every block)
 //   play8     8 looping voices, delay + reverb sends, some filters, 1 LFO
 //   stereo8   play8 with planar stereo instruments (2x-04 §3.4: <= play8 + 24 %)
+//   stream8   stereo8 with 3 s instruments streamed (docs/PLAN_SD_STREAMING.md
+//             P1): head resident, the rest through the track rings, refilled
+//             from memory between blocks (the main loop's work, not timed);
+//             stream.lim gates it at <= stereo8 + 5 %
 //   worst     8 voices + metronome + file preview: granular / wavetable /
 //             ping-pong, filter + overdrive + bit crusher on all, 5 LFOs,
 //             saturation, side-chain limiter, line-in with sends
@@ -73,11 +77,13 @@
 #endif
 
 #include "audio/engine.h"
+#include "audio/stream_source.h"
 #include "audio/engines/perc.h"
 #include "audio/synth_params.h"
 #include "audio/engines/acd.h"
 #include "audio/engines/fat.h"
 #include "audio/engines/vap.h"
+#include "audio/engines/wtfm.h"
 #include "formats/patch_pb.h"
 #include "peak_trace.h"
 #include "sequencer/sequencer.h"
@@ -127,6 +133,7 @@ OT_BIG int16_t gFx[AudioEngine::kFxMemorySamples];
 SynthPatch gSynthPatch;
 SynthPatch gPercPatch;
 OT_BIG int16_t gPool[2u << 20];
+OT_BIG int16_t gRingMem[size_t(kVoices) * 2 * ot::audio::kStreamRingFrames];   // stream8 rings
 Instrument gIns[kSampleInstrumentCount];
 AudioEngine gEng;
 
@@ -200,6 +207,7 @@ int16_t gLineNoise[kBlock * 2];
 const int16_t* lineNoiseBuf() { return gLineNoise; }
 
 double gPlay8 = 1.0;         // play8 cost, for the stereo8 ratio
+double gStereo8 = 1.0;       // stereo8 cost, for the stream8 limit
 double gAccPerBlock = 0.0;   // SDRAM accesses per block of the last timeBlocks()
 
 // Per-block cost in kUnit (best of kReps runs of n blocks).
@@ -350,6 +358,69 @@ double fatVoice(bool worst) {
     return (nowUnits() - t0) / blocks;
 }
 
+// WTFM's costliest settings (spec 2x-08 §7): Oversampling, both operators
+// Wilder, FM, the three feedback paths, LP OB 24 with resonance, both LFOs
+// and six mod slots incl. Env 2 -> FM and Env 1 -> Flt Env Decay, glide.
+void wtfmWorst(float* vals) {
+    using namespace wtfm;
+    const float w[][2] = {{kOversample, 1.0f}, {kChar1, kWilder}, {kChar2, kWilder}, {kShape1, 0.75f}, {kShape2, 0.75f},
+                          {kFm, 3.0f}, {kFb1, 0.6f}, {kFb2, 0.6f}, {kFb21, 0.4f}, {kRatio2, 7.0f}, {kFine2, 7.0f},
+                          {kFilterType, 1.0f}, {kResonance, 1.2f}, {kFilterEnvAmt, 0.5f}, {kEnv1S, 0.5f},
+                          {kLfo1Ratio, 30.0f}, {kLfo1Wave, 5.0f}, {kLfo1Retrig, 2.0f}, {kLfo2Ratio, 0.7f},
+                          {kGlideTime, 3.0f}};
+    for (auto& x : w) vals[int(x[0])] = x[1];
+    const int route[6][2] = {{kSrcLfo1, kDstShape1}, {kSrcEnv2, kDstFm}, {kSrcLfo2, kDstCutoff},
+                             {kSrcAmpEnv, kDstFb21}, {kSrcEnv1, kDstEnv1Decay}, {kSrcLfo2, kDstPitch2}};
+    for (int k = 0; k < 6; ++k) {
+        vals[kModBase + 3 * k] = float(route[k][0]);
+        vals[kModBase + 3 * k + 1] = float(route[k][1]);
+        vals[kModBase + 3 * k + 2] = 0.3f;
+    }
+}
+
+// One WTFM voice per block (prepare + render), sustained note (worst: a 3 s
+// glide 36 -> 60 on a reused voice).
+double wtfmVoice(bool worst) {
+    static float vals[kSynthParamMax];
+    int count = 0;
+    const PatchParamRange* t = patchEngineParams(kSynthEngineWtfm, &count);
+    for (int i = 0; i < count; ++i) vals[i] = t[i].def;
+    vals[wtfm::kAmpS] = 1.0f;
+    if (worst) wtfmWorst(vals);
+    static SynthParams p;
+    p.engine = kSynthEngineWtfm;
+    p.count = count;
+    for (int i = 0; i < count; ++i) p.start[i] = p.end[i] = vals[i];
+    p.serial = 1;
+    ISynthEngine* e = wtfm::engine();
+    static SynthSlotScratch sc;
+    static SynthVoice v;
+    e->slotReset(sc);
+    v = SynthVoice{};
+    v.slotScratch = &sc;
+    v.gate = true;
+    SynthNote n;
+    n.pitch = worst ? 36.0f : 48.0f;
+    e->noteOn(v, p, n);
+    static float l[kBlock], r[kBlock];
+    const int blocks = 800 / kScale;
+    for (int b = 0; b < 20; ++b) {
+        e->prepare(sc, p);
+        e->render(v, p, 0.5f, 0.0f, l, r);
+    }
+    if (worst) {
+        n.pitch = 60.0f;
+        n.reused = true;
+        e->noteOn(v, p, n);
+    }
+    const double t0 = nowUnits();
+    for (int b = 0; b < blocks; ++b) {
+        e->prepare(sc, p);
+        e->render(v, p, 0.5f, 0.0f, l, r);
+    }
+    return (nowUnits() - t0) / blocks;
+}
+
 void reportVoice(const char* name, double v, int limit) {
 #ifdef OT_BENCH_M4
     std::printf("  %-8s %7.0f insn per voice per block (limit %d)\n", name, v, limit);
@@ -359,9 +430,11 @@ void reportVoice(const char* name, double v, int limit) {
 #endif
 }
 
-// mix: stereo8 + 4 worst ACD voices (fat: FAT voices) + the costly PERC kit
-// (see the header), at synth voice budget `budget` (Governor; the default is 4).
-void mixBench(int budget, const char* name, bool fat = false) {
+// mix: stereo8 + 4 worst ACD voices (engine kSynthEngineFat / Wtfm: those
+// engines' worst voices) + the costly PERC kit (see the header), at synth
+// voice budget `budget` (Governor; the default is 4).
+void mixBench(int budget, const char* name, int32_t engine = kSynthEngineAcd) {
+    const bool fat = engine == kSynthEngineFat;
     Rig r;
     for (int i = 0; i < 4; ++i) {
         r.loadSt(i, tone(44100, 110.0f * float(i + 1)), tone(44100, 165.0f * float(i + 1)), PlayMode::ForwardLoop);
@@ -377,7 +450,17 @@ void mixBench(int budget, const char* name, bool fat = false) {
     for (int t = 0; t < 8; ++t) r.note(uint8_t(t), uint8_t(t & 3), uint8_t(48 + 3 * t));
     // Synth 1: ACD, worst-case patch (every oscillator, RD3, all modulation),
     // or FAT's worst case (fatWorst).
-    if (fat) {
+    if (engine == kSynthEngineWtfm) {
+        patchInit(kSynthEngineWtfm, &gSynthPatch);
+        float vals[kSynthParamMax];
+        int count = 0;
+        const PatchParamRange* t = patchEngineParams(kSynthEngineWtfm, &count);
+        for (int i = 0; i < count; ++i) vals[i] = t[i].def;
+        wtfmWorst(vals);
+        vals[wtfm::kAmpS] = 1.0f;
+        for (int i = 0; i < count; ++i)
+            if (vals[i] != t[i].def) synthParamSet(gSynthPatch, i, vals[i]);
+    } else if (fat) {
         patchInit(kSynthEngineFat, &gSynthPatch);
         float vals[kSynthParamMax];
         int count = 0;
@@ -412,7 +495,7 @@ void mixBench(int budget, const char* name, bool fat = false) {
     b.bindPatch(1, &gPercPatch);
     b.bindPatch(2, nullptr);
     SynthSlotRecord a = SynthSlotRecord::defaults(0);
-    a.model = uint32_t(fat ? SynthModel::FAT : SynthModel::ACD);
+    a.model = uint32_t(engine == kSynthEngineWtfm ? SynthModel::WTFM : (fat ? SynthModel::FAT : SynthModel::ACD));
     a.polyphony = 4;
     a.delaySend = 30.0f;
     a.reverbSend = 30.0f;
@@ -1028,8 +1111,85 @@ int main(int argc, char** argv) {
         r.eng->settings().delayFeedback = 45;
         for (int t = 0; t < 8; ++t) r.note(uint8_t(t), uint8_t(t & 3), uint8_t(48 + 3 * t));
         const double st = timeBlocks(r, 2000, lineNoise);
+        gStereo8 = st;
         report("stereo8", st);
         std::printf("  (stereo8 = play8 %+.1f%%; limit +24%%, docs/MINI_PLAN.md §2)\n", 100.0 * (st / gPlay8 - 1.0));
+    }
+    {   // stream8: stereo8 with streamed 3 s instruments
+        Rig r;
+        constexpr uint32_t kSec3 = 3 * 44100;
+        static StreamSource src[4];
+        for (int i = 0; i < 4; ++i) {
+            r.loadSt(i, tone(kSec3, 110.0f * float(i + 1)), tone(kSec3, 165.0f * float(i + 1)), PlayMode::ForwardLoop);
+            r.ins[i].delaySend = uint8_t(20 + 10 * i);
+            r.ins[i].reverbSend = uint8_t(30 + 5 * i);
+            src[i] = StreamSource{};
+            src[i].headL = r.eng->bank().left(i);
+            src[i].headR = r.eng->bank().right(i);
+            src[i].headFrames = kStreamHeadFrames;
+            src[i].frames = kSec3;
+            src[i].instrument = uint8_t(i);
+        }
+        r.ins[1].filterEnabled = 1;
+        r.ins[1].cutoff = 0.5f;
+        r.ins[2].env[kAutoPanning].enabled = 1;
+        r.ins[2].env[kAutoPanning].loop = 1;
+        r.eng->settings().delayTimeMs = 375;
+        r.eng->settings().delayFeedback = 45;
+        static StreamRing rings[kVoices];
+        for (int v = 0; v < kVoices; ++v) {
+            rings[v] = StreamRing{};
+            rings[v].bufL = gRingMem + size_t(2 * v) * kStreamRingFrames;
+            rings[v].bufR = rings[v].bufL + kStreamRingFrames;
+        }
+        r.eng->setStreamRings(rings);
+        for (int i = 0; i < 4; ++i) r.eng->setStreamSource(i, &src[i]);
+        // The card, here: the full instrument is in the bank.
+        struct BankReader : IStreamReader {
+            AudioEngine* eng = nullptr;
+            bool read(const StreamSource& s, uint32_t f, uint32_t n, int16_t* l, int16_t* rr) override {
+                std::memcpy(l, eng->bank().left(s.instrument) + f, n * 2);
+                if (rr) std::memcpy(rr, eng->bank().right(s.instrument) + f, n * 2);
+                return true;
+            }
+        } reader;
+        reader.eng = r.eng;
+        for (int t = 0; t < 8; ++t) r.note(uint8_t(t), uint8_t(t & 3), uint8_t(48 + 3 * t));
+        // Run well into the ring (past the head) before timing.
+        int16_t out[kBlock * 2];
+        for (int b = 0; b < 400; ++b) {
+            streamService(rings, kVoices, reader, 4);
+            r.eng->setLineInput(lineNoise);
+            r.eng->renderLive(out);
+        }
+        double best = 1e30;
+        const int n = 2000 / kScale;
+        uint32_t under0 = 0;
+        for (int v = 0; v < kVoices; ++v) under0 += rings[v].underruns;
+        for (int rep = 0; rep < kReps; ++rep) {
+            double sum = 0.0;
+            for (int b = 0; b < n; ++b) {
+                streamService(rings, kVoices, reader, 4);   // main loop: not timed
+                r.eng->setLineInput(lineNoise);
+                const double t0 = nowUnits();
+                r.eng->renderLive(out);
+                sum += nowUnits() - t0;
+                gSink = out[b & 255];
+            }
+            if (sum / n < best) best = sum / n;
+        }
+        uint32_t under = 0;
+        for (int v = 0; v < kVoices; ++v) under += rings[v].underruns;
+        report("stream8", best);
+        std::printf("  (stream8 = stereo8 %+.1f%%, underruns %u; limit +5%%, docs/PLAN_SD_STREAMING.md P1)\n",
+                    100.0 * (best / gStereo8 - 1.0), unsigned(under - under0));
+#ifdef OT_BENCH_M4
+        std::printf("    stream.lim %10.1f  (stream8 per block, limit %.0f M4 insn = stereo8 + 5 %%)\n", best,
+                    gStereo8 * 1.05);
+#endif
+        if (under != under0) std::printf("    stream.und %u  (underruns during the run, limit 0)\n", unsigned(under - under0));
+        r.eng->setStreamRings(nullptr);
+        for (int i = 0; i < 4; ++i) r.eng->setStreamSource(i, nullptr);
     }
     {   // worst case
         Rig r;
@@ -1082,7 +1242,8 @@ int main(int argc, char** argv) {
     mixBench(4, "mix");   // Governor::kDefaultBudget
     mixBench(5, "mix5");
     mixBench(6, "mix6");
-    mixBench(4, "mixfat", true);
+    mixBench(4, "mixfat", kSynthEngineFat);
+    mixBench(4, "mixwtfm", kSynthEngineWtfm);
     switchBench();
 #ifdef OT_BENCH_M4
     peakBench("../build/bench/song5.trace", 8100);   // song positions 0-2 (intro, groove, sixteen-track chords)
@@ -1093,6 +1254,8 @@ int main(int argc, char** argv) {
     reportVoice("vapworst", vapVoice(true), 18000);
     reportVoice("fatinit", fatVoice(false), 12000);
     reportVoice("fatworst", fatVoice(true), 22000);
+    reportVoice("wtfminit", wtfmVoice(false), 12000);
+    reportVoice("wtfmworst", wtfmVoice(true), 32000);
     components();
     return 0;
 }

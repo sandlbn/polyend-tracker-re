@@ -145,9 +145,12 @@ public:
 };
 
 // Engine registry keyed by the Tracker Mini engine id (synth_registry.cpp).
-// nullptr = the model is not available in this build (WTFM; FAT until 2.1):
+// nullptr = the model is not available in this build (FAT until 2.1, WTFM until 2.2):
 // such a slot loads and saves its patch but stays silent.
 ISynthEngine* synthEngineFor(int32_t engineId);
+// Tests: report an engine id as "not available" (every Mini model has an
+// engine since 2.2; the read-only "not available" path stays testable).
+void synthEngineHide(int32_t engineId, bool hide);
 
 // INTERNAL sine + envelope engine (tests, benches, sim until WP-F).
 ISynthEngine* synthTestEngine();

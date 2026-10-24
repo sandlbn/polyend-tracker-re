@@ -205,6 +205,50 @@ void checkFatOnly(ot::App& a) {
     CHECK(maxVol <= 50);
 }
 
+// Song 17 (wtfmsong.inc), after the open: Synth 1-3 are WTFM patches with
+// our own names (piano polyphony 4, bass and bell mono; the bass Reset On,
+// the bell Reset Off); every note is a synth note; the held notes stay
+// inside the default budget.
+void checkWtfmOnly(ot::App& a) {
+    namespace wtfm = ot::audio::wtfm;
+    const char* names[3] = {"OT WT E-Piano", "OT WT Bass", "OT WT Bell"};
+    const uint32_t poly[3] = {4, 1, 1};
+    for (int k = 0; k < 3; ++k) {
+        const ot::SynthSlotRecord r = a.synthSlot(k);
+        CHECK_EQ(r.model, uint32_t(ot::SynthModel::WTFM));
+        CHECK_EQ(r.polyphony, poly[k]);
+        CHECK(std::strcmp(r.patchName, names[k]) == 0);
+        CHECK_EQ(a.synthPatch(k).engine, int32_t(ot::kSynthEngineWtfm));
+    }
+    CHECK(ot::audio::synthParamGet(a.synthPatch(1), wtfm::kReset1) >= 0.5f);
+    CHECK(ot::audio::synthParamGet(a.synthPatch(2), wtfm::kReset1) < 0.5f);
+    CHECK(ot::audio::synthParamGet(a.synthPatch(0), wtfm::kFm) > 0.0f);
+    const int held = ts::bgr::peakSynthVoices(a);
+    std::printf("    peak synth voices held %d (budget %d)\n", held, int(ot::Config::kDefaultSynthVoices));
+    CHECK(held <= int(ot::Config::kDefaultSynthVoices));
+    CHECK(std::fabs(a.project.tempo() - 124.0f) < 0.01f);
+    int patterns = 0, notes = 0, maxVol = 0;
+    for (int n = 1; n <= ot::kPatternCount; ++n) {
+        if (!a.patternPresent(n)) continue;
+        ++patterns;
+        ot::Track tr;
+        for (int t = 0; t < ot::kTrackCount; ++t) {
+            a.readStoredTrack(n, t, tr);
+            for (int st = 0; st < ot::kStepCount; ++st) {
+                const ot::Step& x = tr.steps[st];
+                for (const auto& f : x.fx)
+                    if (f.type == uint8_t(ot::FxId::Volume)) maxVol = std::max(maxVol, int(f.value));
+                if (x.note < 0) continue;
+                ++notes;
+                CHECK(x.instrument >= 64 && x.instrument <= 66);
+            }
+        }
+    }
+    std::printf("    %d patterns, %d notes, max Volume %d\n", patterns, notes, maxVol);
+    CHECK_EQ(patterns, 6);
+    CHECK(maxVol <= 50);
+}
+
 // Song 13 (percsong.inc), after the open: Synth 1-3 are PERC kits with our
 // own patch names and polyphony 1 (3 voices <= the default budget of 4);
 // every note is a synth note (no sample, no MIDI); per kit and tick at most
@@ -430,6 +474,10 @@ void checkSong(ts::SongId id, bool force) {
         CHECK_EQ(ptiFiles, 0);
         checkFatOnly(*h.app);
     }
+    if (id == ts::SongId::WtfmOnly) {
+        CHECK_EQ(ptiFiles, 0);
+        checkWtfmOnly(*h.app);
+    }
 
     // Re-encode everything from the loaded model, then Save.
     h.app->markProjectDirty();
@@ -502,7 +550,7 @@ void checkSong(ts::SongId id, bool force) {
         CHECK(voices <= int(ot::Config::kDefaultSynthVoices));
         CHECK_EQ(h.app->engine.synth().steals(), 0u);
     }
-    if (id == ts::SongId::VapOnly || id == ts::SongId::FatOnly) {
+    if (id == ts::SongId::VapOnly || id == ts::SongId::FatOnly || id == ts::SongId::WtfmOnly) {
         std::printf("    synth voices sounding at most %d, steals %u\n", voices, unsigned(h.app->engine.synth().steals()));
         CHECK(voices >= 4);
         CHECK(voices <= int(ot::Config::kDefaultSynthVoices));
@@ -528,6 +576,7 @@ TEST(testsongs_table) {
     CHECK_EQ(ts::findSong(ts::SongId::PercOnly)->available, ts::kHasSynths && ts::kHas16Tracks);
     CHECK_EQ(ts::findSong(ts::SongId::VapOnly)->available, ts::kHasSynths && ts::kHas16Tracks);
     CHECK_EQ(ts::findSong(ts::SongId::FatOnly)->available, ts::kHasSynths && ts::kHas16Tracks);
+    CHECK_EQ(ts::findSong(ts::SongId::WtfmOnly)->available, ts::kHasSynths && ts::kHas16Tracks);
     CHECK(ts::kHasSynths);
     for (int i = 5; i < ts::kSongCount; ++i) CHECK_EQ(ts::songInfo(i).available, ts::kHasSynths && ts::kHas16Tracks);
     for (int i = 0; i < ts::kSongCount; ++i) CHECK(std::strlen(ts::songInfo(i).name) <= ot::mt::kNameMax);
@@ -591,7 +640,7 @@ std::vector<int16_t> wavSamples(const std::vector<uint8_t>& f) {
 TEST(testsongs_rendered_levels_do_not_clip) {
     const ts::SongId ids[] = {ts::SongId::TwelveTracks, ts::SongId::Synths, ts::SongId::BgTitle,
                               ts::SongId::BgFinalBoss, ts::SongId::PercOnly, ts::SongId::VapOnly,
-                              ts::SongId::FatOnly};
+                              ts::SongId::FatOnly, ts::SongId::WtfmOnly};
     for (ts::SongId id : ids) {
         const ts::SongInfo* info = ts::findSong(id);
         if (!info || !info->available) continue;

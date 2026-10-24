@@ -2,7 +2,7 @@
 //
 // Every sound here is our own design, built on the engine's built-in Init
 // patch (patchInit) with the parameter semantics of our engines
-// (audio/engines/{acd,fat,vap,perc}.*). Macro amounts follow the macro law of
+// (audio/engines/{acd,fat,vap,wtfm,perc}.*). Macro amounts follow the macro law of
 // audio/synth_params.h: amount x stored range per unit of the macro, so a
 // bipolar macro at 63 (and a unipolar one at 0) plays the patch as saved.
 //
@@ -20,6 +20,7 @@
 #include "audio/engines/fat.h"
 #include "audio/engines/perc.h"
 #include "audio/engines/vap.h"
+#include "audio/engines/wtfm.h"
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
 
@@ -263,6 +264,234 @@ std::vector<Preset> fatPresets() {
 }
 
 // ---------------------------------------------------------------------------
+// WTFM: two operators (operator 2 modulates the carrier), Character rows
+// along Shape, Feedback 1 / 2 / 2>1, Ratio 0.25..12, 15 filter types; the
+// FM depth envelopes come from Env 2 (or Env 1) through the mod matrix.
+// Classic two-operator FM sounds of our own design.
+
+namespace wt {
+using namespace ot::audio::wtfm;
+// Ratio value -> stored index ((i + 1) / 4).
+constexpr float ratio(float r) { return r * 4.0f - 1.0f; }
+// Mod slot k: source -> destination, amount.
+std::vector<Edit> route(int k, int src, int dst, float amt) {
+    return {{kModBase + 3 * k, float(src)}, {kModBase + 3 * k + 1, float(dst)}, {kModBase + 3 * k + 2, amt}};
+}
+std::vector<Edit> join(std::vector<Edit> a, const std::vector<Edit>& b) {
+    a.insert(a.end(), b.begin(), b.end());
+    return a;
+}
+// An open filter (LP SVF 12 at 14 kHz, no envelope, no key tracking).
+const std::vector<Edit> kOpen = {{kFilterType, 4.0f}, {kCutoff, 14000.0f}, {kResonance, 0.0f}, {kFilterEnvAmt, 0.0f},
+                                 {kNoteTrack, 0.0f}};
+std::vector<Macro> keyMacros() {
+    return {{"Brightness", true, {{kFm, 0.15f}}},
+            {"Feedback", false, {{kFb1, 0.5f}}},
+            {"Decay", true, {{kAmpD, 0.1f}, {kEnv2D, 0.1f}}},
+            {"Release", true, {{kAmpR, 0.08f}}},
+            {"Tone", true, {{kCutoff, cut(8000)}}},
+            {"Ratio 2", true, {{kRatio2, 0.1f}}}};
+}
+std::vector<Macro> bassMacros() {
+    return {{"Brightness", true, {{kFm, 0.15f}}},
+            {"Cutoff", true, {{kCutoff, cut(1500)}}},
+            {"Feedback", false, {{kFb2, 0.6f}}},
+            {"Decay", true, {{kEnv2D, 0.05f}, {kAmpD, 0.05f}}},
+            {"Glide", false, {{kGlideTime, 0.1f}}},
+            {"Grit", false, {{kFb1, 0.4f}}}};
+}
+std::vector<Macro> padMacros() {
+    return {{"Brightness", true, {{kFm, 0.1f}}},
+            {"Cutoff", true, {{kCutoff, cut(5000)}}},
+            {"Shape", true, {{kShape1, 0.4f}}},
+            {"Attack", true, {{kAmpA, 0.05f}}},
+            {"Release", true, {{kAmpR, 0.08f}}},
+            {"Motion", false, {{kModBase + 2, 0.1f}}}};
+}
+std::vector<Macro> leadMacros() {
+    return {{"Brightness", true, {{kFm, 0.15f}}},
+            {"Feedback", true, {{kFb1, 0.4f}}},
+            {"Cutoff", true, {{kCutoff, cut(6000)}}},
+            {"Vibrato", false, {{kModBase + 2, 0.02f}}},
+            {"Glide", false, {{kGlideTime, 0.1f}}},
+            {"Release", true, {{kAmpR, 0.08f}}}};
+}
+}  // namespace wt
+
+std::vector<Preset> wtfmPresets() {
+    using namespace ot::audio::wtfm;
+    using wt::join;
+    using wt::kOpen;
+    using wt::ratio;
+    using wt::route;
+    const SynthModel W = SynthModel::WTFM;
+    // Classic FM keys: the modulator's depth decays with Env 2.
+    auto keys = [&](float r2, float fm, float envFm, float envD, float ampD, float ampS, float ampR) {
+        return join(join(kOpen, {{kRatio2, ratio(r2)}, {kFm, fm}, {kEnv2A, 0.0f}, {kEnv2D, envD}, {kEnv2S, 0.0f},
+                                 {kEnv2R, 0.4f}, {kAmpA, 0.002f}, {kAmpD, ampD}, {kAmpS, ampS}, {kAmpR, ampR}}),
+                    route(0, kSrcEnv2, kDstFm, envFm));
+    };
+    return {
+        // --- keys ---
+        {W, "OT FM E-Piano", "Classic FM electric piano: 1:1 operators, bright attack that mellows.", 4,
+         join(keys(1.0f, 0.35f, 1.6f, 1.2f, 2.5f, 0.25f, 0.6f), {{kVolume, 0.9f}, {kFine2, 4.0f}}), wt::keyMacros()},
+        {W, "OT Tine Piano", "Bell-like tine on top of a soft body: the modulator at 12x, short decay.", 4,
+         join(keys(12.0f, 0.15f, 1.2f, 0.35f, 2.8f, 0.2f, 0.7f), {{kVolume, 0.9f}}), wt::keyMacros()},
+        {W, "OT Mellow Tines", "Darker, rounder FM piano for chords.", 4,
+         join(keys(1.0f, 0.2f, 0.9f, 1.8f, 3.0f, 0.3f, 0.8f), {{kCutoff, 5000.0f}, {kVolume, 0.95f}}), wt::keyMacros()},
+        {W, "OT Bright Keys", "Glassy 2:1 keys with a sharp attack.", 4,
+         join(keys(2.0f, 0.6f, 1.0f, 0.6f, 1.8f, 0.2f, 0.5f), {{kVolume, 0.85f}}), wt::keyMacros()},
+        {W, "OT FM Clav", "Funky clavinet: saw-like carrier, 3:1 bite and a quick filter.", 1,
+         join(keys(3.0f, 0.8f, 1.5f, 0.15f, 0.6f, 0.0f, 0.1f),
+              {{kChar1, float(kSharper)}, {kShape1, 0.55f}, {kFb21, 0.25f}, {kFilterType, 2.0f}, {kCutoff, 2500.0f},
+               {kResonance, 0.5f}, {kFilterEnvAmt, 0.25f}, {kEnv1D, 0.2f}, {kVolume, 1.7f}}),
+         wt::keyMacros()},
+        {W, "OT FM Harpsi", "Plucked harpsichord: 4:1 modulator, no sustain.", 4,
+         join(keys(4.0f, 1.0f, 1.0f, 0.5f, 1.4f, 0.0f, 0.4f), {{kFb1, 0.15f}, {kVolume, 0.85f}}), wt::keyMacros()},
+        {W, "OT FM Organ", "Drawbar-style organ: hollow odd row, 2:1 FM, gentle vibrato.", 4,
+         join(join(kOpen, {{kChar1, float(kAdd2)}, {kShape1, 0.35f}, {kRatio2, ratio(2.0f)}, {kFm, 0.7f},
+                           {kAmpA, 0.004f}, {kAmpD, 1.0f}, {kAmpS, 1.0f}, {kAmpR, 0.08f}, {kLfo1Ratio, 6.0f},
+                           {kLfo1Wave, 1.0f}, {kLfo1Retrig, 0.0f}, {kVolume, 0.8f}}),
+              route(0, kSrcLfo1, kDstPitch1, 0.008f)),
+         wt::keyMacros()},
+        {W, "OT Perc Organ", "Organ with a percussive click from a fast FM envelope.", 4,
+         join(keys(3.0f, 0.4f, 2.0f, 0.12f, 1.0f, 0.8f, 0.1f), {{kChar1, float(kAdd1)}, {kShape1, 0.25f}, {kVolume, 0.8f}}),
+         wt::keyMacros()},
+        // --- bells and mallets ---
+        {W, "OT Glass Bell", "Clear bell: 3.5:1 inharmonic partials that ring out.", 4,
+         join(keys(3.5f, 1.5f, 1.5f, 2.0f, 3.5f, 0.0f, 2.0f), {{kVolume, 0.8f}}), wt::keyMacros()},
+        {W, "OT Tubular Bell", "Deep church bell: 2.75:1 with a long, darkening tail.", 4,
+         join(keys(2.75f, 2.0f, 1.5f, 3.0f, 5.0f, 0.0f, 3.0f), {{kCutoff, 9000.0f}, {kVolume, 0.75f}}), wt::keyMacros()},
+        {W, "OT FM Marimba", "Wooden mallet: 4:1 modulator, very short FM envelope.", 4,
+         join(keys(4.0f, 0.2f, 2.5f, 0.08f, 0.6f, 0.0f, 0.3f), {{kVolume, 0.95f}}), wt::keyMacros()},
+        {W, "OT FM Vibes", "Vibraphone: soft 4:1 strike and a motor tremolo.", 4,
+         join(join(keys(4.0f, 0.3f, 1.2f, 0.2f, 3.0f, 0.0f, 1.0f),
+                   {{kLfo2Ratio, 5.0f}, {kLfo2Wave, 1.0f}, {kLfo2Retrig, 0.0f}, {kVolume, 0.9f}}),
+              route(1, kSrcLfo2, kDstVolume, 0.25f)),
+         wt::keyMacros()},
+        {W, "OT Kalimba", "Thumb piano: 5:1 ping on a sine.", 4,
+         join(keys(5.0f, 0.4f, 2.0f, 0.06f, 0.9f, 0.0f, 0.4f), {{kVolume, 0.95f}}), wt::keyMacros()},
+        {W, "OT Music Box", "Tiny music box: an octave up, 6:1 sparkle.", 4,
+         join(keys(6.0f, 0.5f, 1.0f, 0.3f, 1.6f, 0.0f, 1.0f), {{kRatio1, ratio(2.0f)}, {kVolume, 0.85f}}),
+         wt::keyMacros()},
+        // --- basses ---
+        {W, "OT FM Bass", "Punchy 1:1 FM bass with a decaying growl.", 1,
+         join(join({{kFilterType, 0.0f}, {kCutoff, 2200.0f}, {kResonance, 0.3f}, {kFilterEnvAmt, 0.1f}, {kNoteTrack, 0.5f},
+                    {kRatio2, ratio(1.0f)}, {kFm, 1.0f}, {kFb2, 0.3f}, {kEnv2D, 0.3f}, {kEnv2S, 0.0f}, {kAmpA, 0.002f},
+                    {kAmpD, 0.8f}, {kAmpS, 0.7f}, {kAmpR, 0.1f}, {kGlideMode, 2.0f}, {kGlideTime, 0.05f}},
+                   route(0, kSrcEnv2, kDstFm, 2.0f)),
+              {{kVolume, 1.9f}}),
+         wt::bassMacros()},
+        {W, "OT Solid Bass", "Round, solid 80s FM bass: modulator feedback, quick bite.", 1,
+         join({{kFilterType, 0.0f}, {kCutoff, 3000.0f}, {kResonance, 0.2f}, {kFilterEnvAmt, 0.0f}, {kNoteTrack, 0.5f},
+               {kRatio2, ratio(1.0f)}, {kFm, 1.5f}, {kFb2, 0.45f}, {kEnv2D, 0.18f}, {kEnv2S, 0.0f}, {kAmpA, 0.001f},
+               {kAmpD, 1.2f}, {kAmpS, 0.6f}, {kAmpR, 0.08f}, {kVolume, 1.9f}},
+              route(0, kSrcEnv2, kDstFm, 1.5f)),
+         wt::bassMacros()},
+        {W, "OT Slap Bass", "Slapped bass: 3:1 snap on attack, then a plain body.", 1,
+         join({{kFilterType, 1.0f}, {kCutoff, 4000.0f}, {kResonance, 0.2f}, {kFilterEnvAmt, 0.0f}, {kNoteTrack, 0.4f},
+               {kRatio2, ratio(3.0f)}, {kFm, 0.3f}, {kFb1, 0.2f}, {kEnv2D, 0.07f}, {kEnv2S, 0.0f}, {kAmpA, 0.001f},
+               {kAmpD, 0.9f}, {kAmpS, 0.4f}, {kAmpR, 0.1f}, {kVolume, 2.0f}},
+              route(0, kSrcEnv2, kDstFm, 3.0f)),
+         wt::bassMacros()},
+        {W, "OT Wood Bass", "Upright-style bass: soft 1:1 pluck, short sustain.", 1,
+         join({{kVolume, 1.8f}, {kFilterType, 3.0f}, {kCutoff, 1600.0f}, {kResonance, 0.1f}, {kFilterEnvAmt, 0.1f}, {kNoteTrack, 0.6f},
+               {kRatio2, ratio(1.0f)}, {kFm, 0.3f}, {kEnv2D, 0.12f}, {kEnv2S, 0.0f}, {kAmpA, 0.004f}, {kAmpD, 0.9f},
+               {kAmpS, 0.15f}, {kAmpR, 0.2f}},
+              route(0, kSrcEnv2, kDstFm, 1.0f)),
+         wt::bassMacros()},
+        {W, "OT Sub Thump", "Deep sine sub with a short FM thump.", 1,
+         join({{kVolume, 1.6f}, {kFilterType, 0.0f}, {kCutoff, 600.0f}, {kResonance, 0.1f}, {kFilterEnvAmt, 0.1f}, {kNoteTrack, 0.5f},
+               {kRatio2, ratio(2.0f)}, {kEnv2D, 0.06f}, {kEnv2S, 0.0f}, {kAmpA, 0.002f}, {kAmpD, 1.0f}, {kAmpS, 0.9f},
+               {kAmpR, 0.12f}},
+              route(0, kSrcEnv2, kDstFm, 1.2f)),
+         wt::bassMacros()},
+        {W, "OT Growl Bass", "Wild, moving bass: folded carrier, LFO on the FM depth.", 1,
+         join(join({{kChar1, float(kWilder)}, {kShape1, 0.5f}, {kFilterType, 1.0f}, {kCutoff, 1200.0f}, {kResonance, 0.6f},
+                    {kFilterEnvAmt, 0.2f}, {kEnv1D, 0.3f}, {kNoteTrack, 0.5f}, {kRatio2, ratio(0.5f)}, {kFm, 0.8f},
+                    {kLfo1Ratio, 4.0f}, {kLfo1Wave, 0.0f}, {kAmpA, 0.002f}, {kAmpS, 1.0f}, {kAmpR, 0.1f},
+                    {kGlideMode, 2.0f}, {kGlideTime, 0.06f}, {kVolume, 1.7f}},
+                   route(0, kSrcLfo1, kDstFm, 0.6f)),
+              {}),
+         wt::bassMacros()},
+        // --- leads and brass ---
+        {W, "OT FM Brass", "Brass section: the FM depth swells in with the attack.", 4,
+         join(join({{kFilterType, 4.0f}, {kCutoff, 8000.0f}, {kResonance, 0.0f}, {kFilterEnvAmt, 0.0f}, {kNoteTrack, 0.0f},
+                    {kRatio2, ratio(1.0f)}, {kFm, 0.3f}, {kFb2, 0.3f}, {kEnv2A, 0.08f}, {kEnv2D, 0.5f}, {kEnv2S, 0.5f},
+                    {kEnv2R, 0.3f}, {kAmpA, 0.05f}, {kAmpD, 0.5f}, {kAmpS, 0.85f}, {kAmpR, 0.25f}, {kLfo1Ratio, 5.5f},
+                    {kLfo1Wave, 1.0f}, {kVolume, 0.85f}},
+                   route(0, kSrcEnv2, kDstFm, 1.5f)),
+              route(1, kSrcLfo1, kDstPitch1, 0.004f)),
+         wt::leadMacros()},
+        {W, "OT Square Lead", "Hollow square lead with feedback edge and vibrato.", 1,
+         join(join({{kChar1, float(kSharper)}, {kShape1, 0.85f}, {kFb1, 0.3f}, {kRatio2, ratio(2.0f)}, {kFm, 0.3f},
+                    {kFilterType, 1.0f}, {kCutoff, 5000.0f}, {kResonance, 0.3f}, {kFilterEnvAmt, 0.0f}, {kNoteTrack, 0.5f},
+                    {kAmpA, 0.005f}, {kAmpS, 1.0f}, {kAmpR, 0.15f}, {kLfo1Ratio, 5.0f}, {kLfo1Wave, 1.0f},
+                    {kGlideMode, 2.0f}, {kGlideTime, 0.08f}, {kVolume, 1.6f}},
+                   route(0, kSrcLfo1, kDstPitch1, 0.006f)),
+              {}),
+         wt::leadMacros()},
+        {W, "OT Reed Lead", "Clarinet-like reed: the odd-harmonic row, soft vibrato.", 1,
+         join(join(kOpen, {{kChar1, float(kAdd2)}, {kShape1, 0.8f}, {kRatio2, ratio(2.0f)}, {kFm, 0.2f}, {kAmpA, 0.03f},
+                           {kAmpS, 1.0f}, {kAmpR, 0.2f}, {kLfo1Ratio, 5.0f}, {kLfo1Wave, 1.0f}, {kCutoff, 6000.0f},
+                           {kVolume, 1.8f}}),
+              route(0, kSrcLfo1, kDstPitch1, 0.005f)),
+         wt::leadMacros()},
+        {W, "OT Metal Lead", "Screaming lead: folded row, heavy feedback, oversampled.", 1,
+         join(join({{kChar1, float(kWilder)}, {kShape1, 0.6f}, {kFb1, 0.6f}, {kRatio2, ratio(1.0f)}, {kFm, 1.0f},
+                    {kOversample, 1.0f}, {kFilterType, 1.0f}, {kCutoff, 4500.0f}, {kResonance, 0.4f}, {kFilterEnvAmt, 0.0f},
+                    {kNoteTrack, 0.5f}, {kAmpA, 0.004f}, {kAmpS, 1.0f}, {kAmpR, 0.2f}, {kLfo1Ratio, 5.5f},
+                    {kLfo1Wave, 1.0f}, {kGlideMode, 2.0f}, {kGlideTime, 0.06f}, {kVolume, 1.6f}},
+                   route(0, kSrcLfo1, kDstPitch1, 0.006f)),
+              {}),
+         wt::leadMacros()},
+        // --- pads ---
+        {W, "OT FM Strings", "Soft string ensemble: saw-like carrier, slow attack, slow shape motion.", 4,
+         join(join({{kChar1, float(kSmoother)}, {kShape1, 0.5f}, {kRatio2, ratio(1.0f)}, {kFine2, 7.0f}, {kFm, 0.5f},
+                    {kFilterType, 3.0f}, {kCutoff, 4000.0f}, {kResonance, 0.1f}, {kFilterEnvAmt, 0.0f}, {kNoteTrack, 0.3f},
+                    {kAmpA, 0.6f}, {kAmpD, 1.0f}, {kAmpS, 1.0f}, {kAmpR, 1.2f}, {kLfo1Ratio, 0.3f}, {kLfo1Wave, 1.0f},
+                    {kLfo1Retrig, 0.0f}, {kVolume, 0.85f}},
+                   route(0, kSrcLfo1, kDstShape1, 0.1f)),
+              {}),
+         wt::padMacros()},
+        {W, "OT Crystal Pad", "Shimmering 3:1 pad, the FM depth drifting slowly.", 4,
+         join(join(kOpen, {{kRatio2, ratio(3.0f)}, {kFm, 0.8f}, {kAmpA, 1.2f}, {kAmpD, 1.0f}, {kAmpS, 1.0f}, {kAmpR, 2.0f},
+                           {kLfo1Ratio, 0.2f}, {kLfo1Wave, 1.0f}, {kLfo1Retrig, 0.0f}, {kCutoff, 7000.0f},
+                           {kVolume, 0.8f}}),
+              route(0, kSrcLfo1, kDstFm, 0.4f)),
+         wt::padMacros()},
+        {W, "OT Choir Pad", "Airy choir: the Add 5 row through a low-pass, slow swell.", 4,
+         join(join({{kChar1, float(kAdd5)}, {kShape1, 0.5f}, {kFilterType, 3.0f}, {kCutoff, 2500.0f}, {kResonance, 0.2f},
+                    {kFilterEnvAmt, 0.0f}, {kNoteTrack, 0.3f}, {kAmpA, 0.9f}, {kAmpD, 1.0f}, {kAmpS, 1.0f}, {kAmpR, 1.5f},
+                    {kLfo1Ratio, 0.4f}, {kLfo1Wave, 1.0f}, {kLfo1Retrig, 0.0f}, {kVolume, 0.9f}},
+                   route(0, kSrcLfo1, kDstShape1, 0.15f)),
+              {}),
+         wt::padMacros()},
+        {W, "OT Hollow Pad", "Hollow odd-harmonic pad that slowly opens.", 4,
+         join(join({{kChar1, float(kAdd2)}, {kShape1, 0.3f}, {kRatio2, ratio(2.0f)}, {kFm, 0.3f}, {kFilterType, 0.0f},
+                    {kCutoff, 1200.0f}, {kResonance, 0.3f}, {kFilterEnvAmt, 0.2f}, {kEnv1A, 1.5f}, {kEnv1D, 2.0f},
+                    {kEnv1S, 0.6f}, {kNoteTrack, 0.4f}, {kAmpA, 0.8f}, {kAmpS, 1.0f}, {kAmpR, 1.5f}, {kLfo1Ratio, 0.25f},
+                    {kLfo1Wave, 1.0f}, {kLfo1Retrig, 0.0f}, {kVolume, 0.9f}},
+                   route(0, kSrcLfo1, kDstShape1, 0.2f)),
+              {}),
+         wt::padMacros()},
+        // --- effects ---
+        {W, "OT Noise Hit", "Metallic noise burst: Add 11 row, full feedback, short.", 1,
+         join(join(kOpen, {{kChar1, float(kAdd11)}, {kShape1, 1.0f}, {kFb1, 1.0f}, {kRatio2, ratio(7.0f)}, {kFm, 4.0f},
+                           {kAmpA, 0.001f}, {kAmpD, 0.25f}, {kAmpS, 0.0f}, {kAmpR, 0.2f}, {kEnv2D, 0.2f}, {kEnv2S, 0.0f},
+                           {kVolume, 1.4f}}),
+              route(0, kSrcEnv2, kDstFm, 2.0f)),
+         wt::leadMacros()},
+        {W, "OT Laser Zap", "Falling FM zap: the pitch and FM depth drop together.", 1,
+         join(join(join(kOpen, {{kRatio2, ratio(1.5f)}, {kFm, 1.0f}, {kAmpA, 0.001f}, {kAmpD, 0.4f}, {kAmpS, 0.0f},
+                                {kAmpR, 0.2f}, {kEnv2D, 0.25f}, {kEnv2S, 0.0f}, {kVolume, 1.6f}}),
+                   route(0, kSrcEnv2, kDstPitch1, 2.0f)),
+              join(route(1, kSrcEnv2, kDstPitch2, 2.0f), route(2, kSrcEnv2, kDstFm, 3.0f))),
+         wt::leadMacros()},
+    };
+}
+
+// ---------------------------------------------------------------------------
 // VAP: two morphing oscillators, 15 filter types, 3 envelopes, 2 LFOs and a
 // 6-slot mod matrix. Filter types: 0 LP MG 24, 1 LP OB 24, 2 LP OB 12,
 // 3 LP SVF 24, 4 LP SVF 12, ... 11 BP SVF 24. Shape: 0 tri, 0.5 saw, 1 pulse.
@@ -469,6 +698,7 @@ std::vector<Preset> vapPresets() {
 }
 #undef MOD
 
+
 // ---------------------------------------------------------------------------
 // PERC kits. Notes: kick 60, snare 62, hats 64..67 (closed .. open), cymbal
 // 69, perc 71, every other note the tom at that pitch. Body Wave index =
@@ -625,6 +855,7 @@ const std::vector<Preset>& all() {
         std::vector<Preset> out = acdPresets();
         for (Preset& p : fatPresets()) out.push_back(p);
         for (Preset& p : vapPresets()) out.push_back(p);
+        for (Preset& p : wtfmPresets()) out.push_back(p);
         for (Preset& p : percPresets()) out.push_back(p);
         return out;
     }();
@@ -678,7 +909,7 @@ bool buildAndSave(ot::App& a, int s, const Preset& pr, std::string& err) {
 std::string markdown() {
     std::string o;
     o += "# OpenTracker preset pack\n\n";
-    o += "Our own synth patches for the ACD, FAT, VAP and PERC engines of OpenTracker 2.x, written by\n";
+    o += "Our own synth patches for the ACD, FAT, VAP, WTFM and PERC engines of OpenTracker 2.x, written by\n";
     o += "`reimpl/tools/make_patches` (`make -C reimpl patches`) through the firmware's own Save As path.\n";
     o += "Every patch starts from the engine's built-in Init patch; no factory patch is used.\n\n";
     o += "Files: `Patches/<MODEL>/<name>.patch`. Copy the `Patches` folder to the root of the SD card,\n";
@@ -686,7 +917,7 @@ std::string markdown() {
     o += "Macros: M1-M6 (FX CC A-F). A bipolar macro (+-) at 63 and a unipolar macro at 0 play the\n";
     o += "patch as saved. M7 is Velocity (Volume FX), as in the Init patch. Levels are voiced for the\n";
     o += "default slot gain (-9 dB); `tests/patches_test.cpp` checks that every patch is audible, stays\n";
-    o += "at least 1 dB below full scale (VAP and FAT Poly 4: 4-voice chords; PERC: five drums at once, toms\n";
+    o += "at least 1 dB below full scale (VAP, FAT and WTFM Poly 4: 4-voice chords; PERC: five drums at once, toms\n";
     o += "alone) and does not clip with all macros at either extreme.\n\n";
     o += "Poly: the suggested slot polyphony (1 = mono, 4 = chords). It is a slot setting on the synth\n";
     o += "page, not part of the patch.\n";

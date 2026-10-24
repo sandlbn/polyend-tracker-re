@@ -64,7 +64,7 @@ BENCH_PK_RE = re.compile(r"^\s+block\s+\d+ \(song pos \d+, step \d+\):\s+(\d+) M
 # replay worst blocks (220k insn). Update it with `telemetry_check.py cpi` after every device
 # run; docs/OPTIMIZATION_2X.md "CPU round 3" (predicted ~1.7 with the round-3 .fastrun).
 DEVICE_CPI = 1.94
-LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|perc|pswitch)[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
+LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|stream)[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
 FLASH_FAIL = 720000
 FLASH_WARN = 600000
 STACK_MIN = 90 * 1024

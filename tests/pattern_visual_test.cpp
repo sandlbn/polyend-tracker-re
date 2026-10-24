@@ -124,3 +124,35 @@ TEST(pattern_notes_popup_window_and_pads) {
     CHECK(!p.popup().isOpen());
     CHECK_EQ(a.pattern().tracks[0].steps[0].note, win + 24);
 }
+
+TEST(pattern_off_cells_show_no_instrument) {
+    // USER_REPORTS_R3 R3-2 (stock photos of live-recorded OFF steps): an
+    // OFF / CUT / FADE cell leaves the Instr column empty.
+    Harness h;
+    App& a = *h.app;
+    a.pattern().tracks[0].steps[2].note = 60;
+    a.pattern().tracks[0].steps[2].instrument = 6;   // "07"
+    render(h);
+    CHECK(hasText(h, "07"));
+    a.pattern().tracks[0].steps[2].note = kNoteOff;
+    render(h);
+    CHECK(!hasText(h, "07"));
+    CHECK(hasText(h, "OFF"));
+}
+
+TEST(pattern_cursor_red_while_recording) {
+    // USER_REPORTS_R3 R3-3 (stock photos): Rec + Play leaves edit mode, but
+    // the cursor stays red while recording (count-in included).
+    Harness h;
+    CHECK(!pe(h).recordCursor());
+    h.down(btn::Rec);
+    h.tap(btn::Play);
+    h.up(btn::Rec);
+    h.run(20);
+    CHECK(h.app->seq.isRecording());
+    CHECK(!h.app->editMode);
+    CHECK(pe(h).recordCursor());
+    h.tap(btn::Play);   // stop
+    h.run(20);
+    CHECK(!pe(h).recordCursor());
+}

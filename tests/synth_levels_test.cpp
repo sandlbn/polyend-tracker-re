@@ -2,7 +2,7 @@
 // patch, played through a real SynthBank slot at the Mini's default slot
 // gain (SynthSlotRecord::defaults, -9 dB) and default sends off, must leave
 // headroom on the slot bus: VAP one voice and 4-voice chords, ACD one voice,
-// FAT one voice (at ACD's level) and 4-voice chords, PERC each drum and the
+// FAT and WTFM one voice (at ACD's level) and 4-voice chords, PERC each drum and the
 // whole kit at once. A sample at full scale is ~0 dBFS on its track, so an
 // engine at its default gain should sit well below that. Measured levels are printed for the record. Song-level checks
 // (rendered test songs, no clipping stems): tests/testsongs_test.cpp.
@@ -153,6 +153,22 @@ TEST(levels_fat_init_matches_acd_and_chords) {
     const float p1 = chordPeak(SynthModel::FAT, kSynthEngineFat, 1, c1);
     const float p4 = chordPeak(SynthModel::FAT, kSynthEngineFat, 4, c4);
     std::printf("  FAT Init at -9 dB: 1 voice peak %.1f dBFS (ACD %.1f), 4-voice chords %.1f dBFS\n", dbfs(p1), dbfs(pa),
+                dbfs(p4));
+    CHECK(std::fabs(dbfs(p1) - dbfs(pa)) < 1.5);
+    CHECK(dbfs(p1) < -6.0);
+    CHECK(dbfs(p4) < -1.0);
+    CHECK_EQ(c1, 0L);
+    CHECK_EQ(c4, 0L);
+}
+
+// WTFM (2.2): its Init (a sine) sits at ACD's Init level (within 1.5 dB)
+// and a 4-voice chord keeps the headroom.
+TEST(levels_wtfm_init_matches_acd_and_chords) {
+    long ca = 0, c1 = 0, c4 = 0;
+    const float pa = chordPeak(SynthModel::ACD, kSynthEngineAcd, 1, ca);
+    const float p1 = chordPeak(SynthModel::WTFM, kSynthEngineWtfm, 1, c1);
+    const float p4 = chordPeak(SynthModel::WTFM, kSynthEngineWtfm, 4, c4);
+    std::printf("  WTFM Init at -9 dB: 1 voice peak %.1f dBFS (ACD %.1f), 4-voice chords %.1f dBFS\n", dbfs(p1), dbfs(pa),
                 dbfs(p4));
     CHECK(std::fabs(dbfs(p1) - dbfs(pa)) < 1.5);
     CHECK(dbfs(p1) < -6.0);

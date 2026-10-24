@@ -390,3 +390,29 @@ TEST(editor_pads_play_pitched) {
     CHECK(a.engine.previewBufferActive());
     CHECK_EQ(a.engine.previewBufferStep(), 65536u);
 }
+
+// Preview playhead (owner request): while the edit preview plays, its
+// position (mapped back onto the selection) moves across the sample.
+TEST(editor_preview_shows_a_playhead) {
+    Harness h;
+    App& a = *h.app;
+    addNoise(h, "p.wav", 40000);
+    CHECK(a.importSample("p.wav", 0));
+    a.setCurrentInstrument(0);
+    h.tap(btn::SampleEditor);
+    EditorScreen& e = ed(h);
+    e.effect = 1;        // Crop: the preview is the selection itself
+    e.startM = 16384;    // ~25 %
+    CHECK(e.playheadFrac() < 0.0f);
+    h.push(InputEvent::kPadDown, 0);
+    h.run(10);
+    h.audio.pump(5);
+    const float f0 = e.playheadFrac();
+    h.audio.pump(60);
+    const float f1 = e.playheadFrac();
+    CHECK(f0 >= 0.24f && f0 < 0.4f);   // starts at the selection start
+    CHECK(f1 > f0);
+    h.push(InputEvent::kPadUp, 0);
+    h.run(10);
+    CHECK(e.playheadFrac() < 0.0f);
+}

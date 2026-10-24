@@ -314,7 +314,11 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
     auto colEmpty = [&](const Step& st, int c) {
         switch (c) {
             case 0: return st.note == kNoteEmpty;
-            case 1: return st.note == kNoteEmpty && !isMidiInstrument(st.instrument);
+            // OFF / CUT / FADE show no instrument (stock photos of
+            // live-recorded OFF steps, USER_REPORTS_R3 R3-2).
+            case 1:
+                return (st.note == kNoteEmpty || st.note == kNoteOff || st.note == kNoteCut || st.note == kNoteFade) &&
+                       !isMidiInstrument(st.instrument);
             default: return st.fx[c - 2].type == 0;
         }
     };
@@ -433,7 +437,7 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
     // 9. Selection (block) outline and cursor.
     const SelRect sel = target();
     const bool hasSel = selState == 2 || wholeCol || allTracks;
-    const uint32_t curC = gc(th, edit() ? kGcRec : kGcCursor);
+    const uint32_t curC = gc(th, recordCursor() ? kGcRec : kGcCursor);
     if (hasSel) {
         int r0 = -1, r1 = -1;
         for (int r = 0; r < kRows; ++r)

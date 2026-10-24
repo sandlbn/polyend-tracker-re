@@ -328,9 +328,19 @@ void AudioEngine::voiceNoteOn(uint8_t track, const VoiceNoteOn& n) {
     transportPlaying(&tick, &step0);
     voices_[track].setLfoStepLatch(step0);
     if (inHook_) BlockProfile::inc(prof_.nSmpOn);
-    voices_[track].noteOn(&ins, bank_.left(n.instrument), bank_.frames(n.instrument), n.note, n.volume,
-                          n.fxA.type, n.fxA.value, n.fxB.type, n.fxB.value,
-                          bank_.stereo(n.instrument) ? bank_.right(n.instrument) : nullptr);
+    const StreamSource* ss = rings_ ? streams_[n.instrument] : nullptr;
+    if (ss) {
+        // Streamed: the bank holds the head; the voice reads the rest from its
+        // track's ring. Other play modes need the whole sample in memory.
+        if (!streamablePlayMode(ins.playMode)) return;
+        voices_[track].noteOn(&ins, ss->headL, ss->frames, n.note, n.volume, n.fxA.type, n.fxA.value, n.fxB.type,
+                              n.fxB.value, ss->headR, ss, &rings_[track]);
+    } else {
+        voices_[track].noteOn(&ins, bank_.left(n.instrument), bank_.frames(n.instrument), n.note, n.volume,
+                              n.fxA.type, n.fxA.value, n.fxB.type, n.fxB.value,
+                              bank_.stereo(n.instrument) ? bank_.right(n.instrument) : nullptr, nullptr,
+                              rings_ ? &rings_[track] : nullptr);
+    }
     pendingOff_[track] = 0;
     startedInBlock_[track] = true;
 }

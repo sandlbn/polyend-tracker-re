@@ -37,8 +37,10 @@ enum class SongId : uint8_t {
     MeterCheck = 15,
     // FAT engine only, three patches (fatsong.inc): 2.1 (FAT) + M1.
     FatOnly = 16,
+    // WTFM engine only, three patches (wtfmsong.inc): 2.2 (WTFM) + M1.
+    WtfmOnly = 17,
 };
-constexpr int kSongCount = 16;
+constexpr int kSongCount = 17;
 
 // Songs 6-12 (the BLAST GRID remixes).
 inline bool isBgSong(SongId id) { return int(id) >= int(SongId::BgTitle) && int(id) <= int(SongId::BgFinalBoss); }

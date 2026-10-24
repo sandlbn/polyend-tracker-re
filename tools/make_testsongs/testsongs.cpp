@@ -3,7 +3,7 @@
 // BLAST GRID remixes (bgsongs.inc, bg_data.h). Song 13 "OT Test 06": the
 // PERC engine alone (percsong.inc). Song 14 "OT Test 07": the VAP engine
 // alone (vapsong.inc). Song 16 "OT Test 09": the FAT engine alone
-// (fatsong.inc).
+// (fatsong.inc). Song 17 "OT Test 10": the WTFM engine alone (wtfmsong.inc).
 #include "testsongs.h"
 
 #include <cmath>
@@ -20,6 +20,7 @@
 #include "audio/engines/fat.h"
 #include "audio/engines/perc.h"
 #include "audio/engines/vap.h"
+#include "audio/engines/wtfm.h"
 #include "audio/synth_params.h"
 #include "features.h"
 #include "formats/file_io.h"
@@ -47,6 +48,7 @@ const SongInfo kSongs[kSongCount] = {
     {SongId::VapOnly, "OT Test 07 - VAP Only", "M3 (VAP engine) + M1", kHasSynths && kHas16Tracks},
     {SongId::MeterCheck, "OT Test 08 - Meter Check", "stock 1.9.2 / 1.9.3", true},
     {SongId::FatOnly, "OT Test 09 - FAT Only", "2.1 (FAT engine) + M1", kHasSynths && kHas16Tracks},
+    {SongId::WtfmOnly, "OT Test 10 - WTFM", "2.2 (WTFM engine) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgTitle, "BG Title", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld1, "BG World 1", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld4, "BG World 4", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
@@ -1036,6 +1038,7 @@ bool synthSong(Gen& g) {
 #include "vapsong.inc"
 #include "metersong.inc"
 #include "fatsong.inc"
+#include "wtfmsong.inc"
 
 }  // namespace
 
@@ -1081,6 +1084,7 @@ bool generateSong(App& app, IStorage& fs, SongId id, const GenOptions& opt, std:
         case SongId::VapOnly: built = vaponly::vapOnlySong(g); break;
         case SongId::MeterCheck: built = metercheck::meterSong(g); break;
         case SongId::FatOnly: built = fatonly::fatOnlySong(g); break;
+        case SongId::WtfmOnly: built = wtfmonly::wtfmOnlySong(g); break;
     }
     if (built) built = g.finish(info->name);
     if (!built) err = g.err.empty() ? "generation failed" : g.err;

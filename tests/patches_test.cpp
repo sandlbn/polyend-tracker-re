@@ -6,7 +6,7 @@
 // re-encode to the same bytes. Each loaded patch is then played through a
 // real SynthBank slot at the default slot record (-9 dB, sends off, macros
 // at their page defaults: 63 bipolar = the patch as saved): a few notes
-// (ACD, FAT Poly 1), 4-voice chords and single notes (VAP, FAT Poly 4),
+// (ACD, FAT / WTFM Poly 1), 4-voice chords and single notes (VAP, FAT / WTFM Poly 4),
 // every drum and the whole kit at once (PERC). It must be audible (peak >
 // -30 dBFS) and stay at least 1 dB below full scale. Macros M1..M6 at both extremes must stay finite and
 // below full scale too. When the release folder (releases/OpenTracker-Presets)
@@ -104,9 +104,9 @@ double dbfs(float x) { return 20.0 * std::log10(x > 1e-9f ? double(x) : 1e-9); }
 constexpr int kBlocksPerSec = 345;   // 44.1 kHz / 128
 
 // The test performance of one preset; returns the slot (peak, clips). FAT
-// presets play as ACD (mono, Poly 1) or as VAP (chords, Poly 4).
+// and WTFM presets play as ACD (mono, Poly 1) or as VAP (chords, Poly 4).
 void perform(Slot& s, SynthModel m, int poly) {
-    if (m == SynthModel::FAT) m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
+    if (m == SynthModel::FAT || m == SynthModel::WTFM) m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
     if (m == SynthModel::ACD) {
         const int notes[5] = {36, 43, 48, 60, 72};
         for (int n : notes) {
@@ -150,7 +150,7 @@ void perform(Slot& s, SynthModel m, int poly) {
 }
 
 int polyFor(const presets::Preset& p) {
-    if (p.model == SynthModel::FAT) return p.playPoly;
+    if (p.model == SynthModel::FAT || p.model == SynthModel::WTFM) return p.playPoly;
     return p.model == SynthModel::VAP ? 4 : 1;
 }
 
@@ -167,12 +167,13 @@ Pack& pack() {
 }  // namespace
 
 TEST(presets_names_counts_and_macros) {
-    int acd = 0, fat = 0, vap = 0, perc = 0;
+    int acd = 0, fat = 0, vap = 0, wtfm = 0, perc = 0;
     std::vector<std::string> names;
     for (const presets::Preset& p : presets::all()) {
         acd += p.model == SynthModel::ACD;
         fat += p.model == SynthModel::FAT;
         vap += p.model == SynthModel::VAP;
+        wtfm += p.model == SynthModel::WTFM;
         perc += p.model == SynthModel::PERC;
         CHECK(std::strncmp(p.name, "OT ", 3) == 0);
         CHECK(std::strlen(p.name) <= 24);
@@ -185,10 +186,11 @@ TEST(presets_names_counts_and_macros) {
             CHECK(!m.targets.empty() && m.targets.size() <= size_t(kPatchMacroTargets));
         }
     }
-    std::printf("  presets: ACD %d, FAT %d, VAP %d, PERC %d\n", acd, fat, vap, perc);
+    std::printf("  presets: ACD %d, FAT %d, VAP %d, WTFM %d, PERC %d\n", acd, fat, vap, wtfm, perc);
     CHECK(acd >= 10);
     CHECK(fat >= 8);
     CHECK(vap >= 14);
+    CHECK(wtfm >= 30);
     CHECK(perc >= 8);
 }
 

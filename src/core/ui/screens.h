@@ -61,6 +61,9 @@ public:
 
     SelRect target() const;
     bool edit() const;
+    // The cursor is red in edit mode and while recording (Rec + Play leaves
+    // edit mode; stock keeps the red cursor, USER_REPORTS_R3 R3-3).
+    bool recordCursor() const;
     int windowTop() const { return hAnchor_ - 7; }   // first visible step, horizontal arrangement
     static int hStepColW();                          // horizontal arrangement: step column width
 
@@ -665,6 +668,7 @@ private:
 class EditorScreen final : public Screen {
 public:
     using Screen::Screen;
+    float playheadFrac() const;   // position in the sample 0..1, -1 = nothing plays
     const char* name() const override { return "Sample Editor"; }
     void start(int opt) override;
     void stop() override;
@@ -694,6 +698,11 @@ public:
     uint32_t prevS0_ = 0, prevS1_ = 0;
     int prevEffect_ = -1;
     bool previewPlaying = false;
+    // Preview playhead (owner request): the selection that plays (the
+    // processed output may be longer or shorter), the line drawn last frame.
+    uint32_t playS0_ = 0, playSel_ = 0, playOut_ = 0;
+    int headX_ = -1;
+    uint32_t headAt_ = 0;
     bool inert = false;     // MIDI / empty slot, too long, or waiting for the stop prompt
     WaveZoom view;
 
@@ -723,6 +732,7 @@ private:
 class RecorderScreen final : public Screen {
 public:
     using Screen::Screen;
+    int playheadX() const;   // preview playhead x in the edit view, -1 none
     const char* name() const override { return "Sample Recorder"; }
     void start(int opt) override;
     void stop() override;
@@ -794,6 +804,11 @@ private:
     bool seeking_ = false;
     bool countIn_ = false;
     bool previewing_ = false;
+    // Preview playhead (owner request): x of the line drawn in the last frame,
+    // the selection start of the playback, the last poll.
+    int headX_ = -1;
+    uint32_t playS0_ = 0;
+    uint32_t headAt_ = 0;
     bool recording_ = false;
     bool configReturn_ = false;   // stock flag +0x71a (appendix C §2.9)
     int playPad_ = -1;            // pad holding the playback, -1 = b0 Preview, -2 = MIDI note
@@ -842,7 +857,7 @@ private:
 //     highlighted patch in the slot (App::previewSynthLibraryPatch), Cancel
 //     restores the slot's patch byte for byte.
 // The Instrument Params key toggles pages 1/2 (and leaves Edit / Load Patch).
-// A slot whose model has no engine in this build (WTFM; FAT until 2.1) shows
+// A slot whose model has no engine in this build (FAT until 2.1, WTFM until 2.2) shows
 // "Synth k (MODEL) not available" and is read-only except F1 Model.
 namespace synthui {
 // Value display / step kinds of one engine parameter.
@@ -865,6 +880,7 @@ enum Fmt : uint8_t {
     kFmtMs10,     // stored 0..100 shown as 0..10 ms (PERC Body / Snap Attack)
     kFmtPercNote, // PERC pitch 12..119 as C0..B8 (manual p.166)
     kFmtBodyWave, // PERC Body Wave 0..175 = 16 waves x 0..100 % (manual p.166)
+    kFmtRatio,    // WTFM Ratio index 0..47 shown as 0.25 .. 12.00 (spec 2x-08 §1)
 };
 struct ParamUi {
     const char* label;

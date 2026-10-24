@@ -14,6 +14,7 @@
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
 #include "audio/governor.h"
+#include "audio/stream_source.h"
 #include "audio/synth_bank.h"
 #include "audio/voice.h"
 #include "hal_api.h"
@@ -171,6 +172,20 @@ public:
     bool init(int16_t* fxMemory, size_t fxSamples, int16_t* samplePool, size_t poolSamples,
               const Instrument* instruments);
     SampleBank& bank() { return bank_; }
+    // SD streaming (audio/stream_source.h, docs/PLAN_SD_STREAMING.md). rings:
+    // kVoices read-ahead rings (caller memory; nullptr = streaming off). A
+    // streamed instrument's bank data is its head; its source names the rest.
+    // Main loop; set a source only while no voice plays the instrument.
+    void setStreamRings(StreamRing* rings) { rings_ = rings; }
+    StreamRing* streamRings() { return rings_; }
+    void setStreamSource(int instrument, const StreamSource* s) {
+        if (instrument >= 0 && instrument < kSampleInstrumentCount) streams_[instrument] = s;
+    }
+    const StreamSource* streamSource(int instrument) const {
+        return instrument >= 0 && instrument < kSampleInstrumentCount ? streams_[instrument] : nullptr;
+    }
+    // Play modes a streamed instrument can play (P1: forward one-shot and forward loop).
+    static bool streamablePlayMode(uint8_t m) { return m == uint8_t(PlayMode::OneShot) || m == uint8_t(PlayMode::ForwardLoop); }
     MixerSettings& settings() { return mix_; }
     const MixerSettings& settings() const { return mix_; }
 
@@ -227,6 +242,8 @@ public:
     // Same with separate lanes: `right` nullptr = mono (2.x stereo recorder).
     void previewBufferLR(const int16_t* left, const int16_t* right, uint32_t frames, uint32_t step = 65536u);
     bool previewBufferActive() const { return raw_.active; }
+    // Frame of the preview buffer playing now (from the data passed in), -1 idle.
+    int32_t previewBufferPos() const { return raw_.active ? int32_t(raw_.pos) : -1; }
     uint32_t previewBufferAvail() const { return raw_.avail; }
     uint32_t previewBufferStep() const { return raw_.step; }
     const int16_t* previewBufferLeft() const { return raw_.data; }
@@ -330,6 +347,8 @@ private:
     void masterSumClean(float l0, float li);   // masterSum<0>
 
     SampleBank bank_;
+    StreamRing* rings_ = nullptr;
+    const StreamSource* streams_[kSampleInstrumentCount] = {};
     const Instrument* instruments_ = nullptr;
     MixerSettings mix_;
     Voice voices_[kVoices + 1];

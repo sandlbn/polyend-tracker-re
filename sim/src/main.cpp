@@ -692,17 +692,34 @@ struct Headless {
                     return false;
                 }
             } else if (cmd == "tone-sample") {
-                // tone-sample SLOT FRAMES: write a 220 Hz decaying-saw WAV to the
+                // tone-sample SLOT FRAMES [stereo]: write a 220 Hz decaying-saw WAV to the
                 // SD card and import it into instrument SLOT (1-based), which
                 // becomes the current instrument; playhead / slice scripts.
                 bool ok = false;
                 if (m.app && n1 >= 1 && n1 <= ot::kSampleInstrumentCount) {
                     const uint32_t frames = uint32_t(std::atol(a2.c_str()) > 0 ? std::atol(a2.c_str()) : 44100);
-                    std::vector<int16_t> pcm(frames);
-                    for (uint32_t i = 0; i < frames; ++i)
-                        pcm[i] = int16_t(20000.0f * (1.0f - float(i) / float(frames)) * (float(i % 200) / 100.0f - 1.0f));
-                    std::vector<uint8_t> wav(frames * 2 + 64);
-                    wav.resize(ot::wavEncode(pcm.data(), frames, 1, wav.data(), wav.size()));
+                    // "stereo": a drum-like loop instead (decaying noise hits every
+                    // 1/8 s, different in L and R) for the stereo waveform views.
+                    const bool st = a3 == "stereo";
+                    const uint16_t ch = st ? 2 : 1;
+                    std::vector<int16_t> pcm(size_t(frames) * ch);
+                    uint32_t x = 1;
+                    for (uint32_t i = 0; i < frames; ++i) {
+                        if (!st) {
+                            pcm[i] = int16_t(20000.0f * (1.0f - float(i) / float(frames)) * (float(i % 200) / 100.0f - 1.0f));
+                            continue;
+                        }
+                        const uint32_t t = i % 5512, hit = (i / 5512) % 4;
+                        const float env = std::exp(-float(t) / (hit == 0 ? 1800.0f : 500.0f));
+                        for (uint16_t c = 0; c < 2; ++c) {
+                            x = x * 1664525u + 1013904223u;
+                            const float n = float(int32_t(x >> 16) - 32768) / 32768.0f;
+                            const float g = c == 0 ? (hit == 2 ? 0.4f : 0.9f) : (hit == 1 ? 0.4f : 0.8f);
+                            pcm[size_t(i) * 2 + c] = int16_t(26000.0f * g * env * n);
+                        }
+                    }
+                    std::vector<uint8_t> wav(size_t(frames) * 2 * ch + 64);
+                    wav.resize(ot::wavEncode(pcm.data(), frames, ch, wav.data(), wav.size()));
                     const ot::IStorage::Handle h = m.storage.open("simtone.wav", ot::IStorage::kWrite);
                     if (h >= 0) {
                         ok = m.storage.write(h, wav.data(), uint32_t(wav.size())) == int32_t(wav.size());

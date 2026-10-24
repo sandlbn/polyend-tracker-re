@@ -349,7 +349,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     // The codec init leaves the headphone amp muted at minimum (spec 01 §5.1 step 15/16)
     // and IAudioOut has no volume control, so open it here. Field: no sound on
     // headphones in the app while the selftest (which sets 0.5) was audible.
-    hal::audio().setHeadphoneVolume(0.7f);
+    hal::audio().setHeadphoneVolume(kHeadphoneBootLevel);
     // `.sdram_bss` (core/sdram_bss.h): NOLOAD, zeroed here, before any App code.
     std::memset(_ssdram_bss, 0, size_t(_esdram_bss - _ssdram_bss));
     hal::storage().enableSdramFiles();   // FatFs file slots in `.sdram_bss`
@@ -401,7 +401,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     gApp.ui.platform.devStats = &devStats;         // Config /.develop overlay (spec 06 §7.2)
     gApp.ui.platform.devStatsReset = &devStatsReset;
     gApp.ui.platform.setHeadphoneLevel = &setHeadphoneLevel;   // Config /.develop HP level
-    logHeadphoneLevel(0.7f);   // the boot value set above, for the diag log
+    logHeadphoneLevel(kHeadphoneBootLevel);   // the boot value set above, for the diag log
     gApp.ui.platform.bootChecks = &bootChecks;     // factory test (spec 05 §2.12)
     gApp.ui.platform.dlOverflow = &dlOverflow;     // RAM_DL guard (Ui::render)
     if (hal::bootReport().sdMounted) gApp.boot();

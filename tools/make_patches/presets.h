@@ -1,5 +1,5 @@
 // OpenTracker synth preset pack (tools/make_patches, PRESETS.md): our own
-// ACD / FAT / VAP / PERC patches, each built from the engine's built-in Init patch
+// ACD / FAT / VAP / WTFM / PERC patches, each built from the engine's built-in Init patch
 // through the App (no factory patch, no file from the card is read) and
 // written with the App's own Save As path (App::saveSynthLibraryPatch), so
 // the files are byte for byte what the firmware writes:
@@ -40,7 +40,7 @@ struct Preset {
     std::vector<Macro> macros;   // M1..M6
 };
 
-// Every preset of the pack, ACD first, then FAT, VAP, PERC.
+// Every preset of the pack, ACD first, then FAT, VAP, WTFM, PERC.
 const std::vector<Preset>& all();
 
 // Slot s on the preset's model with the Init patch, the edits and macros M1..M6
