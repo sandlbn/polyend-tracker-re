@@ -65,7 +65,8 @@ endif
 # before any public release.
 USB_ID    := -DOT_USB_VID=0x1209 -DOT_USB_PID=0x0001
 CORE      := third_party/teensy3
-CROSS     ?= arm-none-eabi-
+ARM_GCC   := $(lastword $(sort $(wildcard /Applications/ArmGNUToolchain/*/arm-none-eabi/bin/arm-none-eabi-gcc)))
+CROSS     ?= $(if $(ARM_GCC),$(patsubst %gcc,%,$(ARM_GCC)),arm-none-eabi-)
 CC        := $(CROSS)gcc
 CXX       := $(CROSS)g++
 OBJCOPY   := $(CROSS)objcopy
@@ -129,7 +130,31 @@ $(patsubst %,$(BUILD)/%.o,$(DPROMO)): WARN := -Wdouble-promotion
 # The stock updater only lists Firmware/ files named "PolyendTrac*.ptf" (spec 06), so the
 # image name keeps that prefix for compatibility (and the 24-character length, above).
 
-all: $(BUILD)/opentracker.hex $(PTF)
+all: check-toolchain $(BUILD)/opentracker.hex $(PTF)
+
+# Fail early if a host-only ARM GCC package is installed without the target
+# C/C++ headers needed to build firmware.
+check-toolchain:
+	@set -eu; \
+	for tool in "$(CC)" "$(CXX)" "$(OBJCOPY)" "$(SIZE)"; do \
+	    if ! command -v "$$tool" >/dev/null 2>&1; then \
+	        echo "error: required ARM tool '$$tool' was not found." >&2; \
+	        echo "Install the complete Arm GNU Toolchain, or set CROSS=/path/to/arm-none-eabi-." >&2; \
+	        exit 1; \
+	    fi; \
+	done; \
+	if ! printf '#include <stdint.h>\n' | $(CC) $(CPUFLAGS) -x c -fsyntax-only - >/dev/null 2>&1; then \
+	    echo "error: $(CC) cannot find the ARM C standard headers (for example stdint.h)." >&2; \
+	    echo "The installed compiler may not include the target runtime; install the complete Arm GNU Toolchain." >&2; \
+	    exit 1; \
+	fi; \
+	if ! printf '#include <cstdint>\n' | $(CXX) $(CPUFLAGS) -std=gnu++17 -x c++ -fsyntax-only - >/dev/null 2>&1; then \
+	    echo "error: $(CXX) cannot find the ARM C++ standard headers." >&2; \
+	    echo "Install the complete Arm GNU Toolchain, or set CROSS=/path/to/arm-none-eabi-." >&2; \
+	    exit 1; \
+	fi
+
+$(OBJS): | check-toolchain
 
 $(BUILD)/%.c.o: %.c
 	@mkdir -p $(dir $@)
@@ -160,11 +185,11 @@ clean:
 	rm -rf $(BUILD)
 
 -include $(OBJS:.o=.d)
-.PHONY: all clean host-test
+.PHONY: all check-toolchain clean host-test
 
 # Performance gate (docs/PLAN_2X.md "Gate"; docs/HARDWARE_TESTING.md "Performance gate").
 #  1. bench-m4: QEMU -icount instruction counts per audio block vs tests/perf_baseline.txt
-#     (fail above +5 %); skipped with a note when qemu-system-arm / arm-none-eabi-g++ are missing.
+#     (fail above +5 %); skipped with a note when qemu-system-arm / $(CROSS)g++ are missing.
 #  2. host bench (timing on this machine, informational).
 #     The same run gates the per-engine limit lines (acd.* / vap* / perc*: "limit N").
 #  3. tools/telemetry_check.py: its built-in sample check, plus LOG=<captured device log>
@@ -174,10 +199,10 @@ clean:
 PERF_OUT := build/perf
 perf-gate:
 	@mkdir -p $(PERF_OUT)
-	@if command -v qemu-system-arm >/dev/null 2>&1 && command -v arm-none-eabi-g++ >/dev/null 2>&1; then \
-	    $(MAKE) -s -C tests bench-m4 > $(PERF_OUT)/bench_m4.txt && \
+	@if command -v qemu-system-arm >/dev/null 2>&1 && command -v $(CXX) >/dev/null 2>&1; then \
+	    $(MAKE) -s -C tests bench-m4 CROSS=$(CROSS) > $(PERF_OUT)/bench_m4.txt && \
 	    python3 tools/telemetry_check.py bench --baseline tests/perf_baseline.txt $(PERF_OUT)/bench_m4.txt; \
-	else echo "perf-gate: qemu-system-arm or arm-none-eabi-g++ missing -- bench-m4 SKIPPED (host-only gate)"; fi
+	else echo "perf-gate: qemu-system-arm or $(CXX) missing -- bench-m4 SKIPPED (host-only gate)"; fi
 	@if command -v $(CXX) >/dev/null 2>&1; then \
 	    { $(MAKE) -s $(BUILD)/opentracker.elf > $(PERF_OUT)/firmware_build.txt 2>&1 || \
 	      { tail -20 $(PERF_OUT)/firmware_build.txt; exit 1; }; } && \

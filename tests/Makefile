@@ -3,13 +3,13 @@ CXX      ?= g++
 SRC      := ../src
 OUT      := ../build/host-tests
 CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -g -O1 -fsanitize=address,undefined \
-            -fno-sanitize-recover=undefined -I$(SRC)/core -I$(SRC) -I. -MMD
+            -fno-sanitize-recover=undefined -ffp-contract=off -I$(SRC)/core -I$(SRC) -I. -MMD
 LDFLAGS  := -fsanitize=address,undefined
 
 CORE_SRCS := $(shell find $(SRC)/core -name '*.cpp')
 CORE_OBJS := $(patsubst $(SRC)/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS))
-TEST_SRCS := $(wildcard *_test.cpp)
-TEST_BINS := $(patsubst %.cpp,$(OUT)/%,$(TEST_SRCS))
+TEST_SRCS := $(filter-out usb_desc_test.cpp,$(wildcard *_test.cpp))
+TEST_BINS := $(patsubst %.cpp,$(OUT)/%,$(TEST_SRCS)) $(OUT)/usb_desc_test_msc $(OUT)/usb_desc_test_nomsc
 
 all: run
 
@@ -25,9 +25,8 @@ $(OUT)/%_test: %_test.cpp $(OUT)/libcore.a
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $< $(OUT)/libcore.a $(LDFLAGS) -o $@
 
-# USB descriptor check (usb_desc_test.cpp): the device's usb_desc.c compiled on
-# the host, once with the mass-storage interface and once without (symbols
-# prefixed nomsc_).
+# USB descriptor check: build each USB mode separately so this works without
+# GNU objcopy on macOS.
 USB_DESC_CFLAGS := -std=gnu11 -w -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DOT_USB_VID=0x1209 \
                    -DOT_USB_PID=0x0001 -DOT_USB_DESC_HOST_TEST -I../third_party/teensy3
 USB_DESC_DEPS := usb_desc_host.c ../third_party/teensy3/usb_desc.c ../third_party/teensy3/usb_desc.h
@@ -36,12 +35,13 @@ $(OUT)/obj/usb_desc_msc.o: $(USB_DESC_DEPS)
 	$(CC) $(USB_DESC_CFLAGS) -DOT_USB_MSC=1 -c usb_desc_host.c -o $@
 $(OUT)/obj/usb_desc_nomsc.o: $(USB_DESC_DEPS)
 	@mkdir -p $(dir $@)
-	$(CC) $(USB_DESC_CFLAGS) -DOT_USB_MSC=0 -c usb_desc_host.c -o $@.tmp
-	objcopy --prefix-symbols=nomsc_ $@.tmp $@
-	rm -f $@.tmp
-$(OUT)/usb_desc_test: usb_desc_test.cpp $(OUT)/obj/usb_desc_msc.o $(OUT)/obj/usb_desc_nomsc.o
+	$(CC) $(USB_DESC_CFLAGS) -DOT_USB_MSC=0 -c usb_desc_host.c -o $@
+$(OUT)/usb_desc_test_msc: usb_desc_test.cpp $(OUT)/obj/usb_desc_msc.o
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $< $(OUT)/obj/usb_desc_msc.o $(OUT)/obj/usb_desc_nomsc.o $(LDFLAGS) -o $@
+	$(CXX) $(CXXFLAGS) -DOT_USB_MSC=1 $< $(OUT)/obj/usb_desc_msc.o $(LDFLAGS) -o $@
+$(OUT)/usb_desc_test_nomsc: usb_desc_test.cpp $(OUT)/obj/usb_desc_nomsc.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -DOT_USB_MSC=0 $< $(OUT)/obj/usb_desc_nomsc.o $(LDFLAGS) -o $@
 
 build: $(TEST_BINS)
 
@@ -79,8 +79,12 @@ bench: $(BENCH_OUT)/audio_bench $(PEAK_TRACE)
 
 # Same benchmark compiled with the device's compiler flags for Cortex-M4 and
 # run under QEMU (mps2-an386) with -icount: reports executed M4 instructions.
-M4_CXX := arm-none-eabi-g++
-M4_CC := arm-none-eabi-gcc
+# Toolchain prefix as in the top-level Makefile (Arm GNU Toolchain package
+# under /Applications on macOS, else arm-none-eabi- from PATH).
+ARM_GCC := $(lastword $(sort $(wildcard /Applications/ArmGNUToolchain/*/arm-none-eabi/bin/arm-none-eabi-gcc)))
+CROSS ?= $(if $(ARM_GCC),$(patsubst %gcc,%,$(ARM_GCC)),arm-none-eabi-)
+M4_CXX := $(CROSS)g++
+M4_CC := $(CROSS)gcc
 M4_FLAGS := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -O2 -ffunction-sections -fdata-sections
 M4_SRCS := audio_bench.cpp $(wildcard $(SRC)/core/audio/*.cpp) $(wildcard $(SRC)/core/audio/engines/*.cpp) \
            $(SRC)/core/formats/wav.cpp $(SRC)/core/formats/patch_pb.cpp \

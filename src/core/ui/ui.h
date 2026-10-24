@@ -195,7 +195,6 @@ private:
     int kind_ = 0;
     int count_ = 0;
     int cursor_ = 0;
-    bool selAll_ = false;    // the whole name is selected (just opened)
     char title_[32] = {};
     ItemFn fn_ = nullptr;
     void* ctx_ = nullptr;

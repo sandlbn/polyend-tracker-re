@@ -270,7 +270,6 @@ private:
     void refreshBar();
     void valueText(int col, char* out, int cap, float* frac, bool* bipolar) const;
     bool held_[8] = {};
-    int heldCount_ = 0;
     bool usedWhileHeld_[8] = {};
 };
 

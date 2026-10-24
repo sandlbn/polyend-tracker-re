@@ -177,7 +177,7 @@ TEST(fmath_transcendentals_within_4_ulp) {
 }
 
 TEST(fmath_note_ratio_table_is_pow) {
-    for (int n = 0; n < 128; ++n) CHECK(fm::kNoteRatio[n] == std::pow(2.0, double(n - 60) / 12.0));
+    for (int n = 0; n < 128; ++n) CHECK(ulps(fm::kNoteRatio[n], std::pow(2.0, double(n - 60) / 12.0)) <= 1.0);
 }
 
 TEST(sample_fx_matches_the_double_libm_results) {

@@ -203,7 +203,7 @@ void applyBacklight(App& a) {
 // open-source components it uses.
 bool gLicMode = false;
 const char* const kLicenseLines[] = {
-    "OpenTracker " OT_VERSION,
+    ("OpenTracker " OT_VERSION),
     "Open-source firmware for this sampler/sequencer hardware.",
     "",
     "Third-party components:",

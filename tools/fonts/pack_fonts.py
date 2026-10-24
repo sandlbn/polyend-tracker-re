@@ -47,7 +47,8 @@ def render(out_dir):
     adv = b"".join(raw[o:o + 128] for o in metric_offsets(out_dir))
     zt = HEADER + "// zlib stream of the RAM_G font image (%d -> %d B, crc32 of the image 0x%08X).\n" % (
         len(raw), len(z), zlib.crc32(raw) & 0xFFFFFFFF) + c_bytes(z)
-    at = HEADER + "// Pen advances: kFonts[set][role] metric widths[128], set-major.\n" + c_bytes(adv)
+    at = HEADER + "// Pen advances: kFonts[set][role] metric widths[128], set-major.\n"
+    at += "".join("{\n" + c_bytes(adv[i:i + 128]) + "},\n" for i in range(0, len(adv), 128))
     return zt, at
 
 

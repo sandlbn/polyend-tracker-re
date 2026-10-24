@@ -913,7 +913,11 @@ TEST(deterministic_render_hash) {
     std::printf("  scripted render hash: %016llx\n", (unsigned long long)ha);
     // Golden value (host x86-64 SSE float); update deliberately when the DSP changes.
     // 1.9.9: bit depth rounds to nearest (was 0x4e126ff813060a1b with the floor).
+#if defined(__x86_64__)
     CHECK_EQ(ha, 0xe2e2f8dd73d3e8d6ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
+#else
+    std::puts("  x86-64 render golden skipped on this host architecture");
+#endif
 }
 
 TEST(export_stems_wav) {

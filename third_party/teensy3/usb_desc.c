@@ -1626,6 +1626,29 @@ struct usb_string_descriptor_struct {
 };
 */
 
+// OPENTRACKER PATCH (see PATCHES.txt): Mach-O has no symbol aliases, so the
+// host descriptor check names the default strings directly.
+#ifdef OT_USB_DESC_HOST_TEST
+#define usb_string_manufacturer_name usb_string_manufacturer_name_default
+#define usb_string_product_name usb_string_product_name_default
+#define usb_string_serial_number usb_string_serial_number_default
+#define usb_string_midi_port1 usb_string_midi_port1_default
+#define usb_string_midi_port2 usb_string_midi_port2_default
+#define usb_string_midi_port3 usb_string_midi_port3_default
+#define usb_string_midi_port4 usb_string_midi_port4_default
+#define usb_string_midi_port5 usb_string_midi_port5_default
+#define usb_string_midi_port6 usb_string_midi_port6_default
+#define usb_string_midi_port7 usb_string_midi_port7_default
+#define usb_string_midi_port8 usb_string_midi_port8_default
+#define usb_string_midi_port9 usb_string_midi_port9_default
+#define usb_string_midi_port10 usb_string_midi_port10_default
+#define usb_string_midi_port11 usb_string_midi_port11_default
+#define usb_string_midi_port12 usb_string_midi_port12_default
+#define usb_string_midi_port13 usb_string_midi_port13_default
+#define usb_string_midi_port14 usb_string_midi_port14_default
+#define usb_string_midi_port15 usb_string_midi_port15_default
+#define usb_string_midi_port16 usb_string_midi_port16_default
+#else
 extern struct usb_string_descriptor_struct usb_string_manufacturer_name
         __attribute__ ((weak, alias("usb_string_manufacturer_name_default")));
 extern struct usb_string_descriptor_struct usb_string_product_name
@@ -1695,6 +1718,7 @@ extern struct usb_string_descriptor_struct usb_string_serial_number
 #if MIDI_NUM_CABLES >= 16
         extern struct usb_string_descriptor_struct usb_string_midi_port16
                 __attribute__ ((weak, alias("usb_string_midi_port16_default")));
+#endif
 #endif
 #endif
 
