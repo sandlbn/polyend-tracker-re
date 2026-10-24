@@ -102,12 +102,12 @@ jobs:
           release: '14.2.Rel1'
       - name: Build this PR
         run: |
-          make -j"$(nproc)"
+          make -j"$(nproc)" OT_GAMES=0
           cp build/nogames/opentracker.elf "$RUNNER_TEMP/head.elf"
       - name: Build the base
         run: |
           git worktree add "$RUNNER_TEMP/base" "${{ github.event.pull_request.base.sha }}"
-          make -C "$RUNNER_TEMP/base" -j"$(nproc)"
+          make -C "$RUNNER_TEMP/base" -j"$(nproc)" OT_GAMES=0   # same image kind on both sides
           cp "$RUNNER_TEMP/base/build/nogames/opentracker.elf" "$RUNNER_TEMP/base.elf"
       - name: Memory report
         run: |
