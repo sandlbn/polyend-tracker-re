@@ -756,6 +756,40 @@ TEST(sample_bank_replace_from_tail) {
     for (int i = 0; i < 50; ++i) CHECK_EQ(bank.left(2)[i], 3000 + i);
     for (int i = 0; i < 100; ++i) CHECK_EQ(bank.tail()[i], 1000 + i);
     CHECK_EQ(bank.usedSamples(), 480u);
+    // Shrink: slot 1 from 150 stereo frames to 40 mono, slots after it move down.
+    for (int i = 0; i < 40; ++i) bank.tail()[i] = int16_t(7000 + i);
+    CHECK(bank.replaceFromTail(1, 40, false));
+    CHECK_EQ(bank.left(2) - bank.left(1), 40);
+    for (int i = 0; i < 40; ++i) CHECK_EQ(bank.left(1)[i], 7000 + i);
+    for (int i = 0; i < 50; ++i) CHECK_EQ(bank.left(2)[i], 3000 + i);
+    for (int i = 0; i < 130; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 300; ++i) CHECK_EQ(bank.tail()[i], 2000 + i);   // the old stereo data
+    CHECK_EQ(bank.usedSamples(), 220u);
+}
+
+// Size changes with too little free memory to park the blocks: the rotation
+// fallback gives the same layout.
+TEST(sample_bank_replace_from_tail_tight) {
+    std::vector<int16_t> pool(430);
+    SampleBank bank;
+    bank.init(pool.data(), pool.size());
+    std::vector<int16_t> a(100), b(200);
+    for (int i = 0; i < 100; ++i) a[size_t(i)] = int16_t(1000 + i);
+    for (int i = 0; i < 200; ++i) b[size_t(i)] = int16_t(2000 + i);
+    CHECK(bank.store(0, a.data(), 100, false));
+    CHECK(bank.store(1, b.data(), 200, false));
+    // Grow slot 0 to 120: 10 samples free after N, 220 needed to park.
+    for (int i = 0; i < 120; ++i) bank.tail()[i] = int16_t(5000 + i);
+    CHECK(bank.replaceFromTail(0, 120, false));
+    for (int i = 0; i < 120; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 200; ++i) CHECK_EQ(bank.left(1)[i], 2000 + i);
+    for (int i = 0; i < 100; ++i) CHECK_EQ(bank.tail()[i], 1000 + i);
+    // Shrink slot 1 to 30: 80 free after N, 200 needed to park.
+    for (int i = 0; i < 30; ++i) bank.tail()[i] = int16_t(6000 + i);
+    CHECK(bank.replaceFromTail(1, 30, false));
+    for (int i = 0; i < 120; ++i) CHECK_EQ(bank.left(0)[i], 5000 + i);
+    for (int i = 0; i < 30; ++i) CHECK_EQ(bank.left(1)[i], 6000 + i);
+    for (int i = 0; i < 200; ++i) CHECK_EQ(bank.tail()[i], 2000 + i);
 }
 
 // --- full engine --------------------------------------------------------------

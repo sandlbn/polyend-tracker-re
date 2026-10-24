@@ -155,9 +155,30 @@ bool SampleBank::replaceFromTail(int idx, uint32_t frames, bool stereo) {
             std::memcpy(pool_ + used + i, buf, k);
         }
     } else {
-        // [C][B][N] -> [N][C][B] -> [N][B][C]
-        std::rotate(pool_ + start, pool_ + used, pool_ + used + n);
-        std::rotate(pool_ + start + n, pool_ + start + n + old, pool_ + used + n);
+        // Another size: [C][B][N][free] -> [N][B][C]. With room in the free
+        // memory after N, block moves (sequential, the device's memmove):
+        // C (and, when the result grows, N) is parked there first, so no move
+        // overwrites data it still needs. Otherwise the two rotations.
+        int16_t* const s = pool_ + start;
+        const size_t b = used - start - old;   // B: the slots after this one
+        const size_t room = cap_ - reserved_ - used - n;
+        int16_t* const park = pool_ + used + n;
+        if (n < old && room >= old) {
+            std::memcpy(park, s, old * sizeof(int16_t));                    // C aside
+            std::memmove(s, pool_ + used, n * sizeof(int16_t));             // N to the front
+            std::memmove(s + n, s + old, b * sizeof(int16_t));              // B left
+            std::memmove(s + n + b, park, old * sizeof(int16_t));           // C to the tail
+        } else if (n > old && room >= size_t(old) + n) {
+            std::memcpy(park, s, old * sizeof(int16_t));                    // C aside
+            std::memcpy(park + old, pool_ + used, n * sizeof(int16_t));     // N aside
+            std::memmove(s + n, s + old, b * sizeof(int16_t));              // B right
+            std::memcpy(s, park + old, n * sizeof(int16_t));                // N to the front
+            std::memmove(s + n + b, park, old * sizeof(int16_t));           // C to the tail
+        } else {
+            // [C][B][N] -> [N][C][B] -> [N][B][C]
+            std::rotate(s, pool_ + used, pool_ + used + n);
+            std::rotate(s + n, s + n + old, pool_ + used + n);
+        }
         for (int j = idx + 1; j < kSlots; ++j)
             if (slots_[j].loaded) slots_[j].off = slots_[j].off - old + n;
     }
