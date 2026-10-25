@@ -559,7 +559,7 @@ int listFollow(int sel, int count, int visible, int top) {
 
 void list(Gfx& g, const Theme& th, const ListView& v) {
     const int s = v.set;
-    if (v.background) panel(g, th, v.x, v.y, v.w, v.h, th.slot(s + 3));
+    if (v.background) panel(g, th, v.x, v.y, v.w, v.h, th.slot(s + 3), v.fade);
     const int visible = listVisibleRows(v.h);
     const bool scroll = v.count > visible;
     const int innerW = v.w - (scroll ? 13 : 6);

@@ -279,6 +279,9 @@ struct ListView {
     int sel = -1;              // selected item (-1 none)
     bool active = false;       // selection in set colour[1] instead of [0]
     bool background = true;    // panel bg + fade (style bit13 / bit21)
+    // false: the panel without its bottom fade (one CMD_GRADIENT, ~28 RAM_DL
+    // words), for pages with many lists side by side.
+    bool fade = true;
     int set = slot::kList;     // 7-colour set: sel, sel active, thumb, bg, text, marked, track
     ListSel selStyle = ListSel::kFromSet;
     uint8_t font = kFont1;

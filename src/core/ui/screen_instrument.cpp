@@ -106,6 +106,10 @@ void ccListColumn(Gfx& g, const Theme& th, int col, int sel) {
     v.top = wg::listFollow(sel, v.count, wg::listVisibleRows(v.h), 0);
     v.selStyle = wg::ListSel::kWhite;
     v.item = ccItem;
+    // Six lists side by side: their fades (CMD_GRADIENT, ~24 RAM_DL words
+    // each on the device, see Gfx::kGradientDlWords) took the page to ~2065
+    // words, past the FT81x display list.
+    v.fade = false;
     wg::list(g, th, v);
 }
 

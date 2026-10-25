@@ -199,7 +199,8 @@ TEST(performance_frame_budget) {
     std::printf("performance (values, edit, playing): max %u DL words\n", unsigned(words));
     // 1500 when gradients counted 5 words; ~1680 at Gfx::kGradientDlWords
     // (verified on a Tracker: ~7.4 KB of the 8 KB RAM_DL, no faults).
-    CHECK(words <= 1700);
+    // ~1740 since 2.2.1's red labels of tracks with the FX off.
+    CHECK(words <= 1760);
     r.h.tap(btn::Play);
 }
 
