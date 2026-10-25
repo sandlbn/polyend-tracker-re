@@ -935,6 +935,16 @@ TEST(overlay_matrix_synth) {
     SynthScreen& sy = *static_cast<SynthScreen*>(a.ui.screen(kModSynth));
     a.setCurrentInstrument(66);
     h.tap(btn::Pattern);
+    {
+        // Instrument Params takes the instrument under the cursor (issue #52):
+        // a note there plays Synth 3 too.
+        const PatternScreen& ps = *static_cast<PatternScreen*>(a.ui.screen(kModPattern));
+        Step& st = a.pattern().tracks[ps.track].steps[ps.step];
+        if (st.note >= 0) {
+            st.instrument = 66;
+            a.patternEdited();
+        }
+    }
     r.screen(btn::InstrParams, "synth parameters (VAP)");
     CHECK_EQ(a.ui.active(), int(kModSynth));
     h.tap(btn::F3);

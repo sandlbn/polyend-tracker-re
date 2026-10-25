@@ -175,7 +175,9 @@ TEST(wav_suffix_stripped) {
     Instrument b;
     CHECK(decodePtiHeader(g_hdr, sizeof(g_hdr), b) == FmtStatus::Ok);
     CHECK_STR(b.name, "kick");
-    std::strcpy(a.name, "0123456789012345678901234567890123");  // > 31 chars
+    // A full, unterminated name buffer (32 chars, no NUL): the field keeps 31.
+    // (A longer strcpy here overflowed name[] into the next fields.)
+    for (size_t i = 0; i < sizeof(a.name); ++i) a.name[i] = char('0' + i % 10);
     encodePtiHeader(a, g_hdr);
     CHECK_EQ(g_hdr[0x15 + 31], 0);
     decodePtiHeader(g_hdr, sizeof(g_hdr), b);

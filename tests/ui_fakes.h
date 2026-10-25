@@ -287,8 +287,13 @@ public:
     // Screenshot readback (off by default like the base IDisplay): pixel =
     // 0x00RRGGBB with R = x & 0xFF, G = y & 0xFF, B = 0x5A.
     bool readback = false;
+    // Optional time cost per readPixels call (the device capture blocks for
+    // seconds): advances *readbackClock by readbackMs.
+    uint32_t* readbackClock = nullptr;
+    uint32_t readbackMs = 0;
     bool readPixels(uint16_t x, uint16_t y, uint16_t w, uint16_t h, uint32_t* rgb) override {
         if (!readback) return false;
+        if (readbackClock) *readbackClock += readbackMs;
         for (uint16_t r = 0; r < h; ++r)
             for (uint16_t c = 0; c < w; ++c)
                 rgb[size_t(r) * w + c] = (uint32_t((x + c) & 0xFF) << 16) | (uint32_t((y + r) & 0xFF) << 8) | 0x5Au;

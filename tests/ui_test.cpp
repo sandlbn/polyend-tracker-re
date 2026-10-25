@@ -423,7 +423,7 @@ TEST(export_pattern_wav) {
         if (v > peak) peak = v;
     }
     CHECK(peak > 1000);
-    CHECK(info.sampleRate == 44117);   // spec 04 §6.1
+    CHECK(info.sampleRate == 44100);   // [I] resampled (stock 44117, spec 04 §6.1)
     CHECK(!a.rendering());
 }
 
@@ -501,7 +501,7 @@ TEST(export_pattern_stems) {
         const auto& w = h.fs.files[p];
         CHECK(wavParseHeader(w.data(), w.size(), info));
         CHECK(info.channels == 2);
-        CHECK(info.sampleRate == 44117);   // spec 04 §6.1 header
+        CHECK(info.sampleRate == 44100);   // [I] resampled (stock 44117, spec 04 §6.1)
         CHECK(info.dataSize / 4 > 44100 * 3);
     }
     auto peakOf = [&](const char* n) {

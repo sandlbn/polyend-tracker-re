@@ -631,6 +631,19 @@ void Ui::setUsbStorageMode(bool on) {
 }
 
 void Ui::switchTo(int module, int opt) {
+    // [I] Issue #52 (stock 1.9.2, checked on a Tracker): from the Pattern
+    // screen with Rec off, Instrument Params, Sample Playback and Sample
+    // Editor open the instrument of the step under the cursor and make it the
+    // current instrument. A step without a note (empty, OFF, CUT, FADE) keeps
+    // the current one.
+    if (active_ == kModPattern && !app.editMode &&
+        (module == kModInstrument || module == kModPlayback || module == kModEditor)) {
+        if (const auto* p = static_cast<const PatternScreen*>(screen(kModPattern))) {
+            const Step& st = app.pattern().tracks[p->track < 0 ? 0 : (p->track >= kTrackCount ? kTrackCount - 1 : p->track)]
+                                 .steps[p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step)];
+            if (st.note >= 0) app.setCurrentInstrument(st.instrument);
+        }
+    }
     // 2.x: Instrument Params on a synth step / synth instrument opens the
     // synth slot page (Tracker Mini manual p.146).
     if (module == kModInstrument) {
@@ -824,7 +837,11 @@ void Ui::dispatchButton(uint8_t id, uint8_t state) {
         if (state == kPress && shift()) {
             render();   // the shown frame is current
             char p[48];
-            notify(app.screenshot(p, sizeof(p)) ? p : "Screenshot failed");
+            const bool shot = app.screenshot(p, sizeof(p));
+            // The capture blocks for ~2.6 s on the device: start the notice
+            // time after it, not at the key press, or it expires unseen.
+            now_ = app.millis();
+            notify(shot ? p : "Screenshot failed");
         } else if (state == kPress) {
             // spec 05 §1.5 state 5: popup at the press; the board powers off
             // after the 1.5 s hold, a release before that cancels it.
@@ -1283,8 +1300,9 @@ void Ui::render() {
     usb.draw(g, t);   // full screen over the module and its popups
     if (askOpen_ && !usb.active()) wg::messagePopup(g, t, askTitle_, askText_, 150, 150);
     if (progressOpen_) wg::progressPopup(g, t, progTitle_, progPct_);
-    // "Shutting down" (stock string, STRINGS_DIFF) with the hold progress;
-    // the stock progress-popup style (spec 20 §3.7) [I: no stock shot].
+    // "Shutting down" (stock string, STRINGS_DIFF) with the remaining hold;
+    // the stock progress-popup style (spec 20 §3.7). The bar shrinks as on
+    // stock (device check).
     if (powerOpen_) wg::progressPopup(g, t, "Shutting down", powerPopupPercent());
     if (note_[0]) {
         wg::popupBox(g, t, wg::kProgressX - 40, 360, wg::kProgressW + 80, 44);

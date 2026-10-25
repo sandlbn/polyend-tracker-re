@@ -70,6 +70,13 @@ struct Config {
     uint8_t synthVoices = kDefaultSynthVoices;
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;
+    // [I] 2.x Config > General "Export sample rate": 1 = 44.1 kHz (the render
+    // converted, 44100 in the header; default), 0 = the device rate with
+    // 44117 in the header, as stock (spec 04 §6.1). Extension record byte 6.
+    uint8_t exportRate = 1;
+    // Extension record bytes 3..5: options of later 2.x builds this one does
+    // not know yet; read and written back unchanged (their defaults).
+    uint8_t extKeep[3] = {0, 1, 0};
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -89,8 +96,8 @@ struct Config {
     // ignores it: "OTX" magic, version, payload length, payload, 8-bit sum of
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
-    static constexpr uint8_t kExtVersion = 1;
-    static constexpr uint32_t kExtPayload = 2;               // cpuMeter, synthVoices
+    static constexpr uint8_t kExtVersion = 4;
+    static constexpr uint32_t kExtPayload = 6;               // cpuMeter, synthVoices, extKeep[3], exportRate
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

@@ -266,6 +266,36 @@ TEST(recents_compaction_and_mru_on_leave) {
     CHECK(!openRecent(a, 5));
 }
 
+// Open Recent while the current project is saved on the card: leaving it
+// rewrites the Recents list (recentsLeaveCurrent) in the middle of the open,
+// and the list is one shared buffer (recentsBuffer()), so the entry to open
+// must already be copied out.
+TEST(open_recent_from_a_saved_project) {
+    Harness h;
+    App& a = *h.app;
+    addProject(h, "Projects/b");
+    addProject(h, "Projects/c");
+    CHECK(a.openProject(kProjectsDir, "b"));
+    CHECK(a.openProject(kProjectsDir, "c"));   // leaving b: recents = b
+    Recents& l = recentsBuffer();
+    CHECK(loadRecents(a, l) == 1);
+    CHECK(std::strcmp(l.paths[0], "Projects/b") == 0);
+    CHECK(openRecent(a, 0));                   // leaving c (saved): recents = c, b
+    CHECK(std::strcmp(a.project.name, "b") == 0);
+    CHECK(loadRecents(a, l) == 2);
+    CHECK(std::strcmp(l.paths[0], "Projects/c") == 0);
+    CHECK(std::strcmp(l.paths[1], "Projects/b") == 0);
+    // The same through the job (startOpenRecent, the File screen's path).
+    bool done = false, okDone = false;
+    struct Ctx { bool* d; bool* o; } cx{&done, &okDone};
+    CHECK(startOpenRecent(a, 0, [](void* p, bool ok) { auto* c = static_cast<Ctx*>(p); *c->d = true; *c->o = ok; }, &cx));
+    a.finishJob();
+    CHECK(done && okDone);
+    CHECK(std::strcmp(a.project.name, "c") == 0);
+    CHECK(loadRecents(a, l) == 2);
+    CHECK(std::strcmp(l.paths[0], "Projects/b") == 0);
+}
+
 // ---------------------------------------------------------------------------
 // Memory pre-check
 

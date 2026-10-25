@@ -1,7 +1,8 @@
 // USB descriptors of the device (third_party/teensy3/usb_desc.c, USB_MIDI_SERIAL
 // with the OpenTracker identity): OT_USB_MSC=1 is the composite CDC serial +
 // MIDI + mass storage device; OT_USB_MSC=0 must be byte for byte the old
-// MIDI + serial device (golden below, dumped from 2.0.0 / 87922f1).
+// MIDI + serial device (golden below, dumped from 2.0.0 / 87922f1). Built twice
+// (tests/Makefile: usb_desc_test_msc, usb_desc_test_nomsc), one per OT_USB_MSC.
 #include "test.h"
 
 #include <set>
@@ -11,9 +12,6 @@ extern "C" {
 const uint8_t* ot_usb_device_desc(unsigned* n);
 const uint8_t* ot_usb_config_desc(unsigned* n);
 const uint8_t* ot_usb_ep_config(unsigned* n);
-const uint8_t* nomsc_ot_usb_device_desc(unsigned* n);
-const uint8_t* nomsc_ot_usb_config_desc(unsigned* n);
-const uint8_t* nomsc_ot_usb_ep_config(unsigned* n);
 }
 
 namespace {
@@ -32,6 +30,7 @@ const uint8_t kGoldenConfig[149] = {
     0x05, 0x25, 0x01, 0x01, 0x03};
 const uint8_t kGoldenEps[5] = {0x15, 0x19, 0x15, 0x15, 0x19};
 
+#if OT_USB_MSC
 struct Iface {
     uint8_t num, alt, eps, cls, sub, proto;
 };
@@ -66,22 +65,11 @@ bool parse(const uint8_t* d, unsigned n, std::vector<Iface>& ifs, std::vector<Ep
     }
     return i == n;
 }
+#endif
 
 }  // namespace
 
-TEST(nomsc_is_the_old_device_exactly) {
-    unsigned n = 0;
-    const uint8_t* d = nomsc_ot_usb_device_desc(&n);
-    CHECK_EQ(n, 18u);
-    CHECK(std::memcmp(d, kGoldenDevice, 18) == 0);
-    d = nomsc_ot_usb_config_desc(&n);
-    CHECK_EQ(n, unsigned(sizeof kGoldenConfig));
-    CHECK(n == sizeof kGoldenConfig && std::memcmp(d, kGoldenConfig, n) == 0);
-    d = nomsc_ot_usb_ep_config(&n);
-    CHECK_EQ(n, 5u);
-    CHECK(n == 5 && std::memcmp(d, kGoldenEps, 5) == 0);
-}
-
+#if OT_USB_MSC
 TEST(msc_composite_layout) {
     unsigned n = 0;
     const uint8_t* dev = ot_usb_device_desc(&n);
@@ -138,3 +126,17 @@ TEST(msc_composite_layout) {
     // Endpoints of the old interfaces keep their configuration.
     CHECK(std::memcmp(cfg, kGoldenEps, 5) == 0);
 }
+#else
+TEST(nomsc_is_the_old_device_exactly) {
+    unsigned n = 0;
+    const uint8_t* d = ot_usb_device_desc(&n);
+    CHECK_EQ(n, 18u);
+    CHECK(std::memcmp(d, kGoldenDevice, 18) == 0);
+    d = ot_usb_config_desc(&n);
+    CHECK_EQ(n, unsigned(sizeof kGoldenConfig));
+    CHECK(n == sizeof kGoldenConfig && std::memcmp(d, kGoldenConfig, n) == 0);
+    d = ot_usb_ep_config(&n);
+    CHECK_EQ(n, 5u);
+    CHECK(n == 5 && std::memcmp(d, kGoldenEps, 5) == 0);
+}
+#endif

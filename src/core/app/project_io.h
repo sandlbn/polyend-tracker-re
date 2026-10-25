@@ -146,6 +146,9 @@ bool projectFitsMemory(App& a, const char* folder, const char* name);
 // Load and compact: entries whose "<path>/project.mt" no longer exists are
 // removed (0x236e0). Returns the number of valid entries (slots 0..n-1).
 int loadRecents(App& a, Recents& r);
+// The one Recents list for loadRecents() callers (SDRAM, not the stack):
+// load, use, done; never held across a call that may load it again.
+Recents& recentsBuffer();
 // When a project is left (new / open / save as): the CURRENT project's path,
 // if it exists on the card, moves to the top; file rewritten (0x23784).
 void recentsLeaveCurrent(App& a);

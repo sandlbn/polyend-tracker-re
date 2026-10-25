@@ -121,11 +121,8 @@ struct Sie {
 
 // Driver state lives in file-scope statics: every test starts from a bus reset
 // and a new configuration, as after enumeration.
-int gEvents = 0, gResets = 0;
 void (*gNext)(uint8_t) = nullptr;
 void hook(uint8_t ev) {
-    ++gEvents;
-    if (ev == USB_MSC_EVENT_RESET) ++gResets;
     if (gNext) gNext(ev);
 }
 Sie fresh() {
@@ -135,7 +132,6 @@ Sie fresh() {
     Sie s;
     s.busReset();
     s.setConfiguration();
-    gEvents = gResets = 0;
     return s;
 }
 

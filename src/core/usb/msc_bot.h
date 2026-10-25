@@ -222,7 +222,7 @@ private:
     uint32_t lba_ = 0, total_ = 0, writeBytes_ = 0;   // stream bytes
     uint32_t chunks_ = 0, issued_ = 0, ready_ = 0, sent_ = 0;   // chunk counters
     uint32_t xferred_ = 0;           // bytes moved over USB in this command
-    bool writeToCard_ = false, ioError_ = false;
+    bool ioError_ = false;
     IoRequest io_;
     volatile uint8_t rxData_ = 0;    // receive segments of a data stage queued in the driver
     // Reset / abort while the main loop ran a request: service() starts

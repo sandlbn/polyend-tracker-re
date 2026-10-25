@@ -69,6 +69,10 @@ static_assert(kEnd <= ot::board::kSdramBssBase - ot::board::kSdramBase, "SDRAM l
 static_assert(sizeof(ot::PerfPatternMemory) == 769u * 16u * 2u + kPatSize, "perf slots [16][2] + scratch");
 
 constexpr uint32_t kSdramFree = ot::board::kSdramBssBase - ot::board::kSdramBase - kEnd;
+// The layout's end as an absolute SDRAM address, for tools/size_report.py (the
+// CI memory report reads it from the image); kept by the linker script.
+extern "C" __attribute__((used, section(".rodata.otSdramLayoutEnd"))) const uint32_t otSdramLayoutEnd =
+    ot::board::kSdramBase + kEnd;
 
 ot::App gApp;
 ot::diag::Telemetry gTelemetry;

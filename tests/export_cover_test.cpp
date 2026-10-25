@@ -168,6 +168,16 @@ TEST(render_selection_and_load_into_free_slot) {
     CHECK(h.fs.files.count("Export/New Project/Selection/Selection0001.wav"));
     CHECK(a.instrPresent[1]);
     CHECK(a.bank.loaded(1));
+    {
+        // [I] The render is written at 44.1 kHz, so the import takes it as is:
+        // the instrument has exactly the file's frames (one rate conversion,
+        // in the export, none in the import).
+        const auto& f = h.fs.files["Export/New Project/Selection/Selection0001.wav"];
+        WavInfo info;
+        CHECK(wavParseHeader(f.data(), f.size(), info));
+        CHECK_EQ(info.sampleRate, 44100u);
+        CHECK_EQ(a.bank.frames(1), info.dataSize / 4u);
+    }
     CHECK_EQ(a.currentInstrument(), 1);
     CHECK(a.ui.active() == kModLoader);   // spec 16 §B.8: the instrument list opens
     h.tap(btn::Pattern);
@@ -177,6 +187,25 @@ TEST(render_selection_and_load_into_free_slot) {
     h.tap(btn::F8);
     CHECK(h.fs.files.count("Export/New Project/Selection/Selection0002.wav"));
     CHECK(!a.instrPresent[2]);
+}
+
+// The Render & Load import of both export modes, exact lengths: a 44100 Hz
+// file stays as is, a 44117 Hz file is converted. 44117 is the header rate,
+// not the device rate (44117.647 Hz), so after ~10 s the device-rate
+// instrument is 6 frames longer.
+TEST(render_and_load_length_in_both_export_modes) {
+    Harness h;
+    App& a = *h.app;
+    constexpr uint32_t kBlocks = 3447;
+    const uint32_t deviceFrames = kBlocks * audio::kBlock;
+    CHECK_EQ(a.engine.exportWav(h.fs, "device.wav", false, kBlocks, nullptr, nullptr, /*resampleTo44100=*/false),
+             int32_t(kBlocks));
+    CHECK_EQ(a.engine.exportWav(h.fs, "resampled.wav", false, kBlocks, nullptr, nullptr, /*resampleTo44100=*/true),
+             int32_t(kBlocks));
+    CHECK(a.importSample("device.wav", 0));
+    CHECK(a.importSample("resampled.wav", 1));
+    CHECK_EQ(a.bank.frames(0), uint32_t(uint64_t(deviceFrames) * 44100 / 44117));
+    CHECK_EQ(a.bank.frames(1), uint32_t(uint64_t(deviceFrames) * 2499 / 2500));
 }
 
 TEST(render_and_load_needs_a_free_slot) {
@@ -303,4 +332,28 @@ TEST(file_browser_cover_jpeg_fallback_and_limits) {
     CHECK_EQ(fs.coverState, 3);
     h.run(20);
     CHECK(!lastHas(h, "IMAGE"));
+}
+
+// Config > General "Export sample rate" reaches the export: 44.1 kHz
+// (default) writes 44100, the device rate writes 44117 as stock.
+TEST(export_follows_the_export_rate_option) {
+    for (uint8_t rate : {uint8_t(1), uint8_t(0)}) {
+        Harness h;
+        App& a = *h.app;
+        a.cfg.exportRate = rate;
+        addWav(h, "kick.wav", 3000);
+        CHECK(a.importSample("kick.wav", 0));
+        Step& s = a.pattern().tracks[0].steps[0];
+        s.note = 60;
+        s.instrument = 0;
+        a.patternEdited();
+        a.editMode = true;
+        h.tap(btn::F8);   // page 1
+        h.tap(btn::F1);   // Render selection -> name keyboard
+        h.tap(btn::F8);   // Render
+        const auto& f = h.fs.files["Export/New Project/Selection/Selection0001.wav"];
+        WavInfo info;
+        CHECK(wavParseHeader(f.data(), f.size(), info));
+        CHECK_EQ(info.sampleRate, rate ? 44100u : 44117u);
+    }
 }

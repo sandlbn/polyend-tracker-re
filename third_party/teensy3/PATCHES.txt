@@ -19,7 +19,9 @@ UPSTREAM_COMMIT). Everything else in this directory is unmodified.
    - usb_desc.c: the mass-storage interface descriptor (class 08h, subclass
      06h SCSI transparent, protocol 50h Bulk-Only) after all other interfaces;
      OT_USB_DESC_HOST_TEST leaves out usb_init_serialnumber() so the host
-     descriptor check (reimpl/tests/usb_desc_test.cpp) can compile the file.
+     descriptor check (reimpl/tests/usb_desc_test.cpp) can compile the file,
+     and replaces the weak aliases of the usb_string_* names with #defines
+     of the *_default strings (Mach-O, the macOS host format, has no aliases).
    - usb_dev.c: a bulk endpoint driver for the two MSC endpoints (packets go by
      DMA straight into / out of caller segments; explicit DATA0/1 tracking,
      reset to DATA0 on SET_CONFIGURATION and CLEAR_FEATURE(ENDPOINT_HALT)),

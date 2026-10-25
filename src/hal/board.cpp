@@ -54,7 +54,10 @@ HalSet gHal = {&gDisplay, &gAudio, &gStorage, &gMidi, &gInput, &gLeds, &gClock, 
 // spec 05 §2.1.1 (core ui/buttons.h): Power is the virtual slot 0x2a, Shift 0x1d.
 constexpr uint8_t kBtnPower = 0x2a, kBtnShift = 0x1d;
 bool gPowerArmed = false;      // seen released once since boot (a press that woke us is ignored)
-bool gPowerDown = false;       // debounced state
+// Debounced state. Starts as "down": the wake-up press is released long before
+// the first service(), and only a release edge arms the button. A released
+// button at the first service() is that edge; a press still held stays unarmed.
+bool gPowerDown = true;
 bool gPowerRaw = false;
 uint32_t gPowerEdgeMs = 0;
 uint32_t gPowerPressMs = 0;

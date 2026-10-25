@@ -203,6 +203,26 @@ TEST(pattern_horizontal_arrangement) {
     CHECK_EQ(pe.windowTop(), -2);
 }
 
+TEST(screenshot_notice_after_slow_capture) {
+    // The capture blocks for ~2.6 s on the device (T00037). The notice must
+    // still show afterwards: its time starts after the capture, not at the
+    // key press.
+    Harness h;
+    App& a = *h.app;
+    h.disp.readback = true;
+    h.disp.readbackClock = &h.clock.ms;
+    h.disp.readbackMs = 6;   // 481 calls: ~2.9 s
+    h.down(btn::Shift);
+    h.tap(btn::Power);
+    h.up(btn::Shift);
+    CHECK(h.fs.files.count("Snapshots/Snapshot_001.bmp"));
+    CHECK(std::string(a.ui.notice()) == "Snapshots/Snapshot_001.bmp");
+    h.run(1500);
+    CHECK(std::string(a.ui.notice()) == "Snapshots/Snapshot_001.bmp");
+    h.run(1000);
+    CHECK(a.ui.notice()[0] == 0);
+}
+
 TEST(screenshot_bmp) {
     Harness h;
     App& a = *h.app;

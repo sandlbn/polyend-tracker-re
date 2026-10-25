@@ -184,17 +184,7 @@ void CubicResampler::locate() {
 void CubicResampler::emitOne() {
     const int64_t n = curN_;
     const float mu = curMu_;
-    const float p0 = float(src(n - 1)), p1 = float(src(n)), p2 = float(src(n + 1)), p3 = float(src(n + 2));
-    const float a0 = p3 - p2 - p0 + p1;
-    const float a1 = p0 - p1 - a0;
-    const float a2 = p2 - p0;
-    const float a3 = p1;
-    const float y = ((a0 * mu + a1) * mu + a2) * mu + a3;
-    // Truncation toward zero, then clamp (spec 07 Q8).
-    int32_t v = int32_t(y);
-    if (v > 32767) v = 32767;
-    if (v < -32768) v = -32768;
-    dst_[outNext_++] = int16_t(v);
+    dst_[outNext_++] = cubicS16(float(src(n - 1)), float(src(n)), float(src(n + 1)), float(src(n + 2)), mu);
     locate();
 }
 

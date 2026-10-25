@@ -59,6 +59,7 @@ SECTIONS
 		. = 0x400;
 		KEEP(*(.flashconfig*))
 		*(.text*)
+		KEEP(*(.rodata.otSdramLayoutEnd))   /* read by tools/size_report.py (CI) */
 		*(.rodata*)
 		. = ALIGN(4);
 		KEEP(*(.init))
@@ -158,6 +159,8 @@ SECTIONS
 		. = ALIGN(16);
 		_esdram_bss = .;
 	} > SDRAM_BSS
+	/* The region's end, for tools/size_report.py (CI memory report). */
+	_sdram_bss_limit = ORIGIN(SDRAM_BSS) + LENGTH(SDRAM_BSS);
 
 	_estack = ORIGIN(RAM) + LENGTH(RAM);
 	ASSERT(_sdma >= 0x20000000, "OpenTracker: .dma must lie in SRAM_U (uncached)")

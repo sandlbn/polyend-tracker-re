@@ -220,26 +220,27 @@ TEST(power_popup) {
 }
 
 TEST(power_popup_countdown) {
-    // spec 05 §1.5: the "Shutting down" popup shows the elapsed part of the
-    // 1500 ms hold (0..100 %), redrawn while the button is held.
-    CHECK_EQ(Ui::powerPercent(0), 0);
+    // spec 05 §1.5: the "Shutting down" popup shows the remaining part of the
+    // 1500 ms hold (100..0 %, the bar shrinks as on stock), redrawn while the
+    // button is held.
+    CHECK_EQ(Ui::powerPercent(0), 100);
     CHECK_EQ(Ui::powerPercent(750), 50);
-    CHECK_EQ(Ui::powerPercent(1500), 100);
-    CHECK_EQ(Ui::powerPercent(4000), 100);
+    CHECK_EQ(Ui::powerPercent(1500), 0);
+    CHECK_EQ(Ui::powerPercent(4000), 0);
     Harness h;
     App& a = *h.app;
     h.down(btn::Power);   // runs 20 ms
     CHECK(a.ui.powerPopupOpen());
     CHECK(h.disp.lastHasText("Shutting down"));
     const int p0 = a.ui.powerPopupPercent();
-    CHECK(p0 >= 0 && p0 < 10);
+    CHECK(p0 > 90 && p0 <= 100);
     h.run(700);
     const int p1 = a.ui.powerPopupPercent();
     CHECK(p1 >= 45 && p1 <= 55);
     const int frames = h.disp.swaps;
     h.run(300);
-    CHECK(h.disp.swaps > frames);   // the bar advances while held
-    CHECK(a.ui.powerPopupPercent() > p1);
+    CHECK(h.disp.swaps > frames);   // the bar shrinks while held
+    CHECK(a.ui.powerPopupPercent() < p1);
     h.up(btn::Power);     // early release: closed, as before
     CHECK(!a.ui.powerPopupOpen());
     CHECK_EQ(a.ui.powerPopupPercent(), 0);

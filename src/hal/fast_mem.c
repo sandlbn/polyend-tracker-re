@@ -33,7 +33,13 @@ void* memset(void* dst, int c, size_t n);
 #endif
 
 #define OT_MEM_BARRIER() __asm__ volatile("")
+// clang (host build in tests/fast_mem_test.cpp) has no optimize attribute; the
+// asm barrier above keeps the loops as written there too.
+#if defined(__clang__)
+#define OT_MEM_FN __attribute__((used))
+#else
 #define OT_MEM_FN __attribute__((used, optimize("no-tree-loop-distribute-patterns")))
+#endif
 
 typedef uint32_t __attribute__((may_alias)) ot_w32;
 typedef struct __attribute__((packed, may_alias)) {
