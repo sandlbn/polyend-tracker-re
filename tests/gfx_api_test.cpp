@@ -70,6 +70,30 @@ TEST(custom_fonts_bind_to_handles) {
     CHECK(!customFontsBound());
 }
 
+// CMD_TEXT is charged what the FT81x builds in RAM_DL (#71, measured on a
+// Tracker): 5 words for the string, 1 per glyph whose pen is inside x / y
+// 0..511, 2 per glyph anywhere else.
+TEST(cmd_text_counts_what_the_ft81x_builds) {
+    RecordingDisplay d;
+    applyFontSet(&d, 0);
+    Gfx g(d);
+    g.beginFrame(0);
+    g.text(0, 0, kFont1, 0xFFFFFF, "x");   // the colour is set once
+    auto cost = [&](int x, int y, const char* s, uint16_t opt = 0) {
+        const uint32_t w0 = g.dlWords();
+        g.text(x, y, kFont1, 0xFFFFFF, s, opt);
+        return g.dlWords() - w0;
+    };
+    CHECK_EQ(cost(10, 20, "abcd"), 9u);    // inside
+    CHECK_EQ(cost(600, 20, "abcd"), 13u);  // right of x 511
+    CHECK_EQ(cost(10, 520, "ab"), 9u);     // below y 511
+    const int wa = textWidth(kFont1, "a", 1);
+    CHECK_EQ(cost(512 - wa, 20, "ab"), 8u);   // straddles: a inside, b outside
+    const int wab = textWidth(kFont1, "ab");
+    CHECK_EQ(cost(511, 20, "ab", IDisplay::kOptRightX), wab <= 511 ? 7u : 9u);   // alignment applied first
+    g.endFrame();
+}
+
 TEST(glyph_run_fallback_is_text) {
     RecordingDisplay d;
     setRomTextMode(kRomWholeText);
@@ -77,12 +101,17 @@ TEST(glyph_run_fallback_is_text) {
     Gfx g(d);
     g.beginFrame(0);
     g.glyphRun(600, 20, kFont1, "Pattern", 0xFFFFFF);
-    g.glyphRun(10, 30, kFont2, "--", 0x777777, 11);
+    // Charged what the device draws (kRomGlyphs: 7 VERTEX2II + BEGIN and a
+    // translate at most), not the CMD_TEXT it stands in for (5 + 2 x 7 at
+    // x 600).
+    const uint32_t w0 = g.dlWords();
+    g.glyphRun(600, 50, kFont1, "Pattern", 0xFFFFFF);
+    CHECK_EQ(g.dlWords() - w0, 9u);
+    g.glyphRun(10, 30, kFont2, "--", 0x777777, 11);   // one string, the pitch ignored
     g.textRotated(5, 5, kFont3, 0xFFFFFF, "VOL");
     g.endFrame();
     CHECK(has(d.last, "TEXT 600 20 f26 o0 \"Pattern\""));
-    CHECK(has(d.last, "TEXT 10 30 f18 o0 \"-\""));
-    CHECK(has(d.last, "TEXT 21 30 f18 o0 \"-\""));
+    CHECK(has(d.last, "TEXT 10 30 f18 o0 \"--\""));
     CHECK(has(d.last, "TEXT 5 5 f27 o0 \"VOL\""));
     CHECK_EQ(count(d.last, "VERTEX2II"), 0);
     setRomTextMode(kRomGlyphs);

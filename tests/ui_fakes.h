@@ -453,6 +453,15 @@ public:
             if (l.compare(0, 5, "TEXT ") == 0 && l.find(s) != std::string::npos) return true;
         return false;
     }
+    // A TEXT line whose string is exactly `s` (lastHasText also matches the
+    // coordinates: "16" was found in y 316).
+    bool lastHasExactText(const char* s) const {
+        const std::string q = std::string("\"") + s + "\"";
+        for (auto& l : last)
+            if (l.compare(0, 5, "TEXT ") == 0 && l.size() >= q.size() && l.compare(l.size() - q.size(), q.size(), q) == 0)
+                return true;
+        return false;
+    }
 
 private:
     void add(const char* fmt, ...) __attribute__((format(printf, 2, 3))) {

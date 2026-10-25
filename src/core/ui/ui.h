@@ -479,15 +479,17 @@ public:
     static constexpr uint32_t kDriverDlWords = 36;
     static constexpr uint32_t kDlFrameWords = kDlLimitWords - kDriverDlWords;
     // Guard limit: Gfx counts what it uploads (gradients at their RAM_DL
-    // cost, Gfx::kGradientDlWords), but the FT81x builds a few % more from
-    // text (measured on a Tracker: a dense Pattern frame at ~1950 counted
-    // words faulted, Pattern / Track Mixer frames at ~1720 used 7.2 KB of
-    // the 8 KB). kDlFrameWords / 1.037 keeps that margin.
-    static constexpr uint32_t kDlGuardWords = 1940;
+    // cost, Gfx::kGradientDlWords; CMD_TEXT at what the coprocessor builds,
+    // Gfx::text). Measured on a Tracker (six screens, REG_CMD_DL vs the
+    // count): within 4 words of the driver's 36 + the count. 1980 + 36 + 4
+    // leaves 28 words of the 2048. (Before CMD_TEXT was counted right, 1940
+    // kept a 3.7 % margin for the text the FT81x built beyond the count.)
+    static constexpr uint32_t kDlGuardWords = 1980;
     // Design target for any screen + overlay (tests/display_budget_test.cpp).
-    static constexpr uint32_t kDlTargetWords = 1900;
+    static constexpr uint32_t kDlTargetWords = 1940;
     // Frame limit of the guard (host tests lower it to force the fallback).
     void setDlFrameLimit(uint32_t words) { dlFrameLimit_ = words; }
+    uint32_t dlFrameLimit() const { return dlFrameLimit_; }
     uint32_t overBudgetFrames() const { return overBudget_; }
     uint32_t hwFaultFrames() const { return hwFaultFrames_; }
     uint8_t dlScale() const { return dlScale_; }   // 64 = 1.0

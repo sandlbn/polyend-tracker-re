@@ -385,12 +385,42 @@ void Gfx::line(int x0, int y0, int x1, int y1, uint32_t c) {
     words_ += 4;
 }
 
+// RAM_DL words of a CMD_TEXT: 5 for the string, then one VERTEX2II per glyph
+// whose pen is inside 0..511 (x and y) and a CELL + VERTEX2F pair anywhere
+// else -- the right part of the 800-px screen. Measured on a Tracker (REG_CMD_DL
+// after six screens vs the frames' text): the RAM_DL a frame used was
+// 34 + 1.06 x strings + 1.00 x glyphs right of x 511 words more than the old
+// count of 4 + 1 per glyph, within 4 words. That left the MIDI instrument
+// page's right-hand CC lists (1,902 counted words) over the 8 KB RAM_DL, with
+// the guard not stepping in.
+static uint32_t cmdTextWords(int x, int y, uint8_t font, const char* s, uint16_t opt) {
+    const uint32_t n = uint32_t(std::strlen(s));
+    const int w = ot::textWidth(font, s);
+    if (opt & IDisplay::kOptRightX) x -= w;
+    else if (opt & IDisplay::kOptCenterX) x -= w / 2;
+    if (opt & IDisplay::kOptCenterY) y -= ot::fontHeight(font) / 2;
+    if (y < 0 || y > 511) return 5 + 2 * n;
+    if (x >= 0 && x + w <= 512) return 5 + n;
+    uint32_t words = 5;
+    for (uint32_t i = 0, pen = 0; i < n; ++i) {
+        const int gx = x + int(pen);
+        words += gx >= 0 && gx < 512 ? 1u : 2u;
+        pen += uint32_t(ot::textWidth(font, s + i, 1));
+    }
+    return words;
+}
+
 void Gfx::text(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt) {
-    if (!s || !*s || !admit(4 + uint32_t(std::strlen(s)))) return;
+    if (!s || !*s) return;
+    textWords(x, y, font, c, s, opt, cmdTextWords(x, y, font, s, opt));
+}
+
+void Gfx::textWords(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt, uint32_t words) {
+    if (!admit(words)) return;
     sync();   // CMD_TEXT draws in the current context (translate included)
     color(c);
     d_->text(int16_t(x), int16_t(y), romFontFor(font), opt, s);
-    words_ += 4 + uint32_t(std::strlen(s));
+    words_ += words;
 }
 
 int textWidth(uint8_t font, const char* s, int len) {
@@ -444,9 +474,24 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
         }
         pen += adv > 0 ? adv : ot::textWidth(font, s + i, 1);
     }
-    if (romText || (rom && (handle < 16 || handle > 31 || y < 0 || y > 511 || first < 0))) {
+    const bool cmdText = rom && (handle < 16 || handle > 31 || y < 0 || y > 511 || first < 0);
+    if (romText || cmdText) {
         // Not a ROM font handle, or a glyph clipped at the top / left edge
         // (VERTEX2II takes unsigned coordinates): the coprocessor's CMD_TEXT.
+        // kRomWholeText only exists so host tests can read whole strings (one
+        // CMD_TEXT per run, the pitch ignored). The device draws the run as
+        // glyphs (kRomGlyphs), so charge that: one VERTEX2II per glyph inside
+        // 0..911 + BEGIN and VERTEX_TRANSLATE_X at most (the device shares
+        // them with the previous run).
+        if (gRomTextMode == kRomWholeText && !cmdText) {
+            uint32_t glyphs = 0;
+            for (int i = 0, pen = x; s[i]; ++i) {
+                if (drawable(uint8_t(s[i])) && pen >= 0 && pen < 912) ++glyphs;
+                pen += adv > 0 ? adv : ot::textWidth(font, s + i, 1);
+            }
+            textWords(x, y, font, c, s, 0, glyphs + 2);
+            return;
+        }
         if (adv <= 0) {
             text(x, y, font, c, s);
             return;

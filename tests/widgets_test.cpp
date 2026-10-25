@@ -317,13 +317,20 @@ TEST(panels_lists_value_bars) {
     lv.count = 20;
     lv.sel = 0;
     lv.item = [](void*, int i, char* o, int cap) { std::snprintf(o, size_t(cap), "Item %d", i); };
+    setRomTextMode(kRomWholeText);   // rows as readable strings (the Harness mode)
     dl = frame([&](Gfx& g) { wg::list(g, O(), lv); });
+    setRomTextMode(kRomGlyphs);
     p = prims(dl);
     CHECK(hasRect(p, 0xFFFFFF, 255, 604, 33, 788, 33));      // scrollbar: inner w - 13
     CHECK(hasRect(p, 0xFFFFFF, 255, 604, 60, 788, 60));
     CHECK(hasRect(p, 0x000000, 255, 792, 37, 795, 416));    // scroll track
-    CHECK(textLine(dl, "Item 0").rfind("TEXT 614 46 ", 0) == 0);
-    CHECK(textLine(dl, "Item 13").rfind("TEXT 614 397 ", 0) == 0);
+    // Rows are glyph runs (#71) with their top at the row centre (46 + 27 n)
+    // minus half the font height; before, a CMD_TEXT centred on it.
+    char row0[32], row13[32];
+    std::snprintf(row0, sizeof row0, "TEXT 614 %d ", 46 - fontHeight(lv.font) / 2);
+    std::snprintf(row13, sizeof row13, "TEXT 614 %d ", 397 - fontHeight(lv.font) / 2);
+    CHECK(textLine(dl, "Item 0").rfind(row0, 0) == 0);
+    CHECK(textLine(dl, "Item 13").rfind(row13, 0) == 0);
     CHECK(!hasText(dl, "Item 14"));
     lv.count = 4;
     lv.x = 1;

@@ -391,6 +391,8 @@ public:
     static constexpr uint32_t kLimitReserve = 8;
 
 private:
+    // CMD_TEXT charged `words` RAM_DL words (Gfx::text: what the FT81x builds).
+    void textWords(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt, uint32_t words);
     // Glyph runs and icons leave their BEGIN(BITMAPS) open and the
     // VERTEX_TRANSLATE_X in effect, so consecutive runs share them (a dense
     // Pattern page saves ~450 words: BEGIN/END and two translates per cell).

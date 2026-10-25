@@ -165,7 +165,7 @@ tap F8               # Edit Patch
 wait 200
 budget-reset
 wait 1300             # (at 1500 the play time turns 8 s between fragcheck's renders)
-budget synth-edit-play 850
+budget synth-edit-play 880     # 853 with CMD_TEXT at its RAM_DL cost (#71; was ~800)
 fragcheck synth-edit-play
 tap F8
 tap PATTERN
