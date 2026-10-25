@@ -440,6 +440,10 @@ private:
         int alphaDepth = 0;
         uint8_t alphaStack[kAlphaStack] = {};
         bool rectsOpen = false;
+        // The display's VERTEX_TRANSLATE_X and open BEGIN(BITMAPS): a probe's
+        // glyph runs change them in the hasher only, so a miss puts them back.
+        int translate = 0;
+        bool bitmapsOpen = false;
     };
     State snapshot() const;
     void restore(const State& st);

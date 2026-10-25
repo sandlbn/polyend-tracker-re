@@ -77,10 +77,19 @@ bool hasText(const std::vector<std::string>& dl, const char* s) {
     return false;
 }
 
+// The CMD_TEXT or glyph-run (#71 part 4) line drawing `s`.
 std::string textLine(const std::vector<std::string>& dl, const char* s) {
     for (const std::string& l : dl)
-        if (l.rfind("TEXT", 0) == 0 && l.find(std::string("\"") + s + "\"") != std::string::npos) return l;
+        if ((l.rfind("TEXT", 0) == 0 || l.rfind("GLYPHS", 0) == 0) && l.find(std::string("\"") + s + "\"") != std::string::npos)
+            return l;
     return "";
+}
+
+// x of that line (a glyph run records its pen start, after the alignment).
+int textX(const std::vector<std::string>& dl, const char* s) {
+    const std::string l = textLine(dl, s);
+    const size_t sp = l.find(' ');
+    return sp == std::string::npos ? -9999 : std::atoi(l.c_str() + sp + 1);
 }
 
 // Runs `fn` inside one frame on a fresh recording display.
@@ -433,8 +442,8 @@ TEST(status_layout_follows_font_set) {
     CHECK_EQ(l.posX, 392);
     wg::TitleStatus st;
     auto dl = frame([&](Gfx& g) { wg::titleBar(g, O(), "Config", nullptr, &st); });
-    CHECK(textLine(dl, "0m:00s").rfind("TEXT 288 13 ", 0) == 0);
-    CHECK(textLine(dl, "P1.001").rfind("TEXT 392 13 ", 0) == 0);
+    CHECK_EQ(textX(dl, "0m:00s"), 288);
+    CHECK_EQ(textX(dl, "P1.001"), 392);
     // 10 minutes and more: one pad space less.
     CHECK_EQ(wg::statusLayout(600).timeX, 284);
     d.customFonts = false;

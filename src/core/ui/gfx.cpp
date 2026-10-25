@@ -243,6 +243,8 @@ Gfx::State Gfx::snapshot() const {
     st.alphaDepth = alphaDepth_;
     for (int i = 0; i < kAlphaStack; ++i) st.alphaStack[i] = alphaStack_[i];
     st.rectsOpen = rectsOpen_;
+    st.translate = translate_;
+    st.bitmapsOpen = bitmapsOpen_;
     return st;
 }
 
@@ -254,6 +256,8 @@ void Gfx::restore(const State& st) {
     alphaDepth_ = st.alphaDepth;
     for (int i = 0; i < kAlphaStack; ++i) alphaStack_[i] = st.alphaStack[i];
     rectsOpen_ = st.rectsOpen;
+    translate_ = st.translate;
+    bitmapsOpen_ = st.bitmapsOpen;
 }
 
 bool Gfx::probeEnd(uint8_t slot) {
@@ -427,8 +431,10 @@ bool Gfx::textAsGlyphs(int x, int y, uint8_t font, uint32_t c, const char* s, ui
     const fontdata::FontInfo* cf = customFont(romFontFor(font));
     if (!cf) return false;
     const int w = ot::textWidth(font, s);
-    if (opt & IDisplay::kOptRightX) x -= w;
-    else if (opt & IDisplay::kOptCenterX) x -= w / 2;
+    // The coprocessor treats the text as spanning w - 1 pixels from its first
+    // column (EVE emulator, pixel-compared: RIGHTX ends it at x inclusive).
+    if (opt & IDisplay::kOptRightX) x -= w - 1;
+    else if (opt & IDisplay::kOptCenterX) x -= (w - 1) / 2;
     if (opt & IDisplay::kOptCenterY) y -= cf->h / 2;
     if (y < 0 || y > 511) return false;
     for (int i = 0, pen = x; s[i]; ++i) {
