@@ -349,6 +349,10 @@ public:
     virtual bool remove(const char* path) = 0;   // file or empty directory
     virtual bool rename(const char* from, const char* to) = 0;
     virtual int32_t listDir(const char* path, DirFn fn, void* ctx) = 0; // entry count, <0 error
+    // Longest path (without a leading '/') the card storage takes; a longer
+    // one fails instead of being cut (a cut path names another file or the
+    // folder itself, issue #55).
+    static constexpr uint32_t kMaxPath = 257;
 };
 
 // ---------------------------------------------------------------------------

@@ -30,6 +30,10 @@ public:
         if (locked) ++lockedAccess;
         return locked;
     }
+    // Like the device (IStorage::kMaxPath): a longer path fails, never cut.
+    // Tests may fill files / dirs directly with longer paths (a computer can).
+    uint32_t maxPath = ot::IStorage::kMaxPath;
+    bool tooLong(const char* p) const { return maxPath && std::strlen(p) > maxPath; }
 
     static std::string parent(const std::string& p) {
         size_t s = p.rfind('/');
@@ -41,6 +45,7 @@ public:
     }
     Handle open(const char* path, OpenMode mode) override {
         if (refuse()) return -1;
+        if (tooLong(path)) return -1;
         std::string p(path);
         auto it = files.find(p);
         if (mode == kRead && it == files.end()) return -1;
@@ -93,9 +98,12 @@ public:
         refuse();
         open_.erase(h);
     }
-    bool exists(const char* path) override { return !refuse() && (files.count(path) || dirs.count(path)); }
+    bool exists(const char* path) override {
+        return !refuse() && !tooLong(path) && (files.count(path) || dirs.count(path));
+    }
     bool mkdir(const char* path) override {
         if (refuse()) return false;
+        if (tooLong(path)) return false;
         if (files.count(path)) return false;
         if (!parentOk(path)) return false;
         dirs.insert(path);
@@ -103,6 +111,7 @@ public:
     }
     bool remove(const char* path) override {
         if (refuse()) return false;
+        if (tooLong(path)) return false;
         if (files.erase(path)) return true;
         std::string p(path);
         if (!dirs.count(p)) return false;
@@ -116,6 +125,7 @@ public:
     }
     bool rename(const char* from, const char* to) override {
         if (refuse()) return false;
+        if (tooLong(from) || tooLong(to)) return false;
         auto it = files.find(from);
         if (it == files.end()) return false;
         files[to] = it->second;
@@ -124,6 +134,7 @@ public:
     }
     int32_t listDir(const char* path, DirFn fn, void* ctx) override {
         if (refuse()) return -1;
+        if (tooLong(path)) return -1;
         std::string p(path);
         if (!p.empty() && !dirs.count(p)) return -1;
         std::string pre = p.empty() ? "" : p + "/";

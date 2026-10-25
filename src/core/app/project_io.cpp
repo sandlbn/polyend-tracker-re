@@ -34,7 +34,7 @@ uint8_t g_patchKept = 0;
 uint32_t g_patchKeptCrc[kSynthSlotCount];
 
 struct FirstEntry {
-    char name[96];
+    char name[256];   // a FAT long name (255) in full: a cut name is another file (#55)
     bool isDir;
     bool found;
 };
@@ -375,23 +375,99 @@ uint64_t scanSampleBytes(const SlotScan& s) {
 }
 
 bool stopAtFirst(const IStorage::DirEntry&, void*) { return false; }
+
+// removeTree (public issue #55): every path under a folder must fit the
+// card's limit (IStorage::kMaxPath) before anything is deleted.
+constexpr uint32_t kTreeSteps = 1u << 20;   // safety stop for a corrupt directory
+struct FitScan {
+    size_t base;   // length of the folder path
+    bool ok;
+};
+bool fitScanFn(const IStorage::DirEntry& e, void* ctx) {
+    auto* s = static_cast<FitScan*>(ctx);
+    if (!std::strcmp(e.name, ".") || !std::strcmp(e.name, "..")) return true;
+    if (s->base + 1 + std::strlen(e.name) > IStorage::kMaxPath) {
+        s->ok = false;
+        return false;
+    }
+    return true;
+}
+struct NthDir {
+    int want, seen;
+    bool found;
+    char name[256];
+};
+bool nthDirFn(const IStorage::DirEntry& e, void* ctx) {
+    auto* d = static_cast<NthDir*>(ctx);
+    if (!e.isDir || !std::strcmp(e.name, ".") || !std::strcmp(e.name, "..")) return true;
+    if (d->seen++ != d->want) return true;
+    std::snprintf(d->name, sizeof(d->name), "%s", e.name);
+    d->found = true;
+    return false;
+}
+// Walks the tree without recursion (one path buffer, the index of the next
+// subfolder per level) and deletes nothing.
+bool treeFits(IStorage& f, const char* root) {
+    char p[IStorage::kMaxPath + 1];
+    if (std::strlen(root) > IStorage::kMaxPath) return false;
+    std::snprintf(p, sizeof(p), "%s", root);
+    int next[IStorage::kMaxPath / 2 + 2];   // each level adds at least 2 characters
+    int depth = 0;
+    next[0] = 0;
+    for (uint32_t step = 0; step < kTreeSteps; ++step) {
+        const size_t n = std::strlen(p);
+        if (next[depth] == 0) {   // first visit: every entry's path fits
+            FitScan s{n, true};
+            if (f.listDir(p, fitScanFn, &s) < 0 || !s.ok) return false;
+        }
+        NthDir d{next[depth], 0, false, {}};
+        if (f.listDir(p, nthDirFn, &d) < 0) return false;
+        if (d.found) {
+            ++next[depth];
+            if (depth + 1 >= int(sizeof(next) / sizeof(next[0]))) return false;
+            std::snprintf(p + n, sizeof(p) - n, "/%s", d.name);
+            next[++depth] = 0;
+        } else {
+            if (depth == 0) return true;
+            *std::strrchr(p, '/') = 0;
+            --depth;
+        }
+    }
+    return false;
+}
 }  // namespace
 
 bool App::removeTree(const char* path) {
     IStorage& f = fs();
     if (!f.exists(path)) return true;
-    char child[300];
-    for (int guard = 0; guard < 4096; ++guard) {
+    {
         FirstEntry e{};
-        if (f.listDir(path, firstEntryFn, &e) < 0 || !e.found) break;
-        std::snprintf(child, sizeof(child), "%s/%s", path, e.name);
-        if (e.isDir) {
-            if (!removeTree(child)) return false;
-        } else if (!f.remove(child)) {
-            return false;
-        }
+        if (f.listDir(path, firstEntryFn, &e) < 0) return f.remove(path);   // a file
     }
-    return f.remove(path);
+    // Refused before anything is deleted (no half-deleted project).
+    if (!treeFits(f, path)) return false;
+    // Depth first without recursion: descend into the first subfolder,
+    // delete files, delete a folder once it is empty, then go back up.
+    char p[IStorage::kMaxPath + 1];
+    std::snprintf(p, sizeof(p), "%s", path);
+    const size_t rootLen = std::strlen(p);
+    for (uint32_t step = 0; step < kTreeSteps; ++step) {
+        FirstEntry e{};
+        if (f.listDir(p, firstEntryFn, &e) < 0) return false;
+        const size_t n = std::strlen(p);
+        if (e.found) {
+            if (n + 1 + std::strlen(e.name) > IStorage::kMaxPath) return false;   // appeared after the check
+            std::snprintf(p + n, sizeof(p) - n, "/%s", e.name);
+            if (e.isDir) continue;
+            if (!f.remove(p)) return false;
+            p[n] = 0;
+            continue;
+        }
+        if (!f.remove(p)) return false;   // empty now
+        if (n == rootLen) return true;
+        *std::strrchr(p, '/') = 0;
+    }
+    return false;
 }
 
 bool App::copyFile(const char* from, const char* to) {

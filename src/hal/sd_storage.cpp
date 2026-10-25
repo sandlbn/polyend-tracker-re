@@ -119,10 +119,13 @@ void detachLinkMap(int file) {
 char gPath[FF_MAX_LFN + 4];
 
 // IStorage paths are relative to the card root; FatFs wants "/..." (no drive prefix needed).
+// nullptr for a path longer than IStorage::kMaxPath: cutting it would name
+// another file, or the folder itself (issue #55).
+static_assert(sizeof(gPath) - 2 == IStorage::kMaxPath, "kMaxPath is the path buffer");
 const char* fix(const char* p) {
     const char* s = (p[0] == '/') ? p + 1 : p;
     size_t n = strlen(s);
-    if (n + 2 > sizeof(gPath)) n = sizeof(gPath) - 2;
+    if (n + 2 > sizeof(gPath)) return nullptr;
     gPath[0] = '/';
     memcpy(gPath + 1, s, n);
     gPath[n + 1] = 0;
@@ -286,7 +289,8 @@ IStorage::Handle SdStorage::open(const char* path, OpenMode mode) {
     case kReadWrite: m = FA_READ | FA_WRITE | FA_OPEN_ALWAYS; break;
     default: return -1;
     }
-    if (f_open(&fil(slot), fix(path), m) != FR_OK) return -1;
+    const char* fp = fix(path);
+    if (!fp || f_open(&fil(slot), fp, m) != FR_OK) return -1;
     gUsed[slot] = true;
     if (mode == kRead) attachLinkMap(slot); else gClmtOf[slot] = -1;
     return slot;
@@ -328,6 +332,7 @@ void SdStorage::close(Handle h) {
 bool SdStorage::exists(const char* path) {
     if (!mounted_) return false;
     const char* p = fix(path);
+    if (!p) return false;
     if (p[1] == 0) return true;   // root
     FILINFO fi;
     return f_stat(p, &fi) == FR_OK;
@@ -335,20 +340,27 @@ bool SdStorage::exists(const char* path) {
 
 bool SdStorage::mkdir(const char* path) {
     if (!mounted_) return false;
-    FRESULT r = f_mkdir(fix(path));
+    const char* p = fix(path);
+    if (!p) return false;
+    FRESULT r = f_mkdir(p);
     return r == FR_OK || r == FR_EXIST;
 }
 
 bool SdStorage::remove(const char* path) {
-    return mounted_ && f_unlink(fix(path)) == FR_OK;
+    if (!mounted_) return false;
+    const char* p = fix(path);
+    return p && f_unlink(p) == FR_OK;
 }
 
 bool SdStorage::rename(const char* from, const char* to) {
     if (!mounted_) return false;
     static char fromBuf[FF_MAX_LFN + 4];
-    strncpy(fromBuf, fix(from), sizeof(fromBuf) - 1);
+    const char* pf = fix(from);
+    if (!pf) return false;
+    strncpy(fromBuf, pf, sizeof(fromBuf) - 1);
     fromBuf[sizeof(fromBuf) - 1] = 0;
-    return f_rename(fromBuf, fix(to)) == FR_OK;
+    const char* pt = fix(to);
+    return pt && f_rename(fromBuf, pt) == FR_OK;
 }
 
 bool SdStorage::benchmark(uint8_t* buf, uint32_t bufLen, uint32_t totalBytes, Bench& r) {
@@ -526,7 +538,8 @@ bool SdStorage::streamProbe(uint8_t* buf, uint32_t bufLen, uint32_t fileBytes, P
 int32_t SdStorage::listDir(const char* path, DirFn fn, void* ctx) {
     if (!mounted_) return -1;
     DIR d;
-    if (f_opendir(&d, fix(path)) != FR_OK) return -1;
+    const char* p = fix(path);
+    if (!p || f_opendir(&d, p) != FR_OK) return -1;
     int32_t n = 0;
     FILINFO fi;
     while (f_readdir(&d, &fi) == FR_OK && fi.fname[0]) {
