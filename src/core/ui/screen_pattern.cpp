@@ -1075,7 +1075,10 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         if (state != kPress) return;
         pops::FillParams& f = fill[col];
         int v = pad;
-        if (fillField >= 4 && col == 0) v = a.padNote(pad);
+        if (fillField >= 4 && col == 0) {
+            v = a.padNote(pad);
+            if (v == PadNotes::kNoNote) return;   // [I] #42 piano layout gap
+        }
         else if (fillField >= 4 && col >= 2) v = pops::fxValueFromPad(fillFxType(), pad);
         switch (fillField) {
             case 0: f.where = int16_t(clampi(v, 0, 6)); break;
@@ -1104,7 +1107,10 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         if (padVoice_[pad] >= 0) a.previewOff(uint16_t(padVoice_[pad]));
         padVoice_[pad] = -1;
         // Instr column: release only, no OFF step (manual p.95, MANUAL_AUDIT #4).
-        if (a.seq.isRecording() && col <= 1) a.seq.liveNoteOff(col == 1 ? 60 : a.padNote(pad), col == 0);
+        if (a.seq.isRecording() && col <= 1) {
+            const uint8_t n = col == 1 ? uint8_t(60) : a.padNote(pad);
+            if (n != PadNotes::kNoNote) a.seq.liveNoteOff(n, col == 0);
+        }
         return;
     }
     if (state != kPress) return;
@@ -1132,6 +1138,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     }
     if (focus >= 0) return;   // spec 06 §1.6: no note is entered while a focus is held
     const uint8_t note = a.padNote(pad);
+    if (note == PadNotes::kNoNote && col == 0) return;   // [I] #42: a piano layout gap plays nothing
     if (a.seq.isRecording() && col <= 1) {
         // spec 16 §A.6: the Note column records notes with the current
         // instrument; the Instr column records instrument triggers: note 60
@@ -1167,6 +1174,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         // 60, like the Instr-column record and edit paths (spec 16 §A.6),
         // not at the pad's own note (user report: every instrument one
         // semitone higher than the previous one).
+        if (col != 1 && note == PadNotes::kNoNote) return;   // [I] #42
         a.previewOn(voice, a.currentInstrument(), col == 1 ? uint8_t(60) : note, 127);
         padVoice_[pad] = int8_t(pad);
         return;
@@ -1602,11 +1610,15 @@ void PatternScreen::padLeds(uint8_t* lv) {
             if (ci < kSampleInstrumentCount && a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)) {
                 for (int p = 0; p < a.instruments[ci].sliceCount && p < 48; ++p) lv[p] = dim;
                 if (st.note >= 24 && st.note < 72) lv[st.note - 24] = full;
-            } else if (st.note >= 0) {
-                a.refreshPadNotes();
-                uint8_t pads[48];
-                const int n = a.padNotes.padsForNote(st.note, pads, 48);
-                for (int i = 0; i < n; ++i) lv[pads[i]] = dim;
+            } else {
+                // [I] #42: on the piano keys the step's note shows at full.
+                const uint8_t on = pianoLeds(lv) ? full : dim;
+                if (st.note >= 0) {
+                    a.refreshPadNotes();
+                    uint8_t pads[48];
+                    const int n = a.padNotes.padsForNote(st.note, pads, 48);
+                    for (int i = 0; i < n; ++i) lv[pads[i]] = on;
+                }
             }
         } else if (col == 1) {
             if (st.instrument < 48) lv[st.instrument] = full;
@@ -1629,7 +1641,9 @@ void PatternScreen::padLeds(uint8_t* lv) {
         }
         return;
     }
-    // Not editing: "Pads preview" (spec 06 §1.6 rule 7).
+    // Not editing: "Pads preview" (spec 06 §1.6 rule 7). [I] #42: over the
+    // piano keys (outside the Instr column) the played notes show at full.
+    const uint8_t on = col != 1 && pianoLeds(lv) ? full : dim;
     if (a.cfg.padsPreview == 0) return;
     a.refreshPadNotes();
     const int t0 = a.cfg.padsPreview == 1 ? track : 0;
@@ -1641,7 +1655,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
         } else if (s.note >= 0) {
             uint8_t pads[48];
             const int n = a.padNotes.padsForNote(s.note, pads, 48);
-            for (int i = 0; i < n; ++i) lv[pads[i]] = dim;
+            for (int i = 0; i < n; ++i) lv[pads[i]] = on;
         }
     }
 }

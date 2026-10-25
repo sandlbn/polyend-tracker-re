@@ -299,6 +299,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] #42: pads only type here
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;
@@ -530,6 +531,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] #42: pads only feed the test code
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;

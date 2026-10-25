@@ -754,7 +754,10 @@ void PlaybackScreen::padLeds(uint8_t* lv) {
     const uint8_t ci = app_.currentInstrument();
     if (ci >= kSampleInstrumentCount) return;
     const Instrument& in = app_.instruments[ci];
-    if (in.playMode != uint8_t(PlayMode::BeatSlice)) return;
+    if (in.playMode != uint8_t(PlayMode::BeatSlice)) {
+        pianoLeds(lv);   // [I] #42
+        return;
+    }
     for (int p = 0; p < in.sliceCount && p < kPadCount; ++p) lv[p] = app_.cfg.padDim();
 }
 

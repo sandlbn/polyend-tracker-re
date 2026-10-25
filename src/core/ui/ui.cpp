@@ -63,10 +63,22 @@ void Screen::onButton(uint8_t id, uint8_t state) {
     if (id == btn::Play && state == kPress) app_.togglePlay(ui_.shift());
 }
 
+bool Screen::pianoLeds(uint8_t* levels) {
+    App& a = app_;
+    if (a.cfg.padLayout != 1) return false;
+    const uint8_t ci = a.currentInstrument();
+    if (ci < kSampleInstrumentCount && a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)) return false;
+    a.refreshPadNotes();
+    return a.padNotes.pianoLeds(levels, a.cfg.padDim(), a.cfg.padFull());
+}
+
 void Screen::onPad(uint8_t pad, uint8_t state) {
     // spec 06 §0.3: pads audition the current instrument.
     // One track voice per held pad, voiceId = pad number (spec 07 Q7).
-    if (state == kPress) app_.previewOn(pad, app_.currentInstrument(), app_.padNote(pad), 127);
+    if (state == kPress) {
+        const uint8_t n = app_.padNote(pad);
+        if (n != PadNotes::kNoNote) app_.previewOn(pad, app_.currentInstrument(), n, 127);   // [I] #42: gaps
+    }
     else if (state == kRelease) app_.previewOff(pad);
 }
 

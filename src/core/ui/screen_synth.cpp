@@ -892,8 +892,10 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
     // highlighted patch (Tracker+ 1.0).
     if (state == kPress) {
         if (view == View::Browser && !previewHighlighted()) return;
+        const uint8_t n = app_.padNote(pad);
+        if (n == PadNotes::kNoNote) return;   // [I] #42: a piano layout gap
         padNote_ = pad;
-        audition(true, app_.padNote(pad));
+        audition(true, n);
     } else if (state == kRelease && padNote_ == int(pad)) {
         padNote_ = -1;
         audition(false, 0);
@@ -901,7 +903,10 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
 }
 
 void SynthScreen::padLeds(uint8_t* lv) {
-    if (view != View::Edit) return;
+    if (view != View::Edit) {
+        pianoLeds(lv);   // [I] #42: the browser's pads play the patch
+        return;
+    }
     const synthui::Section* sec = nullptr;
     const int n = synthui::sections(engine(), &sec);
     for (int i = 0; i < n; ++i) lv[(i / 4) * kPadCols + i % 4] = i == section ? app_.cfg.padFull() : app_.cfg.padDim();
