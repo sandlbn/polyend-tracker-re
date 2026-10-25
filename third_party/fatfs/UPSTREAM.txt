@@ -1,6 +1,9 @@
 FatFs R0.15a by ChaN (1-clause BSD-style licence, see LICENSE.txt).
 Upstream: http://elm-chan.org/fsw/ff/arc/ff15a.zip (no VCS; archive dated 2024-11-22)
 sha256(ff15a.zip) = 74737b1cafa1a67a3f722dd0d1a44767c5b54d37b6300ad3825a904cbe88fc3c
-Files copied unmodified from source/: ff.c ff.h ffunicode.c diskio.h 00readme.txt
-Local changes (ffconf.h only): FF_CODE_PAGE 437, FF_USE_LFN 1 (static buffer), FF_FS_NORTC 1.
+Files copied from source/: ff.c ff.h ffunicode.c diskio.h 00readme.txt
+Local changes in ffconf.h: FF_CODE_PAGE 437, FF_USE_LFN 1 (static buffer), FF_FS_NORTC 1.
 The disk I/O layer lives in src/hal/sd_diskio.cpp (SDHC driver).
+Local changes in ff.c / ff.h (marked "OpenTracker"; tests/fatfs_alloc_test.cpp):
+- FSI_TrailSig 498 -> 508: backport of the R0.15b fix ("FatFs fails to load the
+  FsInfo in FAT32 volumes", appeared at R0.15a).
