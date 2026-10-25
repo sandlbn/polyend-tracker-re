@@ -14,6 +14,7 @@ namespace {
 uint8_t gFontSet = 0;
 bool gCustomFonts = false;
 RomTextMode gRomTextMode = kRomGlyphs;
+CustomTextMode gCustomTextMode = kCustomGlyphs;
 
 // FT81x ROM font advance widths (chars 32..126) and cell heights for the
 // handles the UI uses; the same values as the simulator's ROM look-alikes
@@ -74,6 +75,8 @@ bool applyFontSet(IDisplay* d, uint8_t set) {
 bool customFontsBound() { return gCustomFonts; }
 void setRomTextMode(RomTextMode m) { gRomTextMode = m; }
 RomTextMode romTextMode() { return gRomTextMode; }
+void setCustomTextMode(CustomTextMode m) { gCustomTextMode = m; }
+CustomTextMode customTextMode() { return gCustomTextMode; }
 
 uint8_t romFontFor(uint8_t role, uint8_t set) {
     if (role >= kFont1 && role <= kFontIcons) {
@@ -410,8 +413,37 @@ static uint32_t cmdTextWords(int x, int y, uint8_t font, const char* s, uint16_t
     return words;
 }
 
+// #71 part 4: CMD_TEXT on a custom font as the glyph run that draws the same
+// pixels. The coprocessor applies the options first (RIGHTX: x - width,
+// CENTERX: x - width / 2, CENTERY: y - bitmap height / 2), then puts one
+// glyph per character at the pen (cell = character, no glyph for a space or
+// a zero-width character below the font's first) and advances it by the
+// width. A glyph run does the same at one RAM_DL word per glyph instead of
+// 5 + 1 per glyph (2 right of x 511). It cannot draw a glyph clipped at the
+// left or top edge (VERTEX2II coordinates are unsigned) or a byte >= 127
+// (CMD_TEXT masks it to 7 bits): those stay CMD_TEXT. False: not drawn.
+bool Gfx::textAsGlyphs(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt) {
+    if (gCustomTextMode != kCustomGlyphs || !gCustomFonts) return false;
+    const fontdata::FontInfo* cf = customFont(romFontFor(font));
+    if (!cf) return false;
+    const int w = ot::textWidth(font, s);
+    if (opt & IDisplay::kOptRightX) x -= w;
+    else if (opt & IDisplay::kOptCenterX) x -= w / 2;
+    if (opt & IDisplay::kOptCenterY) y -= cf->h / 2;
+    if (y < 0 || y > 511) return false;
+    for (int i = 0, pen = x; s[i]; ++i) {
+        const uint8_t ch = uint8_t(s[i]);
+        if (ch >= 127) return false;
+        if (pen < 0 && ch != ' ' && ch >= cf->first) return false;
+        pen += ot::textWidth(font, s + i, 1);
+    }
+    glyphRun(x, y, font, s, c);
+    return true;
+}
+
 void Gfx::text(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt) {
     if (!s || !*s) return;
+    if (textAsGlyphs(x, y, font, c, s, opt)) return;
     textWords(x, y, font, c, s, opt, cmdTextWords(x, y, font, s, opt));
 }
 

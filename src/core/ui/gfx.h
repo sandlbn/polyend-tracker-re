@@ -75,6 +75,14 @@ bool customFontsBound();
 enum RomTextMode : uint8_t { kRomGlyphs = 0, kRomText = 1, kRomWholeText = 2 };
 void setRomTextMode(RomTextMode m);
 RomTextMode romTextMode();
+// Gfx::text with custom fonts bound (#71 part 4):
+//  kCustomGlyphs (default): drawn as a glyph run (VERTEX2II, one RAM_DL word
+//    per glyph anywhere on screen) wherever that gives the CMD_TEXT pixels;
+//  kCustomText: always CMD_TEXT (5 words + 1 per glyph, 2 right of x 511), the
+//    pixel reference for the simulator's textcheck and the emulator replay.
+enum CustomTextMode : uint8_t { kCustomGlyphs = 0, kCustomText = 1 };
+void setCustomTextMode(CustomTextMode m);
+CustomTextMode customTextMode();
 
 // Pen advance of `s` (or its first `len` chars, len < 0 = all) in pixels for a
 // font role or ROM handle. ROM fonts: the FT81x ROM advance tables (the
@@ -290,6 +298,9 @@ public:
     // advances; only a run clipped at the top / left edge (or a non-ROM
     // handle) falls back to CMD_TEXT (per glyph when advanceOverride > 0).
     void glyphRun(int x, int y, uint8_t font, const char* s, uint32_t colour, int advanceOverride = 0);
+    // text() as a glyph run when that draws the same pixels (custom fonts,
+    // kCustomGlyphs); false: the caller sends CMD_TEXT.
+    bool textAsGlyphs(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt);
     int textWidth(uint8_t font, const char* s) const { return ot::textWidth(font, s); }
     // Text turned by quarterTurns x 90 degrees counter-clockwise (1 = reads
     // bottom to top; stock style bit7 "vertical text"). (x, y) is the
