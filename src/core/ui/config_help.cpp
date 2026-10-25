@@ -22,7 +22,7 @@ const char* const kProjectHelp[] = {
     "Makes the sample editor markers move to the nearest zero crossing, which avoids clicks at loop and slice "
     "points.",
 };
-// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds CPU meter and Synth voices.
+// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds CPU meter, Synth voices and Export sample rate.
 const char* const kGeneralHelp[] = {
     "Selects the FM band and channel steps used by the built-in radio in your part of the world.",
     "Sets the backlight level of the screen.",
@@ -43,6 +43,9 @@ const char* const kGeneralHelp[] = {
     "time. Off: never.",
     "How many synth voices can sound at once over all three synths (1 to 8, default 4). More voices cost more "
     "processing time; when the load gets too high, voices are taken away for a while.",
+    "Sample rate of exported songs, patterns, stems and renders. 44.1 kHz converts them, so they play in "
+    "time in any DAW. 44117 Hz keeps the Tracker's own rate as the original firmware does; a DAW converts "
+    "them on import.",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

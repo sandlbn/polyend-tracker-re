@@ -333,3 +333,27 @@ TEST(file_browser_cover_jpeg_fallback_and_limits) {
     h.run(20);
     CHECK(!lastHas(h, "IMAGE"));
 }
+
+// Config > General "Export sample rate" reaches the export: 44.1 kHz
+// (default) writes 44100, the device rate writes 44117 as stock.
+TEST(export_follows_the_export_rate_option) {
+    for (uint8_t rate : {uint8_t(1), uint8_t(0)}) {
+        Harness h;
+        App& a = *h.app;
+        a.cfg.exportRate = rate;
+        addWav(h, "kick.wav", 3000);
+        CHECK(a.importSample("kick.wav", 0));
+        Step& s = a.pattern().tracks[0].steps[0];
+        s.note = 60;
+        s.instrument = 0;
+        a.patternEdited();
+        a.editMode = true;
+        h.tap(btn::F8);   // page 1
+        h.tap(btn::F1);   // Render selection -> name keyboard
+        h.tap(btn::F8);   // Render
+        const auto& f = h.fs.files["Export/New Project/Selection/Selection0001.wav"];
+        WavInfo info;
+        CHECK(wavParseHeader(f.data(), f.size(), info));
+        CHECK_EQ(info.sampleRate, rate ? 44100u : 44117u);
+    }
+}

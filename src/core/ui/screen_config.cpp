@@ -47,6 +47,7 @@ const char* const kTopInfo[] = {"Additional info", "Track names", "Off"};
 const char* const kLineIn[] = {"Stereo", "Mono Left", "Mono Right"};
 const char* const kPresets[] = {"Global", "Per Project"};
 const char* const kCpuMeter[] = {"Auto", "Always", "Off"};   // [I] 2.x, spec 2x-02 §2.2
+const char* const kExportRates[] = {"44117 Hz", "44.1 kHz"};  // [I] 2.x: device rate (stock), converted
 const char* const kClockIn[] = {"Internal", "USB", "MIDI In jack"};
 const char* const kPortsOut[] = {"Off", "USB", "MIDI Out jack", "USB + MIDI Out jack"};
 const char* const kPortsIn[] = {"Off", "USB", "MIDI In jack", "USB + MIDI In jack"};
@@ -89,6 +90,7 @@ const Opt kGeneral[] = {
     {"CPU meter", kEnum, kCfg, CF(cpuMeter), 0, 3, kCpuMeter, 0},   // [I] 2.x
     // [I] 2.x: the synth voice budget (governor budget B, OPTIMIZATION_2X item 10 / OP-8).
     {"Synth voices", kNum, kCfg, CF(synthVoices), 1, Config::kMaxSynthVoices, nullptr, 0},
+    {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},
