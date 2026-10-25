@@ -92,11 +92,12 @@ void check(const char* sig, int fx, const float* p, const std::vector<int16_t>& 
 
 // The per-sample effects run in float now (the reference: double), so the
 // truncated int16 result may land one step away where the exact value is
-// within float rounding of an integer.
+// within float rounding of an integer. These bounds hold host to host: on the
+// M4 the float effects differ slightly (FMA contraction, newlib's libm).
 int allowed(int fx) {
     switch (fx) {
         case sfx::kNormalizer: case sfx::kAmplifier: case sfx::kOverdrive: case sfx::kDelay:
-        case sfx::kFlanger: case sfx::kEqualizer: case sfx::kLimiter: case sfx::kCompressor:
+        case sfx::kFlanger: case sfx::kLimiter: case sfx::kCompressor:
         case sfx::kWavetableSmoother: case sfx::kFadeIn: case sfx::kFadeOut: return 1;
         default: return 0;
     }
@@ -129,20 +130,18 @@ const Setting kWork[] = {
     {sfx::kChorus, {{1, 4}}},
     {sfx::kFlanger, {{0, 4096}, {1, 30}, {2, 8}, {3, 5}}},
     {sfx::kFlanger, {{0, 1024}, {1, 90}, {2, 3}, {3, 0.3f}}},
-    // The EQ runs in float around the second differences (BiquadF): a few
-    // LSB on typical settings; the 10 Hz band at +12 dB and the narrowest
-    // width resonates enough to amplify float's state rounding (27 LSB on a
-    // full-scale drum loop, about -63 dB below the signal). Accepted after a
-    // listening test (2026-10-24: no audible difference on studio headphones;
-    // tests/sfx_render.cpp, tools/sfx_listen.sh).
-    {sfx::kEqualizer, {{0, 6}, {3, -3}, {6, 4}}, 3},
-    {sfx::kEqualizer, {{0, 12}, {1, 10}, {2, 0.5f}}, 32},                  // 10 Hz, narrow, +12 dB
-    {sfx::kEqualizer, {{0, -12}, {1, 200}, {3, 12}, {4, 100}, {6, -12}, {7, 20000}}, 3},
-    {sfx::kEqualizer, {{0, 12}, {1, 60}, {2, 1}}, 8},                     // +12 dB at 60 Hz
-    {sfx::kLimiter, {{0, -20}}, 2},   // float envelope rounding on a long loop
+    // The EQ stays in double: identical to the reference. Widths: 0.5 is the
+    // widest band, 5 the narrowest.
+    {sfx::kEqualizer, {{0, 6}, {3, -3}, {6, 4}}},
+    {sfx::kEqualizer, {{0, 12}, {1, 10}, {2, 0.5f}}},                     // 10 Hz, widest, +12 dB
+    {sfx::kEqualizer, {{0, 12}, {1, 10}, {2, 5}}},                        // 10 Hz, narrowest, +12 dB
+    {sfx::kEqualizer, {{0, -12}, {1, 200}, {3, 12}, {4, 100}, {6, -12}, {7, 20000}}},
+    {sfx::kEqualizer, {{0, 12}, {1, 60}, {2, 1}}},                        // +12 dB at 60 Hz
+    {sfx::kLimiter, {{0, -20}}},
     {sfx::kLimiter, {{0, -40}, {1, 0.3f}, {2, 2000}}},
     {sfx::kCompressor, {{0, -30}, {1, 8}}},
     {sfx::kCompressor, {{0, -60}, {1, 50}, {2, 0.3f}, {3, 2000}}},
+    {sfx::kCompressor, {{0, -30}, {1, 1.5f}, {3, 2000}}},                 // gentle, slow release
     {sfx::kWavetableSmoother, {{0, 64}, {1, 512}}},
     {sfx::kBitcrusher, {{0, 3}, {1, 4000}}},
 };

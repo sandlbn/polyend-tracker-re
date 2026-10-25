@@ -60,7 +60,9 @@ public:
     // Sample editor apply / one-level undo (spec 06 §6.3/§6.4): idx (loaded)
     // takes the block of `frames` written at tail(); its old data ends up at
     // the new tail() (same planar layout), so a second call with the old
-    // size swaps back. In place (rotations), no extra memory.
+    // size swaps back. Same size: a swap through a 256-byte stack buffer;
+    // another size: block moves via the free pool memory after the new
+    // block when it has room, else two in-place rotations.
     bool replaceFromTail(int idx, uint32_t frames, bool stereo);
     int16_t* data(int idx) { return loaded(idx) ? pool_ + slots_[idx].off : nullptr; }
     uint32_t samples(int idx) const { return valid(idx) ? slots_[idx].samples() : 0u; }

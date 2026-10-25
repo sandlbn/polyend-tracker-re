@@ -234,12 +234,13 @@ uint32_t wsola(const int16_t* in, uint32_t n, uint32_t m, uint32_t N, int16_t* o
     return w;
 }
 
-// Peaking biquad coefficients (direct form I, normalised samples), designed
-// in double; BiquadF runs them.
+// Peaking biquad (direct form I, normalised samples).
 // SPEC GAP: the stock coefficient formula (lg:0x791c0) is not decoded; this
 // is the RBJ peaking EQ with Q = f / bw.
+// Kept in double: a float form loses low-frequency gain (DC at 10 Hz +12 dB:
+// 32767 -> 32283), even around the second differences.
 struct Biquad {
-    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
     void peaking(double f, double lin, double q) {
         // fmath.h double helpers: no double libm on the device
         // (docs/OPTIMIZATION_2X.md OP-4).
@@ -254,22 +255,8 @@ struct Biquad {
         a1 = -2.0 * cs / a0;
         a2 = (1.0 - alpha / A) / a0;
     }
-};
-
-// The same filter run in single precision on int16-scale samples, written
-// around the second differences: with b ~ (1, -2, 1) and a ~ (-2, 1) at low
-// frequencies, float cannot hold a1, a2 themselves precisely enough (the 10 Hz
-// band shifted by up to 133 LSB), but it holds the offsets d = b - (1, -2, 1),
-// e = a - (-2, 1) to full precision, and x - 2 x1 + x2 is exact for int16 x.
-//   y = (x - 2 x1 + x2) + d0 x + d1 x1 + d2 x2 + (2 y1 - y2) - e1 y1 - e2 y2
-struct BiquadF {
-    float d0 = 0, d1 = 0, d2 = 0, e1 = 0, e2 = 0, x1 = 0, x2 = 0, y1 = 0, y2 = 0;
-    void set(const Biquad& c) {
-        d0 = float(c.b0 - 1.0), d1 = float(c.b1 + 2.0), d2 = float(c.b2 - 1.0);
-        e1 = float(c.a1 + 2.0), e2 = float(c.a2 - 1.0);
-    }
-    float run(float x) {
-        const float y = (x - 2.0f * x1 + x2) + (d0 * x + d1 * x1 + d2 * x2) + (2.0f * y1 - y2) - (e1 * y1 + e2 * y2);
+    double run(double x) {
+        const double y = b0 * x + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2;
         x2 = x1;
         x1 = x;
         y2 = y1;
@@ -543,7 +530,6 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             // SPEC GAP: UI dB -> linear gain 10^(dB/20) (the stock conversion
             // is open).
             Biquad b[3];
-            BiquadF bf[3];
             bool on[3];
             for (int k = 0; k < 3; ++k) {
                 const double lin = fm::pow10D(double(p[3 * k]) / 20.0);
@@ -552,16 +538,14 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 if (bw > 20000.0) bw = 20000.0;
                 on[k] = lin != 1.0 && bw > 0.0 && f > 0.0;
                 if (on[k]) b[k].peaking(f, lin, f / bw);
-                bf[k].set(b[k]);
             }
-            // On int16-scale samples (the filters are linear): clip(v / FS) * FS.
             for (uint32_t i = 0; i < w; ++i) {
-                float v = float(in[i]);
+                double v = double(in[i]) / 32767.0;
                 for (int k = 0; k < 3; ++k)
-                    if (on[k]) v = bf[k].run(v);
-                if (v > 32767.0f) v = 32767.0f;
-                if (v < -32767.0f) v = -32767.0f;
-                out[i] = satf(v);
+                    if (on[k]) v = b[k].run(v);
+                if (v > 1.0) v = 1.0;
+                if (v < -1.0) v = -1.0;
+                out[i] = sat(v * 32767.0);
             }
             break;
         }
@@ -576,10 +560,10 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
                 const float ax = std::fabs(float(in[i]));
                 e1 = c0 * ax + (1.0f - c0) * e1;
                 const float ce = e1 > e2 ? ca : cr;
-                e2 = ce * e1 + (1.0f - ce) * e2;
+                e2 += ce * (e1 - e2);
                 const float r = e2 > thr ? thr / e2 : 1.0f;
                 const float cg = r < g ? ca : cr;
-                g = cg * r + (1.0f - cg) * g;
+                g += cg * (r - g);
                 out[i] = satf(float(in[i]) * g);
             }
             break;
@@ -591,14 +575,14 @@ uint32_t process(int fx, const float* p, const int16_t* in, uint32_t n, int16_t*
             float ms = 0.0f, G = 1.0f;
             for (uint32_t i = 0; i < w; ++i) {
                 const float x = float(in[i]) / 32768.0f;
-                ms = 0.002f * x * x + 0.998f * ms;
+                ms += 0.002f * (x * x - ms);
                 float target = 1.0f;
                 if (ms > 0.0f) {
                     const float L = 10.0f * std::log10(ms);
                     if (L > thr) target = std::pow(10.0f, (thr - L) * slope / 20.0f);
                 }
                 const float c = target < G ? ca : cr;
-                G = c * target + (1.0f - c) * G;
+                G += c * (target - G);
                 out[i] = satf(float(in[i]) * G);
             }
             break;
