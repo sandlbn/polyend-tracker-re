@@ -5,7 +5,8 @@
 // unit, a kick grown by Timestretch with 10 GB of samples after the Workspace).
 // Also: FSInfo's next free cluster seeds the scan at mount, and random
 // rewrites / grows / shrinks / deletes up to a full card keep every file
-// intact, the free count right and refuse a write only when the card is full.
+// intact, the free count right and refuse a write only when the card is full,
+// whatever free count FSInfo claims.
 // FatFs runs on a FAT32 volume in memory (formatted here: FF_USE_MKFS is 0).
 #include "test.h"
 
@@ -193,11 +194,30 @@ TEST(fatfs_fsinfo_at_the_spec_offsets) {
     CHECK_EQ(fi[509], 0x00);
     CHECK_EQ(fi[510], 0x55);
     CHECK_EQ(fi[511], 0xAA);
+    // The free count is not trusted at mount (FF_FS_NOFSINFO 1): a stale one
+    // could refuse writes. f_getfree walks the FAT once instead.
     const DWORD expect = freeClusters();
     remount();
     gFatReads = 0;
     CHECK_EQ(freeClusters(), expect);
-    CHECK(gFatReads < 4);   // from FSInfo, not a walk of the FAT
+    CHECK(gFatReads > 400);
+}
+
+// A stale FSInfo free count of 0 (files deleted on a computer, the card pulled
+// without eject) on a card with 60,000 free clusters: trusted, FatFs refused
+// every write for good and wrote the 0 back. Now the card's space is used.
+TEST(fatfs_stale_zero_free_count_does_not_refuse_writes) {
+    workspaceBeforeLibrary();
+    CHECK(f_unlink("library.wav") == FR_OK);
+    const DWORD real = freeClusters();
+    f_unmount("");
+    put32(gDisk.data() + kSector + 488, 0);
+    CHECK(mount());
+    CHECK_EQ(writeFile("song.pti", 8 * kCl, 7), 1);
+    CHECK(fileIs("song.pti", 8 * kCl, 7));
+    CHECK_EQ(freeClusters(), real - 8);
+    remount();
+    CHECK_EQ(freeClusters(), real - 8);
 }
 
 TEST(fatfs_free_clusters_below_the_scan_are_still_used) {

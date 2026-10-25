@@ -1478,8 +1478,8 @@ static FRESULT remove_chain (	/* FR_OK(0):succeeded, !=0:error */
 		}
 		if (fs->free_clst < fs->n_fatent - 2) {	/* Update allocation information if it is valid */
 			fs->free_clst++;
-			fs->fsi_flag |= 1;
 		}
+		fs->fsi_flag |= 1;	/* OpenTracker: as in create_chain */
 #if FF_FS_EXFAT || FF_USE_TRIM
 		if (ecl + 1 == nxt) {	/* Is next cluster contiguous? */
 			ecl = nxt;
@@ -1633,8 +1633,8 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 		fs->last_clst = ncl;
 		if (fs->free_clst > 0 && fs->free_clst <= fs->n_fatent - 2) {
 			fs->free_clst--;
-			fs->fsi_flag |= 1;
 		}
+		fs->fsi_flag |= 1;	/* OpenTracker: FSInfo's next free cluster even when the count is unknown (FF_FS_NOFSINFO 1) */
 	} else {
 		ncl = (res == FR_DISK_ERR) ? 0xFFFFFFFF : 1;	/* Failed. Generate error status */
 	}

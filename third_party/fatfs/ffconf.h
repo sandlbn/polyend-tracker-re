@@ -257,7 +257,7 @@
 /  These options have no effect in read-only configuration (FF_FS_READONLY = 1). */
 
 
-#define FF_FS_NOFSINFO	0
+#define FF_FS_NOFSINFO	1	/* OpenTracker: a stale-low count (deleted on a computer, pulled without eject) refused writes at 0; the next free cluster is still used */
 /* If you need to know correct free space on the FAT32 volume, set bit 0 of this
 /  option, and f_getfree() at the first time after volume mount will force
 /  a full FAT scan. Bit 1 controls the use of last allocated cluster number.
