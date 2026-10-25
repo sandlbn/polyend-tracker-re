@@ -555,6 +555,9 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
             int w = textWidth(kFont4, names[n]);
             const int maxW = L.trackW - 8;
             if (w > maxW) w = maxW;
+            // Narrow (8-track) view: the tab spans the track, or the top row's
+            // note shows half-covered beside the name ("Hats5", R3-10).
+            if (L.trackW < 150) w = maxW;
             tx[n] = trackX(v);
             tw[n] = w;
             muted[n] = a.trackMuted(t);

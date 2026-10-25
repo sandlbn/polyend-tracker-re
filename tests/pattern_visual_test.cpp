@@ -234,3 +234,32 @@ TEST(fill_fx_bar_uses_the_engine_range) {
     CHECK(std::fabs(pe(h).fillValueFrac(4) - 0.0f) < 1e-6f);    // 4 bits = the bottom
     CHECK(std::fabs(pe(h).fillValueFrac(16) - 1.0f) < 1e-6f);
 }
+
+TEST(eight_track_view_tabs_cover_the_top_row) {
+    // USER_REPORTS_R3 R3-10 (owner screenshot): in the 8-track view (Pattern
+    // held + Note) a name-wide tab left part of the top row's note visible
+    // beside it ("Hats5"). The narrow tabs span the track width.
+    Harness h;
+    App& a = *h.app;
+    for (int t = 0; t < 8; ++t) a.pattern().tracks[t].steps[0].note = 60;
+    h.down(btn::Pattern);
+    h.tap(btn::Note);
+    h.up(btn::Pattern);
+    a.ui.dirty();
+    h.run(40);
+    // Tab rects: pairs of vertices on the tab row; the widest must reach ~85 px.
+    int widest = 0;
+    bool inRects = false, first = true;
+    int x0 = 0, y0 = 0;
+    for (const std::string& l : h.disp.last) {
+        if (l.rfind("BEGIN", 0) == 0) { inRects = true; first = true; continue; }
+        if (l == "END") inRects = false;
+        int x, y;
+        if (!inRects || std::sscanf(l.c_str(), "VERTEX %d %d", &x, &y) != 2) continue;
+        if (first) { x0 = x; y0 = y; }
+        else if (y - y0 == 25 && x - x0 < 93 && x - x0 > widest && y0 < 80) widest = x - x0;   // tab body, one track
+        first = !first;
+    }
+    std::printf("       widest tab-height rect in the 8-track view: %d px\n", widest);
+    CHECK(widest >= 80);
+}
