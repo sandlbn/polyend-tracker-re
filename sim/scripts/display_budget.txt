@@ -9,6 +9,9 @@
 # Pattern grid is drawn in colour passes over all rows, so only the title
 # chrome, bar labels, header tabs and separators are fragments; RAM_DL
 # includes the driver's 36 font-setup words (docs/CHANGES_2X.md).
+# A gradient counts 24 words, what the FT81x builds (was 5; Gfx::
+# kGradientDlWords). Re-measured: instrument, master, recorder and the synth
+# pages moved by 19 words per gradient, nothing else changed.
 wait 200
 tap REC
 pad 24 tap
@@ -55,13 +58,13 @@ tap INSTRPARAMS
 wait 300
 budget-reset
 wait 300
-budget instrument 880
+budget instrument 1220
 fragcheck instrument
 tap MASTER
 wait 300
 budget-reset
 wait 300
-budget master 680
+budget master 870
 fragcheck master
 tap MASTER
 wait 300
@@ -97,7 +100,7 @@ tap SAMPLERECORDER
 wait 300
 budget-reset
 wait 300
-budget recorder 700
+budget recorder 1020
 fragcheck recorder
 tap SAMPLEPLAYBACK
 wait 300
@@ -142,23 +145,23 @@ tap PLAY
 wait 200
 budget-reset
 wait 1500
-budget synth-params-play 840
+budget synth-params-play 1130
 fragcheck synth-params-play
 tap F7               # Load Patch popup
 wait 200
 budget-reset
 wait 1500
-budget synth-load-play 930
+budget synth-load-play 1220
 fragcheck synth-load-play
 tap DOWN
 hold F5 400          # Preview the highlighted patch
-budget synth-load-preview 930
+budget synth-load-preview 1220
 tap F7               # Cancel
 tap INSTRPARAMS      # Synth Macros 2/2
 wait 200
 budget-reset
 wait 1500
-budget synth-macros-play 910
+budget synth-macros-play 1230
 fragcheck synth-macros-play
 tap INSTRPARAMS
 tap F8               # Edit Patch
@@ -180,7 +183,7 @@ tap F7               # its Load Patch popup (no VAP patches on the card)
 wait 200
 budget-reset
 wait 1500
-budget synth3-load-play 840
+budget synth3-load-play 1130
 fragcheck synth3-load-play
 tap F7
 tap PLAY
