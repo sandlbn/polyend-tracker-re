@@ -2,6 +2,8 @@
 
 > **This is the semi fork (2.2.1-semi).** What it adds is listed right below, under
 > [New in 2.2.1-semi](#new-in-221-semi-this-fork); the full guide is **[FORK.md](FORK.md)**.
+> Polyend Backstage feature requests (all 254 Tracker topics) and what this fork can do about them:
+> **[FEATURE_REQUESTS.md](FEATURE_REQUESTS.md)**.
 
 OpenTracker is an open-source, clean-room firmware for the **original Polyend Tracker**,
 written from behavioural specifications. It contains no Polyend code, fonts, icons or
