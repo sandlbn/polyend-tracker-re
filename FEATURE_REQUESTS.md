@@ -2,6 +2,8 @@
 
 Kaynak: [backstage.polyend.com, Feature Requests, *tracker* etiketi](https://backstage.polyend.com/tags/c/feature-requests/16/none/tracker/3), 25 Ekim 2026 itibarıyla 254 başlığın hepsi (yanıt sayıları başlık listesinden). Değerlendirme, OpenTracker 2.2.1-semi çalıştıran **orijinal Tracker** için.
 
+Yapılabilecek 227 maddenin tek tek notlu listesi: **[YAPILABILIR.md](YAPILABILIR.md)**.
+
 ## Özet
 
 | Durum | Adet | Anlamı |
