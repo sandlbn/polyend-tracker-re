@@ -18,9 +18,14 @@ Yapılabilecek 227 maddenin tek tek notlu listesi: **[YAPILABILIR.md](YAPILABILI
 
 ## Bütçe
 
-Flash: projenin 720 KB sınırının 698 KB'ı dolu (yaklaşık 22 KB kaldı; çipte 1 MB var, sınırı upstream koymuş ve nedeni repoda yazmıyor). Statik RAM: 90 KiB stack tabanının yaklaşık 8.7 KB üstünde. SDRAM tamponu: yaklaşık 62 KB boş.
+Flash: 698 KB dolu. İki ayrı sınır var:
 
-Sadece kolay maddeler bile 22 KB'ı aşıyor (tahmin 40-60 KB). Hepsini yapmak için ya fork'un kendi kodundan flash geri kazanmak (birkaç KB) ya da upstream yazarına danışıp 720 KB sınırını yükseltmek gerekiyor. Sınır içinde kalırken sıra talebe (yanıt sayısına) göre.
+- **Sert sınır, 877,664 B (0xD6460, ~857 KB):** stok 1.9.2 imajının flash'ta kapladığı alan. `tools/check_image.py` her build'de imajın bu alanın dışına tek bayt yazmadığını kontrol ediyor: flash'ın geri kalanında update bootloader'ın ya da cihaz kimliğinin kullandığı veri olabilir, oraya yazmak cihazı bozabilir. Bu sınır aşılmaz.
+- **Yumuşak sınır, 720,000 B:** upstream'in kendi bütçesi (`tools/telemetry_check.py`, uyarı 600 KB, hata 720 KB), sert sınırın altında ~157 KB pay bırakıyor. Gerekçesi upstream'in yayınlanmamış dokümanında (docs/VERIFY_M1.md R4).
+
+Yumuşak sınırın altında ~22 KB, sert sınırın altında ~175 KB yer var. Statik RAM: 90 KiB stack tabanının yaklaşık 8.7 KB üstünde. SDRAM tamponu: yaklaşık 62 KB boş.
+
+Yapılabilir maddelerin toplamı tahminen ~140 KB: 720 KB sınırına sığmaz, sert sınıra sığar. Fork'un sınırını örneğin 850,000 B'a çekmek teknik olarak upstream'in kendi güvenlik kontrolünün içinde kalıyor; yine de R4'ün gerekçesini sandlbn'e sormak iyi olur.
 
 ## Plan (paketler)
 

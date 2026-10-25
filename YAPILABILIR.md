@@ -4,7 +4,7 @@ Polyend Backstage'deki 254 Tracker request'inden orijinal Tracker'da (OpenTracke
 
 **Zorluk:** *Kolay* = arayüz / sequencer / dosya / offline işlem, ses yoluna dokunmaz, Mini dosya formatını bozmaz. *Orta* = daha çok kod, ses yolunda küçük değişiklik (önce QEMU CPU ölçümü) ya da sadece bu fork'un okuduğu yeni bir proje alanı. *Kısmen var* = bir kısmı fork'ta ya da upstream'de var, notta eksik kısmı yazıyor.
 
-**Flash tahmini** kabaca: < 0.5 KB, 0.5–2 KB. Elimizde 720 KB sınırının altında yaklaşık 22 KB var.
+**Flash tahmini** kabaca: < 0.5 KB, 0.5–2 KB. 720 KB'lık yumuşak sınırın altında ~22 KB, stok imaj alanının (877,664 B, `tools/check_image.py`) altında ~175 KB yer var.
 
 **Fork FX'i / fork uzantısı:** Yeni step FX'leri ve yeni proje ayarları sadece bu fork'ta çalışır. Stok firmware ve Tracker Mini aynı projeyi açar ama bu FX'leri yok sayar / bu ayarları görmez.
 
@@ -308,5 +308,5 @@ Polyend Backstage'deki 254 Tracker request'inden orijinal Tracker'da (OpenTracke
 ## Toplam
 
 - 144 kolay, 71 orta, 12 kısmen var.
-- Flash: 147 madde < 0.5 KB, 80 madde 0.5–2 KB. Ortalama ~300 B ve ~1.2 KB ile toplam yaklaşık 140 KB: 720 KB sınırının altındaki ~22 KB'a hepsi sığmaz, en çok istenenlerden başlayarak yaklaşık ilk 50–60 kolay madde sığar.
+- Flash: 147 madde < 0.5 KB, 80 madde 0.5–2 KB. Ortalama ~300 B ve ~1.2 KB ile toplam yaklaşık 140 KB: 720 KB'lık yumuşak sınıra sığmaz (orada ilk 50–60 kolay madde sığar), stok imaj alanının sert sınırına (~175 KB boş) sığar.
 - Aynı işi gören maddeler (ör. rotation / slide projector, chop / padgrid chopping, make unique / duplicate) tek seferde çözülür; gerçek iş sayısı listedekinden az.
