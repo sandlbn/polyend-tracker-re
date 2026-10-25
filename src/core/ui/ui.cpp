@@ -631,6 +631,19 @@ void Ui::setUsbStorageMode(bool on) {
 }
 
 void Ui::switchTo(int module, int opt) {
+    // [I] Issue #52 (stock 1.9.2, checked on a Tracker): from the Pattern
+    // screen with Rec off, Instrument Params, Sample Playback and Sample
+    // Editor open the instrument of the step under the cursor and make it the
+    // current instrument. A step without a note (empty, OFF, CUT, FADE) keeps
+    // the current one.
+    if (active_ == kModPattern && !app.editMode &&
+        (module == kModInstrument || module == kModPlayback || module == kModEditor)) {
+        if (const auto* p = static_cast<const PatternScreen*>(screen(kModPattern))) {
+            const Step& st = app.pattern().tracks[p->track < 0 ? 0 : (p->track >= kTrackCount ? kTrackCount - 1 : p->track)]
+                                 .steps[p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step)];
+            if (st.note >= 0) app.setCurrentInstrument(st.instrument);
+        }
+    }
     // 2.x: Instrument Params on a synth step / synth instrument opens the
     // synth slot page (Tracker Mini manual p.146).
     if (module == kModInstrument) {
