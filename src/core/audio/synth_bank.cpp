@@ -247,6 +247,9 @@ void SynthBank::bindEngine(int s) {
             if (voices_[r].state == kOn && voices_[r].v.slot == s) fade(r);
         sl.eng = e;
         sl.engineId = id;
+        // A new engine starts from zeroed scratch, not the previous engine's
+        // state (PERC keeps its seed across slotReset and read leftovers).
+        for (uint8_t& b : sl.scratch.bytes) b = 0;
         if (e) e->slotReset(sl.scratch);
     }
     reloadParams(s, restart);

@@ -79,7 +79,9 @@ struct SynthNote {
 
 // Per-slot engine scratch (per-block coefficient caches, PERC drum state).
 struct alignas(8) SynthSlotScratch {
-    uint8_t bytes[kSynthSlotScratchBytes];
+    // Zeroed: engines may keep fields across slotReset() (PERC's noise seed)
+    // and must never read what the memory held before.
+    uint8_t bytes[kSynthSlotScratchBytes] = {};
     template <class T>
     T& as() {
         static_assert(sizeof(T) <= kSynthSlotScratchBytes, "slot state too large");

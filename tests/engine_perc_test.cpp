@@ -4,6 +4,7 @@
 // stolen voice, framework dispatch through the registry, parameter fuzzing
 // (no NaN), and every factory PERC patch playing a 1-bar pattern
 // ($OT_VENDOR_FIXTURES/mini-patches-2.0/PERC, skipped when absent).
+#include <new>
 #include "test.h"
 
 #include <cstdlib>
@@ -876,4 +877,42 @@ TEST(perc_factory_patches_one_bar) {
         ++played;
     }
     std::printf("  %d factory PERC patches played\n", played);
+}
+
+// A PERC kit must not depend on what was in memory before its slot scratch:
+// the noise seed was read from never-initialised scratch, so on the host the
+// snare / hats differed with the heap's leftovers (found by the render-hash
+// golden; on the device the bank is in zeroed static memory).
+TEST(perc_kit_independent_of_prior_memory) {
+    auto render = [](uint8_t fill) {
+        alignas(64) static unsigned char mem[sizeof(SynthBank)];
+        std::memset(mem, fill, sizeof mem);
+        SynthBank* bank = new (mem) SynthBank();
+        static SynthPatch patch;
+        static Governor gov;
+        gov.setBudget(4);
+        bank->setGovernor(&gov);
+        patchInit(kSynthEnginePerc, &patch);
+        bank->bindPatch(0, &patch);
+        SynthSlotRecord r = SynthSlotRecord::defaults(0);
+        r.model = uint32_t(SynthModel::PERC);
+        r.polyphony = 1;
+        bank->setSlotRecord(0, r);
+        SynthNoteOn n;
+        n.slot = 0;
+        n.note = 62;   // snare: noise
+        bank->noteOn(0, n);
+        std::vector<float> out;
+        static float L[kBlock], R[kBlock], D[kBlock], V[kBlock];
+        for (int k = 0; k < 20; ++k) {
+            for (uint32_t i = 0; i < kBlock; ++i) L[i] = R[i] = D[i] = V[i] = 0.0f;
+            SynthMixInputs in;
+            bank->render(in, L, R, D, V, nullptr);
+            out.insert(out.end(), L, L + kBlock);
+        }
+        bank->~SynthBank();
+        return out;
+    };
+    const std::vector<float> a = render(0x00), b = render(0xAB);
+    CHECK(a == b);
 }
