@@ -1096,8 +1096,28 @@ void Ui::dirty() {
     dirtyAtUs_ = app.micros();
 }
 
+// A frame is out and nothing is dirty: keep polling the display (at most
+// once per kReadyPollMs) until it reports the frame's outcome. A fault is
+// only found by that poll; without it a static screen never redraws the
+// lost frame and the display looks frozen (#71: the MIDI instrument page).
+// The fault itself is handled by render() (low detail, tighter guard).
+void Ui::pollPendingFrame(uint32_t now) {
+    if (!display_->framePending()) return;
+    if (readyRetry_ && int32_t(now - readyRetryAt_) < 0) return;
+    const bool ready = display_->frameReady();
+    readyRetry_ = !ready;
+    readyRetryAt_ = now + kReadyPollMs;
+    // Ready but still pending: the driver gave up on a stuck display; the
+    // next frame's dlStart() recovers it.
+    if (display_->frameFaultCount() != hwFaultsSeen_ || (ready && display_->framePending())) dirty();
+}
+
 bool Ui::renderIfDirty(uint32_t now) {
-    if (!dirty_ || !display_) return false;
+    if (!display_) return false;
+    if (!dirty_) {
+        pollPendingFrame(now);
+        return false;
+    }
     if (now - lastRender_ < kMinFrameMs && frames_ > 0) return false;
     // Non-blocking swap: while the previous frame is still being consumed or
     // swapped in, try again on the next main-loop pass instead of spinning.

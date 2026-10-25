@@ -156,6 +156,7 @@ public:
     uint32_t frameFaults() const { return frameFaults_; }
     uint32_t frameFaultCount() const override { return frameFaults_; }
     uint32_t measuredDlBytes() const override { return lastDlBytes_; }
+    bool framePending() const override { return ok_ && dlPending_; }
     uint32_t lastDlBytes() const { return lastDlBytes_; }
     uint32_t takeMaxDlBytes() {
         const uint32_t m = maxDlBytes_;

@@ -39,6 +39,7 @@ public:
 
     bool frameReady() override {
         ++readyPolls;
+        if (ready) RecordingDisplay::frameReady();   // the sent frame is reported
         return ready;
     }
     void dlStart() override {
@@ -1213,6 +1214,46 @@ TEST(device_fault_falls_back_to_low_detail) {
     CHECK(a.ui.dlScale() > 64);
     CHECK(a.ui.lowDetail());
     Harness::dlOverflowFatal = true;
+}
+
+// #71: a fault is only found when the driver polls the frame's outcome. On a
+// static screen nothing is dirty after the frame, so before the fix nothing
+// polled, the fault was never seen and the display stayed frozen (MIDI
+// instrument page). The frame that faults here is the screen's last one;
+// nobody calls dirty() after it.
+TEST(device_fault_on_a_static_screen_is_redrawn) {
+    Harness::dlOverflowFatal = false;
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);   // Track Mixer 2/3, static (not playing)
+    h.run(200);
+    CHECK(!h.disp.sent);   // every frame's outcome was polled
+    const uint32_t frames0 = a.ui.frames(), low0 = a.ui.lowDetailFrames();
+    h.disp.faultNextFrames = 1;
+    a.ui.dirty();   // one more frame, and it faults
+    h.run(500);
+    CHECK_EQ(h.disp.faultCount, 1u);
+    CHECK_EQ(a.ui.hwFaultFrames(), 1u);
+    CHECK(a.ui.frames() >= frames0 + 2);    // the faulted frame, then a redraw
+    CHECK(a.ui.lowDetailFrames() > low0);   // in low detail
+    CHECK(!h.disp.sent);
+    Harness::dlOverflowFatal = true;
+}
+
+// The idle poll stops once the frame is reported: a static screen doesn't
+// keep the SPI busy.
+TEST(idle_screen_stops_polling_the_display) {
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.run(200);
+    const uint32_t frames0 = a.ui.frames(), polls0 = h.disp.readyPolls;
+    h.run(1000);
+    // Each frame is polled before it starts and once after it is sent.
+    CHECK(h.disp.readyPolls - polls0 <= 2 * (a.ui.frames() - frames0) + 1);
+    CHECK(!h.disp.sent);
 }
 
 TEST(device_measurement_calibrates_the_guard) {

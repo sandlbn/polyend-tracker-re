@@ -226,6 +226,13 @@ public:
     uint32_t faultCount = 0, measuredBytes = 0;
     uint32_t frameFaultCount() const override { return faultCount; }
     uint32_t measuredDlBytes() const override { return measuredBytes; }
+    // A swapped frame frameReady() has not reported yet (like the FT81x's
+    // dlPending_). faultNextFrames: that many of the next swapped frames
+    // fault, found by the frameReady() poll that ends them, as on the device.
+    // reportsPending = false: a driver without framePending() (2.0.0).
+    bool sent = false, sentFaults = false, reportsPending = true;
+    uint32_t faultNextFrames = 0, readyPolls = 0;
+    bool framePending() const override { return sent && reportsPending; }
     uint16_t width() const override { return 800; }
     uint16_t height() const override { return 480; }
     void dlStart() override {
@@ -258,6 +265,9 @@ public:
     void swap() override {
         last = cur;
         ++swaps;
+        sent = true;
+        sentFaults = faultNextFrames > 0;
+        if (sentFaults) --faultNextFrames;
         if (busy.on) {
             busy.frame = cur;
             busy.pending = true;
@@ -283,11 +293,20 @@ public:
     static constexpr uint64_t kVsyncUs = 18480;   // ft81xFrameMilliHz: 54.112 Hz
     std::vector<std::string> shown;
     bool frameReady() override {
-        if (!busy.on) return true;
-        ++busy.polls;
-        busyAccess();
-        busyTick();
-        return !busy.pending;
+        ++readyPolls;
+        bool ready = true;
+        if (busy.on) {
+            ++busy.polls;
+            busyAccess();
+            busyTick();
+            ready = !busy.pending;
+        }
+        if (ready && sent) {
+            sent = false;
+            if (sentFaults) ++faultCount;
+            sentFaults = false;
+        }
+        return ready;
     }
     const std::vector<std::string>& visible() {
         busyTick();

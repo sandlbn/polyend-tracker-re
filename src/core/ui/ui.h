@@ -482,6 +482,7 @@ public:
     FragmentCache fragments;
 
 private:
+    void pollPendingFrame(uint32_t now);
     void dispatchButton(uint8_t id, uint8_t state);
     uint8_t resampleShown_ = 0;   // [I] resample state last noticed (Ui::update)
     void updateLeds();
