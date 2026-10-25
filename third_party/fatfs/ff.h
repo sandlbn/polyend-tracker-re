@@ -151,6 +151,7 @@ typedef struct {
 #endif
 #if !FF_FS_READONLY
 	DWORD	last_clst;		/* Last allocated cluster (Unknown if >= n_fatent) */
+	DWORD	scan_clst;		/* OpenTracker: where the last free-cluster scan ended (unknown if >= n_fatent) */
 	DWORD	free_clst;		/* Number of free clusters (Unknown if >= n_fatent-2) */
 #endif
 #if FF_FS_RPATH

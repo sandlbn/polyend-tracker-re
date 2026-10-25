@@ -7,3 +7,8 @@ The disk I/O layer lives in src/hal/sd_diskio.cpp (SDHC driver).
 Local changes in ff.c / ff.h (marked "OpenTracker"; tests/fatfs_alloc_test.cpp):
 - FSI_TrailSig 498 -> 508: backport of the R0.15b fix ("FatFs fails to load the
   FsInfo in FAT32 volumes", appeared at R0.15a).
+- create_chain resumes a stretch's free-cluster scan where the last one ended
+  (FATFS.scan_clst, seeded from FSInfo's next free cluster at mount). Without it
+  a file rewritten in its old cluster hole and grown past it scans the FAT from
+  the hole across every used cluster up to free space, on each rewrite. Still
+  the same in R0.16.

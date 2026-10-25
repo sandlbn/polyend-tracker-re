@@ -1596,6 +1596,13 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 			if (cs != 0) {						/* Not free? */
 				cs = fs->last_clst;				/* Start at suggested cluster if it is valid */
 				if (cs >= 2 && cs < fs->n_fatent) scl = cs;
+				/* OpenTracker: a file rewritten in its old hole (f_open's "reuse the
+				   cluster hole") and grown past it scanned from the hole across every
+				   used cluster up to free space, on each rewrite (0.56 s on a card with
+				   10 GB of samples after the Workspace). Resume where the last scan
+				   ended instead; free clusters below it are found after the wrap-around. */
+				cs = fs->scan_clst;
+				if (cs > scl && cs < fs->n_fatent) scl = cs;
 				ncl = 0;
 			}
 		}
@@ -1612,6 +1619,9 @@ static DWORD create_chain (	/* 0:No free cluster, 1:Internal error, 0xFFFFFFFF:D
 				if (cs == 1 || cs == 0xFFFFFFFF) return cs;	/* Test for error */
 				if (ncl == scl) return 0;		/* No free cluster found? */
 			}
+			if (clst != 0) fs->scan_clst = ncl;	/* OpenTracker: a stretch's scan (not a new chain's: that starts in a hole) */
+		} else if (ncl == fs->scan_clst + 1) {
+			fs->scan_clst = ncl;				/* OpenTracker: follow a contiguous run from there */
 		}
 		res = put_fat(fs, ncl, 0xFFFFFFFF);		/* Mark the new cluster 'EOC' */
 		if (res == FR_OK && clst != 0) {
@@ -3598,6 +3608,7 @@ static FRESULT mount_volume (	/* FR_OK(0): successful, !=0: an error occurred */
 #endif
 			}
 		}
+		fs->scan_clst = fs->last_clst;	/* OpenTracker: FSInfo's next free cluster (often the start of the free space) */
 #endif	/* !FF_FS_READONLY */
 	}
 
