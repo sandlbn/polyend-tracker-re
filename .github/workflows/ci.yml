@@ -72,7 +72,7 @@ jobs:
     timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
     steps:
       - uses: actions/checkout@v5
-      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+      - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
       - name: Build
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: carlosperate/arm-none-eabi-gcc-action@v1
+      - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
       - name: Build this PR
