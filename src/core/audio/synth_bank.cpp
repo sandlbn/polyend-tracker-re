@@ -841,7 +841,10 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         sl.fresh = false;   // the next block catches up
         // Mixer targets (cached per record in sync()).
         const float gl = sl.mixL, gr = sl.mixR;
-        const float sd = sl.mixD * in.delayLevel, sr = sl.mixE * in.reverbLevel;
+        // A tapping engine (PERC: per-drum sends) sends through its tap only,
+        // so the slot's own sends stay 0 (see the per-voice tap below).
+        const bool taps = sl.eng && sl.eng->setSendTap(s, nullptr, nullptr, 0.0f, 0.0f);
+        const float sd = taps ? 0.0f : sl.mixD * in.delayLevel, sr = taps ? 0.0f : sl.mixE * in.reverbLevel;
         int16_t* stem = stems ? stems[s] : nullptr;
         if (!busy[s]) {
             sl.gl.jump(gl);
@@ -853,27 +856,32 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         }
         sl.gl.set(gl);
         sl.gr.set(gr);
-        sl.sd.set(sd);
-        sl.sr.set(sr);
         // busL_ / busR_ are zero here (cleared by the previous mixSlot).
         // Engine hooks: song tempo, per-voice send tap (PERC per-drum sends
         // straight into the send buses, scaled by slot gain x Global Mixer
         // level; a muted or zero level passes no bus), then the block setup.
+        // A tapping engine's sends are its per-voice amounts x the
+        // instrument's send (or the note's Delay / Reverb Send FX), set per
+        // voice below; the slot itself then sends nothing on its own.
         bool tapped = false;
+        float td = 0.0f, te = 0.0f;
         // Engine cycles of this slot (block profile): prepare + voice renders.
         uint32_t engCyc = 0;
         const bool prof = prof_ != nullptr;
         if (sl.eng) {
             const uint32_t c0 = prof ? CpuMeter::stampCycles() : 0u;
             sl.eng->setTempo(tempo_);
-            const float td = sl.gainLin * in.delayLevel, te = sl.gainLin * in.reverbLevel;
-            tapped = sl.eng->setSendTap(s, td > 0.0f ? dsend : nullptr, te > 0.0f ? rsend : nullptr, td, te);
+            td = sl.gainLin * in.delayLevel;
+            te = sl.gainLin * in.reverbLevel;
+            tapped = taps;
             sl.eng->prepare(sl.scratch, p);
             if (prof) {
                 engCyc = CpuMeter::stampCycles() - c0;
                 prof_->slotEngine[s] = sl.engineId;
             }
         }
+        sl.sd.set(sd);
+        sl.sr.set(sr);
         for (int r = 0; r < kSynthMaxVoices; ++r) {
             Voice& V = voices_[r];
             if (V.state == kFree || V.v.slot != s) continue;
@@ -908,6 +916,15 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 vl = voiceL_;
                 vr = voiceR_;
             }
+            if (tapped) {
+                // User report: the init PERC kit's snare and hats reached the
+                // delay whatever the instrument and step FX sent. A drum's
+                // send is its patch send x this note's send (FX) or else the
+                // instrument's (2 x mixD = SEND law of the record).
+                const float kd = td * (V.sendD >= 0 ? sendGain(V.sendD) : 2.0f * sl.mixD);
+                const float ke = te * (V.sendR >= 0 ? sendGain(V.sendR) : 2.0f * sl.mixE);
+                sl.eng->setSendTap(s, kd > 0.0f ? dsend : nullptr, ke > 0.0f ? rsend : nullptr, kd, ke);
+            }
             if (sl.eng) {
                 if (prof) {
                     const uint32_t c0 = CpuMeter::stampCycles();
@@ -929,8 +946,9 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                         voiceR_[i] *= pr;
                     }
                 }
-                const float xd = V.sendD >= 0 ? (0.5f * sendGain(V.sendD) - sl.mixD) * in.delayLevel : 0.0f;
-                const float xr = V.sendR >= 0 ? (0.5f * sendGain(V.sendR) - sl.mixE) * in.reverbLevel : 0.0f;
+                // (A tapping engine sent this note's share through the tap.)
+                const float xd = V.sendD >= 0 && !tapped ? (0.5f * sendGain(V.sendD) - sl.mixD) * in.delayLevel : 0.0f;
+                const float xr = V.sendR >= 0 && !tapped ? (0.5f * sendGain(V.sendR) - sl.mixE) * in.reverbLevel : 0.0f;
                 for (uint32_t i = 0; i < kBlock; ++i) {
                     const float m = voiceL_[i] + voiceR_[i];
                     busL_[i] += voiceL_[i];

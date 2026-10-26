@@ -876,13 +876,17 @@ TEST(synth_tempo_reaches_engines) {
 }
 
 TEST(synth_perc_drum_sends_feed_slot_buses) {
+    // A drum's send is its patch send (Edit Patch > Mixer) x the instrument's
+    // send (Instrument Params, or the step's Delay / Reverb Send FX for that
+    // note). User report: the init kit's snare and hats always reached the
+    // delay, whatever the instrument and the step FX sent.
     const int snareD = perc::kMixer + 5 * perc::kSnare + 2, snareR = snareD + 1;
     const int kickD = perc::kMixer + 5 * perc::kKick + 2, kickR = kickD + 1;
-    auto rig = [&](float sd, float sr) {
+    auto rig = [&](float sd, float sr, float slotSend = 100.0f) {
         std::unique_ptr<RealRig> r(new RealRig(SynthModel::PERC, kSynthEnginePerc));
-        SynthSlotRecord rc = rec(SynthModel::PERC, 1);   // slot sends 0: only the drum sends
-        rc.delaySend = 0.0f;
-        rc.reverbSend = 0.0f;
+        SynthSlotRecord rc = rec(SynthModel::PERC, 1);
+        rc.delaySend = slotSend;
+        rc.reverbSend = slotSend;
         r->bank.setSlotRecord(0, rc);
         synthParamSet(r->patch, snareD, sd);
         synthParamSet(r->patch, snareR, sr);
@@ -893,10 +897,20 @@ TEST(synth_perc_drum_sends_feed_slot_buses) {
         return r;
     };
     double l, d, v;
+    {   // instrument sends 0: the drum sends pass nothing (the reported case)
+        auto r = rig(1.0f, 0.5f, 0.0f);
+        r->on(62);
+        r->run(20, l, d, v);
+        CHECK(l > 0.1);
+        CHECK_EQ(d, 0.0);
+        CHECK_EQ(v, 0.0);
+    }
+    double d100 = 0;
     {   // snare: delay 1, reverb 0.5 -> a quarter of the delay energy on reverb
         auto r = rig(1.0f, 0.5f);
         r->on(62);
         r->run(20, l, d, v);
+        d100 = d;
         CHECK(l > 0.1);
         CHECK(d > 0.01);
         CHECK_NEAR(v / d, 0.25, 0.01);
@@ -904,13 +918,48 @@ TEST(synth_perc_drum_sends_feed_slot_buses) {
         // the panned drum, the delay send the centred one.
         CHECK(d < 2.0 * l);
     }
-    {   // the kick sends nothing (its sends are 0)
+    {   // instrument send 50: the drum send x the send law
+        auto r = rig(1.0f, 0.5f, 50.0f);
+        r->on(62);
+        r->run(20, l, d, v);
+        const double g = sendGain(50);
+        CHECK_NEAR(d / d100, g * g, 0.02 * g * g);
+    }
+    {   // the kick sends nothing (its sends are 0), even at instrument send 100
         auto r = rig(1.0f, 1.0f);
         r->on(60);
         r->run(20, l, d, v);
         CHECK(l > 0.1);
         CHECK_EQ(d, 0.0);
         CHECK_EQ(v, 0.0);
+    }
+    {   // a Delay Send FX on the note step: that note's drum send, then the
+        // next plain note is back on the instrument's (0)
+        auto r = rig(1.0f, 0.0f, 0.0f);
+        SynthNoteOn n;
+        n.slot = 0;
+        n.note = 62;
+        n.fxA.type = 30;   // Delay Send
+        n.fxA.value = 100;
+        r->bank.noteOn(0, n);
+        r->run(20, l, d, v);
+        CHECK_NEAR(d / d100, 1.0, 0.02);
+        r->bank.noteOff(0, NoteOffMode::Cut);
+        r->run(4, l, d, v);
+        r->on(62);
+        for (int k = 0; k < 4; ++k) r->block();
+        r->run(20, l, d, v);
+        CHECK(l > 0.1);
+        CHECK_EQ(d, 0.0);
+    }
+    {   // a Delay Send FX on a later step (track FX) reaches the ringing kit
+        auto r = rig(1.0f, 0.0f, 0.0f);
+        r->on(62);
+        r->run(2, l, d, v);
+        CHECK_EQ(d, 0.0);
+        r->bank.applyFx(0, 30, 100);
+        r->run(10, l, d, v);
+        CHECK(d > 0.0);
     }
     {   // Global Mixer delay muted, slot gain off: nothing on the send buses
         auto r = rig(1.0f, 1.0f);
@@ -920,7 +969,7 @@ TEST(synth_perc_drum_sends_feed_slot_buses) {
         CHECK_EQ(d, 0.0);
         CHECK(v > 0.01);
         SynthSlotRecord rc = rec(SynthModel::PERC, 1);
-        rc.delaySend = rc.reverbSend = 0.0f;
+        rc.delaySend = rc.reverbSend = 100.0f;
         rc.gainDb = -96.0f;
         r->bank.setSlotRecord(0, rc);
         r->on(62);
@@ -934,7 +983,7 @@ TEST(synth_perc_drum_sends_feed_slot_buses) {
         a->run(20, l0, d0, v0);
         auto b6 = rig(1.0f, 0.0f);
         SynthSlotRecord rc = rec(SynthModel::PERC, 1);
-        rc.delaySend = rc.reverbSend = 0.0f;
+        rc.delaySend = rc.reverbSend = 100.0f;
         rc.gainDb = -6.0f;
         b6->bank.setSlotRecord(0, rc);
         b6->block();
