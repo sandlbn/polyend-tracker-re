@@ -511,6 +511,10 @@ private:
     uint32_t now_ = 0;
     uint32_t lastRender_ = 0;
     bool dirty_ = true;
+    // List marquee (wg::marqueeRunning): the last frame scrolled a selected
+    // list item; the next frame is due wg::kMarqueeTickMs after it.
+    bool marqueeOn_ = false;
+    uint32_t marqueeAt_ = 0;
     bool stripUnder_ = false;             // this frame drew the bottom strip under the screen
     uint32_t stripUnderC_ = 0;            // its fill colour
     bool titleDrawn_ = false;             // this frame drew a title bar (hairline pending)

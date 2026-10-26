@@ -297,7 +297,29 @@ inline int listVisibleRows(int h) { return h > 4 ? (h - 4) / kListRowH : 0; }
 // Keeps `sel` visible with one row of context at either edge; returns the
 // new first visible item.
 int listFollow(int sel, int count, int visible, int top);
+// Item text longer than this is cut (FAT long names: 255 characters plus a
+// folder "/" and a Sample Loader part label, spec 06 §5.2).
+constexpr int kListItemCap = 288;
+// Rows wider than the column are cut at its edge; the selected one scrolls
+// (marquee, spec 20 §1.6 / §3.5). See marqueeOffset.
 void list(Gfx& g, const Theme& th, const ListView& v);
+
+// --- list marquee (spec 20 §1.6) ----------------------------------------------
+// A selected item wider than its column scrolls left: offset t^2 / 30 px for
+// the first 10 ticks, then linear (continuing at the slope t = 10 reaches,
+// 2/3 px per tick [I]), repeating with a 30-px gap after the text. The tick
+// is kMarqueeTickMs [I: stock's timer constant is not decoded].
+constexpr uint32_t kMarqueeTickMs = 30;
+constexpr int kMarqueeGap = 30;
+// Offset in px after `ticks` ticks, before the wrap (textW + kMarqueeGap).
+int marqueeOffset(uint32_t ticks);
+// Ui::render calls marqueeFrame(now) before drawing a frame; afterwards
+// marqueeRunning() says whether a list scrolled a selected item in it, so
+// the next frame is due one tick later. A list's marquee restarts when its
+// selection or the selected text changes or it was not drawn in the frame
+// before.
+void marqueeFrame(uint32_t nowMs);
+bool marqueeRunning();
 
 // --- value bar (class 0x00, spec 20 §3.4) --------------------------------------
 struct ValueBarStyle {

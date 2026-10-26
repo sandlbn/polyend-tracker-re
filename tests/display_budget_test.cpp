@@ -393,12 +393,25 @@ struct WorstRig {
     uint64_t acc = 0;
     uint32_t worst = 0;
     std::string worstName;
-    explicit WorstRig(bool customFonts = true) : h(false), a(*h.app) {
+    // narrowNames: the 97 file names are 200 characters of the narrowest
+    // glyph (issue #54: names of any length are listed, each row cut at the
+    // column edge, the selected one scrolling).
+    explicit WorstRig(bool customFonts = true, bool narrowNames = false) : h(false), a(*h.app) {
         setRomTextMode(kRomGlyphs);   // the device / simulator path (OP-6)
         // 101 list entries (the loader's maximum): 3 folders, 97 + 1 files.
+        char narrow[2] = {'i', 0};
+        if (narrowNames) {
+            m.customFonts = customFonts;
+            applyFontSet(&m, 0);   // widths of the font set the frames use
+            for (const char* c = "abcdefghijklmnopqrstuvwxyz0123456789!'-_.,;()"; *c; ++c)
+                if (textWidth(kFont1, c, 1) < textWidth(kFont1, narrow)) narrow[0] = *c;
+        }
         for (int i = 0; i < 97; ++i) {
-            char n[64];
-            std::snprintf(n, sizeof(n), "WWWWWWWW_long_sample_name_%03d_mmmmm.wav", i);   // 39: longest listed
+            char n[256];
+            if (narrowNames)
+                std::snprintf(n, sizeof(n), "%03d_%s.wav", i, std::string(192, narrow[0]).c_str());   // 200
+            else
+                std::snprintf(n, sizeof(n), "WWWWWWWW_long_sample_name_%03d_mmmmm.wav", i);   // 39
             h.fs.files[n] = wavFile(800, false);
         }
         h.fs.files["WWWW_stereo_long_WWWWWWWWWWWWWWWWWW.wav"] = wavFile(30000, true);
@@ -1231,4 +1244,26 @@ TEST(device_measurement_calibrates_the_guard) {
     h2.run(100);
     CHECK_EQ(h2.app->ui.dlScale(), 64);
     Harness::dlOverflowFatal = true;
+}
+
+// Issue #54: 101 names of 200 narrow glyphs in the Sample Loader, the
+// selected one scrolling (marquee), with the overlays: every frame within
+// the RAM_DL target.
+TEST(loader_long_names_budget) {
+    WorstRig r(true, true);
+    Harness& h = r.h;
+    r.screen(btn::SampleLoader, "sample loader (101 x 200-char names)", 300);
+    LoaderScreen& l = *static_cast<LoaderScreen*>(r.a.ui.screen(kModLoader));
+    CHECK(l.count >= 101);
+    int target = -1;   // the third long file name
+    for (int i = 0, seen = 0; i < l.count && target < 0; ++i)
+        if (std::strlen(l.entries[i]) == 200 && ++seen == 3) target = i;
+    CHECK(target > 0);
+    for (int k = 0; k < 200 && target > 0 && l.sdCursor != target; ++k) h.tap(l.sdCursor < target ? btn::Down : btn::Up);
+    CHECK(std::strlen(l.entries[l.sdCursor]) == 200);
+    h.run(3000);   // scrolled well into the name
+    r.measure("sample loader marquee (200-char name)", 300);
+    h.tap(btn::Right);   // instrument list
+    r.measure("sample loader instruments", 300);
+    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
 }

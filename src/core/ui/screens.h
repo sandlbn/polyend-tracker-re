@@ -9,6 +9,7 @@
 #include "app/perf_presets.h"
 #include "app/project_browser.h"
 #include "model/synth_patch.h"
+#include "ui/loader_list.h"
 #include "ui/ui.h"
 #include "ui/wave.h"
 
@@ -20,8 +21,11 @@ namespace ot {
 // and each rebuilds its list when it opens (LoaderScreen::start,
 // SynthScreen::openBrowser, FileScreen enterBrowser / F3, ConfigScreen's
 // firmware entry), so they share it; each list's layout static_asserts that
-// it fits. The largest is Import Mod (200 x 56 names + 200 kinds).
-constexpr size_t kBrowserListBytes = 200 * 56 + 200;
+// it fits. The largest is the Sample Loader's (LoaderList: 101 FAT long
+// names of 255 characters, issue #54), then Import Mod (200 x 56 names +
+// 200 kinds).
+constexpr size_t kBrowserListBytes =
+    sizeof(LoaderList) > 200 * 56 + 200 ? (sizeof(LoaderList) + 7) / 8 * 8 : 200 * 56 + 200;
 extern unsigned char g_browserLists[kBrowserListBytes];   // screens.cpp (.sdram_bss on the device)
 inline void* browserListMem() { return g_browserLists; }
 
@@ -290,13 +294,28 @@ public:
     bool encoderOnList() const override;
 #endif
 
-    static constexpr int kMaxEntries = 101;   // spec 06 §5.2
+    // spec 06 §5.2: at most 101 names per folder; a part of a folder with
+    // more than 100 files lists its files plus (part 1) the subfolders.
+    static constexpr int kMaxEntries = LoaderList::kMaxEntries;
+    static constexpr int kMaxUnsplit = 101;
+    static constexpr int kPartFiles = 100;   // files per part (issue #54)
     static constexpr int kMaxDepth = 20;
-    char dir[200] = {};
+    static constexpr int kPathMax = int(IStorage::kMaxPath);   // longest storage path
+    char dir[kPathMax + 1] = {};   // the real folder (never a part label)
+    int part = 0;                  // 0: the whole folder; k >= 1: part k of it
     int count = 0;
-    // In browserListMem(): names, then the folder flags.
-    char (*entries)[40] = static_cast<char (*)[40]>(browserListMem());
-    bool* isDir = static_cast<bool*>(browserListMem()) + kMaxEntries * 40;
+    // The names (LoaderList in browserListMem()): entries[i] is the file or
+    // folder name, entryPart(i) the part of a split folder entry.
+    struct Names {
+        const LoaderScreen* s;
+        const char* operator[](int i) const { return s->list_->pool + s->list_->off[i]; }
+    };
+    Names entries{this};
+    bool* isDir = static_cast<LoaderList*>(browserListMem())->isDir;
+    int entryPart(int i) const { return list_->part[i]; }
+    // List label: "/name", "/name (101-200)" for a part, "name" for a file.
+    void entryLabel(int i, char* out, int cap) const;
+    int depth() const { return depth_; }
     int sdCursor = 0;
     int insCursor = 0;
     int focus = 0;          // 0 SD, 1 instruments, 2 preview volume
@@ -322,10 +341,12 @@ private:
     void startTrim();
     void moveCursor(int d);
     void doAdd(bool next);
-    void entryPath(int i, char* out, int cap) const;
+    bool entryPath(int i, char* out, int cap) const;
     uint32_t now() const { return ui_.now(); }
+    LoaderList* list_ = static_cast<LoaderList*>(browserListMem());
     int depth_ = 0;
     int cursorHist_[kMaxDepth] = {};
+    int partHist_[kMaxDepth] = {};
     uint8_t marked_[kMaxEntries] = {};
     uint8_t insMarked_[48] = {};
     int prevFocus_ = 0;
@@ -1070,7 +1091,7 @@ private:
     int listTop_ = 0;
 };
 
-static_assert(LoaderScreen::kMaxEntries * (40 + sizeof(bool)) <= kBrowserListBytes, "Loader list");
+static_assert(sizeof(LoaderList) <= kBrowserListBytes, "Loader list");
 static_assert(SynthScreen::kBrowserMax * (SynthScreen::kBrowserNameMax + 1) <= kBrowserListBytes, "Synth list");
 static_assert(ProjectBrowser::kMaxEntries * 40 <= kBrowserListBytes, "File list");
 static_assert(ConfigScreen::kFwMax * 48 <= kBrowserListBytes, "Firmware list");

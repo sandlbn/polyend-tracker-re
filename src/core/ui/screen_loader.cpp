@@ -190,18 +190,62 @@ bool hasExt(const char* s, const char* ext) {
     return true;
 }
 
+// Listing context (spec 06 §5.2, issue #54).
 struct ListCtx {
-    LoaderScreen* self;
+    LoaderList* l;
     int count;
+    int cap;          // entries this view may hold
+    int part;         // 0 whole folder, k >= 1 part k
+    int files;        // .wav / .pti seen so far, in directory order
+    int dirs;         // subfolders taken (part view)
+    size_t used;      // pool bytes
+    size_t dirLen;    // strlen(dir)
 };
+// [I] The files that count towards a part are those the loader lists by
+// extension (.wav / .pti, without the WAV header check, so counting stays
+// one directory read). Open: whether stock counts other files.
+bool countable(const char* n) { return hasExt(n, ".wav") || hasExt(n, ".pti"); }
+bool addName(ListCtx& c, const char* name, bool dir) {
+    const size_t n = std::strlen(name) + 1;
+    if (c.used + n > LoaderList::kPoolBytes) return false;   // pool full [I]
+    std::memcpy(c.l->pool + c.used, name, n);
+    c.l->off[c.count] = uint16_t(c.used);
+    c.l->part[c.count] = 0;
+    c.l->isDir[c.count] = dir;
+    c.used += n;
+    ++c.count;
+    return true;
+}
 bool listFn(const IStorage::DirEntry& e, void* ctx) {
-    auto* c = static_cast<ListCtx*>(ctx);
-    if (e.name[0] == '.' || c->count >= LoaderScreen::kMaxEntries) return c->count < LoaderScreen::kMaxEntries;
-    if (!e.isDir && !hasExt(e.name, ".wav") && !hasExt(e.name, ".pti")) return true;
-    if (std::strlen(e.name) >= sizeof(c->self->entries[0])) return true;
-    std::snprintf(c->self->entries[c->count], sizeof(c->self->entries[0]), "%s", e.name);
-    c->self->isDir[c->count] = e.isDir;
-    ++c->count;
+    auto& c = *static_cast<ListCtx*>(ctx);
+    if (e.name[0] == '.') return true;
+    if (!e.isDir && !countable(e.name)) return true;
+    const size_t len = std::strlen(e.name);
+    // The joined path must fit the storage path limit [I: such a name could
+    // not be opened]; a name is at most 255 characters (FAT).
+    const bool fits = len <= size_t(LoaderList::kNameMax) &&
+                      (c.dirLen ? c.dirLen + 1 : 0) + len <= size_t(LoaderScreen::kPathMax);
+    if (c.part == 0) {
+        // Whole folder: the first 101 names (spec 06 §5.2).
+        if (c.count >= c.cap) return false;
+        if (fits) addName(c, e.name, e.isDir);
+        return true;
+    }
+    if (e.isDir) {
+        // Subfolders are never counted and are listed in part 1 only (at
+        // most 100 of them [I]).
+        if (c.part == 1 && c.dirs < LoaderScreen::kPartFiles && fits && addName(c, e.name, true)) ++c.dirs;
+        return true;
+    }
+    // Part k: the files (k-1)*100+1 .. k*100 in directory order. Later
+    // entries can still be subfolders, so the read goes on (part 1).
+    const int idx = c.files++;
+    if (idx >= (c.part - 1) * LoaderScreen::kPartFiles && idx < c.part * LoaderScreen::kPartFiles && fits)
+        addName(c, e.name, false);
+    return c.part == 1 || idx < c.part * LoaderScreen::kPartFiles;
+}
+bool countFn(const IStorage::DirEntry& e, void* ctx) {
+    if (!e.isDir && e.name[0] != '.' && countable(e.name)) ++*static_cast<int*>(ctx);
     return true;
 }
 
@@ -227,47 +271,104 @@ int cmpNoCase(const char* a, const char* b) {
 }
 }  // namespace
 
-void LoaderScreen::entryPath(int i, char* out, int cap) const {
-    if (dir[0]) std::snprintf(out, size_t(cap), "%s/%s", dir, entries[i]);
-    else std::snprintf(out, size_t(cap), "%s", entries[i]);
+bool LoaderScreen::entryPath(int i, char* out, int cap) const {
+    const int n = dir[0] ? std::snprintf(out, size_t(cap), "%s/%s", dir, entries[i])
+                         : std::snprintf(out, size_t(cap), "%s", entries[i]);
+    return n >= 0 && n < cap;
+}
+
+void LoaderScreen::entryLabel(int i, char* out, int cap) const {
+    const int k = entryPart(i);
+    if (k > 0)
+        std::snprintf(out, size_t(cap), "/%s (%d-%d)", entries[i], (k - 1) * kPartFiles + 1, k * kPartFiles);
+    else
+        std::snprintf(out, size_t(cap), "%s%s", isDir[i] ? "/" : "", entries[i]);
 }
 
 void LoaderScreen::list() {
-    // Folders first, then files, alphabetical; at most 101 names (spec 06 §5.2).
-    ListCtx c{this, 0};
-    if (depth_ > 0) {
-        std::snprintf(entries[0], sizeof(entries[0]), "..");
-        isDir[0] = true;
-        c.count = 1;
-    }
+    // Folders first, then files, alphabetical (spec 06 §5.2). A whole
+    // folder lists at most 101 names; part k of a folder with more than 100
+    // files lists its files (k-1)*100+1..k*100 (directory order), and part 1
+    // also the subfolders. A subfolder with more than 100 files becomes the
+    // entries "name (1-100)", "name (101-200)", ... (issue #54).
+    LoaderList& L = *list_;
+    ListCtx c{&L, 0, part ? kMaxEntries : kMaxUnsplit, part, 0, 0, 0, std::strlen(dir)};
+    if (depth_ > 0) addName(c, "..", true);
     const int first = c.count;
+    count = 0;   // nothing valid to draw while a progress popup shows
     app_.fs().listDir(dir, listFn, &c);
-    count = c.count;
-    // Insertion sort (small lists).
-    for (int i = first + 1; i < count; ++i) {
-        char tmp[40];
-        bool td = isDir[i];
-        std::memcpy(tmp, entries[i], sizeof(tmp));
+    // Split the subfolders with more than 100 files: one listDir each.
+    const uint32_t t0 = app_.millis();
+    uint32_t shown = 0;
+    bool popup = false;
+    char path[kPathMax + 1];
+    int dirsSeen = 0, dirsTotal = 0;
+    for (int i = first; i < c.count; ++i) dirsTotal += L.isDir[i] ? 1 : 0;
+    for (int i = first; i < c.count; ++i) {
+        if (!L.isDir[i] || L.part[i]) continue;
+        // [I] A long count on the card shows the progress popup (stock
+        // lists in a background job behind it, spec 06 §5.1).
+        const uint32_t t = app_.millis();
+        if (t - t0 >= 150 && (!popup || t - shown >= 100)) {
+            shown = t;
+            popup = true;
+            ui_.progress("Loading", dirsTotal ? dirsSeen * 100 / dirsTotal : 0);
+        }
+        ++dirsSeen;
+        int files = 0;
+        if (!entryPath(i, path, sizeof(path))) continue;
+        app_.fs().listDir(path, countFn, &files);
+        if (files <= kPartFiles) continue;
+        int parts = (files + kPartFiles - 1) / kPartFiles;
+        if (parts > c.cap - c.count + 1) parts = c.cap - c.count + 1;   // the view is full
+        if (parts <= 1) continue;
+        // Entries i+1.. move up by parts-1; the parts share the name.
+        const int add = parts - 1;
+        for (int j = c.count - 1; j > i; --j) {
+            L.off[j + add] = L.off[j];
+            L.part[j + add] = L.part[j];
+            L.isDir[j + add] = L.isDir[j];
+        }
+        for (int k = 0; k < parts; ++k) {
+            L.off[i + k] = L.off[i];
+            L.part[i + k] = uint16_t(k + 1);
+            L.isDir[i + k] = true;
+        }
+        c.count += add;
+        i += add;
+    }
+    if (popup) ui_.progressDone();
+    // Insertion sort (records only, the names stay in the pool): folders
+    // first, then by name, the parts of a folder in order.
+    auto after = [&](int a, uint16_t bo, uint16_t bp, bool bd) {
+        if (L.isDir[a] != bd) return !L.isDir[a];
+        const int r = cmpNoCase(L.pool + L.off[a], L.pool + bo);
+        return r > 0 || (r == 0 && L.part[a] > bp);
+    };
+    for (int i = first + 1; i < c.count; ++i) {
+        const uint16_t to = L.off[i], tp = L.part[i];
+        const bool td = L.isDir[i];
         int j = i - 1;
-        while (j >= first && ((isDir[j] == td && cmpNoCase(entries[j], tmp) > 0) || (!isDir[j] && td))) {
-            std::memcpy(entries[j + 1], entries[j], sizeof(tmp));
-            isDir[j + 1] = isDir[j];
+        while (j >= first && after(j, to, tp, td)) {
+            L.off[j + 1] = L.off[j];
+            L.part[j + 1] = L.part[j];
+            L.isDir[j + 1] = L.isDir[j];
             --j;
         }
-        std::memcpy(entries[j + 1], tmp, sizeof(tmp));
-        isDir[j + 1] = td;
+        L.off[j + 1] = to;
+        L.part[j + 1] = tp;
+        L.isDir[j + 1] = td;
     }
     // Drop .wav files whose header fails the check.
     int w = first;
-    char path[256];
-    for (int i = first; i < count; ++i) {
-        if (!isDir[i] && hasExt(entries[i], ".wav")) {
-            entryPath(i, path, sizeof(path));
-            if (!wavHeaderOk(app_.fs(), path)) continue;
+    for (int i = first; i < c.count; ++i) {
+        if (!L.isDir[i] && hasExt(entries[i], ".wav")) {
+            if (!entryPath(i, path, sizeof(path)) || !wavHeaderOk(app_.fs(), path)) continue;
         }
         if (w != i) {
-            std::memcpy(entries[w], entries[i], sizeof(entries[0]));
-            isDir[w] = isDir[i];
+            L.off[w] = L.off[i];
+            L.part[w] = L.part[i];
+            L.isDir[w] = L.isDir[i];
         }
         ++w;
     }
@@ -326,7 +427,7 @@ void LoaderScreen::memoryProjection() {
     if (count == 0 || isDir[sdCursor]) return;
     int f, l;
     listRange(true, &f, &l);
-    char path[256];
+    char path[kPathMax + 1];
     for (int i = f; i <= l; ++i) {
         if (isDir[i]) continue;
         entryPath(i, path, sizeof(path));
@@ -410,7 +511,7 @@ void LoaderScreen::startTrim() {
     // §5.5 step 2: read the whole file (here: decoded into the free tail of
     // the sample bank), then the trim state.
     App& a = app_;
-    char path[256];
+    char path[kPathMax + 1];
     entryPath(sdCursor, path, sizeof(path));
     WavImportResult res;
     WavImportOptions opt;
@@ -434,12 +535,19 @@ void LoaderScreen::enter() {
         if (s) *s = 0;
         else dir[0] = 0;
         if (depth_ > 0) --depth_;
+        // Back to the listing the folder (or part) was entered from, with
+        // the cursor on its entry (issue #54: "name (101-200)").
+        part = partHist_[depth_];
+        sdCursor = cursorHist_[depth_];
         list();
         sdCursor = clampi(cursorHist_[depth_], 0, count - 1);
     } else if (depth_ < kMaxDepth - 1) {
+        // A part entry opens that part of the real folder.
+        char nd[kPathMax + 1];
+        if (!entryPath(sdCursor, nd, sizeof(nd))) return;
+        partHist_[depth_] = part;
         cursorHist_[depth_++] = sdCursor;
-        char nd[200];
-        entryPath(sdCursor, nd, sizeof(nd));
+        part = entryPart(sdCursor);
         std::snprintf(dir, sizeof(dir), "%s", nd);
         sdCursor = 0;
         list();
@@ -451,7 +559,7 @@ void LoaderScreen::doAdd(bool next) {
     int f, l;
     listRange(true, &f, &l);
     int n = 0;
-    char path[256];
+    char path[kPathMax + 1];
     for (int i = f; i <= l; ++i) {
         if (isDir[i]) continue;
         entryPath(i, path, sizeof(path));
@@ -540,7 +648,7 @@ void LoaderScreen::moveCursor(int d) {
             previewStreamStop(app_);
             app_.previewAllOff();
             if (!isDir[nc]) {
-                char path[256];
+                char path[kPathMax + 1];
                 entryPath(nc, path, sizeof(path));
                 if (hasExt(path, ".wav")) previewStreamStart(app_, path);
                 else if (hasExt(path, ".pti")) previewPtiStart(app_, path);
@@ -598,7 +706,7 @@ void LoaderScreen::onButton(uint8_t id, uint8_t state) {
                     if (!importAllowed(id == btn::F7)) break;   // disabled key does nothing
                     a.previewAllOff();
                     trimPlaying_ = false;
-                    char path[256];
+                    char path[kPathMax + 1];
                     entryPath(sdCursor, path, sizeof(path));
                     trim = false;
                     ui_.progress("Importing", 50);
@@ -632,7 +740,7 @@ void LoaderScreen::onButton(uint8_t id, uint8_t state) {
                     previewing_ = true;
                 } else if (fcs == 0 && count > 0 && !isDir[sdCursor]) {
                     // Streamed into the free tail of the sample bank.
-                    char path[256];
+                    char path[kPathMax + 1];
                     entryPath(sdCursor, path, sizeof(path));
                     if (hasExt(path, ".wav")) previewStreamStart(a, path);
                     else if (hasExt(path, ".pti")) previewPtiStart(a, path);
@@ -918,7 +1026,7 @@ void LoaderScreen::draw(Gfx& g) {
         } else {
             v.item = [](void* c, int i, char* out, int cap) {
                 const LoaderScreen& ls = *static_cast<LoaderScreen*>(c);
-                std::snprintf(out, size_t(cap), "%s%s", ls.isDir[i] ? "/" : "", ls.entries[i]);
+                ls.entryLabel(i, out, cap);
             };
             v.marked = [](void* c, int i) { return static_cast<LoaderScreen*>(c)->marked_[i] != 0; };
         }

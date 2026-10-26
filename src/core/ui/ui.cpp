@@ -1038,6 +1038,9 @@ void Ui::update(uint32_t now) {
         powerDrawn_ = now;
         dirty();
     }
+    // List marquee (spec 20 §1.6): redraw one tick later while a selected
+    // item wider than its column scrolls.
+    if (marqueeOn_ && now - marqueeAt_ >= wg::kMarqueeTickMs) dirty();
     if (usb.active() && !factory.active()) {
         // The storage page covers the screen and the CPU cell: only its own
         // state (the computer's view of the drive) redraws it.
@@ -1220,6 +1223,8 @@ void Ui::render() {
     }
     g.setWordLimit(dlFrameLimit_ ? uint32_t(uint64_t(dlFrameLimit_) * 64 / dlScale_) : 0);
     g.setLowDetail(lowDetail_);
+    marqueeAt_ = app.millis();
+    wg::marqueeFrame(marqueeAt_);
     g.beginFrame(t.bg);
     Screen* s = current();
     if (factory.active()) s = nullptr;
@@ -1312,6 +1317,7 @@ void Ui::render() {
 }
 
 void Ui::finishFrame(Gfx& g, const char* screenName) {
+    marqueeOn_ = wg::marqueeRunning();
     // RAM_DL words including appended fragments; the command-FIFO upload.
     prevWords_ = frameGen_ == gen_ ? lastWords_ : 0;   // pairs only frames of one screen
     frameGen_ = gen_;

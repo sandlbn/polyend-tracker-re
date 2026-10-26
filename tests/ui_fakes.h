@@ -22,6 +22,20 @@ class FakeStorage : public ot::IStorage {
 public:
     std::map<std::string, std::vector<uint8_t>> files;
     std::set<std::string> dirs;
+    // Directory order. Default: folders first, then files, each sorted. With
+    // creationOrder set, listDir reports the entries in the order they were
+    // created (mkdir, open for writing, addFile), like a FAT card; entries
+    // put into `files` / `dirs` directly follow in the default order.
+    bool creationOrder = false;
+    std::vector<std::string> created;
+    std::set<std::string> createdSet;
+    void noteCreated(const std::string& p) {
+        if (createdSet.insert(p).second) created.push_back(p);
+    }
+    void addFile(const std::string& p, std::vector<uint8_t> data) {
+        files[p] = std::move(data);
+        noteCreated(p);
+    }
     // USB Storage mode (FakeUsbStorage): the computer owns the card; every
     // access is refused and counted (the app must not make any).
     bool locked = false;
@@ -52,6 +66,7 @@ public:
         if (mode != kRead && !parentOk(p)) return -1;
         if (mode == kWrite) files[p].clear();
         if (mode == kReadWrite && it == files.end()) files[p];
+        if (mode != kRead) noteCreated(p);
         Handle h = next_++;
         open_[h] = {p, 0};
         return h;
@@ -107,6 +122,7 @@ public:
         if (files.count(path)) return false;
         if (!parentOk(path)) return false;
         dirs.insert(path);
+        noteCreated(path);
         return true;
     }
     bool remove(const char* path) override {
@@ -139,11 +155,21 @@ public:
         if (!p.empty() && !dirs.count(p)) return -1;
         std::string pre = p.empty() ? "" : p + "/";
         std::vector<std::pair<std::string, std::pair<bool, uint32_t>>> ents;
+        auto child = [&](const std::string& q) {
+            return q.compare(0, pre.size(), pre) == 0 && q.size() > pre.size() &&
+                   q.find('/', pre.size()) == std::string::npos;
+        };
+        std::set<std::string> done;
+        if (creationOrder)
+            for (auto& q : created) {
+                if (!child(q) || !done.insert(q).second) continue;
+                if (dirs.count(q)) ents.push_back({q.substr(pre.size()), {true, 0}});
+                else if (files.count(q)) ents.push_back({q.substr(pre.size()), {false, uint32_t(files[q].size())}});
+            }
         for (auto& d : dirs)
-            if (d.compare(0, pre.size(), pre) == 0 && d.size() > pre.size() && d.find('/', pre.size()) == std::string::npos)
-                ents.push_back({d.substr(pre.size()), {true, 0}});
+            if (!done.count(d) && child(d)) ents.push_back({d.substr(pre.size()), {true, 0}});
         for (auto& f : files)
-            if (f.first.compare(0, pre.size(), pre) == 0 && f.first.find('/', pre.size()) == std::string::npos)
+            if (!done.count(f.first) && child(f.first))
                 ents.push_back({f.first.substr(pre.size()), {false, uint32_t(f.second.size())}});
         int32_t n = 0;
         for (auto& e : ents) {

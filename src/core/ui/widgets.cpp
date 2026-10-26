@@ -557,29 +557,122 @@ int listFollow(int sel, int count, int visible, int top) {
     return top;
 }
 
+// --- list marquee state (POD, zero-initialised: no static constructor) ----
+namespace {
+struct MarqueeSlot {
+    int16_t x, y;
+    int32_t sel;
+    uint32_t hash;
+    uint32_t start;   // ms
+    uint32_t frame;   // marquee frame it was last drawn in (0 = free)
+};
+constexpr int kMarqueeSlots = 4;
+MarqueeSlot gMq[kMarqueeSlots];
+uint32_t gMqNow = 0, gMqFrame = 0;
+bool gMqRun = false;
+
+uint32_t textHash(const char* s) {
+    uint32_t h = 2166136261u;
+    for (; *s; ++s) h = (h ^ uint8_t(*s)) * 16777619u;
+    return h;
+}
+
+// Ticks the selected item of the list at (x, y) has been scrolling.
+uint32_t marqueeTicks(int x, int y, int sel, const char* text) {
+    const uint32_t h = textHash(text);
+    MarqueeSlot* m = nullptr;
+    for (auto& s : gMq)
+        if (s.frame && s.x == x && s.y == y) m = &s;
+    if (!m) {
+        m = &gMq[0];
+        for (auto& s : gMq)
+            if (s.frame < m->frame) m = &s;   // free or least recently drawn
+        m->frame = 0;
+    }
+    const bool fresh = !m->frame || m->frame + 1 < gMqFrame || m->sel != sel || m->hash != h;
+    if (fresh) {
+        m->x = int16_t(x);
+        m->y = int16_t(y);
+        m->sel = sel;
+        m->hash = h;
+        m->start = gMqNow;
+    }
+    m->frame = gMqFrame ? gMqFrame : 1;
+    gMqRun = true;
+    return (gMqNow - m->start) / kMarqueeTickMs;
+}
+
+// Draws the glyphs of `s` (pen origin x0) that overlap left .. right - 1
+// as one text run; glyphs outside cost no RAM_DL words.
+void textWindow(Gfx& g, uint8_t font, uint32_t c, char* s, int x0, int y, int left, int right) {
+    int i = 0, pen = x0;
+    while (s[i]) {
+        const int w = textWidth(font, s + i, 1);
+        if (pen + w > left) break;
+        pen += w;
+        ++i;
+    }
+    if (!s[i] || pen >= right) return;
+    int j = i, p = pen;
+    while (s[j] && p < right) p += textWidth(font, s + j++, 1);
+    const char keep = s[j];
+    s[j] = 0;
+    g.text(pen, y, font, c, s + i, IDisplay::kOptCenterY);
+    s[j] = keep;
+}
+}  // namespace
+
+int marqueeOffset(uint32_t ticks) {
+    const int t = ticks > 1000000u ? 1000000 : int(ticks);
+    return t <= 10 ? t * t / 30 : (20 * t - 100) / 30;
+}
+
+void marqueeFrame(uint32_t nowMs) {
+    gMqNow = nowMs;
+    ++gMqFrame;
+    if (!gMqFrame) gMqFrame = 1;
+    gMqRun = false;
+}
+
+bool marqueeRunning() { return gMqRun; }
+
 void list(Gfx& g, const Theme& th, const ListView& v) {
     const int s = v.set;
     if (v.background) panel(g, th, v.x, v.y, v.w, v.h, th.slot(s + 3));
     const int visible = listVisibleRows(v.h);
     const bool scroll = v.count > visible;
     const int innerW = v.w - (scroll ? 13 : 6);
-    char buf[64];
+    char buf[kListItemCap];
     if (v.item) {
         g.clip(v.x + 3, v.y, innerW, v.h);
+        // Text from x + 13; the column ends at the clip's right edge.
+        const int left = v.x + 3, right = v.x + 3 + innerW;
         for (int r = 0; r < visible; ++r) {
             const int idx = v.top + r;
             if (idx >= v.count) break;
             buf[0] = 0;
             v.item(v.ctx, idx, buf, sizeof(buf));
+            buf[sizeof(buf) - 1] = 0;
             const bool marked = v.marked && v.marked(v.ctx, idx);
+            const uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            const int ty = v.y + 17 + kListRowH * r;
+            const int tw = textWidth(v.font, buf);
+            if (idx == v.sel && v.selStyle != ListSel::kNone && v.x + 13 + tw > right) {
+                // Marquee (spec 20 §1.6): the text and its repeat after a
+                // 30-px gap, each cut to the column.
+                const int period = tw + kMarqueeGap;
+                const int off = marqueeOffset(marqueeTicks(v.x, v.y, idx, buf)) % period;
+                textWindow(g, v.font, tc, buf, v.x + 13 - off, ty, left, right);
+                textWindow(g, v.font, tc, buf, v.x + 13 - off + period, ty, left, right);
+                continue;
+            }
             // Glyphs that start right of the clip are invisible but still
             // cost RAM_DL words (31-char names: VERIFY_1.9.5 R4): cut them.
             const int room = innerW - 10;
             int n = 0, pen = 0;
             while (buf[n] && pen < room) pen += textWidth(v.font, buf + n++, 1);
             buf[n] = 0;
-            const uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
-            g.text(v.x + 13, v.y + 17 + kListRowH * r, v.font, tc, buf, IDisplay::kOptCenterY);
+            g.text(v.x + 13, ty, v.font, tc, buf, IDisplay::kOptCenterY);
         }
         g.noClip();
     }
