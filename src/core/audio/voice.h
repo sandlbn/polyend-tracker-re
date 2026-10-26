@@ -24,6 +24,10 @@
 namespace ot {
 namespace audio {
 
+// OT fork, Config > Beat Slice thru: a Beat Slice note plays from its slice
+// to the end point of the sample instead of the next slice start.
+extern bool gBeatSliceThru;
+
 // Step FX ids handled by the voice (spec 03 §3.6).
 enum VoiceFx : uint8_t {
     kFxNone = 0,

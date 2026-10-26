@@ -743,7 +743,7 @@ void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
             ++r.nSec;
         }
     }
-    if (twoTracks) std::snprintf(r.msg, sizeof(r.msg), "Call T%d, answer T%d, %dx%d", tr + 1, tr2 + 1, parts, steps);
+    if (twoTracks) std::snprintf(r.msg, sizeof(r.msg), "Call T%d, answer T%d, %dx%d", (tr + 1) & 31, (tr2 + 1) & 31, parts & 15, steps & 127);
     else std::snprintf(r.msg, sizeof(r.msg), "%.14s: %dx%d steps", crStrategyName(strategy), parts & 15, steps & 127);
     r.ok = true;
 }

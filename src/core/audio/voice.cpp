@@ -164,6 +164,9 @@ inline int32_t pointToFrames(uint32_t len, uint32_t x) { return int32_t(uint64_t
 
 // Play modes that play a stereo instrument in stereo in 2.0.0 (2x-04 §3.1;
 // playMode > 7 plays as one-shot). TODO(2.1): wavetable and granular.
+}  // namespace
+bool gBeatSliceThru = false;
+namespace {
 inline bool stereoPlayMode(uint8_t m) { return m > 7 || m <= uint8_t(PlayMode::BeatSlice); }
 
 // Linear interpolation with the 16-bit fraction of spec 04 §2.2.
@@ -437,6 +440,8 @@ void Voice::computePoints() {
             start_ = pointToFrames(len, ins_->slices[idx]);
             // Slice end = next slice start, else the end point (spec 04 §2.3, I).
             int32_t e = idx + 1 < count ? pointToFrames(len, ins_->slices[idx + 1]) : pointToFrames(len, ins_->endPoint);
+            if (gBeatSliceThru && mode_ == uint8_t(PlayMode::BeatSlice) && sliceSel_ == 0xFF)
+                e = pointToFrames(len, ins_->endPoint);   // OT: thru to the sample end
             if (e <= start_ || e > int32_t(len)) e = int32_t(len);
             end_ = e;
             if (start_ >= end_) start_ = end_ - 1;

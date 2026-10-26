@@ -232,6 +232,7 @@ void App::applyEngineSettings() {
     // budget from Config (OPTIMIZATION_2X item 10 / OP-8).
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().setSlotRecord(s, project.synthSlot(s));
     if (engine.governor().budget() != cfg.synthVoices) engine.governor().setBudget(cfg.synthVoices);
+    audio::gBeatSliceThru = cfg.sliceThru != 0;   // OT fork
 }
 
 // ---------------------------------------------------------------------------
