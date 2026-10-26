@@ -160,6 +160,8 @@ struct Ctx {
     float dens;
     int pool[8];
     int poolN;
+    int ending = 0;   // 0 style, 1 resolve, 2 open, 3 rise, 4 fall (the answer)
+    int motif = 0;    // 0 auto, else the motif length in steps
 };
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -277,7 +279,22 @@ void applyEnding(Ctx& c, CStep* ph, int n, bool response) {
         ph[last].active = true;
         ph[last].degree = 0;
     }
-    if (response) ph[last].degree = pickScaled(c, {0, 0, 2, 4});   // "more resolved than call"
+    if (!response) return;
+    switch (c.ending) {
+        case 1: ph[last].degree = 0; break;                                   // on the root
+        case 2: ph[last].degree = pickScaled(c, {1, 3, 4, 5}); break;         // open, not the root
+        case 3:                                                               // rising into the end
+        case 4: {                                                             // falling into the end
+            int prev = -1;
+            for (int i = last - 1; i >= 0 && prev < 0; --i)
+                if (ph[i].active) prev = i;
+            const int from = prev >= 0 ? ph[prev].degree : 2;
+            ph[last].degree = clampi(c.ending == 3 ? from + pick(c, {1, 2}) : from - pick(c, {1, 2}), 0, 10);
+            if (c.ending == 4 && ph[last].degree > 0 && c.rng->coin(0.5f)) ph[last].degree = 0;
+            break;
+        }
+        default: ph[last].degree = pickScaled(c, {0, 0, 2, 4}); break;      // "more resolved than call"
+    }
 }
 
 void buildCall(Ctx& c, CStep* out) {
@@ -285,7 +302,8 @@ void buildCall(Ctx& c, CStep* out) {
     const Profile& sp = c.sp;
     const int steps = c.steps;
     // Motif template "Acid nibble": rhythm chance 0.65, contour [0,0,1,0,-1].
-    const int mlen = steps <= 4 ? 2 : (steps <= 8 ? r.range(2, 4) : r.range(3, 4));
+    int mlen = steps <= 4 ? 2 : (steps <= 8 ? r.range(2, 4) : r.range(3, 4));
+    if (c.motif >= 2) mlen = c.motif < steps ? c.motif : steps;
     bool rhythm[5];
     for (int m = 0; m < mlen; ++m) rhythm[m] = r.coin(0.65f);
     bool anyR = false;
@@ -367,6 +385,7 @@ void buildResponse(Ctx& c, const CStep* call, int strategy, CStep* out) {
     for (int i = 0; i < steps; ++i) out[i] = call[i];
     int motifLen = steps / 2;
     motifLen = motifLen < 2 ? 2 : (motifLen > 4 ? 4 : motifLen);
+    if (c.motif >= 2) motifLen = c.motif < steps ? c.motif : steps;
     float avg = 0;
     int cnt = 0;
     for (int i = 0; i < steps; ++i)
@@ -619,15 +638,18 @@ int noteToDegree(int note, int root, const uint8_t* deg, int n) {
     return best < 0 ? 0 : best;
 }
 
-void toMono(const CStep* ph, int n, int root, const uint8_t* deg, int nd, MonoStep* out) {
+void toMono(const CStep* ph, int n, int root, const uint8_t* deg, int nd, MonoStep* out, int octShift = 0) {
     for (int i = 0; i < n; ++i) {
         out[i].active = ph[i].active;
-        out[i].note = degreeNote(root, deg, nd, ph[i].degree);
+        out[i].note = degreeNote(root, deg, nd, ph[i].degree + octShift * nd);
         out[i].accent = ph[i].accent;
         out[i].slide = ph[i].slide && i + 1 < n && ph[i + 1].active;
         out[i].gate = ph[i].tie ? 1.1f : ph[i].gate;
     }
 }
+
+// Forms: C = the call, R / r = answers (r: a second, different answer).
+const char* const kForms[6] = {"CR", "CRCR", "CCR", "CRrC", "CCCR", "CRCr"};
 
 }  // namespace
 
@@ -636,14 +658,19 @@ const char* crStrategyName(int i) { return kStrategies[clampi(i, 0, kCrStrategyC
 
 void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
     const int style = v[0], strategy = v[1], layout = v[3];
+    const char* form = kForms[v[4] < 0 || v[4] > 5 ? 0 : v[4]];
+    int parts = 0;
+    while (form[parts]) ++parts;
     uint8_t deg[12];
     const int nd = scaleDegrees(t.scaleMask, deg);
     const int total = t.s1 - t.s0 + 1;
     const bool twoTracks = layout == 2;
-    int steps = twoTracks ? total : total / 2;
+    static const int kSteps[5] = {0, 4, 8, 16, 32};
+    int steps = kSteps[v[6] < 0 || v[6] > 4 ? 0 : v[6]];
+    if (steps == 0 || steps * parts > total) steps = total / parts;
     if (steps > 64) steps = 64;
     if (steps < 2) {
-        std::snprintf(r.msg, sizeof(r.msg), "Select at least 4 steps");
+        std::snprintf(r.msg, sizeof(r.msg), "Select at least %d steps", 2 * parts);
         return;
     }
     Ctx c;
@@ -652,6 +679,10 @@ void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
     c.scaleLen = nd;
     c.steps = steps;
     c.dens = v[2] > 0 ? v[2] / 100.0f : 0.52f;
+    c.ending = v[7] < 0 || v[7] > 4 ? 0 : v[7];
+    c.motif = v[9] <= 0 ? 0 : v[9] + 1;
+    static const int kOct[3] = {0, 1, -1};
+    const int ansOct = kOct[v[8] < 0 || v[8] > 2 ? 0 : v[8]];
     // Note pool "Pool with spice notes": 4 of the first degrees + the middle one.
     {
         int base[7], nb = nd < 7 ? nd : 7;
@@ -668,11 +699,12 @@ void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
         for (int i = 0; i < c.poolN; ++i) dup = dup || c.pool[i] == spice;
         if (!dup) c.pool[c.poolN++] = spice;
     }
-    CStep call[64], resp[64];
+    CStep call[64], resp[64], resp2[64];
     Pattern& p = *t.pat;
     const int tr = t.t0;
+    const int tr2 = twoTracks ? (t.t1 > t.t0 ? t.t1 : (tr + 1 < kTrackCount ? tr + 1 : tr)) : tr;
     if (layout == 1) {
-        // "Answer mine": the call is what the first half of the track already plays.
+        // "Answer mine": the call is what the first part of the track already plays.
         for (int i = 0; i < steps; ++i) {
             const Step& s = p.tracks[tr].steps[t.s0 + i];
             call[i] = CStep{};
@@ -686,20 +718,33 @@ void genCallResponse(const int16_t* v, Target& t, Rng& rng, Result& r) {
         buildCall(c, call);
     }
     buildResponse(c, call, strategy, resp);
+    buildResponse(c, call, strategy, resp2);   // 'r': the same strategy, another roll
     MonoStep m[64];
-    if (layout != 1) {
-        toMono(call, steps, t.rootNote, deg, nd, m);
-        writeMono(p, tr, t.s0, m, steps, t.instrument);
+    MonoStep rest[64];
+    for (int i = 0; i < steps; ++i) rest[i] = MonoStep{};
+    r.nSec = 0;
+    for (int k = 0; k < parts; ++k) {
+        const int at = t.s0 + k * steps;
+        const char f = form[k];
+        const bool isCall = f == 'C';
+        if (isCall) {
+            toMono(call, steps, t.rootNote, deg, nd, m);
+            // "Answer mine" keeps the first call as the user wrote it.
+            if (!(layout == 1 && k == 0)) writeMono(p, tr, at, m, steps, t.instrument);
+            if (twoTracks) writeMono(p, tr2, at, rest, steps, t.instrument);
+        } else {
+            toMono(f == 'r' ? resp2 : resp, steps, t.rootNote, deg, nd, m, ansOct);
+            writeMono(p, tr2, at, m, steps, t.instrument);
+            if (twoTracks) writeMono(p, tr, at, rest, steps, t.instrument);
+        }
+        if (r.nSec < 8) {
+            r.secStart[r.nSec] = uint8_t(k * steps);
+            r.secTag[r.nSec] = isCall ? 'C' : 'R';
+            ++r.nSec;
+        }
     }
-    toMono(resp, steps, t.rootNote, deg, nd, m);
-    if (twoTracks) {
-        const int tr2 = t.t1 > t.t0 ? t.t1 : (tr + 1 < kTrackCount ? tr + 1 : tr);
-        writeMono(p, tr2, t.s0, m, steps, t.instrument);
-        std::snprintf(r.msg, sizeof(r.msg), "Call T%d, answer T%d", tr + 1, tr2 + 1);
-    } else {
-        writeMono(p, tr, t.s0 + steps, m, steps, t.instrument);
-        std::snprintf(r.msg, sizeof(r.msg), "%s: %d + %d steps", crStrategyName(strategy), steps, steps);
-    }
+    if (twoTracks) std::snprintf(r.msg, sizeof(r.msg), "Call T%d, answer T%d, %dx%d", tr + 1, tr2 + 1, parts, steps);
+    else std::snprintf(r.msg, sizeof(r.msg), "%.14s: %dx%d steps", crStrategyName(strategy), parts & 15, steps & 127);
     r.ok = true;
 }
 

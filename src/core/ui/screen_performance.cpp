@@ -11,6 +11,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "app/live_gen.h"
 #include "app/perf_presets.h"
 #include "ui/screens.h"
 
@@ -197,6 +198,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         int8_t repeat = -1, velOff = 0, transpose = 0;
         bool transposeOn = false;
         uint8_t playMode = 0;
+        int acidDens = 0;
         const bool on = fxOn[t] && !revertEverything;
         for (int s = 0; s < perf::kSlots && !revertEverything; ++s) {
             const uint8_t ty = src.valid() ? src.type(s) : 0;
@@ -235,6 +237,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
                 case perf::kPlayMode: playMode = uint8_t(v); break;
                 case perf::kBitDepth: p.bits = int16_t(v); break;
                 case perf::kOverdrive: p.od = int16_t(v); break;
+                case perf::kAcidDensity: acidDens = v; break;
                 default: break;
             }
         }
@@ -243,6 +246,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
         q.setPerfPlayMode(t, playMode);
         q.setPerfVelocityOffset(t, velOff);
         q.setPerfTranspose(t, transposeOn && transpose != 0, transpose);
+        live::setAcidDensityOffset(t, acidDens);
     }
     q.setPerfGlobalLength(globalLen);
 }

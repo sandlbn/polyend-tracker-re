@@ -39,10 +39,6 @@ void genStation(const int16_t* v, Target& t, Rng& rng, Result& r) {
     if (source == 0 || source == 3) n = putText(t.text, dig, n, 64);
     if (source == 1 || source == 3) n = t.pi ? putNumber(t.pi, dig, n, 64) : n;
     if (source == 2 || source == 3 || n == 0) n = putNumber(t.freq10, dig, n, 64);
-    if (n == 0) {
-        std::snprintf(r.msg, sizeof(r.msg), "No station: tune the radio first");
-        return;
-    }
     // Seed > 0: a fixed scramble of the digits (the "key" of the broadcast).
     if (v[5] > 0)
         for (int i = n - 1; i > 0; --i) {
@@ -51,6 +47,20 @@ void genStation(const int16_t* v, Target& t, Rng& rng, Result& r) {
             dig[i] = dig[j];
             dig[j] = x;
         }
+    // What was read (popup preview): the sources, then the digits in fives.
+    {
+        int at = std::snprintf(r.info, sizeof(r.info), "RDS %s\nPI %04X\nFM %u.%u\n", t.text && t.text[0] ? t.text : "-",
+                               unsigned(t.pi), unsigned(t.freq10 / 10), unsigned(t.freq10 % 10));
+        for (int i = 0; i < n && at < int(sizeof(r.info)) - 3; ++i) {
+            r.info[at++] = char('0' + dig[i]);
+            if (i % 5 == 4 && i + 1 < n) r.info[at++] = '\n';
+        }
+        r.info[at < int(sizeof(r.info)) ? at : int(sizeof(r.info)) - 1] = 0;
+    }
+    if (n == 0) {
+        std::snprintf(r.msg, sizeof(r.msg), "No station: tune the radio first");
+        return;
+    }
     if (mode == 1 && t.slices.count < 10) {
         std::snprintf(r.msg, sizeof(r.msg), "Slices: needs 10 slices (0..9)");
         return;

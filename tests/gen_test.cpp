@@ -76,7 +76,7 @@ TEST(table_complete) {
     for (int k = 0; k < gen::kKindCount; ++k) {
         const gen::KindDesc& d = gen::kind(k);
         CHECK(d.name != nullptr);
-        CHECK(d.p[gen::kParams - 1].name != nullptr);   // Seed is always last
+        CHECK(d.p[gen::kSeedParam].name != nullptr);   // Seed is always page 1 F7
         int16_t v[gen::kParams] = {};
         defaults(k, v);
         for (int i = 0; i < gen::kParams; ++i) {
@@ -117,20 +117,77 @@ TEST(acid_deterministic_and_valid) {
 TEST(acid_density_extremes) {
     int16_t v[gen::kParams];
     defaults(gen::kAcid, v);
-    v[0] = 0;   // density 0: still one note
+    v[0] = -7;   // density -7: a few notes (1/16 of the steps), at least one
     v[5] = 7;
     gen::Target t = target(0, 31);
     gen::generate(gen::kAcid, v, t);
-    CHECK_EQ(notesIn(0, 0, 31), 1);
-    v[0] = 100;
+    const int few = notesIn(0, 0, 31);
+    CHECK(few >= 1 && few <= 8);
+    v[0] = 7;
     v[2] = 100;   // slide everything
     t = target(0, 31);
     gen::generate(gen::kAcid, v, t);
-    CHECK_EQ(notesIn(0, 0, 31), 32);
+    const int many = notesIn(0, 0, 31);
+    CHECK(many >= 24);
     int glides = 0;
     for (int s = 0; s < 32; ++s)
         for (const StepFx& f : g_pat.tracks[0].steps[s].fx) glides += f.type == gen::kFxGlide;
-    CHECK(glides >= 30);
+    CHECK(glides >= many / 2);
+    CHECK(patternValid());
+}
+
+// Live density: the same phrase at a higher density keeps every note of the
+// lower one (same pitch), only adds notes.
+TEST(acid_density_is_nested) {
+    int16_t v[gen::kParams];
+    defaults(gen::kAcid, v);
+    gen::Target t = target(0, 63);
+    gen::MonoStep a[64], b[64];
+    gen::Rng r1(99), r2(99);
+    v[0] = -2;
+    gen::acidPhrase(v, t, r1, a, 64);
+    v[0] = 5;
+    gen::acidPhrase(v, t, r2, b, 64);
+    int na = 0, nb = 0;
+    for (int i = 0; i < 64; ++i) {
+        na += a[i].active;
+        nb += b[i].active;
+        if (a[i].active) {
+            CHECK(b[i].active);
+            CHECK_EQ(a[i].note, b[i].note);
+        }
+    }
+    CHECK(nb > na);
+    gen::acidApplyDensity(b, 64, -2, 48);
+    for (int i = 0; i < 64; ++i) CHECK_EQ(a[i].active, b[i].active);
+}
+
+// Two tracks: the call plays on the first track only in call parts, the
+// answer on the second track only in answer parts.
+TEST(callresp_two_tracks_alternate) {
+    int16_t v[gen::kParams];
+    defaults(gen::kCallResponse, v);
+    v[3] = 2;    // Two tracks
+    v[5] = 11;
+    gen::Target t = target(0, 31);
+    t.t1 = 1;
+    gen::Result r = gen::generate(gen::kCallResponse, v, t);
+    CHECK(r.ok);
+    CHECK_EQ(int(r.nSec), 2);
+    CHECK(notesIn(0, 0, 15) > 0);
+    CHECK_EQ(notesIn(0, 16, 31), 0);
+    CHECK_EQ(notesIn(1, 0, 15), 0);
+    CHECK(notesIn(1, 16, 31) > 0);
+    // Form C R C R with 8-step parts: four sections.
+    v[3] = 0;
+    v[4] = 1;
+    v[6] = 2;   // 8 steps
+    t = target(0, 31);
+    r = gen::generate(gen::kCallResponse, v, t);
+    CHECK(r.ok);
+    CHECK_EQ(int(r.nSec), 4);
+    CHECK_EQ(int(r.secTag[1]), int('R'));
+    CHECK_EQ(int(r.secStart[2]), 16);
     CHECK(patternValid());
 }
 
@@ -340,7 +397,7 @@ TEST(acid_mutate_changes_some_steps) {
 TEST(bb_play_tables) {
     uint8_t tab[128][3];
     for (int proc = 0; proc < gen::kBBProcCount; ++proc) {
-        gen::bbPlayTable(proc, 1234u + uint32_t(proc), tab);
+        gen::bbPlayTable(proc, -1, -1, 1234u + uint32_t(proc), tab);
         int rolls = 0, jumps = 0;
         for (int k = 0; k < 128; ++k) {
             CHECK(tab[k][0] < 128);

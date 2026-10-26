@@ -47,6 +47,7 @@ const FxDesc kFx[kFxCount] = {
     {"Pattern Length", 0, 8, kLength, 0, 0, true},
     {"Bit Depth", -12, 12, nullptr, 0, 0, false},
     {"Overdrive", -100, 100, nullptr, 0, 0, false},
+    {"Acid Density", -7, 7, nullptr, 0, 0, false},   // OT fork
 };
 }  // namespace
 

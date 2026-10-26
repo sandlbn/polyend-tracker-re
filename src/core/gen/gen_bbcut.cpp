@@ -822,15 +822,15 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r) {
     r.ok = true;
 }
 
-void bbPlayTable(int proc, uint32_t seed, uint8_t out[128][3]) {
+void bbPlayTable(int proc, int a, int b, uint32_t seed, uint8_t out[128][3]) {
     Rng rng(seed);
     State& s = *new (gScratch) State();
     s.r = &rng;
     s.type = proc < 0 ? 0 : (proc >= kBBProcCount ? kBBProcCount - 1 : proc);
     const ParamDesc* pa = bbProcParam(s.type, 0);
     const ParamDesc* pb = bbProcParam(s.type, 1);
-    s.a = pa ? pa->def : 0;
-    s.b = pb ? pb->def : 0;
+    s.a = pa ? int16_t(a < pa->min || a > pa->max ? pa->def : a) : 0;
+    s.b = pb ? int16_t(b < pb->min || b > pb->max ? pb->def : b) : 0;
     s.loopBeats = 4;
     s.bpsd = 0.5f;
     constexpr int kSpb = 4;

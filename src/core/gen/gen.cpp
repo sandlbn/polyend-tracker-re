@@ -12,7 +12,14 @@ namespace gen {
 namespace {
 
 const char* const kOctLabels[3] = {"1 oct", "2 oct", "3 oct"};
+const char* const kAcidEvery[4] = {"1 loop", "2 loops", "4 loops", "8 loops"};
+const char* const kAcidGate[3] = {"Normal", "Short", "Long"};
 const char* const kCrLayout[3] = {"Call+Answer", "Answer mine", "Two tracks"};
+const char* const kCrForm[6] = {"C R", "C R C R", "C C R", "C R R2 C", "C C C R", "C R C R2"};
+const char* const kCrSteps[5] = {"Auto", "4", "8", "16", "32"};
+const char* const kCrEnding[5] = {"Style", "Resolve", "Open", "Rise", "Fall"};
+const char* const kCrOct[3] = {"Same", "+1 oct", "-1 oct"};
+const char* const kCrMotif[4] = {"Auto", "2", "3", "4"};
 const char* const kBBSource[6] = {"Auto", "1 beat", "2 beats", "1 bar", "2 bars", "4 bars"};
 const char* const kTaPhrase[4] = {"1 bar", "2 bars", "4 bars", "8 bars"};
 const char* const kTaStyle[6] = {"Rolls", "Stutter", "Drop", "Reverse", "Build", "Mix"};
@@ -22,50 +29,69 @@ const char* const kStMode[2] = {"Notes", "Slices"};
 const char* const kStRate[3] = {"1/16", "1/8", "1/4"};
 const char* const kStGroups[2] = {"Off", "Fives"};
 
+constexpr const char* kSeedHelp = "0: a new result every time. 1-999: the same result again";
+#define NONE {nullptr, 0, 0, 0, nullptr, nullptr}
+#define SEED {"Seed", 0, 999, 0, nullptr, kSeedHelp}
+
 KindDesc gKinds[kKindCount] = {
     {"Acid", "303 line: density, accent, slide (TB-3PO style)",
-     {{"Density", 0, 100, 70, nullptr},
-      {"Accent", 0, 100, 40, nullptr},
-      {"Slide", 0, 100, 25, nullptr},
-      {"Range", 0, 2, 1, kOctLabels},
-      {"Mutate", 0, 100, 0, nullptr},
-      {"Seed", 0, 999, 0, nullptr}}},
+     {{"Density", -7, 7, 3, nullptr, "Steps that play: -7 almost none, 0 half, +7 nearly all. Live: Perform FX Acid Density"},
+      {"Accent", 0, 100, 40, nullptr, "Chance of an accent (Volume 100)"},
+      {"Slide", 0, 100, 25, nullptr, "Chance a note glides into the next one (Glide FX, no gate)"},
+      {"Range", 0, 2, 1, kOctLabels, "Pitch range of the line"},
+      {"Mutate", 0, 100, 0, nullptr, "Live: share of the steps re-rolled while it plays. 0 = locked"},
+      SEED,
+      {"Mut. every", 0, 3, 0, kAcidEvery, "How often Mutate changes the line"},
+      {"Gate", 0, 2, 0, kAcidGate, "Length of the notes that do not slide"},
+      {"Root", 0, 100, 35, nullptr, "Chance a note on the beat is the root note"},
+      NONE, NONE, NONE}},
     {"Call+Resp", "Call phrase, then the answer (Nordl3 C/R Generator)",
-     {{"Style", 0, kCrStyleCount - 1, 0, nullptr},
-      {"Answer", 0, kCrStrategyCount - 1, 0, nullptr},
-      {"Density", 0, 100, 0, nullptr},
-      {"Layout", 0, 2, 0, kCrLayout},
-      {nullptr, 0, 0, 0, nullptr},
-      {"Seed", 0, 999, 0, nullptr}}},
+     {{"Style", 0, kCrStyleCount - 1, 0, nullptr, "Genre profile: density, leaps, accents, slides, rests"},
+      {"Answer", 0, kCrStrategyCount - 1, 0, nullptr, "How the answer is made from the call"},
+      {"Density", 0, 100, 0, nullptr, "Notes per phrase. 0 = the style's own density"},
+      {"Layout", 0, 2, 0, kCrLayout, "One track / answer the call you wrote / call and answer on two tracks"},
+      {"Form", 0, 5, 0, kCrForm, "Order of the parts: C = call, R = answer (R2 = a second answer)"},
+      SEED,
+      {"Steps", 0, 4, 0, kCrSteps, "Steps per part. Auto = the selection divided by the parts"},
+      {"Ending", 0, 4, 0, kCrEnding, "How the answer ends: the style's way, on the root, open, rising, falling"},
+      {"Ans. oct", 0, 2, 0, kCrOct, "Register of the answer against the call"},
+      {"Motif", 0, 3, 0, kCrMotif, "Length of the repeated motif in steps. Auto = from the part length"},
+      NONE, NONE}},
     {"BBCut", "Rearrange a sliced break (BBCut / BBenCut procs)",
-     {{"Proc", 0, kBBProcCount - 1, 0, nullptr},
-      {"A", 0, 100, 50, nullptr},
-      {"B", 0, 100, 50, nullptr},
-      {"Source", 0, 5, 0, kBBSource},
-      {nullptr, 0, 0, 0, nullptr},
-      {"Seed", 0, 999, 0, nullptr}}},
+     {{"Proc", 0, kBBProcCount - 1, 0, nullptr, "BBCut cut procedure"},
+      {"A", 0, 100, 50, nullptr, nullptr},
+      {"B", 0, 100, 50, nullptr, nullptr},
+      {"Source", 0, 5, 0, kBBSource, "Length of the break: Auto from the sample length at the song tempo"},
+      NONE,
+      SEED,
+      NONE, NONE, NONE, NONE, NONE, NONE}},
     {"Turnaround", "Phrase-end rolls, stutters and drops on a budget",
-     {{"Phrase", 0, 3, 1, kTaPhrase},
-      {"Budget", 1, 16, 4, nullptr},
-      {"Style", 0, 5, 5, kTaStyle},
-      {"Intensity", 0, 100, 60, nullptr},
-      {nullptr, 0, 0, 0, nullptr},
-      {"Seed", 0, 999, 0, nullptr}}},
+     {{"Phrase", 0, 3, 1, kTaPhrase, "Phrase length: every phrase, half and quarter phrase end gets edits"},
+      {"Budget", 1, 16, 4, nullptr, "Steps of edits at a phrase end"},
+      {"Style", 0, 5, 5, kTaStyle, "Kind of edits"},
+      {"Intensity", 0, 100, 60, nullptr, "How strong and how many the edits are"},
+      NONE,
+      SEED,
+      NONE, NONE, NONE, NONE, NONE, NONE}},
     {"Genotype", "Learn the track, play a variation of it",
-     {{"Mode", 0, 2, 2, kGtMode},
-      {"Identity", 0, 100, 60, nullptr},
-      {"Order", 1, 2, 1, nullptr},
-      {"Variety", 0, 100, 40, nullptr},
-      {nullptr, 0, 0, 0, nullptr},
-      {"Seed", 0, 999, 0, nullptr}}},
+     {{"Mode", 0, 2, 2, kGtMode, "Markov walk over the learnt steps, a bouncing TILT ball, or both"},
+      {"Identity", 0, 100, 60, nullptr, "Chance a step stays as it was"},
+      {"Order", 1, 2, 1, nullptr, "Markov memory: 1 or 2 steps"},
+      {"Variety", 0, 100, 40, nullptr, "How far the walk may jump"},
+      NONE,
+      SEED,
+      NONE, NONE, NONE, NONE, NONE, NONE}},
     {"Station", "Numbers station from the radio (RDS, PI, frequency)",
-     {{"Source", 0, 3, 3, kStSource},
-      {"Mode", 0, 1, 0, kStMode},
-      {"Rate", 0, 2, 1, kStRate},
-      {"Groups", 0, 1, 1, kStGroups},
-      {"Repeat", 1, 4, 2, nullptr},
-      {"Seed", 0, 999, 0, nullptr}}},
+     {{"Source", 0, 3, 3, kStSource, "What is read from the radio: station name, PI code, frequency, all"},
+      {"Mode", 0, 1, 0, kStMode, "Notes: digits as scale degrees. Slices: digit d plays slice d (a voice counting 0-9)"},
+      {"Rate", 0, 2, 1, kStRate, "Length of one digit"},
+      {"Groups", 0, 1, 1, kStGroups, "Read in groups of five with a pause between"},
+      {"Repeat", 1, 4, 2, nullptr, "Times the message is read"},
+      SEED,
+      NONE, NONE, NONE, NONE, NONE, NONE}},
 };
+#undef NONE
+#undef SEED
 
 bool labelsReady = false;
 const char* gCrStyleLabels[kCrStyleCount];
@@ -94,7 +120,7 @@ const ParamDesc& param(int k, int i, const int16_t* values) {
     const KindDesc& d = kind(k);
     if (k == kBBCut && (i == 1 || i == 2) && values) {
         const ParamDesc* bp = bbProcParam(values[0], i - 1);
-        static const ParamDesc kNone = {nullptr, 0, 0, 0, nullptr};
+        static const ParamDesc kNone = {nullptr, 0, 0, 0, nullptr, nullptr};
         return bp ? *bp : kNone;
     }
     return d.p[i];
@@ -180,8 +206,8 @@ Result generate(int k, const int16_t* params, Target& t) {
         if (d.name) x = x < d.min ? d.min : (x > d.max ? d.max : x);
         v[i] = int16_t(x);
     }
-    const uint32_t seed = v[kParams - 1] > 0 ? uint32_t(v[kParams - 1]) * 2654435761u : (t.entropy | 1u);
-    r.seed = v[kParams - 1] > 0 ? uint32_t(v[kParams - 1]) : 0;
+    const uint32_t seed = v[kSeedParam] > 0 ? uint32_t(v[kSeedParam]) * 2654435761u : (t.entropy | 1u);
+    r.seed = v[kSeedParam] > 0 ? uint32_t(v[kSeedParam]) : 0;
     r.rngSeed = seed;
     Rng rng(seed);
     switch (k) {

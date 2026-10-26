@@ -54,12 +54,18 @@ enum Kind : uint8_t {
     kKindCount
 };
 
-constexpr int kParams = 6;   // F2..F7 of the popup; the last one is always Seed
+// Two pages of six parameters (F2..F7; Shift turns the page). Parameter
+// kSeedParam (page 1, F7) is always Seed. Callers pass all kParams values
+// (the popup and the tests start from each ParamDesc::def).
+constexpr int kPageParams = 6;
+constexpr int kParams = 2 * kPageParams;
+constexpr int kSeedParam = 5;
 
 struct ParamDesc {
     const char* name;
     int16_t min, max, def;
     const char* const* labels;   // nullptr = numeric
+    const char* help = nullptr;  // one line shown while the field is selected
 };
 
 struct KindDesc {
@@ -102,6 +108,13 @@ struct Result {
     char msg[40] = {};
     uint32_t seed = 0;             // the Seed parameter (0 = random)
     uint32_t rngSeed = 0;          // the generator's RNG seed (rebuilds the same result)
+    // Sections for the popup preview (Call+Resp form: 'C' / 'R' parts from
+    // step offset secStart[i] of the target), and extra info lines (Station:
+    // what was read from the radio and the digits), '\n' separated.
+    uint8_t nSec = 0;
+    uint8_t secStart[8] = {};
+    char secTag[8] = {};
+    char info[96] = {};
 };
 
 Result generate(int kind, const int16_t* params, Target& t);
@@ -120,6 +133,8 @@ struct MonoStep {
     bool accent = false;
     bool slide = false;            // glide into the next note (legato)
     float gate = 0.5f;             // fraction of a step; >= 1 sustains
+    float thr = 0;                 // Acid: plays while thr < the density probability
+    bool slideWant = false;        // Acid: slides when the next step plays too
 };
 // Writes steps s0.. of track t: note, instrument and the FX (Glide on the
 // note slid into, Volume 100 on accents, Gate when shorter than a step).
@@ -131,12 +146,17 @@ void writeMono(Pattern& p, int t, int s0, const MonoStep* steps, int n, uint8_t 
 // has `amount` (0..1) chance to re-roll its state or its pitch. v = the Acid
 // parameters (Density, Accent, Slide, Range, Mutate, Seed).
 // BBCut play table for the sequencer's B modes: 128 steps of cuts from
-// procedure `proc` (default parameters), entry = {offset 0..127 (1/128 of the
-// track at the cut start), steps since the cut start, roll selector}.
-void bbPlayTable(int proc, uint32_t seed, uint8_t out[128][3]);
+// procedure `proc` with parameters a / b (-1 = the default), entry = {offset
+// 0..127 (1/128 of the track at the cut start), steps since the cut start,
+// roll selector}.
+void bbPlayTable(int proc, int a, int b, uint32_t seed, uint8_t out[128][3]);
 
 void acidPhrase(const int16_t* v, const Target& t, Rng& rng, MonoStep* out, int n);
 void acidMutate(const int16_t* v, const Target& t, Rng& rng, MonoStep* ph, int n, float amount);
+// Acid density -7..+7 -> the share of steps that play ((d + 8) / 16), and the
+// phrase's active flags for it (pitches, accents and slides stay).
+float acidDensityProb(int d);
+void acidApplyDensity(MonoStep* ph, int n, int density, int root);
 
 }  // namespace gen
 }  // namespace ot
