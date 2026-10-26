@@ -209,6 +209,10 @@ public:
     uint32_t tapT0 = 0;
     bool tapShown = false;         // "TAP n/4" display flag SO+0x131 (spec 06 §2.4)
     int transportState() const;    // F1/F2 label state 0..5 (spec 06 §2.2)
+    // The slot row the green progress line is on, -1 for none: the song
+    // position while the song (or its looped slot) plays, or the slot F1
+    // "Play Pattern" started (user report 2.2.2).
+    int playingRow() const;
     // Loop Pattern active in the current play run (a stop elsewhere ends it).
     bool loopingInSong() const;
     bool loopTogglePending() const { return togglePending_; }
@@ -233,6 +237,10 @@ private:
     int followPos_ = -1;           // playing slot the cursor last followed (-1: follow at once)
     uint32_t loopRun_ = 0;         // App::playStartMs() of the run that set loopInSong_
     bool loopInSong_ = false;      // state 3: song paused on one pattern (spec 06 §2.2)
+    int patSlot_ = -1;             // slot F1 "Play Pattern" / Preview Track started
+    bool patPending_ = false;      // its run has not shown up in App::playStartMs() yet
+    uint32_t patStartSeen_ = 0;    // App::playStartMs() at the F1 press
+    uint32_t patRun_ = 0;          // App::playStartMs() of that run
     bool togglePending_ = false;   // F1 deferred action (seq+0x548 = 0x5ae00, spec 06 §2.3)
     int toggleStep_ = 0;           // master step at scheduling; fires on the next one
 };

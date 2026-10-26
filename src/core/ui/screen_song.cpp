@@ -117,6 +117,14 @@ int SongScreen::transportState() const {
     return loopInSong_ ? 3 : 5;
 }
 
+int SongScreen::playingRow() const {
+    const Sequencer& s = app_.seq;
+    if (!s.isPlaying()) return -1;
+    if (s.isSongMode() || loopInSong_) return s.songPosition();
+    if (patSlot_ < 0 || patSlot_ >= length()) return -1;
+    return patPending_ || app_.playStartMs() == patRun_ ? patSlot_ : -1;
+}
+
 bool SongScreen::loopingInSong() const {
     return loopInSong_ && app_.seq.isPlaying() && app_.playStartMs() == loopRun_;
 }
@@ -333,6 +341,9 @@ void SongScreen::onButton(uint8_t id, uint8_t state) {
             if (!s.isPlaying()) {
                 loopInSong_ = false;
                 togglePending_ = false;
+                patSlot_ = ui_.shift() && focus == 0 && selTracks == 1 ? selRow0 : cursor;
+                patPending_ = true;
+                patStartSeen_ = a.playStartMs();
                 if (ui_.shift() && focus == 0 && selTracks == 1) {
                     a.selectPattern(a.project.playlist[selRow0]);
                     // Preview Track plays the clip once (manual p.232, MANUAL_AUDIT #11).
@@ -529,6 +540,16 @@ void SongScreen::update(uint32_t now) {
     // start / screen entry / leaving edit mode); in between Up/Down browse
     // the list (USER_REPORTS_R2 §4; spec 06 §2.6 does not say whether stock
     // re-copies on every tick).
+    // The F1 run's start time (App sets it the pass after playback starts).
+    if (patPending_) {
+        if (!a.seq.isPlaying()) {
+            patPending_ = false;
+            patSlot_ = -1;
+        } else if (a.playStartMs() != patStartSeen_) {
+            patRun_ = a.playStartMs();
+            patPending_ = false;
+        }
+    }
     if (a.seq.isPlaying() && (a.seq.isSongMode() || loopInSong_) && !edit) {
         const int pos = a.seq.songPosition();
         if (pos != followPos_) {
@@ -557,8 +578,7 @@ void SongScreen::draw(Gfx& g) {
     const int n = length();
     gListTop = wg::listFollow(cursor, n, kRows, gListTop);
     const int first = gListTop;
-    const int playing =
-        a.seq.isPlaying() && (a.seq.isSongMode() || loopInSong_) ? a.seq.songPosition() : -1;
+    const int playing = playingRow();
 
     // Song control (class 0x12) at (1, 29, 697, 394) with the fade.
     wg::panel(g, th, 1, wg::kPanelY, 697, wg::kPanelH, th.slot(slot::kSongList + 3));
