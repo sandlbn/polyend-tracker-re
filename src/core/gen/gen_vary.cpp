@@ -30,10 +30,38 @@ bool hasNote(const Step& s) { return s.note >= 0; }
 
 enum TaStyle { kRolls = 0, kStutter, kDrop, kReverseStyle, kBuild, kMixStyle };
 
-void editTail(Track& tr, int a, int e, int style, float inten, Rng& r) {
+struct TaCfg {
+    float inten;
+    float rollMax;     // hits per step at the strongest point (FX level: 2 / 4 / 8)
+    int volFloor;      // Build: the volume ramp starts here (70 / 50 / 30)
+    bool tidy;         // drop Micro-move inside the edited tails
+};
+
+// Copies the hit of `src` (note, instrument, a Slice FX), not its other FX.
+void copyHit(Step& dst, const Step& src) {
+    dst.clear();
+    dst.note = src.note;
+    dst.instrument = src.instrument;
+    for (const StepFx& f : src.fx)
+        if (f.type == kFxSliceId) putFx(dst, f.type, f.value);
+}
+
+bool rollOn(const Step& s) {
+    for (const StepFx& f : s.fx)
+        if (f.type == kFxRoll && f.value) return true;
+    return false;
+}
+
+void dropFx(Step& s, uint8_t type) {
+    for (StepFx& f : s.fx)
+        if (f.type == type) f = StepFx{};
+}
+
+void editTail(Track& tr, int a, int e, int style, const TaCfg& c, Rng& r, int trackEnd) {
     if (a < 0) a = 0;
     const int len = e - a + 1;
     if (len <= 0) return;
+    const float inten = c.inten;
     // The last hit at or before the tail start (stutter / roll source).
     int src = -1;
     for (int i = a; i >= 0; --i)
@@ -47,45 +75,57 @@ void editTail(Track& tr, int a, int e, int style, float inten, Rng& r) {
                 src = i;
                 break;
             }
+    const Step srcStep = src >= 0 ? tr.steps[src] : Step{};
+    bool reversed = false;
     for (int i = a; i <= e; ++i) {
         Step& st = tr.steps[i];
+        if (c.tidy) dropFx(st, kFxMicroMove);
         const float ramp = len > 1 ? float(i - a) / float(len - 1) : 1.0f;   // 0 .. 1 over the tail
         switch (style) {
             case kRolls:
-                if (hasNote(st) && r.coin(0.35f + 0.65f * inten)) forceFx(st, kFxRoll, rollValue(2.0f + 14.0f * ramp * inten));
+                // Rolls on the hits, faster towards the end, up to rollMax.
+                if (hasNote(st) && r.coin(0.3f + 0.6f * inten)) {
+                    const float hits = 2.0f + (c.rollMax - 2.0f) * ramp * inten;
+                    forceFx(st, kFxRoll, rollValue(hits < 2.0f ? 2.0f : hits));
+                }
                 break;
             case kStutter:
-                if (src >= 0 && r.coin(0.4f + 0.6f * inten)) {
-                    st = tr.steps[src];
-                    if (ramp > 0.5f) forceFx(st, kFxRoll, rollValue(ramp > 0.85f ? 4.0f : 2.0f));
+                // The source hit repeated (clean copies), a roll on the last steps.
+                if (src >= 0 && r.coin(0.35f + 0.55f * inten)) {
+                    copyHit(st, srcStep);
+                    if (ramp > 0.7f && c.rollMax >= 4) forceFx(st, kFxRoll, rollValue(2.0f));
                 }
                 break;
             case kDrop:
-                // Silence into the downbeat; the tail's first step cuts the sound.
-                if (i == a) {
+                // A short gap into the downbeat: the last steps cut, the rest stays.
+                if (i >= e - (len > 2 ? (inten > 0.6f ? 2 : 1) : 0)) {
                     st.clear();
-                    st.note = kNoteOff;
-                } else if (r.coin(0.5f + 0.5f * inten)) {
-                    st.clear();
+                    if (i == e - (len > 2 ? (inten > 0.6f ? 2 : 1) : 0)) st.note = kNoteOff;
                 }
                 break;
             case kReverseStyle:
-                if (hasNote(st) && r.coin(0.4f + 0.6f * inten)) forceFx(st, kFxReverse, 1);
+                // One reversed hit (two when strong), not the whole tail.
+                if (hasNote(st) && !reversed && r.coin(0.3f + 0.5f * ramp)) {
+                    forceFx(st, kFxReverse, 1);
+                    reversed = inten < 0.7f;
+                }
                 break;
             case kBuild:
-                if (src >= 0 && !hasNote(st) && r.coin(inten)) {
-                    const Step s0 = tr.steps[src];
-                    st.note = s0.note;
-                    st.instrument = s0.instrument;
-                }
+                if (src >= 0 && !hasNote(st) && r.coin(inten * 0.8f)) copyHit(st, srcStep);
                 if (hasNote(st)) {
-                    forceFx(st, kFxRoll, rollValue(1.0f + 15.0f * ramp * ramp * (0.4f + 0.6f * inten), 0));
-                    int vol = int(35.0f + 65.0f * ramp);
+                    const float hits = 1.0f + (c.rollMax - 1.0f) * ramp * ramp * (0.4f + 0.6f * inten);
+                    if (hits >= 1.5f) forceFx(st, kFxRoll, rollValue(hits, 0));
+                    int vol = int(float(c.volFloor) + float(100 - c.volFloor) * ramp);
                     forceFx(st, kFxVolume, uint8_t(vol > 100 ? 100 : vol));
                 }
                 break;
             default: break;
         }
+    }
+    // A roll goes on until the next note: end it at the downbeat after the tail.
+    if (rollOn(tr.steps[e])) {
+        const int nx = e + 1 <= trackEnd ? e + 1 : -1;
+        if (nx >= 0 && !hasNote(tr.steps[nx]) && !rollOn(tr.steps[nx])) forceFx(tr.steps[nx], kFxRoll, 0);
     }
 }
 
@@ -93,11 +133,18 @@ void editTail(Track& tr, int a, int e, int style, float inten, Rng& r) {
 
 void genTurnaround(const int16_t* v, Target& t, Rng& rng, Result& r) {
     static const int kBars[4] = {1, 2, 4, 8};
+    static const float kRollMax[3] = {2.0f, 4.0f, 8.0f};
+    static const int kVolFloor[3] = {70, 50, 30};
     const int bar = 4 * (t.stepsPerBeat > 0 ? t.stepsPerBeat : 4);
     const int phrase = kBars[v[0]] * bar;
     const int budget = v[1];
     const int styleSel = v[2];
-    const float inten = v[3] / 100.0f;
+    TaCfg c;
+    c.inten = v[3] / 100.0f;
+    const int lvl = v[4] < 0 || v[4] > 2 ? 0 : v[4];
+    c.rollMax = kRollMax[lvl];
+    c.volFloor = kVolFloor[lvl];
+    c.tidy = v[6] == 0;
     int edits = 0;
     for (int tr = t.t0; tr <= t.t1; ++tr) {
         Track& track = t.pat->tracks[tr];
@@ -114,7 +161,7 @@ void genTurnaround(const int16_t* v, Target& t, Rng& rng, Result& r) {
             const int style = styleSel == kMixStyle ? rng.below(5) : styleSel;
             int a = e - tail + 1;
             if (a < t.s0) a = t.s0;
-            editTail(track, a, e, style, inten, rng);
+            editTail(track, a, e, style, c, rng, t.s1);
             ++edits;
         }
     }

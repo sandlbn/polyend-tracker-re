@@ -1,7 +1,9 @@
 // Live generators (OT fork): what keeps running while the sequencer plays.
 //
-//  * BBCut play modes B1..B10: their cut tables are rebuilt whenever the
-//    sequencer is stopped, so every play start gets a new cut set.
+//  * BBCut play modes B1..B10: new cut tables at every stop, every N loops
+//    while playing, or locked (Config > BB play modes); procedure A / B from
+//    the Generate popup.
+//  * BBCut Mutate (up to kBBSlots selections): new cuts every N loops.
 //  * Acid: a track written by Acid stays "live" (up to kAcidSlots tracks):
 //      - Density follows the Perform FX "Acid Density" (-7..+7 on top of the
 //        generated density, on the tracks the FX is on), changing the notes
@@ -23,6 +25,7 @@ class App;
 namespace live {
 
 constexpr int kAcidSlots = 4;
+constexpr int kBBSlots = 2;
 
 // Main loop, every pass (App::loop).
 void service(App& a);

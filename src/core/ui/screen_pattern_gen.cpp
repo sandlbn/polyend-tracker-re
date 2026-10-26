@@ -357,12 +357,19 @@ void PatternScreen::drawGenPreview(Gfx& g, int x, int y, int w, int h) {
     const int rows = (n + per - 1) / per;
     const int rowH = rows > 0 ? (h - 4) / rows : 1;
     const int laneW = (w - 4) / lanes;
+    // A step's height: its note, or its slice (Slice FX) in Slice mode.
+    auto key = [](const Step& st) {
+        for (const StepFx& f : st.fx)
+            if (f.type == 25) return 24 + int(f.value);
+        return int(st.note);
+    };
     // Note range of the result.
     int lo = 127, hi = 0;
     for (int ln = 0; ln < lanes; ++ln) {
         const Track& tr = pp.tracks[ln == 0 ? genPrevT0_ : genPrevT1_];
         for (int i = 0; i < n; ++i) {
-            const int nt = tr.steps[genPrevS0_ + i].note;
+            const Step& st = tr.steps[genPrevS0_ + i];
+            const int nt = st.note >= 0 ? key(st) : -1;
             if (nt >= 0) {
                 lo = nt < lo ? nt : lo;
                 hi = nt > hi ? nt : hi;
@@ -386,7 +393,7 @@ void PatternScreen::drawGenPreview(Gfx& g, int x, int y, int w, int h) {
                 const bool accent = (st.fx[0].type == 18 && st.fx[0].value >= 100) ||
                                     (st.fx[1].type == 18 && st.fx[1].value >= 100);
                 if (pass < 2 && st.note >= 0 && accent == (pass == 1)) {
-                    const int nx = lx + (span > 0 ? (st.note - lo) * (laneW - bw - 2) / span : (laneW - bw) / 2);
+                    const int nx = lx + (span > 0 ? (key(st) - lo) * (laneW - bw - 2) / span : (laneW - bw) / 2);
                     g.rectsAdd(nx, ry, bw, rh);
                 } else if (pass == 2) {
                     if (st.note == kNoteOff) g.rectsAdd(lx + 2, ry + rh / 2, laneW - 6, 1);

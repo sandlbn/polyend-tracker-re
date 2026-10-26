@@ -73,6 +73,14 @@ struct Config {
     // fork's palettes; the stock image keeps `theme` = their base theme).
     uint8_t sliceDetector = 0;
     uint8_t uiTheme = 0;
+    // OT fork, extension record bytes 5..8: BB play modes re-cut (0 at every
+    // stop, 1..4 every 1 / 2 / 4 / 8 loops, 5 locked), Beat Slice sample-thru
+    // (0 off: a slice ends at the next slice, 1 on: plays to the sample end),
+    // two bytes kept for later options.
+    uint8_t bbReseed = 0;
+    uint8_t sliceThru = 0;
+    uint8_t extReserved[2] = {};
+    static constexpr uint8_t kBBLocked = 5;
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;
 
@@ -95,7 +103,7 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 1;
-    static constexpr uint32_t kExtPayload = 4;               // cpuMeter, synthVoices, sliceDetector, uiTheme
+    static constexpr uint32_t kExtPayload = 8;   // cpuMeter, synthVoices, sliceDetector, uiTheme, bbReseed, sliceThru, 2 reserved
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

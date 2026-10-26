@@ -47,6 +47,10 @@ const char* const kGeneralHelp[] = {
     // OT fork.
     "How Auto Slice in Sample Playback finds the slices. Stock: the original detector, a quarter second or more "
     "apart. Breaks: a spectral onset detector that finds every hit of a fast break (46 ms apart at least).",
+    "When the BBCut play modes B1..B10 (Performance, Pattern Play Mode) get new cuts: at every stop, every 1, 2, "
+    "4 or 8 loops while playing, or never (Locked keeps the cuts you like).",
+    "Beat Slice instruments: Off, a slice plays until the next slice starts. On, a slice plays on to the end of "
+    "the sample (until the next note), good for BBCut and long chops.",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {

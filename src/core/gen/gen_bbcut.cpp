@@ -13,7 +13,14 @@
 //     BBenCut pre-renders those to WAV for the same reason (clips have a
 //     minimum length, steps have a grid).
 //
-// The ten procedures BBenCut exposes are here, with the same defaults.
+// Nine of the ten procedures BBenCut exposes are here with the same defaults
+// (CageCut, Timeline, Permute and ThrashCut with OT changes, see each), and
+// "Jungle" (OT) in the place of ChooseBlock: classic amen-style edits of the
+// break in eighths (double snares, kick shifts, repeats, a snare fill every
+// N bars). Options for every procedure: how sub-step runs are written (Roll
+// FX styles, a pitch slide on the roll, stutters, single hits), a random
+// pitch per hit (+-1..3 semitones), and whether Micro-move / Volume FX are
+// written at all.
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -33,7 +40,7 @@ namespace {
 enum Proc : uint8_t {
     kClassic = 0,   // BBCutProc11
     kChooseCut,
-    kChooseBlock,
+    kJungle,
     kWarpCut,
     kSQPusher1,
     kSQPusher2,
@@ -43,7 +50,7 @@ enum Proc : uint8_t {
     kThrash,
 };
 
-const char* const kProcNames[kBBProcCount] = {"Classic", "ChooseCut", "ChooseBlk", "WarpCut", "SQPusher1",
+const char* const kProcNames[kBBProcCount] = {"Classic", "ChooseCut", "Jungle", "WarpCut", "SQPusher1",
                                               "SQPusher2", "CageCut", "Timeline", "Permute", "ThrashCut"};
 
 const char* const kSubdiv5[5] = {"4", "6", "8", "12", "16"};
@@ -52,17 +59,20 @@ const char* const kFillEvery[4] = {"1 bar", "2 bars", "4 bars", "8 bars"};
 const char* const kQuant[3] = {"Off", "1/16", "1/8"};
 const char* const kTimelines[5] = {"3+3+2", "3+2+3", "2+3+3", "5+3", "2+2+3+1"};
 const char* const kSubdiv3[3] = {"4", "8", "16"};
+const char* const kFillEvery3[3] = {"1 bar", "2 bars", "4 bars"};
 
 // Parameters A / B per procedure (nullptr name = none).
 const ParamDesc kProcParams[kBBProcCount][2] = {
     {{"Repeats", 0, 100, 20, nullptr}, {"Subdiv", 0, 4, 2, kSubdiv5}},
     {{"Roll", 0, 100, 10, nullptr}, {"Roll area", 0, 3, 2, kRollArea}},
-    {{nullptr, 0, 0, 0, nullptr}, {nullptr, 0, 0, 0, nullptr}},
+    {{"Edits", 0, 100, 50, nullptr, "Jungle: how many amen-style edits per bar"},
+     {"Fill every", 0, 2, 1, kFillEvery3, "Jungle: a snare fill at the end of every N bars"}},
     {{"Straight", 0, 100, 50, nullptr}, {"Accel", 50, 99, 90, nullptr}},
     {{"Activity", 0, 100, 10, nullptr}, {"Fill every", 0, 3, 2, kFillEvery}},
     {{"Scramble", 0, 100, 0, nullptr}, {"Quantise", 0, 2, 0, kQuant}},
-    {{nullptr, 0, 0, 0, nullptr}, {nullptr, 0, 0, 0, nullptr}},
-    {{"Timeline", 0, 4, 0, kTimelines}, {nullptr, 0, 0, 0, nullptr}},
+    {{"Shuffle", 0, 100, 50, nullptr, "CageCut: chance a block plays another part of the break"},
+     {nullptr, 0, 0, 0, nullptr}},
+    {{"Timeline", 0, 4, 0, kTimelines}, {"Shuffle", 0, 100, 40, nullptr, "Timeline: chance a block plays another part, and a random rotation"}},
     {{"Subdiv", 0, 2, 1, kSubdiv3}, {"Shuffle", 0, 100, 50, nullptr}},
     {{"Stop", 0, 100, 13, nullptr}, {"Snare at", 0, 100, 13, nullptr}},
 };
@@ -283,21 +293,54 @@ void chooseCut(State& s) {
     b.offBeats = s.phrasepos;
 }
 
-void chooseBlock(State& s) {
+// Jungle (OT): the bar in eighths of the source bar, with amen-style edits
+// (A = how many): a double snare, a double kick, the kick again on 3-and, the
+// first half repeated, a snare pair at the end, two late eighths swapped; a
+// snare fill (16ths, then 32nds) at the end of every B bars. Snares are taken
+// from beats 2 and 4 of the source bar.
+void jungle(State& s) {
     Rng& r = *s.r;
-    Block& b = s.out;
-    if (s.phrasepos >= s.cpl) newPhrase(s, s.loopBeats);
-    const float left = s.cpl - s.phrasepos;
-    static const float kVals[3] = {0.5f, 1, 2}, kW[3] = {0.5f, 0.4f, 0.1f};
-    b.len = wchoose3(r, kVals, kW);
-    if (b.len > left) b.len = left;
-    static const int kShort[3] = {4, 8, 16}, kLong[3] = {8, 16, 32};
-    const int reps = b.len < 1.0f ? r.pick(kShort) : r.pick(kLong);
-    const float size = b.len / float(reps);
-    setCuts(b, reps, size);
-    b.c[b.n - 1].ioi = b.c[b.n - 1].dur = size + (b.len - size * float(reps));
-    b.roll = false;
-    b.offBeats = s.phrasepos;
+    static const int kEvery[3] = {1, 2, 4};
+    if (s.phrasepos >= s.cpl - 0.001f) {
+        newPhrase(s, 4.0f);
+        const float amt = s.a / 100.0f;
+        const int bars = s.loopBeats >= 4 ? int(s.loopBeats / 4.0f + 0.5f) : 1;
+        const float barOff = s.loopBeats >= 4 ? float((s.phrase - 1) % bars) * 4.0f : 0;
+        int src[8];
+        for (int k = 0; k < 8; ++k) src[k] = k;
+        if (r.coin(amt * 0.5f)) src[3] = 2;     // double snare
+        if (r.coin(amt * 0.4f)) src[1] = 0;     // double kick
+        if (r.coin(amt * 0.35f)) src[5] = 4;    // kick again on 3-and
+        if (r.coin(amt * 0.3f))
+            for (int k = 4; k < 8; ++k) src[k] = src[k - 4];   // the first half again
+        if (r.coin(amt * 0.25f)) {               // a snare pair at the end
+            src[6] = 2;
+            src[7] = 3;
+        }
+        if (r.coin(amt * 0.2f)) {
+            const int a = 4 + r.below(4), b = 4 + r.below(4), t = src[a];
+            src[a] = src[b];
+            src[b] = t;
+        }
+        const bool fill = (s.phrase % kEvery[s.b < 0 || s.b > 2 ? 1 : s.b]) == 0;
+        const float snare = barOff + (r.coin(0.5f) ? 1.0f : 3.0f);
+        seqBegin(s);
+        for (int k = 0; k < 8; ++k) {
+            Cut cuts[4];
+            int n = 0;
+            if (fill && k >= 6) {
+                const int hits = k == 6 ? 2 : 4;
+                const float sp = std::fmod(snare, s.loopBeats) / s.loopBeats;
+                for (int h = 0; h < hits; ++h) cuts[n++] = Cut{0.5f / float(hits), 0.5f / float(hits), sp, 1};
+            } else {
+                const float off = std::fmod(barOff + float(src[k]) * 0.5f, s.loopBeats);
+                cuts[n++] = Cut{0.5f, 0.5f, off / s.loopBeats, 1};
+            }
+            seqAdd(s, cuts, n);
+        }
+    }
+    seqTake(s, false);
+    s.out.roll = false;
 }
 
 void warpCut(State& s) {
@@ -452,61 +495,98 @@ void sqPusher2(State& s) {
     s.out.roll = false;
 }
 
+// CageCut: three blocks of three cuts in one of four proportions (OT: the
+// form and its inner form are drawn per phrase, and A = Shuffle: chance a cut
+// plays another eighth of the break instead of its own place).
 void cageCut(State& s) {
+    Rng& r = *s.r;
     if (s.phrasepos >= s.cpl - 0.001f) {
         newPhrase(s, s.loopBeats);
-        static const float kForm[3] = {0.5f, 0.25f, 0.25f};   // already sums to 1
+        static const float kForms[4][3] = {
+            {0.5f, 0.25f, 0.25f}, {0.25f, 0.5f, 0.25f}, {0.25f, 0.25f, 0.5f}, {1 / 3.0f, 1 / 3.0f, 1 / 3.0f}};
+        const float* f = kForms[r.below(4)];
+        const float* g = kForms[r.below(4)];
+        const int eighths = int(s.cpl * 2.0f + 0.5f) > 0 ? int(s.cpl * 2.0f + 0.5f) : 1;
         seqBegin(s);
+        float pos = 0;
         for (int bl = 0; bl < 3; ++bl) {
             Cut cuts[3];
             for (int c = 0; c < 3; ++c) {
-                const float d = s.cpl * kForm[bl] * kForm[c];
-                cuts[c] = Cut{d, d, -1, 1};
+                const float d = s.cpl * f[bl] * g[c];
+                float src = pos;
+                if (r.coin(s.a / 100.0f)) src = float(r.below(eighths)) * 0.5f;
+                cuts[c] = Cut{d, d, std::fmod(src, s.loopBeats) / s.loopBeats, 1};
+                pos += d;
             }
             seqAdd(s, cuts, 3);
         }
     }
-    seqTake(s);
+    seqTake(s, false);
     s.out.roll = false;
 }
 
+// Timeline: the phrase cut in the proportions of a timeline (3+3+2 ...).
+// OT: B = Shuffle: chance of a random rotation of the timeline per phrase and
+// chance a block plays another eighth of the break.
 void timeline(State& s) {
+    Rng& r = *s.r;
     static const float kT[5][5] = {{3, 3, 2}, {3, 2, 3}, {2, 3, 3}, {5, 3}, {2, 2, 3, 1}};
     if (s.phrasepos >= s.cpl - 0.001f) {
         newPhrase(s, s.loopBeats);
-        const float* t = kT[s.a];
+        const float* t = kT[s.a < 0 || s.a > 4 ? 0 : s.a];
         float sum = 0;
         int n = 0;
         while (n < 5 && t[n] > 0) sum += t[n++];
+        const float shuffle = s.b / 100.0f;
+        const int rot = r.coin(shuffle) ? r.below(n) : 0;
+        const int eighths = int(s.cpl * 2.0f + 0.5f) > 0 ? int(s.cpl * 2.0f + 0.5f) : 1;
         seqBegin(s);
+        float pos = 0;
         for (int i = 0; i < n; ++i) {
-            const Cut c{s.cpl * t[i] / sum, s.cpl * t[i] / sum, -1, 1};
+            const float d = s.cpl * t[(i + rot) % n] / sum;
+            float src = pos;
+            if (r.coin(shuffle)) src = float(r.below(eighths)) * 0.5f;
+            const Cut c{d, d, std::fmod(src, s.loopBeats) / s.loopBeats, 1};
             seqAdd(s, &c, 1);
+            pos += d;
         }
     }
-    seqTake(s);
+    seqTake(s, false);
     s.out.roll = false;
 }
 
+// Permute: the phrase in A subdivisions played in a permuted order. OT: the
+// permutation is one of eight musical ones in eighth groups (identity, half
+// repeats, swapped halves, pairs reversed, ...), drawn per phrase with
+// chance B (Shuffle); with Shuffle high some slots also swap inside a pair.
 void permute(State& s) {
     Rng& r = *s.r;
     Block& b = s.out;
     static const int kSd[3] = {4, 8, 16};
+    static const uint8_t kPerm[8][8] = {
+        {0, 1, 2, 3, 4, 5, 6, 7}, {0, 1, 2, 3, 0, 1, 6, 7}, {0, 1, 2, 3, 4, 5, 2, 3}, {0, 3, 2, 1, 4, 7, 6, 5},
+        {0, 1, 0, 1, 2, 3, 6, 7}, {4, 5, 6, 7, 0, 1, 2, 3}, {0, 1, 6, 7, 4, 5, 2, 3}, {0, 1, 2, 2, 4, 5, 6, 6}};
     if (s.phrasepos >= s.cpl - 0.001f) {
         newPhrase(s, s.loopBeats);
-        s.subdiv = kSd[s.a];
+        s.subdiv = kSd[s.a < 0 || s.a > 2 ? 1 : s.a];
         s.bpsd = s.cpl / float(s.subdiv);
         s.stepIndex = 0;
+        s.whichRiff = r.coin(s.b / 100.0f) ? 1 + r.below(7) : 0;
     }
     const float left = s.cpl - s.phrasepos;
     b.len = s.bpsd;
     if (b.len > left - 0.001f) b.len = left;
     setCuts(b, 1, b.len);
-    // The BBCut default permutation is the identity; Shuffle swaps in a
-    // random subdivision (OT addition, so the procedure does something).
-    int idx = s.stepIndex % s.subdiv;
-    if (r.coin(s.b / 100.0f)) idx = r.below(s.subdiv);
-    b.offProp = float(idx) / float(s.subdiv);
+    const int k = s.stepIndex % s.subdiv;
+    int idx;
+    if (s.subdiv >= 8) {
+        const int unit = s.subdiv / 8;
+        idx = int(kPerm[s.whichRiff][(k / unit) % 8]) * unit + k % unit;
+    } else {
+        idx = int(kPerm[s.whichRiff][(k * 2) % 8]) / 2;
+    }
+    if (r.coin(s.b / 400.0f)) idx ^= 1;   // a swap inside the pair
+    b.offProp = float(idx % s.subdiv) / float(s.subdiv);
     b.roll = false;
     s.stepIndex += 1;
 }
@@ -574,19 +654,20 @@ void thrash(State& s) {
                 amp = 0.0f;
             }
             const float off = rawOff < 0.5f ? kick : snare;
+            amp = amp <= 0.001f ? 0.0f : 1.0f;   // OT: no accents / volume steps, only the stop
             Cut cuts[8];
             int n = 0;
             float bl = e.len;
             if (type > 1) {
                 if (type == 5) {
                     const int count = int(e.x[0]);
-                    for (int i = 0; i < count && n < 8; ++i) cuts[n++] = Cut{bl / count, bl / count * duty, off, i == 0 ? amp * 1.1f : amp};
+                    for (int i = 0; i < count && n < 8; ++i) cuts[n++] = Cut{bl / count, bl / count * duty, off, amp};
                 } else {
                     static const float kDiv[3] = {0.34f, 0.33f, 0.33f};
-                    for (int i = 0; i < 3; ++i) cuts[n++] = Cut{bl * kDiv[i], bl * kDiv[i] * duty, off, i == 0 ? amp * 1.1f : amp};
+                    for (int i = 0; i < 3; ++i) cuts[n++] = Cut{bl * kDiv[i], bl * kDiv[i] * duty, off, amp};
                 }
             } else {
-                cuts[n++] = Cut{bl, bl * duty, off, amp * 1.1f};
+                cuts[n++] = Cut{bl, bl * duty, off, amp};
             }
             if (bl > left) {
                 bl = left;
@@ -608,7 +689,7 @@ void chooseblockFor(State& s) {
     switch (s.type) {
         case kClassic: classic(s); break;
         case kChooseCut: chooseCut(s); break;
-        case kChooseBlock: chooseBlock(s); break;
+        case kJungle: jungle(s); break;
         case kWarpCut: warpCut(s); break;
         case kSQPusher1: sqPusher1(s); break;
         case kSQPusher2: sqPusher2(s); break;
@@ -716,6 +797,22 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r) {
     s.unitsdone = s.totalunits = 0;
     s.phrase = 0;
 
+    // Options (page 2): how runs of short cuts are written, a random pitch
+    // per hit, and whether Micro-move / Volume FX are written.
+    enum RollStyle { kRollClean, kRollFadeOut, kRollFadeIn, kRollUp, kRollDown, kRollStutter, kRollSingle };
+    const int rollStyle = v[6] < 0 || v[6] > 6 ? 0 : v[6];
+    const int pitchRange = v[7] < 0 || v[7] > 3 ? 0 : v[7];
+    const bool timing = v[8] == 0 && s.type != kThrash;
+    const bool dynamics = v[9] == 0;
+    Rng prng(rng.s ^ 0x7F4A7C15u);   // pitch draws: the cuts stay the same with or without them
+    auto pitchHit = [&](Step& sp) {
+        if (pitchRange <= 0 || sp.note < 0) return;
+        const int d = prng.range(-pitchRange, pitchRange);
+        if (d == 0) return;
+        if (t.slices.beatSlice) putFx(sp, kFxTune, uint8_t(24 + d));    // the note picks the slice
+        else sp.note = int8_t(sp.note + d);                              // Slice mode: unity note +- d
+    };
+
     const int spb = t.stepsPerBeat > 0 ? t.stepsPerBeat : 4;
     const int nSteps = t.s1 - t.s0 + 1;
     const float total = float(nSteps) / float(spb);
@@ -771,13 +868,14 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r) {
                             continue;
                         }
                         writeSliceHit(sp, t.slices, sl, t.instrument);
-                        if (d == 0 && frac >= 0.1f) putFx(sp, kFxMicroMove, uint8_t(frac * 100.0f + 0.5f));
-                        if (c.amp < 0.95f || c.amp > 1.05f) {
+                        if (d == 0 && timing && frac >= 0.1f) putFx(sp, kFxMicroMove, uint8_t(frac * 100.0f + 0.5f));
+                        if (dynamics && (c.amp < 0.95f || c.amp > 1.05f)) {
                             int vol = int(c.amp * 100.0f / 1.1f + 0.5f);
                             putFx(sp, kFxVolume, uint8_t(vol > 100 ? 100 : vol));
                         }
                         if (d == span - 1 && durSteps < ioiSteps * 0.9f && durSteps - float(d) < 1.0f)
                             putFx(sp, kFxGate, uint8_t(5.0f + (durSteps - float(d)) * 95.0f));
+                        if (d == 0) pitchHit(sp);
                     }
                     if (c.amp <= 0.001f) break;
                 }
@@ -806,11 +904,33 @@ void genBBCut(const int16_t* v, Target& t, Rng& rng, Result& r) {
                     for (int tr = t.t0; tr <= t.t1; ++tr) {
                         Step& sp = p.tracks[tr].steps[t.s0 + st];
                         sp.clear();
+                        if (rollStyle == kRollSingle) {
+                            if (st == st0) {
+                                writeSliceHit(sp, t.slices, slice, t.instrument);
+                                pitchHit(sp);
+                            }
+                            continue;
+                        }
+                        if (rollStyle == kRollStutter) {   // a fresh hit on every step, no Roll FX
+                            writeSliceHit(sp, t.slices, slice, t.instrument);
+                            if (st != st0) putFx(sp, kFxGate, 50);
+                            continue;
+                        }
                         if (st == st0) writeSliceHit(sp, t.slices, slice, t.instrument);
-                        putFx(sp, kFxRoll, rollValue(float(cnt)));
+                        const int type = rollStyle == kRollFadeOut ? 1 : (rollStyle == kRollFadeIn ? 2 : 0);
+                        putFx(sp, kFxRoll, rollValue(float(cnt), type));
+                        if (st == st0 && rollStyle == kRollUp) putFx(sp, kFxSlideUp, 24);
+                        if (st == st0 && rollStyle == kRollDown) putFx(sp, kFxSlideDown, 24);
                     }
                     ++rolls;
                 }
+                // A roll keeps going until the next note: end it where the run
+                // ends (a hit written there later replaces this).
+                if (rollStyle != kRollSingle && rollStyle != kRollStutter && st1 < nSteps)
+                    for (int tr = t.t0; tr <= t.t1; ++tr) {
+                        Step& sp = p.tracks[tr].steps[t.s0 + st1];
+                        if (sp.note < 0 && sp.fx[0].type == 0 && sp.fx[1].type == 0) putFx(sp, kFxRoll, 0);
+                    }
                 cpos = runEnd;
                 i = j - 1;
             }

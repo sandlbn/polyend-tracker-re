@@ -21,8 +21,14 @@ const char* const kCrEnding[5] = {"Style", "Resolve", "Open", "Rise", "Fall"};
 const char* const kCrOct[3] = {"Same", "+1 oct", "-1 oct"};
 const char* const kCrMotif[4] = {"Auto", "2", "3", "4"};
 const char* const kBBSource[6] = {"Auto", "1 beat", "2 beats", "1 bar", "2 bars", "4 bars"};
+const char* const kBBMutate[5] = {"Off", "1 loop", "2 loops", "4 loops", "8 loops"};
+const char* const kBBRolls[7] = {"Clean", "Fade out", "Fade in", "Pitch up", "Pitch down", "Stutter", "Single"};
+const char* const kBBPitch[4] = {"Off", "+-1", "+-2", "+-3"};
+const char* const kOnOff[2] = {"On", "Off"};
 const char* const kTaPhrase[4] = {"1 bar", "2 bars", "4 bars", "8 bars"};
 const char* const kTaStyle[6] = {"Rolls", "Stutter", "Drop", "Reverse", "Build", "Mix"};
+const char* const kTaFx[3] = {"Soft", "Medium", "Hard"};
+const char* const kTaTiming[2] = {"Tidy", "Keep"};
 const char* const kGtMode[3] = {"Markov", "Ball", "Ball+Markov"};
 const char* const kStSource[4] = {"RDS name", "PI code", "Frequency", "All"};
 const char* const kStMode[2] = {"Notes", "Slices"};
@@ -62,17 +68,22 @@ KindDesc gKinds[kKindCount] = {
       {"A", 0, 100, 50, nullptr, nullptr},
       {"B", 0, 100, 50, nullptr, nullptr},
       {"Source", 0, 5, 0, kBBSource, "Length of the break: Auto from the sample length at the song tempo"},
-      NONE,
+      {"Mutate", 0, 4, 0, kBBMutate, "Live: new cuts (a new seed) every N loops while it plays"},
       SEED,
-      NONE, NONE, NONE, NONE, NONE, NONE}},
+      {"Rolls", 0, 6, 0, kBBRolls, "Cuts shorter than a step: Roll FX styles, a pitch slide, a hit per step, one hit"},
+      {"Pitch", 0, 3, 0, kBBPitch, "Random pitch per hit in semitones (Tune FX on Beat Slice)"},
+      {"Timing", 0, 1, 0, kOnOff, "Micro-move for cuts between steps"},
+      {"Dynamics", 0, 1, 0, kOnOff, "Volume FX for quieter / louder cuts"},
+      NONE, NONE}},
     {"Turnaround", "Phrase-end rolls, stutters and drops on a budget",
      {{"Phrase", 0, 3, 1, kTaPhrase, "Phrase length: every phrase, half and quarter phrase end gets edits"},
       {"Budget", 1, 16, 4, nullptr, "Steps of edits at a phrase end"},
       {"Style", 0, 5, 5, kTaStyle, "Kind of edits"},
       {"Intensity", 0, 100, 60, nullptr, "How strong and how many the edits are"},
-      NONE,
+      {"FX", 0, 2, 0, kTaFx, "How hard the FX hit: roll speed up to 2 / 4 / 8 per step, build volume from 70 / 50 / 30"},
       SEED,
-      NONE, NONE, NONE, NONE, NONE, NONE}},
+      {"Timing", 0, 1, 0, kTaTiming, "Tidy: no Micro-move inside the edited steps. Keep: leave it as it was"},
+      NONE, NONE, NONE, NONE, NONE}},
     {"Genotype", "Learn the track, play a variation of it",
      {{"Mode", 0, 2, 2, kGtMode, "Markov walk over the learnt steps, a bouncing TILT ball, or both"},
       {"Identity", 0, 100, 60, nullptr, "Chance a step stays as it was"},

@@ -43,6 +43,8 @@ const char* const kThemes[] = {"Original",   "Monochrome", "Anniversary",    "Ea
                                "Jungle", "Ice", "Sunset", "Teletext"};
 static_assert(sizeof(kThemes) / sizeof(kThemes[0]) == kThemeTotal, "one label per theme");
 const char* const kSliceModes[] = {"Stock", "Breaks"};
+const char* const kBBReseed[] = {"New at stop", "Every loop", "Every 2 loops", "Every 4 loops", "Every 8 loops", "Locked"};
+const char* const kSliceThru[] = {"Off", "On"};
 const char* const kFonts[] = {"Original", "New"};
 const char* const kRegions[] = {"Europe", "US", "Australia", "Japan"};
 const char* const kPreview[] = {"Off", "Track", "Pattern"};
@@ -96,6 +98,8 @@ const Opt kGeneral[] = {
     // [I] 2.x: the synth voice budget (governor budget B, OPTIMIZATION_2X item 10 / OP-8).
     {"Synth voices", kNum, kCfg, CF(synthVoices), 1, Config::kMaxSynthVoices, nullptr, 0},
     {"Auto slice", kEnum, kCfg, CF(sliceDetector), 0, 2, kSliceModes, 0},   // OT fork
+    {"BB play modes", kEnum, kCfg, CF(bbReseed), 0, 6, kBBReseed, 0},       // OT fork
+    {"Beat Slice thru", kEnum, kCfg, CF(sliceThru), 0, 2, kSliceThru, 0},   // OT fork
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},

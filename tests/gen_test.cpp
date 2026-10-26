@@ -273,6 +273,100 @@ TEST(bbcut_slice_mode_and_errors) {
     CHECK(std::strstr(r.msg, "slice") != nullptr);
 }
 
+// A fingerprint of track 0 steps 0..63 (notes and FX).
+uint32_t trackHash() {
+    uint32_t h = 2166136261u;
+    for (int s = 0; s < 64; ++s) {
+        const Step& st = g_pat.tracks[0].steps[s];
+        const uint8_t b[6] = {uint8_t(st.note), st.instrument, st.fx[0].type, st.fx[0].value, st.fx[1].type, st.fx[1].value};
+        for (uint8_t x : b) h = (h ^ x) * 16777619u;
+    }
+    return h;
+}
+
+// CageCut, Timeline (and the rest): another seed, another result.
+TEST(bbcut_seeds_differ) {
+    int16_t v[gen::kParams];
+    for (int proc = 0; proc < gen::kBBProcCount; ++proc) {
+        defaults(gen::kBBCut, v);
+        v[0] = int16_t(proc);
+        for (int i = 1; i < 3; ++i) v[i] = gen::param(gen::kBBCut, i, v).def;
+        v[3] = 3;   // 1 bar source
+        uint32_t first = 0;
+        int different = 0;
+        for (int seed = 1; seed <= 6; ++seed) {
+            v[5] = int16_t(seed * 37);
+            gen::Target t = slicedTarget(0, 63);
+            CHECK(gen::generate(gen::kBBCut, v, t).ok);
+            const uint32_t h = trackHash();
+            if (seed == 1) first = h;
+            else different += h != first;
+        }
+        CHECK(different >= 3);
+    }
+}
+
+// ThrashCut writes no Volume and no Micro-move; Timing / Dynamics Off remove
+// them everywhere; Pitch adds Tune FX on Beat Slice; runs end their roll.
+TEST(bbcut_options) {
+    int16_t v[gen::kParams];
+    defaults(gen::kBBCut, v);
+    v[0] = 9;   // ThrashCut
+    for (int i = 1; i < 3; ++i) v[i] = gen::param(gen::kBBCut, i, v).def;
+    auto count = [](uint8_t type) {
+        int n = 0;
+        for (int s = 0; s < 64; ++s)
+            for (const StepFx& f : g_pat.tracks[0].steps[s].fx) n += f.type == type;
+        return n;
+    };
+    for (int seed = 1; seed < 8; ++seed) {
+        v[5] = int16_t(seed);
+        gen::Target t = slicedTarget(0, 63);
+        CHECK(gen::generate(gen::kBBCut, v, t).ok);
+        CHECK_EQ(count(gen::kFxVolume), 0);
+        CHECK_EQ(count(gen::kFxMicroMove), 0);
+    }
+    defaults(gen::kBBCut, v);
+    v[0] = 3;   // WarpCut: many rolls
+    for (int i = 1; i < 3; ++i) v[i] = gen::param(gen::kBBCut, i, v).def;
+    v[8] = 1;   // Timing off
+    v[9] = 1;   // Dynamics off
+    v[7] = 2;   // Pitch +-2
+    int tunes = 0, rolls = 0;
+    for (int seed = 1; seed < 8; ++seed) {
+        v[5] = int16_t(seed);
+        gen::Target t = slicedTarget(0, 63);
+        CHECK(gen::generate(gen::kBBCut, v, t).ok);
+        CHECK_EQ(count(gen::kFxMicroMove), 0);
+        CHECK_EQ(count(gen::kFxVolume), 0);
+        tunes += count(gen::kFxTune);
+        // A roll runs until the next note: after a run comes a note or a roll end.
+        auto rollOn = [](const Step& st) {
+            for (const StepFx& f : st.fx)
+                if (f.type == gen::kFxRoll && f.value) return true;
+            return false;
+        };
+        for (int s = 0; s < 63; ++s) {
+            const Step& a = g_pat.tracks[0].steps[s];
+            const Step& b = g_pat.tracks[0].steps[s + 1];
+            if (rollOn(a)) ++rolls;
+            if (rollOn(a) && !rollOn(b)) {
+                bool end = b.note >= 0;
+                for (const StepFx& f : b.fx) end = end || (f.type == gen::kFxRoll && f.value == 0);
+                CHECK(end);
+            }
+        }
+        CHECK(patternValid());
+    }
+    CHECK(tunes > 0);
+    CHECK(rolls > 0);
+    // Single: no Roll FX at all.
+    v[6] = 6;
+    gen::Target t = slicedTarget(0, 63);
+    CHECK(gen::generate(gen::kBBCut, v, t).ok);
+    CHECK_EQ(count(gen::kFxRoll), 0);
+}
+
 TEST(slice_for_offset) {
     uint16_t st[4] = {0, 16384, 32768, 49152};
     gen::Slices s;
@@ -308,7 +402,8 @@ TEST(turnaround_styles) {
         CHECK(r.ok);
         CHECK(patternValid());
     }
-    // Drop: the bar end (step 31 with 2-bar phrase, budget 4) is silenced.
+    // Drop: the last steps before the phrase end (2-bar phrase, budget 4,
+    // strong) are cut, an OFF two steps before it; the rest stays.
     gen::Target t = target(0, 63);
     for (int s = 0; s < 64; ++s) g_pat.tracks[0].steps[s].note = 48;
     v[0] = 1;
@@ -317,8 +412,10 @@ TEST(turnaround_styles) {
     v[3] = 100;
     v[5] = 11;
     gen::generate(gen::kTurnaround, v, t);
-    CHECK_EQ(int(g_pat.tracks[0].steps[28].note), int(kNoteOff));
-    CHECK_EQ(int(g_pat.tracks[0].steps[60].note), int(kNoteOff));
+    CHECK_EQ(int(g_pat.tracks[0].steps[29].note), int(kNoteOff));
+    CHECK_EQ(int(g_pat.tracks[0].steps[61].note), int(kNoteOff));
+    CHECK(g_pat.tracks[0].steps[31].note < 0 && g_pat.tracks[0].steps[31].note != kNoteOff);
+    CHECK_EQ(int(g_pat.tracks[0].steps[28].note), 48);
     CHECK_EQ(int(g_pat.tracks[0].steps[10].note), 48);
 }
 

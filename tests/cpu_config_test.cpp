@@ -35,7 +35,7 @@ TEST(cpu_config_extension_record) {
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 4, 1, 4, 0, 0, 5);   // OT fork: + sliceDetector, uiTheme
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 8, 1, 4, 0, 0, 0, 0, 0, 0, 5);   // OT fork: + sliceDetector, uiTheme, bbReseed, sliceThru, 2 reserved
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -77,7 +77,7 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 4, 0, 6, 0, 0, 6);   // OT fork payload 4
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 1, 8, 0, 6, 0, 0, 0, 0, 0, 0, 6);   // OT fork payload 8
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -197,4 +197,22 @@ TEST(ot_fork_extension_fields) {
     Config t;
     CHECK(t.load(nv2));
     CHECK_EQ(t.uiTheme, 2);
+    // BB play modes and Beat Slice thru (payload bytes 5 and 6).
+    FakeNvStore nv3;
+    Config b;
+    b.bbReseed = 3;
+    b.sliceThru = 1;
+    CHECK(b.save(nv3));
+    Config br;
+    CHECK(br.load(nv3));
+    CHECK_EQ(br.bbReseed, 3);
+    CHECK_EQ(br.sliceThru, 1);
+    // A 4-byte payload record (2.2.1-semi) leaves them at their defaults.
+    const uint8_t old4[] = {'O', 'T', 'X', 1, 4, 0, 4, 1, 3, 8};
+    for (size_t i = 0; i < sizeof(old4); ++i) nv3.mem[0xF4 + i] = old4[i];
+    CHECK(br.load(nv3));
+    CHECK_EQ(br.sliceDetector, 1);
+    CHECK_EQ(br.uiTheme, 3);
+    CHECK_EQ(br.bbReseed, 0);
+    CHECK_EQ(br.sliceThru, 0);
 }

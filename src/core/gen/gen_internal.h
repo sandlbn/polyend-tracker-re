@@ -17,6 +17,9 @@ constexpr uint8_t kFxGate = 20;
 constexpr uint8_t kFxSliceId = 25;
 constexpr uint8_t kFxReverse = 26;
 constexpr uint8_t kFxLowPass = 27;
+constexpr uint8_t kFxTune = 40;       // 0..48 = -24..+24 semitones
+constexpr uint8_t kFxSlideUp = 41;
+constexpr uint8_t kFxSlideDown = 42;
 
 // Roll FX value for "hits per step" (sequencer kRollPeriod: 1,2,3,4,6,8,12,16)
 // and a roll type (0 constant, 1.. the volume ramps; value = type * 9 + rate).
