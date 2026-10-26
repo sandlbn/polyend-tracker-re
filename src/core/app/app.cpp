@@ -416,14 +416,22 @@ void App::loop() {
         }
         return;
     }
-    // Audio output mute line (spec 01 §5.4, spec 05 §1.9): unmuted only once
-    // the start-up project has loaded, and muted while a project loads, as on
-    // stock; unmuting at audio start gave a crack at power-on (R3-4).
-    if (hal_.audio) {
+    // Audio output mute line (spec 01 §5.4, spec 05 §1.9): unmuted once the
+    // start-up project has loaded (unmuting at audio start gave a crack at
+    // power-on, R3-4), then left on. Stock mutes it around the export render
+    // (spec 04 §6.1 setup), not around project loads: toggling it there
+    // clicked at "Opening project" and after it (#63).
+    // [I] Unmuted kUnmuteSettleMs after the load: unmuting right away still
+    // popped at power-on; 500 ms later was silent (device test, #63).
+    if (hal_.audio && !outputOn_) {
         const bool loading = jobBusy() && (jobOp() == JobOp::LoadWorkspace || jobOp() == JobOp::Open);
-        if (outputOn_ == loading) {
-            outputOn_ = !loading;
-            hal_.audio->setOutputEnabled(outputOn_);
+        if (loading) {
+            unmuteFrom_ = 0;
+        } else if (unmuteFrom_ == 0) {
+            unmuteFrom_ = now ? now : 1;
+        } else if (now - unmuteFrom_ >= kUnmuteSettleMs) {
+            outputOn_ = true;
+            hal_.audio->setOutputEnabled(true);
         }
     }
     // 2.x USB Storage mode: the computer owns the card. Only the UI (the mode

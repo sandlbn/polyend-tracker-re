@@ -633,6 +633,8 @@ private:
     volatile uint32_t patternEnds_ = 0;
     volatile bool patternEditedFromSeq_ = false;
     bool outputOn_ = false;    // audio mute line state (setOutputEnabled)
+    uint32_t unmuteFrom_ = 0;  // start-up load finished at (ms), 0 = not yet
+    static constexpr uint32_t kUnmuteSettleMs = 500;
     bool booted_ = false;
     bool usbActive_ = false;   // USB Storage mode: the computer owns the card
     bool wasPlaying_ = false;
