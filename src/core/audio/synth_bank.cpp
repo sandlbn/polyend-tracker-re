@@ -479,6 +479,8 @@ void SynthBank::startOn(int r, int track, int s, const SynthNote& n, float bend,
     V.v.bend = V.v.bendStart = bend;
     V.bendTarget = target;
     V.bendStep = step;
+    V.live = track >= kSynthLiveTrack0 && track < kSynthAllTracks;
+    V.liveBend = 0.0f;
     V.vel = n.velocity;
     V.sendD = noteSendD_;
     V.sendR = noteSendR_;
@@ -645,6 +647,8 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
             V.v.bend = V.v.bendStart = bend;
             V.bendTarget = target;
             V.bendStep = step;
+            V.live = track >= kSynthLiveTrack0 && track < kSynthAllTracks;
+            V.liveBend = 0.0f;
             V.vel = note.velocity;
             V.sendD = noteSendD_;
             V.sendR = noteSendR_;
@@ -885,8 +889,21 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         for (int r = 0; r < kSynthMaxVoices; ++r) {
             Voice& V = voices_[r];
             if (V.state == kFree || V.v.slot != s) continue;
+            // Live MIDI pitch bend (live tracks): added to bend and its
+            // target; a note started this block takes it at once, a sounding
+            // one ramps to it over the block like the step-FX pitch.
+            float lb = 0.0f;
+            if (V.live && (lb = liveBend_ - V.liveBend) != 0.0f) {
+                V.liveBend += lb;
+                V.bendTarget += lb;
+                if (V.fresh) {
+                    V.v.bend += lb;
+                    lb = 0.0f;
+                }
+            }
             // Step-FX pitch: move bend towards its target.
             V.v.bendStart = V.v.bend;
+            V.v.bend += lb;
             if (V.v.bend != V.bendTarget) {
                 const float d = V.bendTarget - V.v.bend;
                 V.v.bend = (V.bendStep <= 0.0f || std::fabs(d) <= V.bendStep) ? V.bendTarget

@@ -420,6 +420,11 @@ public:
     // One accepted Control Change (after the Config "CC in" port/channel
     // filter): Performance (screen active), master levels, instrument map.
     void handleControlChange(uint8_t cc, uint8_t value);
+    // 2.x: an accepted MIDI input pitch bend (after the "Notes in" filter).
+    // Live notes only, +-kLiveBendSemis: sample instruments bend their track
+    // voice, synth slots their live voices, MIDI instruments get it forwarded.
+    void handlePitchBend(uint8_t lsb, uint8_t msb);
+    static constexpr float kLiveBendSemis = 2.0f;   // [I] the common default range
     // Performance screen hook for CC 41-48 / 51-62 (task B4); null = ignore.
     PerformanceCcSink* perfCc = nullptr;
     // Instrument chosen in the MIDI Mapping list (appendix C §1 +0x335,
@@ -603,6 +608,7 @@ private:
     // 0 = free) and the next one to take when all are held.
     uint16_t synthLive_[4] = {};
     uint8_t synthLiveNext_ = 0;
+    float liveBend_ = 0.0f;         // last MIDI input pitch bend (semitones)
     char loadNotice_[64] = {};      // first problem of the last load (one notice)
     uint8_t patDirty_[32] = {};
     bool projectDirty_ = false, namesDirty_ = false, configDirty_ = false, configForce_ = false;

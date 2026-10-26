@@ -308,6 +308,7 @@ void Voice::noteOn(const Instrument* ins, const int16_t* data, uint32_t frames, 
                    const StreamSource* stream, StreamRing* ring) {
     if (!ins || !data || frames == 0) return;
     noteVolume_ = volume;
+    bendSemis_ = 0.0f;
     for (auto& m : mods_) m.stepOn = curStep0_;   // S_on latch at note-on (spec 07 Q5)
     slotType_[0] = slotValue_[0] = slotType_[1] = slotValue_[1] = 0;
     rebuildOverrides();
@@ -503,6 +504,7 @@ float Voice::computeRate() const {
         if (idx > 0) rate += (t[idx - 1] - t[idx]) * (-c) / 100.0f;
     }
     if (slideSemis_ != 0.0f) rate *= std::exp2(slideSemis_ / 12.0f);
+    if (const float b = bendSemis_; b != 0.0f) rate *= std::exp2(b / 12.0f);
     return clampf(rate, t[0], t[kPitchTableSize - 1]);
 }
 

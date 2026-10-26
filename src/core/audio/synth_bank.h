@@ -148,6 +148,9 @@ public:
     // velocity, else 0..100. Main loop; the audio block starts it.
     void liveOn(int k, int s, uint8_t note, int8_t volume);
     void liveOff(int k);
+    // 2.x live MIDI input pitch bend in semitones for every note the live
+    // tracks started (releases included). Main loop; the audio block applies it.
+    void setLiveBend(float semis) { liveBend_ = semis; }
 
     // --- audio context (sequencer sink, AudioEngine) -------------------------
     void noteOn(int track, const SynthNoteOn& n);
@@ -181,7 +184,7 @@ public:
     int voicesOf(int s) const;   // sounding (not fading) voices of slot s
     // The voice a track holds (nullptr: none); UI voice-activity row / tests.
     const SynthVoice* voiceOfTrack(int track) const {
-        if (track < 0 || track > kSynthTracks || trackVoice_[track] < 0) return nullptr;
+        if (track < 0 || track >= kSynthAllTracks || trackVoice_[track] < 0) return nullptr;
         return &voices_[trackVoice_[track]].v;
     }
     int busyRecords() const;     // records in use (sounding + fading)
@@ -203,6 +206,8 @@ private:
         float vel = 1.0f;        // M7 (0..1)
         float bendTarget = 0.0f; // step-FX pitch target (semitones)
         float bendStep = 0.0f;   // semitones per block towards bendTarget
+        float liveBend = 0.0f;   // live pitch bend already added into bend / bendTarget
+        bool live = false;       // started on a live track (follows setLiveBend)
         uint8_t state = kFree;
         int8_t track = -1;       // holder (-1 none)
         int8_t pending = -1;     // pend_[] entry started on this record after its fade
@@ -325,6 +330,7 @@ private:
     // Only the final state of a track counts, so no note-off can be lost;
     // render() alone reads it (never the main-loop noteOn path).
     volatile uint32_t live_[kSynthLiveTracks] = {};
+    volatile float liveBend_ = 0.0f;            // setLiveBend (main loop -> audio)
     uint8_t liveSeen_[kSynthLiveTracks] = {};   // audio side: last serial
     uint8_t liveSerial_[kSynthLiveTracks] = {}; // main loop: last serial
     void liveDrain();

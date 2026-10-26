@@ -142,6 +142,10 @@ public:
 
     // Introspection for tests / UI.
     float rate() const { return targetRate_ + glideOff_; }
+    // 2.x live MIDI input pitch bend in semitones (0 none): main loop, set
+    // after noteOn(); every noteOn() clears it, so sequenced notes on the
+    // track never inherit it. Applied from the next block.
+    void setBend(float semis) { bendSemis_ = semis; }
     float modOutput(int slot) const { return mods_[slot].out; }
     float envelopeLevel() const { return env_.level(); }
     // Play position (absolute sample frame) while the player runs, -1 otherwise.
@@ -236,6 +240,7 @@ private:
     float glideOff_ = 0.0f, glideInc_ = 0.0f;
     uint32_t glideLeft_ = 0;
     float slideSemis_ = 0.0f;
+    volatile float bendSemis_ = 0.0f;   // live pitch bend (setBend)
     bool slidePending_ = false, slideActive_ = false;
     int8_t slideDirNew_ = 0;
     uint8_t slideValNew_ = 0;

@@ -358,6 +358,9 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
         n.volume = vel >= 127 ? int8_t(-1) : int8_t((vol * 100 + 63) / 127);
         engine.voiceNoteOff(uint8_t(track), NoteOffMode::Off);
         engine.voiceNoteOn(uint8_t(track), n);
+        // A MIDI input note starts at the held pitch bend.
+        if (voiceId >= kAuditionMidiIn && voiceId < kAuditionMidiIn + 128 && liveBend_ != 0.0f)
+            engine.voiceSetBend(uint8_t(track), liveBend_);
     }
     r.busy = true;
     r.midi = midi;
@@ -553,8 +556,12 @@ bool App::patternInSong(int num) const {
 
 void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
     const uint8_t type = st & 0xF0;
-    // Only note on / off have handlers; pitch bend, aftertouch, program
-    // change and SysEx are ignored (spec 17 §1.2, §1.5).
+    // Stock handles only note on / off; pitch bend, aftertouch, program
+    // change and SysEx are ignored (spec 17 §1.2, §1.5). 2.x adds pitch bend.
+    if (type == 0xE0) {
+        handlePitchBend(d1, d2);
+        return;
+    }
     if (type != 0x80 && type != 0x90) return;
     // Middle C transposition: n' = clamp(n + 12 * (MiddleC - 2), 0, 127).
     int n = int(d1 & 127) + 12 * (int(cfg.middleC > 3 ? 2 : cfg.middleC) - 2);
@@ -600,6 +607,29 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
         if (seq.isRecording()) seq.liveNoteOff(note);
         previewOff(voice, rect.t0);
     }
+}
+
+void App::handlePitchBend(uint8_t lsb, uint8_t msb) {
+    const int v = int(msb & 127) << 7 | int(lsb & 127);   // 0..16383, 8192 centre
+    liveBend_ = float(v - 8192) * (kLiveBendSemis / 8192.0f);
+    // MIDI channels to forward to: the held MIDI-instrument input notes and
+    // the current instrument (the wheel may move before a key is played).
+    uint16_t chans = 0;
+    for (int t = 0; t < kAuditionTracks; ++t) {
+        const Audition& r = aud_[t];
+        if (!r.busy || r.id < kAuditionMidiIn || r.id >= kAuditionMidiIn + 128) continue;
+        if (r.midi) chans |= uint16_t(1u << (r.ch & 15));
+        else if (t < audio::kVoices) engine.voiceSetBend(uint8_t(t), liveBend_);
+    }
+    const uint8_t ci = currentInstrument();
+    if (isMidiInstrument(ci)) chans |= uint16_t(1u << ((ci - kFirstMidiInstrument) & 15));
+    if (hal_.midi)
+        for (int ch = 0; ch < 16; ++ch)
+            if (chans & (1u << ch)) {
+                const uint8_t msg[3] = {uint8_t(0xE0 | ch), uint8_t(lsb & 127), uint8_t(msb & 127)};
+                routeMidi(*hal_.midi, uint8_t(cfg.midiOut & 3), msg, 3);
+            }
+    engine.synth().setLiveBend(liveBend_);
 }
 
 uint8_t App::ccTargetInstrument() const {

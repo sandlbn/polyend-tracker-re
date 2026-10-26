@@ -331,6 +331,10 @@ public:
     // ISequencerSink (spec 03 §6).
     void voiceNoteOn(uint8_t track, const VoiceNoteOn& n) override;
     void voiceNoteOff(uint8_t track, NoteOffMode mode) override;
+    // 2.x live MIDI input pitch bend of the note on a track (Voice::setBend).
+    void voiceSetBend(uint8_t track, float semis) {
+        if (track < kVoices) voices_[track].setBend(semis);
+    }
     void voiceApplyFx(uint8_t track, uint8_t slot, uint8_t type, uint8_t value) override;
     void resetAllVoiceFx() override;
     void engineBlockUpdate(float smoothedTempoBpm) override { tempo_ = smoothedTempoBpm > 0.0f ? smoothedTempoBpm : tempo_; }
