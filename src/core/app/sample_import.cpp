@@ -113,11 +113,13 @@ void sinkWrite(void* ctx, const int16_t* smp, uint32_t n) {
 
 }  // namespace
 
-ImportRoute App::importRoute(const char* path, int slot) {
+ImportRoute App::importRoute(const char* path, int slot, uint32_t* bankBytes) {
+    if (bankBytes) *bankBytes = 0;
     if (!path || slot < 0 || slot >= kSampleInstrumentCount) return ImportRoute::Unreadable;
     Source s;
     if (!probe(fs(), path, s)) return ImportRoute::Unreadable;
     const uint64_t bytes = uint64_t(s.frames) * (s.stereo ? 2u : 1u) * 2u;
+    if (bankBytes) *bankBytes = bytes > 0xFFFFFFFFu ? 0xFFFFFFFFu : uint32_t(bytes);
     const uint64_t others = uint64_t(bank.usedBytes()) - uint64_t(bank.samples(slot)) * 2u;
     const uint64_t cap = uint64_t(bank.capacityBytes()) - uint64_t(bank.reserved()) * 2u;
     if (others + bytes <= cap) return ImportRoute::Fits;
@@ -131,7 +133,9 @@ ImportRoute App::importRoute(const char* path, int slot) {
     uint16_t lp1 = s.wav ? (instrPresent[slot] ? instruments[slot].loopPoint1 : 0) : s.ins.loopPoint1;
     if (!audio::AudioEngine::streamablePlayMode(pm)) pm = uint8_t(PlayMode::OneShot);
     const StreamResident r = streamResident(pm, s.frames, lp1);
-    if (others + uint64_t(r.framesPerChannel()) * (s.stereo ? 2u : 1u) * 2u > cap) return ImportRoute::NoMemory;
+    const uint64_t head = uint64_t(r.framesPerChannel()) * (s.stereo ? 2u : 1u) * 2u;
+    if (others + head > cap) return ImportRoute::NoMemory;
+    if (bankBytes) *bankBytes = uint32_t(head);
     const uint64_t free = fs().freeBytes();
     if (free != UINT64_MAX && free < ptiFileSize(s.frames, s.stereo)) return ImportRoute::CardFull;
     return ImportRoute::Streams;
@@ -220,8 +224,17 @@ bool App::startStreamedImport(const char* path, int slot, void (*done)(void*, bo
     }
     j.userDone = done;
     j.userCtx = ctx;
-    return startExternalJob("Importing", &App::importUnitThunk, &App::importPercentThunk, this, &App::importDoneThunk,
-                            this);
+    if (!startExternalJob("Importing - Delete cancels", &App::importUnitThunk, &App::importPercentThunk, this,
+                          &App::importDoneThunk, this))
+        return false;
+    ui.progressCancel(
+        [](void* c) {
+            App& a = *static_cast<App*>(c);
+            std::snprintf(a.importNotice_, sizeof(a.importNotice_), "Import cancelled");
+            a.abortJob();
+        },
+        this);
+    return true;
 }
 
 int App::importUnitThunk(void* ctx, uint32_t& cost) { return static_cast<App*>(ctx)->importUnit(cost); }

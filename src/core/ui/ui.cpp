@@ -821,6 +821,12 @@ void Ui::handle(const InputEvent& ev, uint32_t now) {
 
 void Ui::dispatchButton(uint8_t id, uint8_t state) {
     Screen* s = current();
+    if (progressOpen_ && progCancel_ && id == btn::Delete && state == kPress) {
+        void (*fn)(void*) = progCancel_;
+        progCancel_ = nullptr;
+        fn(progCancelCtx_);
+        return;
+    }
     if (!s || progressOpen_) return;
     // Up / Down while Master is held act on its hold state like the Jog
     // (manual p.16; MANUAL_AUDIT_2026-10-23 #3).

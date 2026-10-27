@@ -349,6 +349,11 @@ private:
     void startTrim();
     void moveCursor(int d);
     void doAdd(bool next);
+    // Add from the selection's i-th entry (n samples placed so far): a
+    // file that streams (SD streaming C14) runs as a background import and
+    // the rest continues from its done callback.
+    void addFrom(int i, int n);
+    static void streamedDone(void* ctx, bool ok);
     bool entryPath(int i, char* out, int cap) const;
     uint32_t now() const { return ui_.now(); }
     LoaderList* list_ = static_cast<LoaderList*>(browserListMem());
@@ -361,6 +366,7 @@ private:
     uint32_t projected_ = 0;
     bool over_ = false;
     bool addNext_ = false;
+    int addI_ = 0, addN_ = 0;   // C14: where a streamed import resumes the Add
     int copySrc_ = -1, copyCount_ = 0;
     bool previewing_ = false;
     uint32_t pendingProjAt_ = 0;

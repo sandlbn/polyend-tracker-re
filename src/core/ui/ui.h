@@ -342,7 +342,17 @@ public:
     void closeAsk() { askOpen_ = false; dirty(); }
     // Blocking-operation progress: draws a frame immediately.
     void progress(const char* title, int percent);
-    void progressDone() { progressOpen_ = false; dirty(); }
+    void progressDone() {
+        progressOpen_ = false;
+        progCancel_ = nullptr;
+        dirty();
+    }
+    // The open progress popup can be cancelled with Delete (SD streaming
+    // C14 import): fn(ctx) runs on the press. Cleared by progressDone().
+    void progressCancel(void (*fn)(void*), void* ctx) {
+        progCancel_ = fn;
+        progCancelCtx_ = ctx;
+    }
     // Background-operation progress (spec 05 §1.3 progress popup): updates
     // the popup without drawing; the main loop redraws it.
     void setProgress(const char* title, int percent);
@@ -565,6 +575,8 @@ private:
 
     bool progressOpen_ = false;
     char progTitle_[40] = {};
+    void (*progCancel_)(void*) = nullptr;
+    void* progCancelCtx_ = nullptr;
     int progPct_ = 0;
     uint32_t bootDrawnAt_ = 0;            // boot splash frames (no screen yet)
     bool bootDrawn_ = false;

@@ -431,8 +431,12 @@ void LoaderScreen::memoryProjection() {
     for (int i = f; i <= l; ++i) {
         if (isDir[i]) continue;
         entryPath(i, path, sizeof(path));
-        used += a.sampleBytesNeeded(path);
         const int slot = insCursor + (i - f);
+        // The whole sample when it fits (or cannot stream: the bar turns
+        // red), only its head when it will stream from the card (C14).
+        uint32_t b = 0;
+        if (slot < kSampleInstrumentCount) a.importRoute(path, slot, &b);
+        used += b;
         if (slot < kSampleInstrumentCount) used -= a.bank.samples(slot) * 2;
     }
     projected_ = uint32_t(used);
@@ -557,24 +561,49 @@ void LoaderScreen::enter() {
 }
 
 void LoaderScreen::doAdd(bool next) {
+    addNext_ = next;
+    int f, l;
+    listRange(true, &f, &l);
+    addFrom(f, 0);
+}
+
+void LoaderScreen::addFrom(int i, int n) {
     App& a = app_;
     int f, l;
     listRange(true, &f, &l);
-    int n = 0;
     char path[kPathMax + 1];
-    for (int i = f; i <= l; ++i) {
+    for (; i <= l; ++i) {
         if (isDir[i]) continue;
         entryPath(i, path, sizeof(path));
         const int slot = insCursor + n;
         if (slot >= kSampleInstrumentCount) break;
+        if (a.importRoute(path, slot) == ImportRoute::Streams) {
+            // Too big for the memory: converted onto the card and streamed
+            // (a background job; the Add goes on when it is done).
+            ui_.progressDone();
+            addI_ = i + 1;
+            addN_ = n + 1;
+            if (a.startStreamedImport(path, slot, &LoaderScreen::streamedDone, this)) return;
+            ui_.notify(a.importNotice()[0] ? a.importNotice() : "Import failed", 3000);
+            ++n;
+            continue;
+        }
         ui_.progress("Loading", (i - f) * 100 / (l - f + 1));
         if (!a.importSample(path, slot)) ui_.notify("Import failed");
         ++n;
     }
     ui_.progressDone();
-    if (next) insCursor = clampi(insCursor + n, 0, 47);
+    if (addNext_) insCursor = clampi(insCursor + n, 0, 47);
     a.setCurrentInstrument(insCursor);
     memoryProjection();
+    refreshBar();
+}
+
+void LoaderScreen::streamedDone(void* ctx, bool ok) {
+    LoaderScreen& s = *static_cast<LoaderScreen*>(ctx);
+    const char* msg = s.app_.importNotice();
+    s.ui_.notify(msg[0] ? msg : (ok ? "Streams from the card" : "Import failed"), 3000);
+    s.addFrom(s.addI_, s.addN_);
 }
 
 void LoaderScreen::add(bool next) {
@@ -599,8 +628,27 @@ void LoaderScreen::add(bool next) {
     memoryProjection();
     if (over_) {
         // [I] Say why when a resample take holds the memory (#7); otherwise
-        // the red memory bar shows it, as stock.
-        if (a.bank.reserved()) ui_.notify("Sample memory is reserved by the resample take", 3000);
+        // the red memory bar shows it, as stock. SD streaming C14: a file
+        // too big to stream names the reason (Stream from card Off, ...).
+        if (a.bank.reserved()) {
+            ui_.notify("Sample memory is reserved by the resample take", 3000);
+            return;
+        }
+        char path[kPathMax + 1];
+        for (int i = f, n = 0; i <= l; ++i) {
+            if (isDir[i]) continue;
+            entryPath(i, path, sizeof(path));
+            const ImportRoute r = a.importRoute(path, insCursor + n++);
+            const char* why = r == ImportRoute::Off        ? "Not enough memory: turn on Config > Stream from card"
+                              : r == ImportRoute::TooMany  ? "16 instruments already stream from the card"
+                              : r == ImportRoute::CardFull ? "Not enough space on the SD card"
+                              : r == ImportRoute::NoMemory ? "Not enough sample memory"
+                                                           : nullptr;
+            if (why) {
+                ui_.notify(why, 3000);
+                break;
+            }
+        }
         return;
     }
     bool occupied = false;

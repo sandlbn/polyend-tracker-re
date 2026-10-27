@@ -13,6 +13,7 @@
 #include "formats/file_io.h"
 #include "formats/instrument_pti.h"
 #include "formats/wav.h"
+#include "ui/screens.h"
 
 using namespace ot;
 
@@ -221,4 +222,79 @@ TEST(stale_import_tmp_removed_at_load) {
     h.fs.files["Workspace/instruments/import.tmp"] = std::vector<uint8_t>(1000, 1);
     CHECK(a.loadWorkspace());
     CHECK(!h.fs.files.count("Workspace/instruments/import.tmp"));
+}
+
+// ---- Sample Loader (C14d) ---------------------------------------------------
+
+namespace {
+LoaderScreen& ld(Harness& h) { return *static_cast<LoaderScreen*>(h.app->ui.screen(kModLoader)); }
+// Loader open on /Samples with the cursor on `file`.
+bool onFile(Harness& h, const char* file) {
+    h.tap(btn::SampleLoader);
+    LoaderScreen& l = ld(h);
+    auto find = [&](const char* want) {
+        char b[wg::kListItemCap];
+        for (int i = 0; i < l.count; ++i) {
+            l.entryLabel(i, b, sizeof(b));
+            if (std::string(b) == want) return i;
+        }
+        return -1;
+    };
+    int i = find("/Samples");
+    if (i < 0) return false;
+    l.sdCursor = i;
+    h.tap(btn::F1);   // enter the folder
+    i = find(file);
+    if (i < 0) return false;
+    l.sdCursor = i;
+    return true;
+}
+}  // namespace
+
+TEST(loader_add_long_wav_streams) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    CHECK(onFile(h, "long.wav"));
+    h.tap(btn::F1);         // Add
+    CHECK(!ld(h).over());   // the bar counts only the streamed head
+    CHECK(a.jobBusy());
+    CHECK(std::string(a.ui.progressTitle()).find("Delete cancels") != std::string::npos);
+    for (int k = 0; k < 400 && a.jobBusy(); ++k) h.run(20);
+    CHECK(!a.jobBusy());
+    CHECK(a.streamed(0));
+    CHECK(std::string(a.ui.notice()).find("Streams from the card") != std::string::npos);
+}
+
+TEST(loader_add_too_big_with_streaming_off_says_why) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 0);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/huge.wav"] = makeWav(2500000, 1, 44100, 3);
+    CHECK(onFile(h, "huge.wav"));
+    h.tap(btn::F1);
+    CHECK(ld(h).over());
+    CHECK(!a.jobBusy());
+    CHECK(!a.instrPresent[0]);
+    CHECK(std::string(a.ui.notice()).find("Stream from card") != std::string::npos);
+}
+
+TEST(loader_delete_cancels_the_import) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/long.wav"] = makeWav(1800000, 1, 44100, 3);
+    CHECK(onFile(h, "long.wav"));
+    h.tap(btn::F1);
+    CHECK(a.jobBusy());
+    h.tap(btn::Delete);
+    for (int k = 0; k < 20 && a.jobBusy(); ++k) h.run(20);
+    CHECK(!a.jobBusy());
+    CHECK(!a.instrPresent[0]);
+    CHECK(!h.fs.files.count("Workspace/instruments/import.tmp"));
+    CHECK(std::string(a.ui.notice()).find("cancelled") != std::string::npos);
 }

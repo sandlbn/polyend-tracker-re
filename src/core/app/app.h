@@ -367,7 +367,9 @@ public:
     // loads its head and streams the rest. The old instrument stays until
     // the new one is in place. False (importNotice() says why) when the
     // route is not Streams or the job could not start.
-    ImportRoute importRoute(const char* path, int slot);
+    // bankBytes (optional): what the slot then holds in the sample memory
+    // (the whole sample when it fits, the streamed head when it streams).
+    ImportRoute importRoute(const char* path, int slot, uint32_t* bankBytes = nullptr);
     bool startStreamedImport(const char* path, int slot, void (*done)(void* ctx, bool ok) = nullptr,
                              void* ctx = nullptr);
     const char* importNotice() const { return importNotice_; }
