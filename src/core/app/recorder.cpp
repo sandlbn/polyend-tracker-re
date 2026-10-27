@@ -93,7 +93,9 @@ int App::resampleTarget(uint32_t n, bool* inPlace, bool* fits) const {
     if (fits) *fits = true;
     const int into = int(resampleCfg.into) - 1;
     if (into >= 0 && into < kSampleInstrumentCount) {
-        if (bank.loaded(into)) {
+        if (streamed(into)) {
+            // Only its head is in the bank: never overwritten in place.
+        } else if (bank.loaded(into)) {
             const uint32_t old = bank.frames(into);
             const uint32_t d = n > old ? n - old : old - n;
             if (bank.stereo(into) && (n == 0 || d <= kResampleFitFrames)) {

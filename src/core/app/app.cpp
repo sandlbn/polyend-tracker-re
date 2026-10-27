@@ -62,6 +62,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     // spec 04: delay/reverb memory and the sample pool are caller-provided (SDRAM).
     if (!engine.init(mem_.fxMemory, mem_.fxSamples, mem_.sampleBank, mem_.sampleBankSamples, instruments))
         return false;
+    for (auto& v : stream_.streamOf) v = -1;   // SD streaming: every slot in RAM
     engine.setMidiOut(hal_.midi);
     engine.setPreBlockHook(&App::preBlockThunk, this);
     // Tempo-locked LFO phase (spec 07 Q5).
@@ -445,6 +446,7 @@ void App::loop() {
     }
     // Card pulled while running: "Please insert SD card" screen until it returns.
     if (serviceCardRemoved(*this, now)) return;
+    serviceStreams(now);   // SD streaming: refill the rings (never without a card / in USB mode)
     // Input.
     if (hal_.input) {
         InputEvent ev;
@@ -1044,6 +1046,22 @@ uint8_t App::recordVolume(uint8_t instrument) const {
 
 void App::markInstrumentDirty(int i, bool sample) {
     if (i < 0 || i >= kSampleInstrumentCount) return;
+    if (streamed(i)) {
+        // Only the head is resident: the payload is never rewritten
+        // ("Load into memory" runs before any sample edit).
+        sample = false;
+        audio::StreamSource& s = stream_.src[stream_.streamOf[i]];
+        const Instrument& in = instruments[i];
+        // A moved loop point: the resident loop head is stale; wraps read
+        // the new loop start from the card.
+        if (s.loopFrames && uint32_t(uint64_t(s.frames) * in.loopPoint1 / 65535u) != s.loopStart) s.loopFrames = 0;
+        if (audio::AudioEngine::streamablePlayMode(in.playMode)) {
+            stream_.warnedMode[i] = 0xFF;
+        } else if (stream_.warnedMode[i] != in.playMode) {
+            stream_.warnedMode[i] = in.playMode;
+            ui.notify("Streamed sample: load it into memory for this play mode", 3000);
+        }
+    }
     instrHeaderDirty_[i] = true;
     if (sample) instrSampleDirty_[i] = true;
     unsaved_ = true;
@@ -1147,4 +1165,73 @@ void App::syncRecorderSettings() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §1.3-1.4)
+
+void App::applyStreamOption() {
+    const size_t cap = mem_.sampleBankSamples;
+    const bool want = (cfg.streamMode != 0 || streamTestEnable) && hal_.streamReader &&
+                      cap >= 2u * audio::kStreamRegionSamples;
+    if (stream_.on || want) streamUnbindAll();
+    const size_t region = want ? audio::kStreamRegionSamples : 0;
+    bank.init(mem_.sampleBank, cap - region);   // clears the bank
+    if (want)
+        for (int v = 0; v < audio::kVoices; ++v) {
+            stream_.rings[v] = audio::StreamRing{};
+            stream_.rings[v].bufL = mem_.sampleBank + (cap - region) + size_t(2 * v) * audio::kStreamRingFrames;
+            stream_.rings[v].bufR = stream_.rings[v].bufL + audio::kStreamRingFrames;
+        }
+    engine.setStreamRings(want ? stream_.rings : nullptr);
+    stream_.on = want;
+}
+
+void App::streamUnbindAll() {
+    if (hal_.streamReader) hal_.streamReader->unbindAll();
+    for (int i = 0; i < kSampleInstrumentCount; ++i) {
+        engine.setStreamSource(i, nullptr);
+        stream_.streamOf[i] = -1;
+        stream_.warnedMode[i] = 0xFF;
+    }
+}
+
+void App::serviceStreams(uint32_t nowMs) {
+    (void)nowMs;
+    if (!stream_.on || !hal_.streamReader) return;
+    uint32_t minLead = 0xFFFFFFFFu;
+    bool active = false;
+    for (const audio::StreamRing& r : stream_.rings) {
+        if (!r.src) continue;
+        active = true;
+        const uint32_t l = audio::streamLead(r);
+        if (l < minLead) minLead = l;
+    }
+    if (!active) return;   // nothing plays a stream: no card access
+    const int maxChunks = minLead < audio::kStreamChunkFrames ? 4 : 2;
+    const uint32_t deadline = hal_.clock ? hal_.clock->micros() + (jobBusy() ? 4000u : 6000u) : 0;
+    audio::streamServiceTick(stream_.rings, audio::kVoices, *hal_.streamReader, maxChunks, hal_.clock, deadline,
+                             &stream_.stats);
+}
+
+void App::streamUnbind(int slot) {
+    if (!streamed(slot)) return;
+    engine.setStreamSource(slot, nullptr);
+    if (hal_.streamReader) hal_.streamReader->unbind(uint8_t(slot));
+    stream_.streamOf[slot] = -1;
+}
+
+void App::refreshStreamSources() {
+    for (int i = 0; i < kSampleInstrumentCount; ++i) {
+        const int k = stream_.streamOf[i];
+        if (k < 0) continue;
+        audio::StreamSource& s = stream_.src[k];
+        s.headL = bank.left(i);
+        s.headR = bank.stereo(i) ? bank.right(i) : nullptr;
+        if (s.loopFrames) {
+            s.loopL = s.headL + s.headFrames;
+            s.loopR = s.headR ? s.headR + s.headFrames : nullptr;
+        }
+    }
+}
+
 }  // namespace ot
+

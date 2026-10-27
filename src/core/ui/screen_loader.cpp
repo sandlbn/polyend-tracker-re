@@ -473,7 +473,9 @@ void LoaderScreen::refreshBar() {
     if (g <= 0) std::snprintf(v, sizeof(v), "-inf dB");
     else std::snprintf(v, sizeof(v), "%.2f dB", double(20.0f * std::log10(g)));
     b.set(6, "Preview Vol", v);
-    std::snprintf(v, sizeof(v), "%u%%", unsigned(uint64_t(projected_) * 100 / (a.bank.capacityBytes() ? a.bank.capacityBytes() : 1)));
+    const unsigned pct = unsigned(uint64_t(projected_) * 100 / (a.bank.capacityBytes() ? a.bank.capacityBytes() : 1));
+    if (const int n = a.streamedCount()) std::snprintf(v, sizeof(v), "%u%% +%d", pct, n);   // + samples streamed
+    else std::snprintf(v, sizeof(v), "%u%%", pct);
     b.set(7, "Memory", v);
     b.highlight(6, focus == 2);
 }
@@ -1019,7 +1021,8 @@ void LoaderScreen::draw(Gfx& g) {
         if (l) {
             v.item = [](void* c, int i, char* out, int cap) {
                 const App& ap = static_cast<LoaderScreen*>(c)->app_;
-                if (ap.instrPresent[i]) std::snprintf(out, size_t(cap), "%d.%s", i + 1, ap.instruments[i].name);   // [S snap 009]
+                // [S snap 009]; 2.x: '~' marks a sample streamed from the card.
+                if (ap.instrPresent[i]) std::snprintf(out, size_t(cap), "%d.%s%s", i + 1, ap.streamed(i) ? "~" : "", ap.instruments[i].name);
                 else std::snprintf(out, size_t(cap), "%d.", i + 1);
             };
             v.marked = [](void* c, int i) { return static_cast<LoaderScreen*>(c)->insMarked_[i] != 0; };

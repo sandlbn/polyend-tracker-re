@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "app/project_io.h"
 #include "app/project_fields.h"
 #include "ui/config_help.h"
 #include "ui/notes.h"
@@ -48,6 +49,9 @@ const char* const kLineIn[] = {"Stereo", "Mono Left", "Mono Right"};
 const char* const kPresets[] = {"Global", "Per Project"};
 const char* const kCpuMeter[] = {"Auto", "Always", "Off"};   // [I] 2.x, spec 2x-02 §2.2
 const char* const kExportRates[] = {"44117 Hz", "44.1 kHz"};  // [I] 2.x: device rate (stock), converted
+// [I] 2.x SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §2.7); kStreamThresholdSec.
+const char* const kStreamModes[] = {"Off", "Auto", "All"};
+const char* const kStreamThresholds[] = {"5 s", "10 s", "20 s", "30 s"};
 const char* const kClockIn[] = {"Internal", "USB", "MIDI In jack"};
 const char* const kPortsOut[] = {"Off", "USB", "MIDI Out jack", "USB + MIDI Out jack"};
 const char* const kPortsIn[] = {"Off", "USB", "MIDI In jack", "USB + MIDI In jack"};
@@ -91,6 +95,8 @@ const Opt kGeneral[] = {
     // [I] 2.x: the synth voice budget (governor budget B, OPTIMIZATION_2X item 10 / OP-8).
     {"Synth voices", kNum, kCfg, CF(synthVoices), 1, Config::kMaxSynthVoices, nullptr, 0},
     {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
+    {"Stream from card", kEnum, kCfg, CF(streamMode), 0, 3, kStreamModes, 0},          // [I] 2.x
+    {"Stream threshold", kEnum, kCfg, CF(streamThreshold), 0, 4, kStreamThresholds, 0},   // [I] 2.x
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},
@@ -489,9 +495,28 @@ void ConfigScreen::apply() {
         return;
     }
     uint8_t* v = optVar(a, o);
+    const uint8_t was = v ? *v : 0;
     if (v) *v = uint8_t(picker + (o.kind == kNum ? o.min : 0));
     if (o.store == kCfg) {
         a.markConfigDirty();
+        if ((v == &a.cfg.streamMode || v == &a.cfg.streamThreshold) && *v != was) {
+            // SD streaming: instruments are chosen at load time, so the
+            // workspace reloads (saved first); the Config screen stays.
+            if (a.cfg.streamMode != 0 && !a.hal().streamReader) {
+                a.cfg.streamMode = 0;
+                ui_.notify("Streaming is not available in this build");
+            } else {
+                a.autosave();
+                if (!workspaceFitsMemory(a)) {
+                    // The reload would drop samples (and a later save could
+                    // lose their files): keep the previous setting.
+                    *v = was;
+                    ui_.notify("Keep Stream from card: the project does not fit in memory without it", 4000);
+                } else if (!a.startLoadWorkspace()) {
+                    ui_.notify("Applies when a project opens next");   // no saved workspace
+                }
+            }
+        }
         a.applySequencerSettings();
         if (v == &a.cfg.brightness) applyBacklight(a);
     } else {

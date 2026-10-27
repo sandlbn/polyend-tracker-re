@@ -17,6 +17,8 @@
 
 #include <cstdint>
 
+#include "hal_api.h"
+
 namespace ot {
 namespace audio {
 
@@ -70,13 +72,52 @@ inline void streamFadeReset(StreamRing& r) {
 // a frame that is not available reads as 0. False when any frame was missing.
 bool streamRead(const StreamSource& s, StreamRing* ring, uint32_t gen, int32_t b, uint32_t n, int16_t* l, int16_t* r);
 
+constexpr int kMaxStreams = 16;   // streamed instruments at once
+// The rings' SDRAM region, carved from the top of the sample bank when
+// streaming is on: 8 voices x 2 channels x kStreamRingFrames (2 MiB).
+constexpr uint32_t kStreamRegionSamples = 8u * 2u * kStreamRingFrames;
+
+struct StreamBindInfo {
+    uint16_t extents = 0;   // contiguous runs on the card (device reader)
+    uint32_t bindUs = 0;
+    const char* reason = "";   // why bind failed ("fragmented", "map check", "no slot", "open")
+};
+
 // Main loop: reads sample data from the card (or memory on the host).
 class IStreamReader {
 public:
     virtual ~IStreamReader() = default;
+    // At load: remember where instrument s.instrument's payload is (`path` the
+    // .pti it is read from, `dataOffset` its first payload byte, `stereo` the
+    // planar layout). False: it cannot stream (reason in info).
+    virtual bool bind(const StreamSource& s, const char* path, uint32_t dataOffset, bool stereo, StreamBindInfo* info) {
+        (void)s, (void)path, (void)dataOffset, (void)stereo, (void)info;
+        return true;
+    }
+    virtual void unbind(uint8_t instrument) { (void)instrument; }
+    virtual void unbindAll() {}
+    virtual bool bound(uint8_t instrument) const { return (void)instrument, true; }
     // Frames [frame, frame + n) of the instrument into l (and r for stereo).
     virtual bool read(const StreamSource& s, uint32_t frame, uint32_t n, int16_t* l, int16_t* r) = 0;
 };
+
+struct StreamServiceStats {
+    uint32_t chunks = 0, readErrors = 0, passes = 0;
+    uint32_t maxReadUs = 0, sumReadUs = 0;
+    uint32_t minLeadFrames = 0xFFFFFFFFu;   // smallest lead seen across active rings
+    uint32_t underruns = 0;                 // sum of the rings' underrun counters (mirror)
+};
+
+// Frames ready ahead of the voice's position (resident head included); 0 when
+// idle, 0xFFFFFFFF when the rest of the sample is already in memory.
+uint32_t streamLead(const StreamRing& r);
+
+// Main loop: like streamService, but one chunk at a time to the ring with the
+// smallest lead, until maxChunks reads or clock->micros() passes deadlineUs
+// (no clock: no deadline); a failed read is counted and that ring left for
+// this pass. Returns the reads done.
+int streamServiceTick(StreamRing* rings, int count, IStreamReader& reader, int maxChunks, const IClock* clock,
+                      uint32_t deadlineUs, StreamServiceStats* st);
 
 // Main loop: keeps every active ring filled ahead of its voice; at most
 // maxChunks card reads per call. Returns the reads done.

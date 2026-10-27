@@ -112,9 +112,11 @@ check: $(BIN) $(JPEG_CHECK) visual-diff keyflow-check
 
 # Generates the test songs this build supports and opens / plays each one in
 # the headless sim on a card with only Projects/<name> (tools/make_testsongs).
+# Song 19's stems are 20 s here (TESTSONGS_STEMS_SECONDS) to keep the check fast.
 TESTSONGS_SD := $(abspath $(OUT)/testsongs)
+TESTSONGS_STEMS_SECONDS ?= 20
 testsongs-check: $(BIN)
-	$(MAKE) -C $(ROOT)/tools/make_testsongs run SD=$(TESTSONGS_SD)
+	$(MAKE) -C $(ROOT)/tools/make_testsongs run SD=$(TESTSONGS_SD) STEMS_SECONDS=$(TESTSONGS_STEMS_SECONDS)
 	sh $(ROOT)/tools/make_testsongs/sim_check.sh $(abspath $(BIN)) $(TESTSONGS_SD) $(abspath $(OUT)/testsongs-check)
 
 clean:

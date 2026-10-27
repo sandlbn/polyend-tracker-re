@@ -189,7 +189,7 @@ void PlaybackScreen::sliceDone() {
 
 uint8_t PlaybackScreen::zeroMask() const {
     const uint8_t ci = app_.currentInstrument();
-    if (ci >= kSampleInstrumentCount) return 0;
+    if (ci >= kSampleInstrumentCount || app_.streamed(ci)) return 0;   // streamed: data not resident
     const Instrument& in = app_.instruments[ci];
     const int16_t* d = app_.bank.left(ci);
     const uint32_t len = app_.bank.frames(ci);
@@ -497,6 +497,10 @@ void PlaybackScreen::slicesAuto() {
     // arm the detector; it fills positions and the count incrementally.
     const uint8_t ci = app_.currentInstrument();
     if (ci >= kSampleInstrumentCount) return;
+    if (app_.streamed(ci)) {
+        ui_.notify("Streamed sample: load it into memory for this play mode", 3000);
+        return;
+    }
     Instrument& in = app_.instruments[ci];
     slicer.cancel();
     std::memset(in.slices, 0, sizeof(in.slices));
@@ -761,7 +765,8 @@ void PlaybackScreen::draw(Gfx& g) {
     const Theme& th = ui_.th();
     const uint8_t ci = a.currentInstrument();
     char sub[48];
-    if (ci < kSampleInstrumentCount) std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instruments[ci].name);
+    if (ci < kSampleInstrumentCount)
+        std::snprintf(sub, sizeof(sub), "%d. %s%s", ci + 1, a.instruments[ci].name, a.streamed(ci) ? " (SD)" : "");
     else if (isSynthInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
     else std::snprintf(sub, sizeof(sub), "MIDI instrument");
     ui_.drawTitle(g, "Sample Playback", sub);

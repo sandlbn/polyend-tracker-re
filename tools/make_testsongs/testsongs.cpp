@@ -5,6 +5,7 @@
 // alone (vapsong.inc). Song 16 "OT Test 09": the FAT engine alone
 // (fatsong.inc). Song 17 "OT Test 10": the WTFM engine alone (wtfmsong.inc).
 // Song 18 "OT Test 11 - IDM": PERC, ACD and WTFM with dense sequencer FX (idmsong.inc).
+// Song 19 "OT Test 12 - Stems": long stereo stems for SD streaming (stemsong.inc).
 #include "testsongs.h"
 
 #include <cmath>
@@ -51,6 +52,7 @@ const SongInfo kSongs[kSongCount] = {
     {SongId::FatOnly, "OT Test 09 - FAT Only", "2.1 (FAT engine) + M1", kHasSynths && kHas16Tracks},
     {SongId::WtfmOnly, "OT Test 10 - WTFM", "2.2 (WTFM engine) + M1", kHasSynths && kHas16Tracks},
     {SongId::Idm, "OT Test 11 - IDM", "2.2 (all synth engines) + M1", kHasSynths && kHas16Tracks},
+    {SongId::Stems, "OT Test 12 - Stems", "2.x SD streaming (Stream from card on)", true},
     {SongId::BgTitle, "BG Title", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld1, "BG World 1", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld4, "BG World 4", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
@@ -1042,6 +1044,7 @@ bool synthSong(Gen& g) {
 #include "fatsong.inc"
 #include "wtfmsong.inc"
 #include "idmsong.inc"
+#include "stemsong.inc"
 
 }  // namespace
 
@@ -1089,6 +1092,7 @@ bool generateSong(App& app, IStorage& fs, SongId id, const GenOptions& opt, std:
         case SongId::FatOnly: built = fatonly::fatOnlySong(g); break;
         case SongId::WtfmOnly: built = wtfmonly::wtfmOnlySong(g); break;
         case SongId::Idm: built = idm::idmSong(g); break;
+        case SongId::Stems: built = stems::stemSong(g, opt.stemSeconds); break;
     }
     if (built) built = g.finish(info->name);
     if (!built) err = g.err.empty() ? "generation failed" : g.err;

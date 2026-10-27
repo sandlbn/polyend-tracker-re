@@ -1,7 +1,10 @@
 // make_testsongs: writes the OpenTracker 2.x hardware-test projects onto an
 // SD-card folder (reimpl/tools/make_testsongs/testsongs.h, TESTSONGS.md).
 //
-//   make_testsongs <sd-root> [--song N]... [--force] [--list] [--render]
+//   make_testsongs <sd-root> [--song N]... [--force] [--list] [--render] [--stems-seconds N]
+//
+// --stems-seconds N (or the environment variable STEMS_SECONDS): length of
+// each stem of song 19 "OT Test 12 - Stems" (default 30, 10..600).
 //
 // --render also exports every generated song through the App's own offline
 // render (spec 04 §6.1) to <sd-root>/Render/<name>.wav and the stems to
@@ -76,7 +79,8 @@ public:
 };
 
 int usage() {
-    std::fprintf(stderr, "usage: make_testsongs <sd-root> [--song N]... [--force] [--list] [--render]\n");
+    std::fprintf(stderr,
+                 "usage: make_testsongs <sd-root> [--song N]... [--force] [--list] [--render] [--stems-seconds N]\n");
     return 2;
 }
 
@@ -85,12 +89,16 @@ int usage() {
 int main(int argc, char** argv) {
     std::vector<int> pick;
     bool force = false, listOnly = false, render = false;
+    int stemSeconds = 0;
+    if (const char* e = std::getenv("STEMS_SECONDS"))
+        if (*e) stemSeconds = std::atoi(e);
     const char* root = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--song") && i + 1 < argc) pick.push_back(std::atoi(argv[++i]));
         else if (!std::strcmp(argv[i], "--force")) force = true;
         else if (!std::strcmp(argv[i], "--list")) listOnly = true;
         else if (!std::strcmp(argv[i], "--render")) render = true;
+        else if (!std::strcmp(argv[i], "--stems-seconds") && i + 1 < argc) stemSeconds = std::atoi(argv[++i]);
         else if (argv[i][0] != '-' && !root) root = argv[i];
         else return usage();
     }
@@ -161,6 +169,7 @@ int main(int argc, char** argv) {
 
     ts::GenOptions opt;
     opt.force = force;
+    if (stemSeconds > 0) opt.stemSeconds = stemSeconds;
     int failures = 0, made = 0;
     for (int i = 0; i < ts::kSongCount; ++i) {
         const ts::SongInfo& s = ts::songInfo(i);

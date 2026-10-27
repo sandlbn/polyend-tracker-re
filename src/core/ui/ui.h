@@ -335,6 +335,7 @@ public:
     void ask(const char* title, const char* text, const char* l5, const char* l6, const char* l7, AskFn fn,
              void* ctx);
     bool askOpen() const { return askOpen_; }
+    const char* askText() const { return askText_; }   // tests
     // [I] Live resampling: arm / stop / cancel with a notice (Shift + Sample
     // Recorder anywhere, Record on the Resample screen).
     void resampleKey();

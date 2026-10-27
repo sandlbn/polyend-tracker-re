@@ -228,3 +228,143 @@ TEST(stream_underrun_fades_instead_of_clicking) {
     CHECK(maxStep < 2000);   // a 32-frame ramp: ~20000 / 32 per frame (x the gain)
     if (maxStep >= 2000) std::printf("       largest step %d\n", maxStep);
 }
+
+// ---- C1: the main-loop service tick (docs/PLAN_SD_STREAMING_P1C_P2.md §1.6) ----
+namespace {
+struct TickClock : IClock {
+    uint32_t us = 0;
+    uint32_t micros() const override { return us; }
+    uint32_t millis() const override { return us / 1000; }
+};
+// Reader over two sources that can advance a clock and fail on demand.
+struct TickReader : IStreamReader {
+    TickClock* clock = nullptr;
+    uint32_t usPerRead = 0;
+    int failNext = 0;
+    std::vector<int> order;   // instrument of each read
+    bool read(const StreamSource& s, uint32_t, uint32_t n, int16_t* l, int16_t* r) override {
+        if (clock) clock->us += usPerRead;
+        if (failNext > 0) {
+            --failNext;
+            return false;
+        }
+        order.push_back(s.instrument);
+        for (uint32_t i = 0; i < n; ++i) {
+            l[i] = 1;
+            if (r) r[i] = 1;
+        }
+        return true;
+    }
+};
+struct TickRig {
+    std::vector<int16_t> mem = std::vector<int16_t>(size_t(4) * kStreamRingFrames);
+    std::vector<int16_t> head = std::vector<int16_t>(kStreamHeadFrames);
+    StreamRing rings[2];
+    StreamSource src[2];
+    TickRig() {
+        for (int v = 0; v < 2; ++v) {
+            rings[v].bufL = mem.data() + size_t(2 * v) * kStreamRingFrames;
+            rings[v].bufR = rings[v].bufL + kStreamRingFrames;
+            src[v].headL = head.data();
+            src[v].headFrames = kStreamHeadFrames;
+            src[v].frames = 1000000;
+            src[v].instrument = uint8_t(v);
+        }
+    }
+    // Voice v plays source v at frame pos (generation g).
+    void play(int v, uint32_t pos, uint32_t g = 1) {
+        rings[v].src = &src[v];
+        rings[v].need = pos;
+        rings[v].gen = g;
+    }
+};
+}  // namespace
+
+TEST(stream_lead_reports_frames_ahead) {
+    TickRig r;
+    CHECK_EQ(streamLead(r.rings[0]), 0u);                      // idle
+    r.play(0, 1000);
+    CHECK_EQ(streamLead(r.rings[0]), kStreamHeadFrames - 1000);   // only the resident head so far
+    TickReader rd;
+    streamService(r.rings, 1, rd, 2);
+    CHECK_EQ(streamLead(r.rings[0]), kStreamHeadFrames + 2 * kStreamChunkFrames - 1000);
+}
+
+TEST(stream_tick_fills_smallest_lead_first) {
+    TickRig r;
+    TickReader rd;
+    r.play(0, 1000);
+    streamService(r.rings, 1, rd, 3);   // ring 0 well ahead
+    rd.order.clear();
+    r.play(1, 1000);                    // ring 1 only has its head
+    StreamServiceStats st;
+    CHECK_EQ(streamServiceTick(r.rings, 2, rd, 1, nullptr, 0, &st), 1);
+    CHECK_EQ(int(rd.order.size()), 1);
+    CHECK_EQ(rd.order[0], 1);
+    CHECK_EQ(st.chunks, 1u);
+    CHECK(st.minLeadFrames <= kStreamHeadFrames);
+}
+
+TEST(stream_tick_stops_at_deadline) {
+    TickRig r;
+    TickClock clk;
+    TickReader rd;
+    rd.clock = &clk;
+    rd.usPerRead = 3000;
+    r.play(0, 0);
+    r.play(1, 0);
+    StreamServiceStats st;
+    const int n = streamServiceTick(r.rings, 2, rd, 8, &clk, clk.us + 2000, &st);
+    CHECK_EQ(n, 1);   // the first read already passes the deadline
+    CHECK(st.maxReadUs >= 3000u);
+}
+
+TEST(stream_tick_counts_read_errors_and_keeps_ring) {
+    TickRig r;
+    TickReader rd;
+    r.play(0, 0);
+    rd.failNext = 1;
+    StreamServiceStats st;
+    CHECK_EQ(streamServiceTick(r.rings, 1, rd, 2, nullptr, 0, &st), 0);
+    CHECK_EQ(st.readErrors, 1u);
+    CHECK_EQ(r.rings[0].avail, 0u);
+    CHECK_EQ(streamServiceTick(r.rings, 1, rd, 2, nullptr, 0, &st), 2);   // the card is back
+    CHECK_EQ(r.rings[0].avail, 2 * kStreamChunkFrames);
+}
+
+// ---- C6: partial bank slots (docs/PLAN_SD_STREAMING_P1C_P2.md §2.3) ----
+TEST(partial_slot_without_source_is_silent) {
+    // A slot holding only the head of a streamed instrument never plays as a
+    // whole sample (streaming off, source not bound yet, a bank move).
+    const std::vector<int16_t> l = signal(kStreamHeadFrames, 21);
+    Rig r;
+    r.load(l, nullptr, PlayMode::OneShot);
+    SampleBank& b = r.eng->bank();
+    CHECK(!b.partial(0));
+    CHECK_EQ(b.fullFrames(0), uint32_t(kStreamHeadFrames));
+    CHECK(b.setPartial(0, 300000));
+    CHECK(b.partial(0));
+    CHECK_EQ(b.fullFrames(0), 300000u);
+    CHECK_EQ(b.frames(0), uint32_t(kStreamHeadFrames));   // the resident part
+    r.note(60);
+    const std::vector<int16_t> out = r.render(20, false);
+    for (int16_t v : out) CHECK(v == 0);
+}
+
+TEST(partial_flag_cleared_by_remove_and_commit) {
+    const std::vector<int16_t> l = signal(4000, 5);
+    Rig r;
+    r.load(l, nullptr, PlayMode::OneShot);
+    SampleBank& b = r.eng->bank();
+    CHECK(b.setPartial(0, 100000));
+    b.remove(0);
+    CHECK(!b.partial(0));
+    CHECK(!b.setPartial(0, 100000));   // not loaded
+    r.load(l, nullptr, PlayMode::OneShot);   // store() rewrites the slot
+    CHECK(!b.partial(0));
+    CHECK(b.setPartial(0, 100000));
+    std::memcpy(b.tail(), l.data(), l.size() * 2);
+    b.remove(0);
+    CHECK(b.commitTail(0, uint32_t(l.size()), false));
+    CHECK(!b.partial(0));
+}

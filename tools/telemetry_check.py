@@ -55,6 +55,10 @@ STACK_RE = re.compile(r"\| stack peak (\d+) B heap (\d+) B of (\d+) B")
 UI_RE = re.compile(r"telemetry: ui (\d+) frames \((\d+)\.(\d+) fps\) render avg (\d+)\.(\d+) max (\d+)\.(\d+) ms")
 LOAD_RE = re.compile(r"telemetry: load op (\d+) run (\d) passes (\d+)")
 TS_RE = re.compile(r"^\[\s*(\d+)\.(\d+)\]")
+# 2.x SD streaming (C11): the 5 s stream service window (hal/telemetry.h formatStream).
+STREAM_RE = re.compile(r"telemetry: stream streams (\d+) active (\d+) \| chunks (\d+) read avg (\d+)\.(\d) "
+                       r"max (\d+)\.(\d) ms \| lead min (-|\d+) ms \| underruns (\d+) \(\+(\d+)\) errors (\d+) "
+                       r"\| passes (\d+)( \| loading)?")
 CPU_RE = re.compile(r"telemetry: cpu avg=(\d+)\.(\d)% peak=(\d+)\.(\d)% overruns=(\d+) cap=(\d+)/(\d+)"
                     r" synth_voices=(\d+) cyc_per_voice=(\d+)")
 # Peak-block attribution after the cpu line (spec 2x-02 §4, audio/block_profile.h).
@@ -217,6 +221,25 @@ def cpu_lines(lines):
     return out
 
 
+def stream_lines(lines):
+    """Yields dicts for the 2.x SD streaming "telemetry: stream" lines (C11)."""
+    out = []
+    for n, line in enumerate(lines, 1):
+        m = STREAM_RE.search(line)
+        if not m:
+            continue
+        ts = TS_RE.search(line)
+        out.append({
+            "line": n, "t": f"{ts.group(1)}.{ts.group(2)}" if ts else "?",
+            "streams": int(m.group(1)), "active": int(m.group(2)), "chunks": int(m.group(3)),
+            "read_avg": float(f"{m.group(4)}.{m.group(5)}"), "read_max": float(f"{m.group(6)}.{m.group(7)}"),
+            "lead": None if m.group(8) == "-" else int(m.group(8)),
+            "underruns": int(m.group(9)), "new_underruns": int(m.group(10)), "errors": int(m.group(11)),
+            "passes": int(m.group(12)), "loading": m.group(13) is not None,
+        })
+    return out
+
+
 def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading_bytes=65536, quiet=False,
               cpu_peak=70.0, stack_free_min=4096):
     ws = windows(lines)
@@ -247,6 +270,20 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
         if size - heap - peak < stack_free_min:
             fails.append(f"line {w['line']} [{w['t']}]: stack free {size - heap - peak} B < {stack_free_min} B "
                          f"(peak {peak} B, heap {heap} B, of {size} B)")
+    # SD streaming (C11): outside loading, a window with streams playing must
+    # have no new underrun and keep at least 100 ms read ahead; a slow read
+    # (> 20 ms) is a warning (card stalls up to 79 ms were measured, P0).
+    streams = stream_lines(lines)
+    for st in streams:
+        if not st["active"] or st["loading"]:
+            continue
+        where = f"line {st['line']} [{st['t']}]"
+        if st["new_underruns"]:
+            fails.append(f"{where}: stream underruns +{st['new_underruns']} (not loading)")
+        if st["lead"] is not None and st["lead"] < 100:
+            fails.append(f"{where}: stream lead min {st['lead']} ms < 100 ms (not loading)")
+        if st["read_max"] > 20.0 and not quiet:
+            print(f"WARN {where}: stream read max {st['read_max']:.1f} ms > 20 ms")
     for c in cpus:
         if c["peak"] >= cpu_peak:
             fails.append(f"line {c['line']} [{c['t']}]: cpu peak {c['peak']:.1f}% >= {cpu_peak:g}%")
@@ -261,6 +298,12 @@ def check_log(lines, render_avg=45.0, render_max=70.0, loop_max_ms=50.0, loading
                 top = sorted(w["pk"]["parts"], key=lambda kv: -kv[1])[:5]
                 print(f"telemetry: worst peak block {w['pk']['total']}k cycles (line {w['line']} [{w['t']}]): "
                       + ", ".join(f"{n} {v}k" for n, v in top) + f" | {w['pk']['ev']}")
+        if streams:
+            act = [st for st in streams if st["active"]]
+            leads = [st["lead"] for st in act if st["lead"] is not None]
+            print(f"telemetry: {len(streams)} stream lines ({len(act)} playing); underruns "
+                  f"{streams[-1]['underruns']}, min lead {min(leads) if leads else '-'} ms, read max "
+                  f"{max(st['read_max'] for st in streams):.1f} ms")
         caches = sorted({f"{w['io']['cache']}/{w['io']['cachetest']}" for w in ws if w["io"] and w["io"]["cache"]})
         print(f"telemetry: {len(ws)} windows ({audio} with audio, {loading} loading); worst render avg "
               f"{worst_avg:.1f}% max {worst_max:.1f}%, worst loop {worst_loop:.3f} ms outside loading"
@@ -394,12 +437,15 @@ SAMPLE_OK = """\
 [  25.001] telemetry: io sd cmds 0 read 0 B (0 KB/s) write 0 B (0 KB/s) direct 0 bounced 0 | cache sdram on (selftest ok) | sd->sdram dma read direct write direct
 [  25.002] telemetry: render cyc/block min 150000 avg 193000 max 250000 (47.8% of 522240) blocks 1723 | loop max 31.250 ms (n 160) | SDRAM free 600000 B | i2c errors i2c0 0 i2c2 0 | stack peak 30000 B heap 1000 B of 97856 B (free 66856 B) | rx restarts 0 stale 0
 [  26.000] telemetry: cpu avg=37.2% peak=48.0% overruns=0 cap=4/4 synth_voices=0 cyc_per_voice=0
+[  25.003] telemetry: stream streams 4 active 3 | chunks 212 read avg 2.7 max 3.1 ms | lead min 612 ms | underruns 0 (+0) errors 0 | passes 1180
+[  20.004] telemetry: stream streams 4 active 2 | chunks 40 read avg 3.0 max 9.0 ms | lead min 40 ms | underruns 1 (+1) errors 0 | passes 900 | loading
 """
 SAMPLE_BAD = """\
 [  27.001] telemetry: io sd cmds 3 read 1536 B (0 KB/s) write 0 B (0 KB/s) direct 1 bounced 0 | cache sdram on (selftest ok) | sd->sdram dma read direct write bounced
 [  27.001] telemetry: load op 2 run 1 passes 40 units 90 total 300000 us max pass 9000 us (stage 3/1) max unit 4000 us (stage 3) | open 1 us n1 read 1 us n1 0 KB write 0 us n0 0 KB dir 1 us n1 decode 0 us commit 0 us
 [  27.002] telemetry: render cyc/block min 20000 avg 30000 max 40000 (7.6% of 522240) blocks 1723 | loop max 90.000 ms (n 90) | SDRAM free 1 B | i2c errors i2c0 0 i2c2 0
 [  30.002] telemetry: render cyc/block min 150000 avg 240000 max 380000 (72.7% of 522240) blocks 1723 | loop max 61.000 ms (n 80) | SDRAM free 1 B | i2c errors i2c0 0 i2c2 0 RENDER>70%
+[  30.003] telemetry: stream streams 4 active 3 | chunks 230 read avg 2.8 max 3.4 ms | lead min 612 ms | underruns 2 (+1) errors 0 | passes 1190
 [  31.000] telemetry: cpu avg=52.0% peak=72.7% overruns=0 cap=3/4 synth_voices=3 cyc_per_voice=21000 | pk 380k: seq 5k on 8k/9k ctl 5k smp 160k syn 15k VAP 85k ACD 27k PERC 21k dly 8k rev 40k out 36k | ev on 8 VAP 4 ACD 1 PERC 2 rl 0 fc 0 mc 0 st 6 pd 2 df 3 vx 10/8
 """
 SAMPLE_BENCH = """\
@@ -422,7 +468,10 @@ def selftest():
     assert ok and len(ws) == 2, (ok, fails)
     assert ws[0]["io"]["read"] == 4194304 and ws[0]["io"]["cache"] == "on"   # loading window: 140 ms allowed
     ok, fails, _ = check_log((SAMPLE_OK + SAMPLE_BAD).splitlines(), quiet=True)
-    assert not ok and len(fails) == 4, fails     # avg 46 %, max 72.8 %, loop 61 ms (90 ms: job running), cpu peak
+    assert not ok and len(fails) == 5, fails     # avg 46 %, max 72.8 %, loop 61 ms (90 ms: job running), cpu peak,
+    assert any("stream underruns +1" in f for f in fails), fails   # + a stream underrun (the loading one is allowed)
+    sl = stream_lines(SAMPLE_OK.splitlines())
+    assert len(sl) == 2 and sl[0]["lead"] == 612 and sl[1]["loading"] and sl[1]["new_underruns"] == 1, sl
     assert any("cpu peak 72.7%" in f for f in fails), fails
     cs = cpu_lines(SAMPLE_OK.splitlines())
     assert len(cs) == 1 and cs[0]["peak"] == 48.0 and cs[0]["cap"] == 4 and cs[0]["budget"] == 4, cs

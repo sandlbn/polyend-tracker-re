@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 
+#include "app/storage_stream_reader.h"
 #include "app/app.h"
 #include "formats/wav.h"
 #include "canvas.h"
@@ -123,6 +124,7 @@ struct Machine {
     SimInput input{clock};
     SimLeds leds;
     HostStorage storage;
+    ot::StorageStreamReader streamReader{storage};   // SD streaming: host reader over the card folder
     SimUsbStorage usbStorage{storage};
     HostMidi midi;
     SdlAudio sdlAudio;
@@ -202,6 +204,7 @@ struct Machine {
         h.display = &display;
         h.audio = audio;
         h.storage = &storage;
+        h.streamReader = &streamReader;
         h.midi = &midi;
         h.input = &input;
         h.leds = &leds;
@@ -637,6 +640,52 @@ struct Headless {
                     m.app->ui.dirty();
                 }
                 advance(1);
+            } else if (cmd == "config" && a1 == "stream") {
+                // config stream all|auto|off: Config > Stream from card, applied
+                // like the Config screen does (autosave, then the Workspace
+                // reloads with the new choice; without a saved Workspace it
+                // applies at the next project load). SD streaming test songs.
+                const uint8_t mode = a2 == "all" ? 2 : (a2 == "auto" ? 1 : (a2 == "off" ? 0 : 0xFF));
+                if (!m.app || mode == 0xFF || (mode != 0 && !m.app->hal().streamReader)) {
+                    std::fprintf(stderr, "script:%d: config stream all|auto|off (streaming in this build)\n", line);
+                    return false;
+                }
+                if (m.app->cfg.streamMode != mode) {
+                    m.app->cfg.streamMode = mode;
+                    m.app->markConfigDirty();
+                    m.app->autosave();
+                    m.app->startLoadWorkspace();
+                }
+                advance(1);
+            } else if (cmd == "expect-streams") {
+                // expect-streams N: instruments bound to a card stream.
+                const int got = m.app ? m.app->streamedCount() : -1;
+                if (got != n1) {
+                    std::fprintf(stderr, "script:%d: %d streamed instruments, want %ld\n", line, got, n1);
+                    return false;
+                }
+            } else if (cmd == "expect-underruns") {
+                // expect-underruns N: at most N stream underruns (all voices, running totals).
+                long got = 0;
+                if (m.app)
+                    for (int v = 0; v < ot::audio::kVoices; ++v) got += long(m.app->streamRings()[v].underruns);
+                if (!m.app || got > n1) {
+                    std::fprintf(stderr, "script:%d: %ld stream underruns, want at most %ld\n", line, got, n1);
+                    return false;
+                }
+            } else if (cmd == "expect-notice") {
+                // expect-notice TEXT: a notice containing TEXT was shown since
+                // the last expect-open-ok; it is taken off the list
+                // expect-open-ok checks.
+                std::string want = lineStr.substr(lineStr.find(a1));
+                while (!want.empty() && (want.back() == ' ' || want.back() == '\r')) want.pop_back();
+                const auto it = std::find_if(gNotices.begin(), gNotices.end(),
+                                             [&](const std::string& n) { return n.find(want) != std::string::npos; });
+                if (it == gNotices.end()) {
+                    std::fprintf(stderr, "script:%d: no notice \"%s\"\n", line, want.c_str());
+                    return false;
+                }
+                gNotices.erase(it);
             } else if (cmd == "expect-open-ok") {
                 // The last project job finished without errors, no popup is
                 // open, and no notice other than "Project opened" was shown

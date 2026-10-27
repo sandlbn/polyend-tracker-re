@@ -227,6 +227,10 @@ int App::exportSamples() {
 bool App::exportRunning(void* ctx) {
     App& a = *static_cast<App*>(ctx);
     ExportJob& j = a.job_;
+    // SD streaming: top every ring up before each offline block (no deadline),
+    // so an export of streamed instruments never underruns.
+    if (a.stream_.on && a.hal_.streamReader)
+        audio::streamServiceTick(a.stream_.rings, audio::kVoices, *a.hal_.streamReader, 64, nullptr, 0, &a.stream_.stats);
     if (!j.started) {
         // Start inside the render loop: beginOffline() has reset the voices.
         j.started = true;

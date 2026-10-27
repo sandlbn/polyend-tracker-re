@@ -641,7 +641,8 @@ void InstrumentScreen::drawMapping(Gfx& g) {
     const Theme& th = ui_.th();
     char sub[48], row[48];
     const int mi = clampi(a.ccMapInstrument, 0, kSampleInstrumentCount - 1);
-    std::snprintf(sub, sizeof(sub), "%d. %s", mi + 1, a.instrPresent[mi] ? a.instruments[mi].name : "(empty)");
+    std::snprintf(sub, sizeof(sub), "%d. %s%s", mi + 1, a.instrPresent[mi] ? a.instruments[mi].name : "(empty)",
+                  a.streamed(mi) ? " (SD)" : "");
     ui_.drawTitle(g, "Instrument MIDI Mapping", sub);
     // Hint text box (appendix C §2, x=10 y=30 w=780 h=30). SPEC GAP: wording.
     g.text(10, 45, kFontSmall, a.seq.isPlaying() ? th.alert : th.dim,
@@ -687,7 +688,9 @@ void InstrumentScreen::draw(Gfx& g) {
     else if (mode == 1) std::snprintf(title, sizeof(title), "Instrument Automation 2/2");
     else if (effects) std::snprintf(title, sizeof(title), "Instrument Effects");
     else std::snprintf(title, sizeof(title), "Instrument Parameters 1/2");
-    if (ci < kSampleInstrumentCount) std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instrPresent[ci] ? a.instruments[ci].name : "(empty)");
+    if (ci < kSampleInstrumentCount)
+        std::snprintf(sub, sizeof(sub), "%d. %s%s", ci + 1, a.instrPresent[ci] ? a.instruments[ci].name : "(empty)",
+                      a.streamed(ci) ? " (SD)" : "");   // SD streaming badge
     else if (isSynthInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
     else std::snprintf(sub, sizeof(sub), "%d. MIDI Channel %d", ci + 1, ci - kFirstMidiInstrument + 1);
     ui_.drawTitle(g, title, sub);

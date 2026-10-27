@@ -41,8 +41,10 @@ enum class SongId : uint8_t {
     WtfmOnly = 17,
     // PERC + ACD + WTFM with dense sequencer FX (idmsong.inc): 2.2 + M1.
     Idm = 18,
+    // SD streaming: four long stereo stems + RAM drums (stemsong.inc): 2.x streaming.
+    Stems = 19,
 };
-constexpr int kSongCount = 18;
+constexpr int kSongCount = 19;
 
 // Songs 6-12 (the BLAST GRID remixes).
 inline bool isBgSong(SongId id) { return int(id) >= int(SongId::BgTitle) && int(id) <= int(SongId::BgFinalBoss); }
@@ -65,6 +67,9 @@ struct GenOptions {
     bool force = false;
     // Folder for the generated source WAVs on the card.
     const char* samplesRoot = "Samples/OT Test Songs";
+    // Length of each stem of song 19 in seconds (10..600; make testsongs
+    // STEMS_SECONDS=N, make_testsongs --stems-seconds N).
+    int stemSeconds = 30;
 };
 
 // Generates one song: new project, source samples under samplesRoot, imported

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "app/app.h"
+#include "app/storage_stream_reader.h"
 #include "hal_api.h"
 
 // In-memory storage with real directories (listDir reports both files and
@@ -479,12 +480,19 @@ public:
         ++dspCalls;
     }
     // Run `blocks` audio callbacks; returns the peak absolute sample.
+    // FNV-1a over every output byte pumped so far (render-hash goldens).
+    uint64_t hash = 1469598103934665603ull;
     int pump(int blocks) {
         int16_t buf[256];
         int peak = 0;
         for (int i = 0; i < blocks && fn; ++i) {
             fn(buf, 128, ctx);
-            for (int k = 0; k < 256; ++k) peak = std::abs(buf[k]) > peak ? std::abs(buf[k]) : peak;
+            for (int k = 0; k < 256; ++k) {
+                peak = std::abs(buf[k]) > peak ? std::abs(buf[k]) : peak;
+                const uint16_t v = uint16_t(buf[k]);
+                hash = (hash ^ (v & 0xFF)) * 1099511628211ull;
+                hash = (hash ^ (v >> 8)) * 1099511628211ull;
+            }
         }
         return peak;
     }
@@ -493,6 +501,7 @@ public:
 // Whole-app harness.
 struct Harness {
     FakeStorage fs;
+    ot::StorageStreamReader streamReader{fs};   // SD streaming (host reader over the fake card)
     FakeUsbStorage usb{&fs};
     RecordingDisplay disp;
     ScriptInput input;
@@ -535,6 +544,7 @@ struct Harness {
         h.display = &disp;
         h.audio = &audio;
         h.storage = &fs;
+        h.streamReader = &streamReader;
         h.midi = &midi;
         h.input = &input;
         h.leds = &leds;

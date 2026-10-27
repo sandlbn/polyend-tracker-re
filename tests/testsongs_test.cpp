@@ -15,6 +15,8 @@
 #include <vector>
 
 #include "audio/engines/perc.h"
+#include <cstdlib>
+#include <cstdio>
 #include "test.h"
 #include "ui_fakes.h"
 
@@ -374,10 +376,19 @@ void checkSong(ts::SongId id, bool force) {
     CHECK(mini.empty());
 
     // Open through project_io from a fresh project: no errors, no notices.
+    // The stems song (19) fits the sample memory only with its stems
+    // streamed: it opens with Stream from card = All, and the one notice
+    // is the streaming count.
     CHECK(h.app->newProject());
     notices().clear();
     h.app->ui.platform.notified = &onNotice;
+    if (id == ts::SongId::Stems) h.app->cfg.streamMode = 2;
     const bool opened = h.app->openProject(ot::kProjectsDir, info->name);
+    if (id == ts::SongId::Stems) {
+        CHECK_EQ(h.app->streamedCount(), 4);
+        CHECK(notices().size() == 1 && notices()[0] == "4 instruments stream from the card");
+        notices().clear();
+    }
     for (const std::string& n : notices()) std::printf("    load notice: %s\n", n.c_str());
     CHECK(notices().empty());
     CHECK_EQ(h.app->extPoolFullEvents(), 0u);
@@ -559,6 +570,12 @@ void checkSong(ts::SongId id, bool force) {
         // The chords ask for more voices than the pool has: voices were stolen.
         std::printf("    synth steals %u\n", unsigned(h.app->engine.synth().steals()));
         CHECK(h.app->engine.synth().steals() > 0);
+    }
+    if (id == ts::SongId::Stems) {
+        uint32_t under = 0;
+        for (int v = 0; v < ot::audio::kVoices; ++v) under += h.app->streamRings()[v].underruns;
+        CHECK_EQ(under, 0u);
+        CHECK(h.streamReader.reads > 0);
     }
     CHECK(h.app->seq.isPlaying());
     CHECK(h.app->seq.songPosition() >= 1);
@@ -858,4 +875,183 @@ TEST(track_mixer_fader_scales_synth_tracks) {
     CHECK(full > 0.01f);
     CHECK(low < full * 0.6f);
     CHECK(muted < full * 0.01f);
+}
+
+// SD streaming gate (docs/PLAN_SD_STREAMING_P1C_P2.md C0): the first 2,000
+// blocks of every available test song render bit for bit as on 2.2.1; every
+// streaming step keeps this passing with the option Off. OT_UPDATE_GOLDEN=1
+// rewrites tests/testsongs_render_hashes.txt.
+TEST(testsongs_render_hash_matches_golden) {
+    const char* path = "testsongs_render_hashes.txt";
+    std::map<int, std::string> golden;
+    if (FILE* f = std::fopen(path, "r")) {
+        int id;
+        char hex[32];
+        while (std::fscanf(f, "%d %31s", &id, hex) == 2) golden[id] = hex;
+        std::fclose(f);
+    }
+    const bool update = std::getenv("OT_UPDATE_GOLDEN") != nullptr;
+    std::string out;
+    int compared = 0;
+    for (int i = 0; i < ts::kSongCount; ++i) {
+        const ts::SongInfo& info = ts::songInfo(i);
+        if (!info.available) continue;
+        std::unique_ptr<Harness> hp = deviceHarness();
+        Harness& h = *hp;
+        ts::GenOptions opt;
+        std::string err;
+        CHECK(ts::generateSong(*h.app, h.fs, info.id, opt, err));
+        // The stems song opens only with its stems streamed (song 19).
+        if (info.id == ts::SongId::Stems) h.app->cfg.streamMode = 2;
+        CHECK(h.app->openProject(ot::kProjectsDir, info.name));
+        h.app->seq.playSong(0);
+        h.audio.hash = 1469598103934665603ull;
+        int peak = 0;
+        for (int k = 0; k < 200; ++k) {
+            peak = std::max(peak, h.audio.pump(10));
+            h.run(10);
+        }
+        CHECK(peak > 1000);   // a real render, not silence
+        char hex[32];
+        std::snprintf(hex, sizeof(hex), "%016llx", static_cast<unsigned long long>(h.audio.hash));
+        char line[96];
+        std::snprintf(line, sizeof(line), "%d %s\n", int(info.id), hex);
+        out += line;
+        const auto g = golden.find(int(info.id));
+        if (g != golden.end()) {
+            ++compared;
+            if (g->second != hex) std::printf("    %s: render hash %s, golden %s\n", info.name, hex, g->second.c_str());
+            CHECK(update || g->second == hex);
+        }
+    }
+    if (update) {
+        if (FILE* f = std::fopen(path, "w")) {
+            std::fputs(out.c_str(), f);
+            std::fclose(f);
+        }
+        std::printf("    wrote %s\n", path);
+    } else {
+        CHECK(compared > 0);   // the golden file exists and covers the songs
+    }
+}
+
+// Song 19 "OT Test 12 - Stems" (stemsong.inc, docs/PLAN_SD_STREAMING_P1C_P2.md
+// C12): four long stereo stems (two ForwardLoop with the loop start past the
+// resident head, two OneShot) and four short drums. The project is larger
+// than the sample memory: it does not open with streaming Off; with All (and
+// with Auto at the default 10 s threshold) exactly the four stems stream and
+// the drums load into RAM; playing it streams without an underrun. The
+// generator writes the same bytes every run.
+TEST(testsongs_stems_song_streams_four_stems) {
+    const ts::SongInfo* info = ts::findSong(ts::SongId::Stems);
+    CHECK(info != nullptr);
+    if (!info || !info->available) return;
+    CHECK_STR(info->name, "OT Test 12 - Stems");
+    std::unique_ptr<Harness> hp = deviceHarness();
+    Harness& h = *hp;
+    ot::App& a = *h.app;
+    ts::GenOptions opt;
+    CHECK_EQ(opt.stemSeconds, 30);
+    std::string err;
+    CHECK(ts::generateSong(a, h.fs, ts::SongId::Stems, opt, err));
+    const std::string dir = std::string(ot::kProjectsDir) + "/" + info->name;
+    const Files gen = snapshot(h.fs, dir + "/");
+
+    // Off: the stems do not fit the sample memory, Open is refused (and the
+    // File screen's pre-check says so); with streaming on both accept it.
+    a.cfg.streamMode = 0;
+    CHECK(a.newProject());
+    CHECK(!ot::projectFitsMemory(a, ot::kProjectsDir, info->name));
+    CHECK(!a.openProject(ot::kProjectsDir, info->name));
+    a.cfg.streamMode = 2;
+    CHECK(ot::projectFitsMemory(a, ot::kProjectsDir, info->name));
+    a.cfg.streamMode = 1;
+    CHECK(ot::projectFitsMemory(a, ot::kProjectsDir, info->name));
+
+    // All: the four stems stream, the four drums are whole in RAM.
+    a.cfg.streamMode = 2;
+    CHECK(a.openProject(ot::kProjectsDir, info->name));
+    CHECK(a.streamingOn());
+    CHECK_EQ(a.streamedCount(), 4);
+    int loops = 0, oneShots = 0;
+    for (int i = 0; i < 4; ++i) {
+        CHECK(a.instrPresent[i]);
+        CHECK(a.streamed(i));
+        CHECK(a.bank.partial(i));
+        const ot::Instrument& ins = a.instruments[i];
+        CHECK(ins.stereo);
+        CHECK_EQ(ins.lengthFrames, 30u * 44100u);
+        if (ins.playMode == uint8_t(ot::PlayMode::ForwardLoop)) {
+            ++loops;
+            const uint32_t ls = uint32_t(uint64_t(ins.lengthFrames) * ins.loopPoint1 / 65535u);
+            CHECK(ls >= ot::audio::kStreamHeadFrames);
+            CHECK(a.bank.frames(i) > ot::audio::kStreamHeadFrames);   // head + loop head resident
+        } else {
+            CHECK_EQ(ins.playMode, uint8_t(ot::PlayMode::OneShot));
+            CHECK_EQ(a.bank.frames(i), ot::audio::kStreamHeadFrames);
+            ++oneShots;
+        }
+    }
+    CHECK_EQ(loops, 2);
+    CHECK_EQ(oneShots, 2);
+    for (int i = 4; i < 8; ++i) {
+        CHECK(a.instrPresent[i]);
+        CHECK(!a.streamed(i));
+        CHECK(!a.bank.partial(i));
+        CHECK(!a.instruments[i].stereo);
+        CHECK(a.instruments[i].lengthFrames < 44100u);
+    }
+    for (int i = 8; i < ot::kSampleInstrumentCount; ++i) CHECK(!a.instrPresent[i]);
+
+    // Play the opening (all four stems start in the first pattern): sound,
+    // four streams at once, no underrun.
+    a.seq.playSong(0);
+    int peak = 0, active = 0;
+    for (int k = 0; k < 1200; ++k) {   // 12 s
+        peak = std::max(peak, h.audio.pump(3));
+        h.run(10);
+        active = std::max(active, a.streamActive());
+    }
+    a.seq.stop();
+    CHECK(peak > 2000);
+    CHECK_EQ(active, 4);
+    uint32_t under = 0;
+    for (int v = 0; v < ot::audio::kVoices; ++v) under += a.streamRings()[v].underruns;
+    CHECK_EQ(under, 0u);
+
+    // Auto at the default threshold (10 s): the same four stream.
+    a.cfg.streamMode = 1;
+    CHECK(a.openProject(ot::kProjectsDir, info->name));
+    CHECK_EQ(a.streamedCount(), 4);
+    for (int i = 0; i < 4; ++i) CHECK(a.streamed(i));
+
+    // Deterministic: a second generator run writes the same bytes.
+    std::unique_ptr<Harness> h2p = deviceHarness();
+    CHECK(ts::generateSong(*h2p->app, h2p->fs, ts::SongId::Stems, opt, err));
+    const Files gen2 = snapshot(h2p->fs, dir + "/");
+    CHECK(gen2 == gen);
+}
+
+// STEMS_SECONDS (make testsongs STEMS_SECONDS=180): the stem length and the
+// song scale with it; the song plays about 3.3 stem lengths.
+TEST(testsongs_stems_song_scales_with_stem_length) {
+    CHECK_EQ(ts::stems::clampSeconds(0), 10);
+    CHECK_EQ(ts::stems::clampSeconds(30), 30);
+    CHECK_EQ(ts::stems::clampSeconds(5000), 600);
+    const double s30 = ts::stems::songSeconds(30), s180 = ts::stems::songSeconds(180);
+    std::printf("    song length: %.0f s with 30 s stems, %.0f s with 180 s stems\n", s30, s180);
+    CHECK(s30 > 3.0 * 30 && s30 < 4.0 * 30);
+    CHECK(s180 > 9.0 * 60 && s180 < 11.0 * 60);
+    CHECK(int(ts::stems::order(600).size()) <= ot::kSongSlots);
+    // A short override still streams: 12 s stems.
+    std::unique_ptr<Harness> hp = deviceHarness();
+    ot::App& a = *hp->app;
+    ts::GenOptions opt;
+    opt.stemSeconds = 12;
+    std::string err;
+    CHECK(ts::generateSong(a, hp->fs, ts::SongId::Stems, opt, err));
+    a.cfg.streamMode = 2;
+    CHECK(a.openProject(ot::kProjectsDir, "OT Test 12 - Stems"));
+    CHECK_EQ(a.streamedCount(), 4);
+    CHECK_EQ(a.instruments[0].lengthFrames, 12u * 44100u);
 }

@@ -8,6 +8,7 @@
 #include "app/app.h"
 #include "app/project_fields.h"
 #include "app/project_io.h"
+#include "app/stream_policy.h"
 #include "audio/synth_params.h"
 #include "formats/bytes.h"
 #include "formats/crc32.h"
@@ -200,7 +201,12 @@ bool scanInstrFn(const IStorage::DirEntry& e, void* ctx) {
     ++s->files;
     if (s->workspace) {
         bool mti = false;
-        if (int n = workspaceInstrumentSlot(e.name, &mti)) (mti ? s->hasMti : s->hasPti)[n - 1] = true;
+        if (int n = workspaceInstrumentSlot(e.name, &mti)) {
+            (mti ? s->hasMti : s->hasPti)[n - 1] = true;
+            // The payload too (the memory checks and Auto streaming's
+            // over-budget test counted 0 for every Workspace instrument).
+            if (!mti) s->ptiPayload[n - 1] = e.size > pti::kDataOff ? e.size - pti::kDataOff : 0;
+        }
         return true;
     }
     if (int n = savedPtiSlot(e.name)) {
@@ -374,6 +380,16 @@ uint64_t scanSampleBytes(const SlotScan& s) {
     return sum;
 }
 
+// Open pre-check (startOpenProject and the File screen's projectFitsMemory):
+// the sample payloads fit the bank, or, with Stream from card on, they fit
+// with the long samples streamed (their heads are counted, not the payloads).
+bool scanFitsMemory(const App& a, const SlotScan& s) {
+    if (scanSampleBytes(s) <= a.bank.capacityBytes()) return true;
+    return a.cfg.streamMode != 0 && a.hal().streamReader &&
+           streamProjectedBytes(s.ptiPayload, s.hasPti, kSampleInstrumentCount, StreamMode(a.cfg.streamMode),
+                                kStreamThresholdSec[a.cfg.streamThreshold & 3]) <= a.bank.capacityBytes();
+}
+
 bool stopAtFirst(const IStorage::DirEntry&, void*) { return false; }
 
 // removeTree (public issue #55): every path under a folder must fit the
@@ -526,7 +542,7 @@ bool App::newProject() {
     project.setCurrentPattern(1);
     names.clear();
     engineDirty_ = true;
-    bank.clear();
+    applyStreamOption();   // clears the bank; carves the stream rings when on
     for (int i = 0; i < kSampleInstrumentCount; ++i) {
         instruments[i].setDefault();
         instrPresent[i] = false;
@@ -1070,6 +1086,87 @@ bool App::jobPtiWriteUnit(int slot, const char* path, uint32_t& cost, bool* fail
 // instrument_NN.mti, and every byte read is also written to
 // Workspace/instruments/instrument_NN.pti (stock: copy as .mti, rename, load).
 // Load: Workspace/instrument_NN.pti (a lone .mti is renamed first).
+// ---------------------------------------------------------------------------
+// SD streaming: head-only loading (docs/PLAN_SD_STREAMING_P1C_P2.md §2.2)
+
+uint32_t App::streamWouldResident(int slot, uint32_t frames, bool stereo) {
+    pj_.streamThis = false;
+    const uint32_t whole = frames * (stereo ? 2u : 1u);
+    if (!stream_.on || ((pj_.noStream[slot / 8] >> (slot % 8)) & 1u)) return whole;
+    int inUse = 0;
+    for (int i = 0; i < kSampleInstrumentCount; ++i) inUse += stream_.streamOf[i] >= 0;
+    StreamDecisionIn d;
+    d.mode = StreamMode(cfg.streamMode > 2 ? 0 : cfg.streamMode);
+    d.playMode = instruments[slot].playMode;
+    d.frames = frames;
+    d.stereo = stereo;
+    d.thresholdSec = kStreamThresholdSec[cfg.streamThreshold > 3 ? 1 : cfg.streamThreshold];
+    d.overBudget = pj_.overBudget;
+    d.readerAvailable = hal_.streamReader != nullptr;
+    d.streamsInUse = inUse;
+    if (!streamDecision(d)) return whole;
+    const StreamResident r = streamResident(instruments[slot].playMode, frames, instruments[slot].loopPoint1);
+    pj_.streamThis = true;
+    pj_.fullFrames = frames;
+    pj_.resHead = r.headFrames;
+    pj_.resLoopStart = r.loopStart;
+    pj_.resLoopFrames = r.loopFrames;
+    return r.framesPerChannel() * (stereo ? 2u : 1u);
+}
+
+void App::planStreamRanges(int slot, uint32_t frames, bool stereo, uint32_t off) {
+    (void)slot;
+    if (!pj_.streamThis) return;
+    const uint32_t perCh = pj_.resHead + pj_.resLoopFrames;
+    int n = 0;
+    auto add = [&](uint32_t fileOff, uint32_t frm, uint32_t bankFrame) {
+        if (frm) pj_.ranges[n++] = {fileOff, frm * 2u, bankFrame * 2u};
+    };
+    add(off, pj_.resHead, 0);                                              // L head
+    add(off + pj_.resLoopStart * 2u, pj_.resLoopFrames, pj_.resHead);      // L loop head
+    if (stereo) {
+        const uint32_t r0 = off + frames * 2u;                             // planar: R after L
+        add(r0, pj_.resHead, perCh);                                       // R head
+        add(r0 + pj_.resLoopStart * 2u, pj_.resLoopFrames, perCh + pj_.resHead);   // R loop head
+    }
+    pj_.nRanges = uint8_t(n);
+    pj_.capLen = perCh * (stereo ? 2u : 1u) * 2u;
+}
+
+bool App::bindStreamSlot(int slot, const char* path) {
+    if (!hal_.streamReader) return false;
+    int k = -1;
+    bool used[audio::kMaxStreams] = {};
+    for (int i = 0; i < kSampleInstrumentCount; ++i)
+        if (stream_.streamOf[i] >= 0) used[stream_.streamOf[i]] = true;
+    for (int i = 0; i < audio::kMaxStreams && k < 0; ++i)
+        if (!used[i]) k = i;
+    if (k < 0) return false;
+    audio::StreamSource& s = stream_.src[k];
+    s = audio::StreamSource{};
+    s.instrument = uint8_t(slot);
+    s.frames = pj_.fullFrames;
+    s.headL = bank.left(slot);
+    s.headR = bank.stereo(slot) ? bank.right(slot) : nullptr;
+    s.headFrames = pj_.resHead;
+    if (pj_.resLoopFrames) {
+        s.loopStart = pj_.resLoopStart;
+        s.loopFrames = pj_.resLoopFrames;
+        s.loopL = s.headL + pj_.resHead;
+        s.loopR = s.headR ? s.headR + pj_.resHead : nullptr;
+    }
+    audio::StreamBindInfo info;
+    if (!hal_.streamReader->bind(s, path, pj_.dataOff[slot], s.headR != nullptr, &info)) {
+        if (!loadNotice_[0])
+            std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %d: %s, loaded into memory", slot + 1,
+                          std::strcmp(info.reason, "fragmented") == 0 ? "too fragmented to stream" : "cannot stream");
+        return false;
+    }
+    stream_.streamOf[slot] = int8_t(k);
+    engine.setStreamSource(slot, &stream_.src[k]);
+    return true;
+}
+
 bool App::jobSamplesUnit(int slot, uint32_t& cost) {
     IStorage& f = g_pfs;
     char path[340];
@@ -1085,8 +1182,12 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
     auto endSlot = [&]() {
         jobCloseFiles();
         pj_.phase = pj_.wphase = 0;
+        pj_.slotFromWorkspace = false;
         return true;
     };
+    // Open copies the project's file into the Workspace while loading; a slot
+    // whose stream bind fell back restarts from that finished copy instead.
+    const bool fromProject = pj_.fromProject && !pj_.slotFromWorkspace;
     uint8_t* bankBytes = reinterpret_cast<uint8_t*>(bank.tail());
 
     if (pj_.phase == 0) {
@@ -1094,7 +1195,7 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         pj_.modes[slot] = instruments[slot].playMode;
         pj_.kind[slot] = 0;
         char src[340];
-        if (pj_.fromProject) {
+        if (fromProject) {
             // spec 10 §4.2 step 4: the slot's first "<N> <name>.pti", else
             // the legacy instrument_NN.mti.
             if (g_scan.ptiName[slot] >= 0) std::snprintf(src, sizeof(src), "%s/instruments/%.63s", pj_.dir, g_list[g_scan.ptiName[slot]]);
@@ -1131,7 +1232,7 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         }
         pj_.fileSize[slot] = uint32_t(size);
         pj_.pos = uint32_t(got);
-        pj_.len = pj_.fromProject ? uint32_t(size) : uint32_t(got);
+        pj_.len = fromProject ? uint32_t(size) : uint32_t(got);
         pj_.capOff = pj_.capLen = 0;
         {
             ProfScope d(g_ticks.decode);
@@ -1149,35 +1250,42 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
             const uint32_t off = pj_.dataOff[slot];
             const uint32_t payload = uint32_t(size) > off ? uint32_t(size) - off : 0;
             const PtiSampleLayout lay = resolvePtiSample(instruments[slot].lengthFrames, payload, true);   // 2.x: stereo kept
-            const uint32_t count = lay.frames * (lay.useStereo ? 2u : 1u);
+            const uint32_t count = streamWouldResident(slot, lay.frames, lay.useStereo);
             if (count > bank.freeSamples()) {
                 // Checked before reading (spec 02 §8.2): the slot is cleared.
                 instruments[slot].setDefault();
                 instrPresent[slot] = false;
                 ++pj_.loadErrors;
                 pj_.kind[slot] = 0;
-                if (!pj_.fromProject) return endSlot();
+                if (!fromProject) return endSlot();
             } else {
                 pj_.srcFrames = lay.frames;
                 pj_.srcStereo = lay.useStereo;
                 pj_.capOff = off;
                 pj_.capLen = count * 2;
-                if (pj_.fromProject) {
+                pj_.nRanges = 1;
+                pj_.ranges[0] = {off, count * 2, 0};
+                planStreamRanges(slot, lay.frames, lay.useStereo, off);   // SD streaming: head-only ranges
+                if (fromProject) {
                     // Payload bytes already in the header block (short header).
-                    if (count && off < pj_.pos) {
-                        const uint32_t e = pj_.pos < off + pj_.capLen ? pj_.pos : off + pj_.capLen;
-                        std::memcpy(bankBytes, hdr + off, e - off);
+                    for (int r = 0; r < pj_.nRanges; ++r) {
+                        const ProjectJob::BankRange& g = pj_.ranges[r];
+                        if (!g.len || g.fileOff >= pj_.pos) continue;
+                        const uint32_t e = pj_.pos < g.fileOff + g.len ? pj_.pos : g.fileOff + g.len;
+                        std::memcpy(bankBytes + g.bankOff, hdr + g.fileOff, e - g.fileOff);
                     }
-                } else if (count) {
-                    if (pj_.pos != off && !f.seek(pj_.in, off)) return clearSlot(true);
-                    pj_.pos = off;
-                    pj_.len = off + pj_.capLen;
+                } else if (pj_.capLen) {
+                    const uint32_t first = pj_.ranges[0].fileOff;
+                    const ProjectJob::BankRange& last = pj_.ranges[pj_.nRanges - 1];
+                    if (pj_.pos != first && !f.seek(pj_.in, first)) return clearSlot(true);
+                    pj_.pos = first;
+                    pj_.len = last.fileOff + last.len;
                 }
             }
         }
         // Open: the Workspace copy is created in a unit of its own (a FatFs
         // create scans the folder once per "~N" short-name candidate).
-        pj_.phase = pj_.fromProject ? 6 : 1;
+        pj_.phase = fromProject ? 6 : 1;
         return false;
     }
 
@@ -1202,15 +1310,35 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         bool moved = false;
         if (pj_.pos < pj_.len) {
             moved = true;
-            const uint32_t cs = pj_.capOff, ce = pj_.capOff + pj_.capLen;
+            // The bank range holding pos (or the next one after it).
+            const ProjectJob::BankRange* in = nullptr;
+            const ProjectJob::BankRange* next = nullptr;
+            for (int r = 0; r < pj_.nRanges && pj_.capLen; ++r) {
+                const ProjectJob::BankRange& g = pj_.ranges[r];
+                if (!g.len) continue;
+                if (pj_.pos >= g.fileOff && pj_.pos < g.fileOff + g.len) in = &g;
+                else if (pj_.pos < g.fileOff && !next) next = &g;
+            }
+            if (!in && next && pj_.out < 0) {
+                // Head-only load (no copy to write): skip to the next range.
+                if (!f.seek(pj_.in, next->fileOff)) {
+                    ++pj_.loadErrors;
+                    pj_.pos = pj_.len;
+                    return false;
+                }
+                pj_.pos = next->fileOff;
+                in = next;
+                next = nullptr;
+            }
+            const bool inCap = in != nullptr;
+            const uint32_t cs = in ? in->fileOff : 0, ce = in ? in->fileOff + in->len : 0;
             uint32_t end = chunkEnd(pj_.pos, unitBytes(true, pj_.out >= 0));
             if (end > pj_.len) end = pj_.len;
-            const bool inCap = pj_.capLen && pj_.pos >= cs && pj_.pos < ce;
-            if (pj_.capLen && pj_.pos < cs && end > cs) end = cs;
+            if (!inCap && next && end > next->fileOff) end = next->fileOff;
             if (inCap && end > ce) end = ce;
             uint32_t want = end - pj_.pos;
             if (!inCap && want > mem_.scratchBytes) want = mem_.scratchBytes;
-            uint8_t* d = inCap ? bankBytes + (pj_.pos - cs) : mem_.scratch;
+            uint8_t* d = inCap ? bankBytes + in->bankOff + (pj_.pos - cs) : mem_.scratch;
             int32_t r = f.read(pj_.in, d, want);
             if (r < 0 && f.seek(pj_.in, pj_.pos)) r = f.read(pj_.in, d, want);   // one retry
             if (r < 0) ++pj_.loadErrors;
@@ -1221,14 +1349,17 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
                 pj_.out = -1;
             }
             pj_.pos += got;
-            cost += pj_.fromProject ? 2 * got : got;
-            pj_.done += pj_.fromProject ? 2 * got : got;
+            cost += fromProject ? 2 * got : got;
+            pj_.done += fromProject ? 2 * got : got;
             if (got < want) {
                 // Short file / read error: the rest of the samples reads as
                 // zero (as loadInstrumentFile; a half sample counts as missing).
-                if (pj_.capLen && pj_.pos < ce) {
-                    const uint32_t z = pj_.pos > cs ? cs + ((pj_.pos - cs) & ~1u) : cs;
-                    std::memset(bankBytes + (z - cs), 0, ce - z);
+                for (int r = 0; r < pj_.nRanges && pj_.capLen; ++r) {
+                    const ProjectJob::BankRange& g = pj_.ranges[r];
+                    const uint32_t gs = g.fileOff, ge = g.fileOff + g.len;
+                    if (pj_.pos >= ge) continue;
+                    const uint32_t z = pj_.pos > gs ? gs + ((pj_.pos - gs) & ~1u) : gs;
+                    std::memset(bankBytes + g.bankOff + (z - gs), 0, ge - z);
                 }
                 pj_.pos = pj_.len;
             }
@@ -1247,6 +1378,16 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
             Instrument ins = instruments[slot];
             ins.lengthFrames = pj_.srcFrames;
             ins.stereo = pj_.srcStereo;
+            if (pj_.streamThis) {
+                // Head-only: the bank holds [L head | L loop][R head | R loop].
+                const uint32_t perCh = pj_.resHead + pj_.resLoopFrames;
+                bank.commitTail(slot, perCh, ins.stereo);
+                bank.setPartial(slot, pj_.fullFrames);
+                ins.lengthFrames = pj_.fullFrames;
+                instruments[slot] = ins;
+                pj_.phase = 7;   // bind the stream (a unit of its own)
+                return false;
+            }
             bank.commitTail(slot, ins.lengthFrames, ins.stereo);
             instruments[slot] = ins;
             instrPresent[slot] = true;
@@ -1255,6 +1396,23 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         }
         if (pj_.kind[slot] != 2) return endSlot();
         pj_.phase = 3;
+        return false;
+    }
+
+    // SD streaming: bind the head-only slot's stream (FAT chain walk + self-check).
+    if (pj_.phase == 7) {
+        cost += kJobSmallCost;
+        if (bindStreamSlot(slot, path)) {
+            instrPresent[slot] = true;
+            pj_.streamThis = false;
+            return endSlot();
+        }
+        // Fallback: the slot reloads whole from its Workspace copy.
+        bank.remove(slot);
+        pj_.noStream[slot / 8] = uint8_t(pj_.noStream[slot / 8] | (1u << (slot % 8)));
+        pj_.streamThis = false;
+        pj_.slotFromWorkspace = true;
+        pj_.phase = 0;
         return false;
     }
 
@@ -1563,6 +1721,10 @@ void App::loadPatchUnit(int s, uint32_t& cost) {
 // One notice per load (Ui has one notice slot): the first problem.
 void App::loadNotice() {
     if (!loadNotice_[0]) synthUnavailableNotice(loadNotice_, sizeof(loadNotice_));   // synth_slots.cpp
+    // SD streaming (§2.7): with nothing else to say, how many stream.
+    if (const int n = streamedCount(); !loadNotice_[0] && n > 0)
+        std::snprintf(loadNotice_, sizeof(loadNotice_), n == 1 ? "1 instrument streams from the card" :
+                      "%d instruments stream from the card", n);
     if (loadNotice_[0]) ui.notify(loadNotice_, 4000);
 }
 
@@ -1607,7 +1769,7 @@ bool App::jobUnit(uint32_t& cost) {
                 patchSrc_[s] = PatchSource::None;
             }
             engineDirty_ = true;
-            bank.clear();
+            applyStreamOption();   // clears the bank; carves the stream rings when on
             for (int i = 0; i < kSampleInstrumentCount; ++i) {
                 instruments[i].setDefault();
                 instrPresent[i] = false;
@@ -1885,6 +2047,9 @@ bool App::jobUnit(uint32_t& cost) {
                     return true;
                 }
                 pj_.sampleDirty = instrSampleDirty_[i];
+                // SD streaming: the bank holds only the head of a streamed
+                // slot; its .pti payload is never rewritten (header only).
+                if (streamed(i)) pj_.sampleDirty = false;
                 instrHeaderDirty_[i] = instrSampleDirty_[i] = false;
             }
             workspaceInstrumentPath(dst, sizeof(dst), kWorkspace, i + 1);
@@ -2143,6 +2308,7 @@ bool App::startLoadWorkspace(JobDoneFn done, void* ctx) {
     pj_.ctx = ctx;
     // One scan of Workspace/instruments and Workspace/patterns.
     scanSlots(g_pfs, kWorkspace, g_scan, true, nullptr, 0, true);
+    pj_.overBudget = scanSampleBytes(g_scan) > bank.capacityBytes();   // SD streaming (Auto)
     estimateJobTotal();
     jobBeginLoad();
     seq.stop();
@@ -2196,7 +2362,8 @@ bool App::startOpenProject(const char* folder, const char* name, JobDoneFn done,
     profBegin(JobOp::Open);
     // The one scan of the project folder: memory check, copy list, patterns.
     scanSlots(g_pfs, dir, g_scan, false, g_list, int(sizeof(g_list) / sizeof(g_list[0])), true);
-    if (scanSampleBytes(g_scan) > bank.capacityBytes()) return false;
+    const bool overBudget = scanSampleBytes(g_scan) > bank.capacityBytes();
+    if (!scanFitsMemory(*this, g_scan)) return false;
     recentsLeaveCurrent(*this);
     seq.stop();
     allVoicesOff();
@@ -2218,6 +2385,7 @@ bool App::startOpenProject(const char* folder, const char* name, JobDoneFn done,
     pj_.onDone = done;
     pj_.ctx = ctx;
     pj_.stage = kOWipe;
+    pj_.overBudget = overBudget;
     estimateJobTotal();
     jobProgress();
     return true;
@@ -2336,19 +2504,38 @@ bool saveProjectInto(App& a, const char* folder, const char* name) {
 // ---------------------------------------------------------------------------
 // Memory pre-check, recents, card removal
 
-uint64_t projectSampleBytes(App& a, const char* dir) {
-    // spec 02 §8.2 / spec 10 §4.2 step 0: sum the sample data sizes.
+namespace {
+// The folder scan of the memory pre-check (one copy in SDRAM).
+const SlotScan& scanForMemory(App& a, const char* dir) {
     OT_SDRAM_BSS static SlotScan s;
     scanSlots(a.fs(), dir, s);
-    return scanSampleBytes(s);
+    return s;
+}
+}  // namespace
+
+uint64_t projectSampleBytes(App& a, const char* dir) {
+    // spec 02 §8.2 / spec 10 §4.2 step 0: sum the sample data sizes.
+    return scanSampleBytes(scanForMemory(a, dir));
 }
 
 bool projectFitsMemory(App& a, const char* folder, const char* name) {
     char dir[mt::kFolderMax + mt::kNameMax + 2];
     std::snprintf(dir, sizeof(dir), "%s/%s", folder && folder[0] ? folder : kProjectsDir, name);
     // SPEC GAP: the stock reaction to an over-budget project is not
-    // specified; OpenTracker refuses to open it.
-    return projectSampleBytes(a, dir) <= a.bank.capacityBytes();
+    // specified; OpenTracker refuses to open it. SD streaming: the same rule
+    // as the Open job (scanFitsMemory).
+    return scanFitsMemory(a, scanForMemory(a, dir));
+}
+
+bool workspaceFitsMemory(App& a) {
+    OT_SDRAM_BSS static SlotScan s;   // the Workspace names its files instrument_NN.pti
+    scanSlots(a.fs(), kWorkspace, s, true);
+    const uint32_t bank = a.mem().sampleBankSamples;
+    const bool on = a.cfg.streamMode != 0 && a.hal().streamReader && bank >= 2u * audio::kStreamRegionSamples;
+    const uint64_t cap = uint64_t(bank - (on ? audio::kStreamRegionSamples : 0u)) * sizeof(int16_t);
+    if (scanSampleBytes(s) <= cap) return true;
+    return on && streamProjectedBytes(s.ptiPayload, s.hasPti, kSampleInstrumentCount, StreamMode(a.cfg.streamMode),
+                                      kStreamThresholdSec[a.cfg.streamThreshold & 3]) <= cap;
 }
 
 namespace {
@@ -2445,6 +2632,7 @@ bool serviceCardRemoved(App& a, uint32_t now) {
     if (!g_cardMissing) {
         g_cardMissing = true;
         a.abortJob();   // its files are gone with the card
+        a.streamUnbindAll();
         a.seq.stop();
         a.allVoicesOff();
     }
@@ -2491,7 +2679,9 @@ bool App::importSample(const char* path, int slot, uint16_t startMarker, uint16_
     // report / Polyend forum); only the audio and its name change.
     const bool keep = instrPresent[slot];
     const Instrument prev = instruments[slot];
+    streamUnbind(slot);
     bank.remove(slot);
+    refreshStreamSources();
     instrPresent[slot] = false;
     Instrument ins;
     if (endsWithNoCase(path, ".pti")) {
@@ -2549,6 +2739,7 @@ bool App::importSample(const char* path, int slot, uint16_t startMarker, uint16_
     ins.lengthFrames = bank.frames(slot);
     instruments[slot] = ins;
     instrPresent[slot] = true;
+    refreshStreamSources();
     markInstrumentDirty(slot, true);
     return true;
 }
@@ -2557,7 +2748,9 @@ bool App::deleteInstrument(int slot) {
     if (slot < 0 || slot >= kSampleInstrumentCount) return false;
     finishJob();   // the bank moves under a running instrument write
     allVoicesOff();
+    streamUnbind(slot);
     bank.remove(slot);
+    refreshStreamSources();
     instruments[slot].setDefault();
     instrPresent[slot] = false;
     markInstrumentDirty(slot, true);
@@ -2569,10 +2762,65 @@ bool App::copyInstrument(int src, int dst) {
     finishJob();   // the bank moves under a running instrument write
     if (!instrPresent[src]) return false;
     allVoicesOff();
+    streamUnbind(dst);
+    if (streamed(src)) {
+        // A streamed source: a full RAM copy from its Workspace file, never
+        // a copy of the head.
+        bank.remove(dst);
+        refreshStreamSources();
+        char path[340];
+        workspaceInstrumentPath(path, sizeof(path), kWorkspace, src + 1);
+        Instrument ins;
+        PtiSampleLayout lay;
+        if (loadInstrumentFile(fs(), path, ins, bank.tail(), uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
+            ui.notify("Not enough memory to copy the sample");
+            return false;
+        }
+        bank.commitTail(dst, ins.lengthFrames, ins.stereo);
+        refreshStreamSources();
+        Instrument copy = instruments[src];
+        copy.lengthFrames = bank.frames(dst);
+        copy.stereo = bank.stereo(dst);
+        instruments[dst] = copy;
+        instrPresent[dst] = true;
+        markInstrumentDirty(dst, true);
+        return true;
+    }
     if (!bank.copy(src, dst)) return false;
+    refreshStreamSources();
     instruments[dst] = instruments[src];
     instrPresent[dst] = true;
     markInstrumentDirty(dst, true);
+    return true;
+}
+
+bool App::loadStreamedIntoMemory(int slot) {
+    if (!streamed(slot)) return true;
+    finishJob();
+    allVoicesOff();
+    char path[340];
+    workspaceInstrumentPath(path, sizeof(path), kWorkspace, slot + 1);
+    // Read the whole sample after the last instrument first (the head stays
+    // until the read succeeded), then drop the head and move it down.
+    int16_t* at = bank.tail();
+    Instrument ins;
+    PtiSampleLayout lay;
+    if (loadInstrumentFile(fs(), path, ins, at, uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
+        ui.notify("Not enough memory to load the sample");
+        return false;
+    }
+    const uint32_t n = ins.lengthFrames * (ins.stereo ? 2u : 1u);
+    const Instrument prev = instruments[slot];
+    streamUnbind(slot);
+    bank.remove(slot);
+    std::memmove(bank.tail(), at, size_t(n) * sizeof(int16_t));
+    bank.commitTail(slot, ins.lengthFrames, ins.stereo);
+    refreshStreamSources();
+    Instrument keep = prev;
+    keep.lengthFrames = bank.frames(slot);
+    keep.stereo = bank.stereo(slot);
+    instruments[slot] = keep;
+    markInstrumentDirty(slot);   // header only: the file is unchanged
     return true;
 }
 

@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #include "audio/block_profile.h"
+#include "audio/stream_source.h"
 
 namespace ot {
 struct JobProfile;   // core app/project_io.h
@@ -87,6 +88,25 @@ CpuSample cpuSample(const audio::CpuMeter& m, const audio::Governor& g, const au
 // full parameter copies, macro recomputes, steals, pending starts, deferred
 // note-ons, synth and sample voices rendered).
 size_t formatCpu(char* out, size_t cap, const CpuSample& s);
+
+// 2.x SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md C11): one telemetry
+// window of the stream service, logged with the 5 s lines while streaming is on.
+struct StreamSample {
+    bool loading = false;                  // a project job ran (reads compete with it)
+    uint32_t streams = 0, active = 0;      // bound sources, rings playing a stream
+    uint32_t chunks = 0, errors = 0, passes = 0;
+    uint32_t readAvgUs = 0, readMaxUs = 0;
+    uint32_t leadMinMs = 0xFFFFFFFFu;      // smallest lead, 0xFFFFFFFF = nothing left to read
+    uint32_t underruns = 0;                // the rings' running total
+    uint32_t underrunsDelta = 0;           // new in this window
+};
+// From one window of the service stats; lastUnderruns carries the previous
+// total (updated) for the delta.
+StreamSample streamSample(const audio::StreamServiceStats& st, uint32_t streams, uint32_t active,
+                          uint32_t& lastUnderruns, bool loading);
+// "telemetry: stream streams S active A | chunks C read avg X.Y max X.Y ms | lead min L ms
+//  | underruns U (+D) errors E | passes P" (+ " | loading"; lead "-" when none)
+size_t formatStream(char* out, size_t cap, const StreamSample& s);
 
 // Once-per-second "cpu" line (kPeriodMs): due() starts the period on its
 // first call like Telemetry::due().

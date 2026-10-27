@@ -70,13 +70,18 @@ struct Config {
     uint8_t synthVoices = kDefaultSynthVoices;
     static constexpr uint8_t kDefaultSynthVoices = 4;
     static constexpr uint8_t kMaxSynthVoices = 8;
+    // 2.x SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §2.6): Config > General
+    // "Stream from card" Off / Auto / All and its threshold. Extension record
+    // bytes 3 and 4.
+    uint8_t streamMode = 0;        // 0 Off, 1 Auto, 2 All
+    uint8_t streamThreshold = 1;   // index into kStreamThresholdSec {5, 10, 20, 30} s (default 10 s)
     // [I] 2.x Config > General "Export sample rate": 1 = 44.1 kHz (the render
     // converted, 44100 in the header; default), 0 = the device rate with
     // 44117 in the header, as stock (spec 04 §6.1). Extension record byte 6.
     uint8_t exportRate = 1;
-    // Extension record bytes 3..5: options of later 2.x builds this one does
-    // not know yet; read and written back unchanged (their defaults).
-    uint8_t extKeep[3] = {0, 1, 0};
+    // Extension record byte 5: an option of later 2.x builds this one does
+    // not know yet; read and written back unchanged (its default).
+    uint8_t extKeep[1] = {0};
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -97,7 +102,7 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 4;
-    static constexpr uint32_t kExtPayload = 6;               // cpuMeter, synthVoices, extKeep[3], exportRate
+    static constexpr uint32_t kExtPayload = 6;               // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

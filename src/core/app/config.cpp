@@ -101,6 +101,8 @@ void Config::setDefaults() {
 void Config::sanitize() {
     // Range validation in the spirit of spec 05 §5.4 configValidate.
     clampField<uint8_t>(radioRegion, 3, 0);
+    clampField<uint8_t>(streamMode, 2, 0);
+    clampField<uint8_t>(streamThreshold, 3, 1);
     clampField<uint8_t>(exportRate, 1, 1);
     clampField<uint8_t>(brightness, 2, 2);
     clampField<uint8_t>(theme, 2, 0);
@@ -164,9 +166,9 @@ void Config::toExt(uint8_t* out) const {
     out[4] = uint8_t(kExtPayload);
     out[5] = cpuMeter;
     out[6] = synthVoices;
-    out[7] = extKeep[0];
-    out[8] = extKeep[1];
-    out[9] = extKeep[2];
+    out[7] = streamMode;
+    out[8] = streamThreshold;
+    out[9] = extKeep[0];
     out[10] = exportRate;
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
@@ -184,7 +186,9 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     cpuMeter = in[5] <= 2 ? in[5] : 0;
     synthVoices = (n >= 2 && in[6] >= 1 && in[6] <= kMaxSynthVoices) ? in[6] : kDefaultSynthVoices;
     const Config d;
-    for (uint32_t i = 0; i < 3; ++i) extKeep[i] = n >= 3 + i ? in[7 + i] : d.extKeep[i];
+    streamMode = (n >= 3 && in[7] <= 2) ? in[7] : d.streamMode;
+    streamThreshold = (n >= 4 && in[8] <= 3) ? in[8] : d.streamThreshold;
+    extKeep[0] = n >= 5 ? in[9] : d.extKeep[0];
     exportRate = (n >= 6 && in[10] <= 1) ? in[10] : 1;
     return true;
 }
@@ -202,6 +206,8 @@ bool Config::fromImage(const uint8_t* img) {
     c.radioFreq10 = radioFreq10;
     c.cpuMeter = cpuMeter;   // extension record, not in the image
     c.synthVoices = synthVoices;
+    c.streamMode = streamMode;
+    c.streamThreshold = streamThreshold;
     c.exportRate = exportRate;
     std::memcpy(c.extKeep, extKeep, sizeof(extKeep));
     c.sanitize();
@@ -218,6 +224,8 @@ bool Config::load(INvStore& nv) {
     const Config d;
     cpuMeter = d.cpuMeter;
     synthVoices = d.synthVoices;
+    streamMode = d.streamMode;
+    streamThreshold = d.streamThreshold;
     exportRate = d.exportRate;
     std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
     // The longest record that fits the store (older records are shorter;
@@ -238,7 +246,8 @@ bool Config::save(INvStore& nv) {
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
     const Config d;
-    if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && exportRate == d.exportRate &&
+    if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && streamMode == d.streamMode &&
+        streamThreshold == d.streamThreshold && exportRate == d.exportRate &&
         std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
@@ -264,6 +273,8 @@ bool Config::load(IStorage& fs) {
         const Config d;
         cpuMeter = d.cpuMeter;
         synthVoices = d.synthVoices;
+        streamMode = d.streamMode;
+        streamThreshold = d.streamThreshold;
         exportRate = d.exportRate;
         std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
         fromExt(buf + 8 + kImageSize, avail - kImageSize);

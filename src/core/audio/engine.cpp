@@ -61,6 +61,7 @@ size_t SampleBank::usedSamples() const {
 }
 
 int16_t* SampleBank::reserve(int idx, uint32_t frames, bool stereo) {
+    if (valid(idx)) slots_[idx].full = 0;   // rewritten: no longer a streamed head
     if (!valid(idx) || !pool_) return nullptr;
     const uint32_t need = frames * (stereo ? 2u : 1u);
     const uint32_t old = slots_[idx].samples();
@@ -78,6 +79,12 @@ int16_t* SampleBank::reserve(int idx, uint32_t frames, bool stereo) {
     slots_[idx].stereo = stereo;
     slots_[idx].loaded = true;
     return pool_ + start;
+}
+
+bool SampleBank::setPartial(int idx, uint32_t fullFrames) {
+    if (!loaded(idx) || fullFrames <= slots_[idx].frames) return false;
+    slots_[idx].full = fullFrames;
+    return true;
 }
 
 bool SampleBank::store(int idx, const int16_t* samples, uint32_t frames, bool stereo) {
@@ -106,6 +113,7 @@ bool SampleBank::commitTail(int idx, uint32_t frames, bool stereo) {
         if (slots_[j].loaded) slots_[j].off += n;
     slots_[idx].off = start;
     slots_[idx].frames = frames;
+    slots_[idx].full = 0;
     slots_[idx].stereo = stereo;
     slots_[idx].loaded = true;
     return true;
@@ -136,6 +144,7 @@ void SampleBank::crop(int idx, uint32_t start, uint32_t n) {
 }
 
 bool SampleBank::replaceFromTail(int idx, uint32_t frames, bool stereo) {
+    if (valid(idx)) slots_[idx].full = 0;
     if (!loaded(idx)) return false;
     const uint32_t n = frames * (stereo ? 2u : 1u);
     const size_t used = usedSamples();
@@ -371,6 +380,9 @@ void AudioEngine::voiceNoteOn(uint8_t track, const VoiceNoteOn& n) {
         voices_[track].noteOn(&ins, ss->headL, ss->frames, n.note, n.volume, n.fxA.type, n.fxA.value, n.fxB.type,
                               n.fxB.value, ss->headR, ss, &rings_[track]);
     } else {
+        // A partial (streamed-head) slot never plays as a whole sample: no
+        // source bound yet, streaming turned off, or a bank move in progress.
+        if (bank_.partial(n.instrument)) return;
         voices_[track].noteOn(&ins, bank_.left(n.instrument), bank_.frames(n.instrument), n.note, n.volume,
                               n.fxA.type, n.fxA.value, n.fxB.type, n.fxB.value,
                               bank_.stereo(n.instrument) ? bank_.right(n.instrument) : nullptr, nullptr,

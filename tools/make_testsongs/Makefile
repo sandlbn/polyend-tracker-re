@@ -3,11 +3,13 @@
 #   make -C reimpl/tools/make_testsongs        -> build/make_testsongs/make_testsongs
 #   make -C reimpl/tools/make_testsongs run    -> build/testsongs/Projects/<name>/
 #   make -C reimpl testsongs                   (same as run)
+#   STEMS_SECONDS=180                          -> song 19's stems 180 s long (default 30)
 CXX      ?= g++
 ROOT     := ../..
 OUT      := $(ROOT)/build/make_testsongs
 SD       ?= $(ROOT)/build/testsongs
 SONGS    ?=
+STEMS_SECONDS ?=
 CXXFLAGS := -std=c++17 -O2 -g -Wall -Wextra -Wno-format-truncation -MMD \
             -I$(ROOT)/src/core -I$(ROOT)/src -I$(ROOT)/sim/src
 
@@ -41,7 +43,7 @@ $(BIN): $(CORE_OBJS) $(TOOL_OBJS)
 run: $(BIN)
 	rm -rf $(SD)
 	mkdir -p $(SD)
-	$(BIN) $(SD) $(foreach s,$(SONGS),--song $(s))
+	$(BIN) $(SD) $(foreach s,$(SONGS),--song $(s)) $(if $(STEMS_SECONDS),--stems-seconds $(STEMS_SECONDS))
 	rm -rf $(SD)/Workspace $(SD)/OpenTracker $(SD)/Projects/recents
 
 clean:

@@ -229,8 +229,9 @@ fonts:
 
 # 2.x hardware-test projects (TESTSONGS.md): build/testsongs/Projects/<name>/.
 # SONGS="1 3" limits the set; songs whose milestone is not built are skipped.
+# STEMS_SECONDS=180: song 19's stems 180 s long (default 30 s; the hardware run).
 testsongs:
-	$(MAKE) -C tools/make_testsongs run SONGS="$(SONGS)"
+	$(MAKE) -C tools/make_testsongs run SONGS="$(SONGS)" STEMS_SECONDS="$(STEMS_SECONDS)"
 .PHONY: testsongs
 
 # Synth preset pack (tools/make_patches/PRESETS.md): build/patches/Patches/<MODEL>/.

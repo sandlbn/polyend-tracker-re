@@ -551,5 +551,43 @@ int32_t SdStorage::listDir(const char* path, DirFn fn, void* ctx) {
     return n;
 }
 
+bool SdStorage::fileExtents(const char* path, audio::StreamExtent* out, int cap, int* count, uint32_t* fileSize) {
+    if (!mounted_ || storageMode_ || !gFs.fs_type || cap <= 0) return false;
+    FIL f;
+    if (f_open(&f, path, FA_READ | FA_OPEN_EXISTING) != FR_OK) return false;
+    // CLMT: size, then (clusters, start) pairs; room for cap extents (FatFs
+    // pairs before merging can exceed the merged count: give it 2 x cap).
+    DWORD clmt[2 + 4 * audio::kStreamMaxExtents];
+    clmt[0] = DWORD(sizeof clmt / sizeof clmt[0]);
+    f.cltbl = clmt;
+    const bool mapped = f_lseek(&f, CREATE_LINKMAP) == FR_OK;
+    const uint32_t size = uint32_t(f_size(&f));
+    f.cltbl = nullptr;
+    f_close(&f);
+    if (!mapped) return false;
+    uint32_t c32[sizeof clmt / sizeof clmt[0]];
+    for (size_t i = 0; i < sizeof clmt / sizeof clmt[0]; ++i) c32[i] = uint32_t(clmt[i]);
+    const int n = audio::clmtToExtents(c32, uint32_t(gFs.database), uint32_t(gFs.csize), out, cap);
+    if (n <= 0) return false;
+    *count = n;
+    if (fileSize) *fileSize = size;
+    return true;
+}
+
+bool SdStorage::readSectors(uint32_t lba, uint8_t* dst, uint32_t count) {
+    if (!mounted_ || storageMode_) return false;
+    return sdhc::readBlocks(lba, dst, count);
+}
+
+bool SdStorage::readBytesAt(const char* path, uint32_t off, uint8_t* dst512) {
+    if (!mounted_ || storageMode_) return false;
+    FIL f;
+    if (f_open(&f, path, FA_READ | FA_OPEN_EXISTING) != FR_OK) return false;
+    UINT br = 0;
+    const bool ok = f_lseek(&f, off) == FR_OK && f_read(&f, dst512, 512, &br) == FR_OK && br == 512;
+    f_close(&f);
+    return ok;
+}
+
 }  // namespace hal
 }  // namespace ot

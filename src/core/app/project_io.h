@@ -98,6 +98,20 @@ struct ProjectJob {
     IStorage::Handle in = -1, out = -1;
     uint32_t pos = 0, len = 0;
     uint32_t capOff = 0, capLen = 0;   // file range read straight into the sample bank
+    // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §2.2): up to four file
+    // ranges land in the bank (L head, L loop head, R head, R loop head, in
+    // file order; bankOff relative to bank.tail()). One range = a RAM load.
+    struct BankRange {
+        uint32_t fileOff = 0, len = 0, bankOff = 0;
+    };
+    BankRange ranges[4];
+    uint8_t nRanges = 0;
+    bool streamThis = false;        // the current slot loads head-only
+    bool slotFromWorkspace = false; // Open: the slot restarts from its Workspace copy (bind fell back)
+    bool overBudget = false;        // the project's samples do not fit the bank (Auto rule)
+    uint32_t fullFrames = 0;        // streamed slot: the instrument's whole length
+    uint32_t resHead = 0, resLoopStart = 0, resLoopFrames = 0;
+    uint8_t noStream[(kSampleInstrumentCount + 7) / 8] = {};   // slots that fell back to RAM
     const int16_t* src = nullptr;  // autosave/import: samples being written
     uint32_t srcFrames = 0;
     bool srcStereo = false;
@@ -141,6 +155,10 @@ inline bool saveProjectAs(App& a, const char* folder, const char* name) { return
 uint64_t projectSampleBytes(App& a, const char* dir);
 // True when that sum fits the sample bank (0xB40000 bytes on the device).
 bool projectFitsMemory(App& a, const char* folder, const char* name);
+// SD streaming: the Workspace fits the sample memory under the current
+// Config stream settings (Config refuses a change that would drop samples at
+// the reload; with streaming off the stream buffers' memory is free too).
+bool workspaceFitsMemory(App& a);
 
 // ---- Projects/recents (spec 02 §7, spec 05 appendix E2) ------------------
 // Load and compact: entries whose "<path>/project.mt" no longer exists are

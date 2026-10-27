@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include "hal_api.h"
+#include "audio/stream_extents.h"
 
 namespace ot {
 namespace hal {
@@ -56,6 +57,17 @@ public:
     // Boot: sdhc::checkSdramDirect() on the first FAT sectors of the mounted
     // volume (real data). `scratch`: >= 65 KB of free SDRAM. True = direct reads on.
     bool checkDirectDma(uint8_t* scratch);
+
+    // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §1.2). The cluster map of
+    // `path` as sector extents (FatFs fast seek on a private FIL, not a slot);
+    // false when not mounted, the open fails or more than cap extents are
+    // needed (too fragmented).
+    bool fileExtents(const char* path, audio::StreamExtent* out, int cap, int* count, uint32_t* fileSize);
+    // Raw sectors (main loop only); false when unmounted, in USB Storage mode
+    // or on a transfer error.
+    bool readSectors(uint32_t lba, uint8_t* dst, uint32_t count);
+    // 512 bytes of `path` at byte offset `off` through FatFs (bind self-check).
+    bool readBytesAt(const char* path, uint32_t off, uint8_t* dst512);
 
     Handle open(const char* path, OpenMode mode) override;
     int32_t read(Handle h, void* dst, uint32_t len) override;

@@ -174,8 +174,9 @@ TEST(cpu_cell_poll_and_frame) {
 TEST(export_rate_config_record) {
     // Config > General "Export sample rate" (record v4, payload byte 6):
     // 1 = 44.1 kHz (converted, default), 0 = the device rate with 44117 in
-    // the header, as stock. Payload bytes 3..5 belong to later 2.x options:
-    // a build that doesn't know them keeps them as they are.
+    // the header, as stock. Payload bytes 3 and 4 are the SD streaming
+    // options; byte 5 belongs to a later 2.x option: a build that doesn't
+    // know it keeps it as it is.
     FakeNvStore nv;
     Config c;
     CHECK_EQ(c.exportRate, 1);
@@ -185,11 +186,14 @@ TEST(export_rate_config_record) {
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.exportRate, 0);
-    // Bytes 3..5 written by another 2.x build survive a load and a save.
+    // Bytes 3..5 written by another 2.x build: 3 and 4 are read, 5 survives
+    // a load and a save.
     const uint8_t other[] = {'O', 'T', 'X', 4, 6, 0, 4, 2, 3, 1, 1, 11};
     for (size_t i = 0; i < sizeof(other); ++i) nv.mem[0xF4 + i] = other[i];
     CHECK(r.load(nv));
     CHECK_EQ(r.exportRate, 1);
+    CHECK_EQ(r.streamMode, 2);
+    CHECK_EQ(r.streamThreshold, 3);
     r.cpuMeter = 1;
     CHECK(r.save(nv));
     CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 4, 6, 1, 4, 2, 3, 1, 1, 12);

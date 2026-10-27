@@ -142,6 +142,12 @@ expect-playing              fail unless the sequencer is playing
 expect-sound N              fail if the output peak since the last
                             expect-sound / sound-reset is below N (0..32767)
 sound-reset                 restart the output peak
+expect-notice TEXT          fail unless notice TEXT was shown since the last
+                            expect-open-ok (it no longer counts there)
+config stream all|auto|off  Config > Stream from card, applied like the Config
+                            screen (autosave, Workspace reload)
+expect-streams N            fail unless exactly N instruments stream from the card
+expect-underruns N          fail if the stream underruns (all voices) exceed N
 ```
 
 Button names: `F1`..`F8`, the panel labels or `INSTRPARAMS PERFORMANCE FILE

@@ -7,6 +7,7 @@
 
 #include "app/capture.h"
 #include "app/resample.h"
+#include "audio/stream_source.h"
 #include "app/config.h"
 #include "app/midi_cc.h"
 #include "app/pattern_ops.h"
@@ -55,6 +56,10 @@ struct HalRefs {
     // 2.x USB Storage mode (Config > USB > USB Storage). Null: not available
     // in this build (OT_USB_MSC=0).
     IUsbStorage* usbStorage = nullptr;
+    // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md): reads streamed sample
+    // data from the card (device: raw sectors; host / sim: IStorage). Null:
+    // streaming not available (the option reads as Off).
+    audio::IStreamReader* streamReader = nullptr;
 };
 
 // Large buffers (SDRAM on the device, spec 02 §8.2 for the sample bank).
@@ -300,6 +305,50 @@ public:
     UsbEnter enterUsbStorage();
     void exitUsbStorage();
     bool usbStorageActive() const { return usbActive_; }
+
+    // ---- SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md) ----
+    // Rings carved from the top of the sample bank when streaming is on
+    // (bank cleared; called at New and the project-load stage).
+    void applyStreamOption();
+    bool streamingOn() const { return stream_.on; }
+    bool streamed(int slot) const {
+        return slot >= 0 && slot < kSampleInstrumentCount && stream_.streamOf[slot] >= 0;
+    }
+    int streamedCount() const {
+        int n = 0;
+        for (int i = 0; i < kSampleInstrumentCount; ++i) n += stream_.streamOf[i] >= 0;
+        return n;
+    }
+    bool instrumentSampleDirty(int slot) const {
+        return slot >= 0 && slot < kSampleInstrumentCount && instrSampleDirty_[slot];
+    }
+    audio::StreamRing* streamRings() { return stream_.rings; }
+    const audio::StreamServiceStats& streamStats() const { return stream_.stats; }
+    // One telemetry window of the stream service (C11): the stats so far,
+    // then a fresh window; the underrun count stays the rings' running total.
+    audio::StreamServiceStats takeStreamStats() {
+        const audio::StreamServiceStats w = stream_.stats;
+        stream_.stats = audio::StreamServiceStats{};
+        stream_.stats.underruns = w.underruns;
+        return w;
+    }
+    // Rings playing a stream right now.
+    int streamActive() const {
+        int n = 0;
+        for (const audio::StreamRing& r : stream_.rings) n += r.src != nullptr;
+        return n;
+    }
+    // Every stream unbound (card lost, USB Storage mode, project change).
+    void streamUnbindAll();
+    // One slot's stream unbound (delete, import, resample into it).
+    void streamUnbind(int slot);
+    // After a bank move: every streamed slot's head / loop-head pointers again.
+    void refreshStreamSources();
+    // A streamed instrument loaded whole from its Workspace file (Sample
+    // Editor, play modes that need memory). False (nothing changed, notice)
+    // when it does not fit.
+    bool loadStreamedIntoMemory(int slot);
+    bool streamTestEnable = false;   // tests: carve the rings without the Config option
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
     }
@@ -576,6 +625,22 @@ private:
 
     HalRefs hal_;
     AppMemory mem_;
+    // SD streaming runtime (SRAM; the audio block reads the rings).
+    struct StreamRuntime {
+        audio::StreamRing rings[audio::kVoices];
+        audio::StreamSource src[audio::kMaxStreams];
+        int8_t streamOf[kSampleInstrumentCount];   // slot -> src index, -1 = RAM
+        uint8_t warnedMode[kSampleInstrumentCount];   // play mode last notified as not streamable
+        bool on = false;
+        audio::StreamServiceStats stats;
+    };
+    StreamRuntime stream_;
+    void serviceStreams(uint32_t nowMs);
+    // Head-only loading (project_io.cpp): the bank samples a slot needs (and
+    // whether it streams), its bank ranges, and the bind at the end.
+    uint32_t streamWouldResident(int slot, uint32_t frames, bool stereo);
+    void planStreamRanges(int slot, uint32_t frames, bool stereo, uint32_t off);
+    bool bindStreamSlot(int slot, const char* path);
     ExtTrackPool ext_;              // tracks 12..15 of the store (SDRAM blocks)
     Track* extDiscard_ = nullptr;   // storedTrack() target when the pool is full (SDRAM)
     uint32_t extFullReported_ = 0;  // ext_.fullEvents() at the last notice

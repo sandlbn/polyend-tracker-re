@@ -3,6 +3,7 @@
 // OpenTracker device glue: hands the HAL drivers and the SDRAM buffers to the
 // App (core stays free of hal headers; ARCHITECTURE.md rules).
 #include "app/app.h"
+#include "hal/sd_stream_reader.h"
 #include "hal/audio_sgtl5000.h"
 #include "hal/board.h"
 #include "hal/diag.h"
@@ -285,6 +286,16 @@ void telemetryTick() {
     char line[448];
     ot::diag::formatTelemetry(line, sizeof line, s);
     ot::hal::diagLog(line);
+    // SD streaming (C11, docs/HARDWARE_TESTING.md "SD streaming"): the 5 s
+    // window of the stream service, while the option is on.
+    if (gApp.streamingOn()) {
+        static uint32_t lastUnderruns = 0;
+        const ot::diag::StreamSample ss =
+            ot::diag::streamSample(gApp.takeStreamStats(), uint32_t(gApp.streamedCount()),
+                                   uint32_t(gApp.streamActive()), lastUnderruns, gApp.jobBusy());
+        ot::diag::formatStream(line, sizeof line, ss);
+        ot::hal::diagLog(line);
+    }
     // UI line (docs/HARDWARE_TESTING.md "telemetry: ui"): frames and render
     // time as before, then the last frame's SPI upload (bytes, time), the
     // frames deferred by a busy display, the longest frame-to-frame gap, the
@@ -405,7 +416,9 @@ void otAppMain(ot::hal::HalSet& hal) {
     refs.inputCtx = nullptr;
     refs.radio = &hal::radio();
     refs.nvstore = &hal::nvStore();        // config image in the stock EEPROM area (spec 05 §5.4)
-    refs.usbStorage = hal::usbStorage();   // 2.x USB Storage mode (null in an OT_USB_MSC=0 image)
+    refs.usbStorage = hal::usbStorage();
+    static hal::SdStreamReader sStreamReader(hal::storage());
+    refs.streamReader = &sStreamReader;   // SD streaming (raw sectors through the cluster map)   // 2.x USB Storage mode (null in an OT_USB_MSC=0 image)
     if (!gApp.init(refs, mem)) return;   // falls back to the selftest
     hal::setPowerOffHook(&powerOffHook);
     gApp.ui.platform.devStats = &devStats;         // Config /.develop overlay (spec 06 §7.2)

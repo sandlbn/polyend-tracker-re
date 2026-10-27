@@ -44,12 +44,28 @@ void EditorScreen::start(int opt) {
     lastInstr_ = ci;
     ui_.bar.clear();
     if (ci >= kSampleInstrumentCount || !a.bank.loaded(ci)) return;   // MIDI / empty: inert (spec 06 §6.1 step 4)
-    if (a.bank.frames(ci) > sfx::kMaxFrames) {
+    if (a.bank.fullFrames(ci) > sfx::kMaxFrames) {
         // spec 06 §6.1 step 1: message, F8 leaves.
         ui_.ask("Sample Editor", "The selected sample is too long", nullptr, nullptr, "OK",
                 [](void* c, int) {
                     auto* s = static_cast<EditorScreen*>(c);
                     s->ui_.switchTo(s->ui_.previous());
+                },
+                this);
+        return;
+    }
+    if (a.streamed(ci)) {
+        // SD streaming: only the head is in memory; edits need the whole
+        // sample (docs/PLAN_SD_STREAMING_P1C_P2.md §2.4).
+        ui_.ask("Sample Editor", "This sample streams from the card. Load it into memory?", nullptr, "Cancel",
+                "Load",
+                [](void* c, int key) {
+                    auto* s = static_cast<EditorScreen*>(c);
+                    if (key != btn::F8 || !s->app_.loadStreamedIntoMemory(s->slot_)) {
+                        s->ui_.switchTo(s->ui_.previous());
+                        return;
+                    }
+                    s->start(0);
                 },
                 this);
         return;
@@ -191,6 +207,7 @@ bool EditorScreen::apply() {
         ui_.progressDone();
         return false;
     }
+    a.refreshStreamSources();   // later slots may have moved (SD streaming heads)
     undoFrames_ = len;
     undoStereo_ = stereo;
     undoAvail = true;
@@ -221,6 +238,7 @@ bool EditorScreen::undo() {
     // The undo data sits at the tail: swap it in (the current data goes to
     // the tail and is dropped -- one level only, spec 06 §6.3 F4).
     if (!a.bank.replaceFromTail(slot_, undoFrames_, undoStereo_)) return false;
+    a.refreshStreamSources();   // later slots may have moved (SD streaming heads)
     undoAvail = false;
     a.instruments[slot_].lengthFrames = undoFrames_;
     startM = 0;

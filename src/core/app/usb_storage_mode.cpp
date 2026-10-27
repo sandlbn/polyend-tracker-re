@@ -24,6 +24,7 @@ App::UsbEnter App::enterUsbStorage() {
     saveConfig();
     configDirty_ = configForce_ = false;
     // 3.-5. Unmount, stop the app's SD access, present the card.
+    streamUnbindAll();   // SD streaming: the computer owns the card from here
     if (!hal_.usbStorage->begin()) return UsbEnter::kNoCard;
     usbActive_ = true;
     return UsbEnter::kOk;

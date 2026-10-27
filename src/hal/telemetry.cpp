@@ -187,5 +187,40 @@ size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
     return o.len;
 }
 
+StreamSample streamSample(const audio::StreamServiceStats& st, uint32_t streams, uint32_t active,
+                          uint32_t& lastUnderruns, bool loading) {
+    StreamSample s;
+    s.loading = loading;
+    s.streams = streams;
+    s.active = active;
+    s.chunks = st.chunks;
+    s.errors = st.readErrors;
+    s.passes = st.passes;
+    s.readAvgUs = st.chunks ? st.sumReadUs / st.chunks : 0;
+    s.readMaxUs = st.maxReadUs;
+    s.leadMinMs = st.minLeadFrames == 0xFFFFFFFFu
+                      ? 0xFFFFFFFFu
+                      : uint32_t((uint64_t(st.minLeadFrames) * 1000u + 22059u) / 44118u);   // device rate, rounded
+    s.underruns = st.underruns;
+    s.underrunsDelta = st.underruns > lastUnderruns ? st.underruns - lastUnderruns : 0;
+    lastUnderruns = st.underruns;
+    return s;
+}
+
+size_t formatStream(char* out, size_t cap, const StreamSample& s) {
+    Fmt o(out, cap);
+    o.str("telemetry: stream streams ").dec(s.streams).str(" active ").dec(s.active);
+    o.str(" | chunks ").dec(s.chunks);
+    o.str(" read avg ").dec(s.readAvgUs / 1000).ch('.').dec((s.readAvgUs % 1000) / 100);
+    o.str(" max ").dec(s.readMaxUs / 1000).ch('.').dec((s.readMaxUs % 1000) / 100).str(" ms");
+    o.str(" | lead min ");
+    if (s.leadMinMs == 0xFFFFFFFFu) o.ch('-');
+    else o.dec(s.leadMinMs);
+    o.str(" ms | underruns ").dec(s.underruns).str(" (+").dec(s.underrunsDelta).str(") errors ").dec(s.errors);
+    o.str(" | passes ").dec(s.passes);
+    if (s.loading) o.str(" | loading");
+    return o.len;
+}
+
 }  // namespace diag
 }  // namespace ot

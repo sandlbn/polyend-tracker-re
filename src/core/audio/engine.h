@@ -75,11 +75,19 @@ public:
     bool stereo(int idx) const { return loaded(idx) && slots_[idx].stereo; }
     size_t usedSamples() const;
     size_t capacitySamples() const { return cap_; }
+    // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md §2.3): a loaded slot that
+    // holds only the head(s) of a streamed instrument of fullFrames frames.
+    // Every call that rewrites the slot clears it. A partial slot never plays
+    // without its stream source (AudioEngine::voiceNoteOn).
+    bool setPartial(int idx, uint32_t fullFrames);
+    bool partial(int idx) const { return loaded(idx) && slots_[idx].full != 0; }
+    uint32_t fullFrames(int idx) const { return partial(idx) ? slots_[idx].full : frames(idx); }
 
 private:
     struct Slot {
         uint32_t off = 0;
         uint32_t frames = 0;
+        uint32_t full = 0;   // partial (streamed) slot: the instrument's whole length, else 0
         bool stereo = false;
         bool loaded = false;
         uint32_t samples() const { return loaded ? frames * (stereo ? 2u : 1u) : 0u; }

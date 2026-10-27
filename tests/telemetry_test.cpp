@@ -173,3 +173,52 @@ TEST(telemetry_cpu_line) {
     CHECK_EQ(c.tick(1500, m, g, line, sizeof line), 0u);
     CHECK(c.tick(2100, m, g, line, sizeof line) > 0);
 }
+
+// SD streaming C11 (docs/PLAN_SD_STREAMING_P1C_P2.md): the 5 s "stream" line.
+TEST(telemetry_stream_line) {
+    StreamSample s;
+    s.streams = 4;
+    s.active = 3;
+    s.chunks = 212;
+    s.readAvgUs = 2700;
+    s.readMaxUs = 3149;
+    s.leadMinMs = 612;
+    s.underruns = 2;
+    s.underrunsDelta = 0;
+    s.errors = 0;
+    s.passes = 1180;
+    char line[200];
+    const size_t n = formatStream(line, sizeof line, s);
+    CHECK_EQ(n, std::strlen(line));
+    CHECK_STR(line, "telemetry: stream streams 4 active 3 | chunks 212 read avg 2.7 max 3.1 ms | lead min 612 ms"
+                    " | underruns 2 (+0) errors 0 | passes 1180");
+    s.leadMinMs = 0xFFFFFFFFu;   // nothing left to read: no lead
+    s.underrunsDelta = 1;
+    s.loading = true;
+    formatStream(line, sizeof line, s);
+    CHECK_STR(line, "telemetry: stream streams 4 active 3 | chunks 212 read avg 2.7 max 3.1 ms | lead min - ms"
+                    " | underruns 2 (+1) errors 0 | passes 1180 | loading");
+}
+
+TEST(telemetry_stream_sample_from_stats) {
+    ot::audio::StreamServiceStats st;
+    st.chunks = 10;
+    st.sumReadUs = 25000;
+    st.maxReadUs = 4000;
+    st.minLeadFrames = 44118;   // 1 s
+    st.underruns = 3;
+    st.passes = 50;
+    uint32_t last = 1;
+    const StreamSample s = streamSample(st, 2, 1, last, false);
+    CHECK_EQ(s.readAvgUs, 2500u);
+    CHECK_EQ(s.leadMinMs, 1000u);
+    CHECK_EQ(s.underrunsDelta, 2u);
+    CHECK_EQ(last, 3u);
+    CHECK_EQ(s.streams, 2u);
+    CHECK_EQ(s.active, 1u);
+    ot::audio::StreamServiceStats idle;   // no reads, no active ring
+    const StreamSample z = streamSample(idle, 0, 0, last, false);
+    CHECK_EQ(z.readAvgUs, 0u);
+    CHECK_EQ(z.leadMinMs, 0xFFFFFFFFu);
+    CHECK_EQ(z.underrunsDelta, 0u);   // the mirror is 0 when nothing ran: never negative
+}
