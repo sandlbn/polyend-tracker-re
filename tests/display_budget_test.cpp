@@ -29,7 +29,6 @@ public:
     uint32_t frames = 0;
     std::vector<std::string> maxFrame;                  // commands of the largest frame
     bool ready = true;
-    int readyPolls = 0;
     Ui* ui = nullptr;
 
     static constexpr uint32_t kChunk = 1024;            // Ft81xDisplay::kStage
@@ -38,9 +37,9 @@ public:
     static constexpr uint32_t kSpiHz = 30000000;        // board::kSpi2CtarFast
 
     bool frameReady() override {
+        if (ready) return RecordingDisplay::frameReady();   // the sent frame is reported
         ++readyPolls;
-        if (ready) RecordingDisplay::frameReady();   // the sent frame is reported
-        return ready;
+        return false;
     }
     void dlStart() override {
         RecordingDisplay::dlStart();
@@ -1238,6 +1237,34 @@ TEST(device_fault_on_a_static_screen_is_redrawn) {
     CHECK(a.ui.frames() >= frames0 + 2);    // the faulted frame, then a redraw
     CHECK(a.ui.lowDetailFrames() > low0);   // in low detail
     CHECK(!h.disp.sent);
+    Harness::dlOverflowFatal = true;
+}
+
+// A screen whose every frame faults (the estimate off by more than the
+// tightest guard allows): the redraws stop once it is in low detail at the
+// tightest guard, and the log gets one entry, not one per fault.
+TEST(device_fault_that_never_fits_stops_redrawing) {
+    Harness::dlOverflowFatal = false;
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.run(200);
+    static int logged;
+    logged = 0;
+    a.ui.platform.dlOverflow = [](const char*, uint32_t, uint32_t, bool) { ++logged; };
+    h.disp.faultNextFrames = 1000;   // every frame from here on faults
+    a.ui.dirty();
+    h.run(3000);
+    const uint32_t faults = h.disp.faultCount;
+    CHECK(faults >= 2 && faults < 20);
+    CHECK_EQ(a.ui.dlScale(), 128);
+    CHECK(a.ui.lowDetail());
+    CHECK_EQ(logged, 1);
+    h.run(2000);   // idle: no more redraws into the same fault
+    CHECK_EQ(h.disp.faultCount, faults);
+    CHECK(!h.disp.sent);
+    a.ui.platform.dlOverflow = nullptr;
     Harness::dlOverflowFatal = true;
 }
 

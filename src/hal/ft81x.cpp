@@ -769,8 +769,13 @@ bool Ft81xDisplay::frameReady() {
     if (!ready) {
         const uint32_t now = millis();
         if (!busySince_) busySince_ = now ? now : 1;
-        // Stuck: let dlStart()'s bounded wait detect it and recover.
-        else if (now - busySince_ > kBusyGiveUpMs) ready = true;
+        // Stuck: let dlStart()'s bounded wait detect it and recover. The
+        // frame's outcome is not coming; the UI stops polling for it (and
+        // does not redraw an idle screen into the same wait) [I].
+        else if (now - busySince_ > kBusyGiveUpMs) {
+            ready = true;
+            dlPending_ = false;
+        }
     }
     if (ready) busySince_ = 0;
     return ready;

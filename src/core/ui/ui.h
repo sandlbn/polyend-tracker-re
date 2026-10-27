@@ -535,6 +535,8 @@ private:
     uint32_t hwFaultsSeen_ = 0, hwFaultFrames_ = 0, hwMeasSeen_ = 0, prevWords_ = 0;
     uint32_t scaleGen_ = 0, frameGen_ = 0;   // screen the scale / last frame belong to
     uint8_t dlScale_ = 64;                   // per screen: reset when it changes
+    static constexpr uint8_t kDlScaleMax = 128;   // 2.0: the tightest guard
+    bool faultLogged_ = false;               // this screen's fault is in the log
     uint32_t maxWords_ = 0, overBudget_ = 0, lowDetailFrames_ = 0, statOver0_ = 0, statLow0_ = 0;
     uint32_t overLogged_ = 0;             // modules whose first overflow was logged
     uint32_t dlFrameLimit_ = kDlFrameWords;

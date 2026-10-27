@@ -1101,15 +1101,19 @@ void Ui::dirty() {
 // only found by that poll; without it a static screen never redraws the
 // lost frame and the display looks frozen (#71: the MIDI instrument page).
 // The fault itself is handled by render() (low detail, tighter guard).
+// Once this screen is already in low detail at the tightest guard, a fault
+// is not redrawn: the estimate is off by more than kDlScaleMax allows and
+// every redraw would fault again. The next real change redraws.
 void Ui::pollPendingFrame(uint32_t now) {
     if (!display_->framePending()) return;
     if (readyRetry_ && int32_t(now - readyRetryAt_) < 0) return;
     const bool ready = display_->frameReady();
     readyRetry_ = !ready;
     readyRetryAt_ = now + kReadyPollMs;
-    // Ready but still pending: the driver gave up on a stuck display; the
-    // next frame's dlStart() recovers it.
-    if (display_->frameFaultCount() != hwFaultsSeen_ || (ready && display_->framePending())) dirty();
+    if (display_->frameFaultCount() == hwFaultsSeen_) return;
+    const bool exhausted = scaleGen_ == gen_ && dlScale_ >= kDlScaleMax && lowDetail_ &&
+                           lowDetailGen_ == gen_ && lowDetailOverlays_ == overlayBits();
+    if (!exhausted) dirty();
 }
 
 bool Ui::renderIfDirty(uint32_t now) {
@@ -1218,6 +1222,7 @@ void Ui::render() {
     if (scaleGen_ != gen_) {
         scaleGen_ = gen_;
         dlScale_ = 64;
+        faultLogged_ = false;
     }
     const uint32_t hwFaults = display_->frameFaultCount();
     if (hwFaults != hwFaultsSeen_) {
@@ -1226,8 +1231,13 @@ void Ui::render() {
         lowDetail_ = true;
         lowDetailGen_ = gen_;
         lowDetailOverlays_ = ov;
-        dlScale_ = uint8_t(dlScale_ + 8 > 128 ? 128 : dlScale_ + 8);
-        if (platform.dlOverflow) platform.dlOverflow(current() ? current()->name() : "-", lastWords_, 0, true);
+        dlScale_ = uint8_t(dlScale_ + 8 > kDlScaleMax ? kDlScaleMax : dlScale_ + 8);
+        // One log entry per screen: a screen that keeps faulting must not
+        // fill the diagnostic log.
+        if (!faultLogged_ && platform.dlOverflow) {
+            faultLogged_ = true;
+            platform.dlOverflow(current() ? current()->name() : "-", lastWords_, 0, true);
+        }
     }
     const uint32_t meas = display_->measuredDlBytes();
     if (meas != hwMeasSeen_) {
@@ -1238,7 +1248,7 @@ void Ui::render() {
         const uint32_t d = lastWords_ > prevWords_ ? lastWords_ - prevWords_ : prevWords_ - lastWords_;
         if (lastWords_ >= 400 && d * 16 <= lastWords_ && mw > lastWords_) {
             const uint32_t sc = mw * 64 / lastWords_;
-            if (sc > dlScale_) dlScale_ = uint8_t(sc > 128 ? 128 : sc);
+            if (sc > dlScale_) dlScale_ = uint8_t(sc > kDlScaleMax ? kDlScaleMax : sc);
         }
     }
     g.setWordLimit(dlFrameLimit_ ? uint32_t(uint64_t(dlFrameLimit_) * 64 / dlScale_) : 0);
