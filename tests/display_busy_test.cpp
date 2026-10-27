@@ -51,6 +51,7 @@ void busyPanel(Harness& h, bool lazy) {
     h.disp.busy.on = true;
     h.disp.busy.lazyCommit = lazy;
     h.disp.busy.clockMs = &h.clock.ms;
+    h.disp.reportsPending = !lazy;   // the 2.0.0 driver had no framePending()
 }
 
 // One main-loop pass per millisecond.
