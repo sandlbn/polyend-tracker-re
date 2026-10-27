@@ -462,14 +462,13 @@ void Voice::computePoints() {
 }
 
 // Granular grain bounds (spec 04 §3.1).
-void Voice::computeGrain() {
-    const uint32_t len = frames_;
-    uint32_t L = ins_->grainLength;
+void grainSpanPoints(uint32_t len, uint16_t grainLength, uint16_t pos, int32_t* first, int32_t* last) {
+    uint32_t L = grainLength;
     if (L < 44) L = 44;
     if (L > 44100) L = 44100;
-    const int32_t half = int32_t((uint64_t(L) * 65535u / len) % 65536u) / 2;
-    int32_t s = int32_t(grainPos_) - half;
-    int32_t e = int32_t(grainPos_) + half;
+    const int32_t half = len ? int32_t((uint64_t(L) * 65535u / len) % 65536u) / 2 : 0;
+    int32_t s = int32_t(pos) - half;
+    int32_t e = int32_t(pos) + half;
     if (s < 0) {
         e += -s;
         s = 0;
@@ -478,8 +477,14 @@ void Voice::computeGrain() {
         s -= e - 65535;
         e = 65535;
     }
-    s = clampi(s, 0, 65535);
-    e = clampi(e, 0, 65535);
+    *first = clampi(s, 0, 65535);
+    *last = clampi(e, 0, 65535);
+}
+
+void Voice::computeGrain() {
+    const uint32_t len = frames_;
+    int32_t s = 0, e = 0;
+    grainSpanPoints(len, ins_->grainLength, grainPos_, &s, &e);
     gStart_ = pointToFrames(len, uint32_t(s));
     gEnd_ = pointToFrames(len, uint32_t(e));
     if (gStart_ >= int32_t(len)) gStart_ = int32_t(len) - 1;

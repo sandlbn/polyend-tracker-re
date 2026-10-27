@@ -615,6 +615,7 @@ public:
     // the x of its marker on the position bar (-1 when not in Wavetable).
     uint32_t wavetableShownWindow() const;
     uint16_t granularShownPosition() const;   // Granular: the preview voice's grain position, else the instrument's
+    void grainSpan(uint16_t* first, uint16_t* last) const;   // Granular: the shaded span (sample points)
     static constexpr uint32_t kGrainColour = 0x5A8CDC;   // the manual's blue grain (p.135) [OT shade]
     int wavetablePositionX() const;
     uint32_t wtShown_ = 0xFFFFFFFFu;

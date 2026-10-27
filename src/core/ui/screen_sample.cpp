@@ -143,6 +143,21 @@ uint16_t PlaybackScreen::granularShownPosition() const {
     return in.granularPosition;
 }
 
+void PlaybackScreen::grainSpan(uint16_t* first, uint16_t* last) const {
+    const App& a = app_;
+    const uint8_t ci = a.currentInstrument();
+    *first = *last = 0;
+    if (ci >= kSampleInstrumentCount) return;
+    const Instrument& in = a.instruments[ci];
+    const uint16_t pos = granularShownPosition();
+    // The engine's grain (issue #92: cut at the edges, the span was shorter
+    // than the play head's travel).
+    int32_t f = 0, l = 0;
+    audio::grainSpanPoints(a.bank.frames(ci), in.grainLength, pos, &f, &l);
+    *first = uint16_t(f);
+    *last = uint16_t(l);
+}
+
 int PlaybackScreen::wavetablePositionX() const {
     const App& a = app_;
     const uint8_t ci = a.currentInstrument();
@@ -851,10 +866,10 @@ void PlaybackScreen::draw(Gfx& g) {
         // line; the play head is red (manual p.135-136, MANUAL_AUDIT #28).
         // The position follows the preview voice (LFO / envelope).
         const uint16_t pos = granularShownPosition();
-        const uint32_t len = a.bank.frames(ci);
-        const uint32_t half = len ? uint32_t(uint64_t(in.grainLength) * 65535u / len / 2) : 0;
-        const int xa = markerX(uint16_t(pos > half ? pos - half : 0), v0, v1);
-        const int xb = markerX(uint16_t(pos + half < 65535u ? pos + half : 65535u), v0, v1);
+        uint16_t ga = 0, gb = 0;
+        grainSpan(&ga, &gb);
+        const int xa = markerX(ga, v0, v1);
+        const int xb = markerX(gb, v0, v1);
         if (xb >= kWaveX && xa < kWaveX + kWaveW) {
             g.alpha(70);
             g.fill(clampX(xa), kWaveY, clampX(xb) - clampX(xa) + 1, kWaveH, kGrainColour);

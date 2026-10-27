@@ -291,5 +291,11 @@ private:
     uint8_t sendsTouched_ = 0; // see sendsTouched()
 };
 
+// Granular grain bounds in sample points (0..65535) for a sample of `len`
+// frames (spec 04 §3.1): the grain length limited to 44..44100 frames, centred
+// on `pos` and moved inward at either end so it keeps its length. The voice
+// plays it; the Sample Playback screen shades it.
+void grainSpanPoints(uint32_t len, uint16_t grainLength, uint16_t pos, int32_t* first, int32_t* last);
+
 }  // namespace audio
 }  // namespace ot

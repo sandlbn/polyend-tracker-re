@@ -704,3 +704,39 @@ TEST(playback_granular_shows_the_grain_span) {
     for (const std::string& l : h.disp.last) blue = blue || l == want;
     CHECK(blue);
 }
+
+TEST(playback_granular_span_is_the_grain_that_plays) {
+    // Issue #92: near either end of the sample the engine moves the grain
+    // inward and keeps its length (Voice::computeGrain); the shaded span was
+    // cut at the edge, so the play head ran past it. The span is the
+    // engine's: full length at both edges, the length limited to 44 - 44100.
+    Harness h(true, 600000);
+    App& a = *h.app;
+    std::vector<int16_t> s(88200);   // 2 s
+    for (size_t i = 0; i < s.size(); ++i) s[i] = int16_t(8000 * std::sin(double(i) * 0.05));
+    std::vector<uint8_t> wav(s.size() * 2 + 64);
+    wav.resize(wavEncode(s.data(), uint32_t(s.size()), 1, wav.data(), wav.size()));
+    h.fs.files["g.wav"] = wav;
+    CHECK(a.importSample("g.wav", 0));
+    a.setCurrentInstrument(0);
+    Instrument& in = a.instruments[0];
+    in.playMode = uint8_t(PlayMode::Granular);
+    h.tap(btn::SamplePlayback);
+    h.run(20);
+    PlaybackScreen& p = *static_cast<PlaybackScreen*>(a.ui.screen(kModPlayback));
+    struct Case { uint16_t pos, len; };
+    const Case cases[] = {{32768, 8820}, {500, 8820}, {65400, 8820}, {0, 8820}, {65535, 8820}, {300, 60000}};
+    for (const Case& c : cases) {
+        in.granularPosition = c.pos;
+        in.grainLength = c.len;
+        uint16_t f = 0, l = 0;
+        p.grainSpan(&f, &l);
+        const uint32_t L = c.len > 44100 ? 44100 : c.len;
+        const int want = int(uint64_t(L) * 65535u / 88200u / 2) * 2;
+        const int got = int(l) - int(f);
+        if (std::abs(got - want) > 2)
+            std::printf("       pos %u len %u: span %u..%u (%d points, want %d)\n", c.pos, c.len, f, l, got, want);
+        CHECK(std::abs(got - want) <= 2);
+        CHECK(f <= c.pos && c.pos <= l);
+    }
+}
