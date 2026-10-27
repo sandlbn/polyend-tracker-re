@@ -34,7 +34,16 @@ namespace audio {
 constexpr int kSynthSeqMacros = 6;   // M1..M6: FX CC a..f and the project page values
 
 // Parameter table access (nullptr / 0 for an unknown engine or index).
+// synthParamCount is the Mini's parameter count (macro targets, the
+// engine's own table); indexes count .. synthParamTotal - 1 are the [OT]
+// extension parameters (model/synth_patch.h kPatchExtField), which every
+// function below also takes.
 int synthParamCount(int32_t engine);
+int synthParamTotal(int32_t engine);
+// [OT] Width (0..1, 0 = mono) of an engine, -1 for PERC / unknown.
+int synthWidthParam(int32_t engine);
+// [OT] FAT Stereo (0..1, 0 = mono): the stack split between L and R.
+int synthFatStereoParam();
 const PatchParamRange* synthParamRange(int32_t engine, int index);
 // Stored value of parameter `index` (the default when absent or out of range).
 float synthParamGet(const SynthPatch& p, int index);

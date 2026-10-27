@@ -56,6 +56,9 @@ bool patchFieldSpan(const uint8_t* data, size_t len, uint32_t field, size_t* beg
 
 // Parameter table of a known engine, or nullptr (count 0).
 const PatchParamRange* patchEngineParams(int32_t engine, int* count);
+// [OT] Extension parameter table of an engine (Width; FAT also Stereo), or
+// nullptr (count 0). Extension parameter k has index (Mini count + k).
+const PatchParamRange* patchEngineExtParams(int32_t engine, int* count);
 const char* patchEngineName(int32_t engine);  // "ACD".."PERC", or nullptr
 int patchVolumeParam(int32_t engine);         // Volume index, -1 for PERC/unknown
 

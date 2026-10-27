@@ -14,10 +14,28 @@ int synthParamCount(int32_t engine) {
     return n;
 }
 
+int synthParamTotal(int32_t engine) {
+    int n = 0, ne = 0;
+    patchEngineParams(engine, &n);
+    patchEngineExtParams(engine, &ne);
+    return n + ne;
+}
+
+int synthWidthParam(int32_t engine) {
+    int ne = 0;
+    patchEngineExtParams(engine, &ne);
+    return ne > 0 ? synthParamCount(engine) : -1;
+}
+
+int synthFatStereoParam() { return synthParamCount(kSynthEngineFat) + 1; }
+
 const PatchParamRange* synthParamRange(int32_t engine, int index) {
-    int n = 0;
+    int n = 0, ne = 0;
     const PatchParamRange* t = patchEngineParams(engine, &n);
-    return (t && index >= 0 && index < n) ? &t[index] : nullptr;
+    const PatchParamRange* x = patchEngineExtParams(engine, &ne);
+    if (!t || index < 0) return nullptr;
+    if (index < n) return &t[index];
+    return index < n + ne ? &x[index - n] : nullptr;
 }
 
 float synthParamClamp(int32_t engine, int index, float v) {
@@ -29,8 +47,15 @@ float synthParamClamp(int32_t engine, int index, float v) {
 float synthParamGet(const SynthPatch& p, int index) {
     const PatchParamRange* r = synthParamRange(p.engine, index);
     if (!r) return 0.0f;
-    if (index < p.paramCount && p.params[index].present) {
-        const float v = patchBitsToFloat(p.params[index].bits);
+    const int n = synthParamCount(p.engine);
+    const PatchParam* e = nullptr;
+    if (index < n) {
+        if (index < p.paramCount) e = &p.params[index];
+    } else if (index - n < p.extCount) {
+        e = &p.ext[index - n];
+    }
+    if (e && e->present) {
+        const float v = patchBitsToFloat(e->bits);
         if (patchParamInRange(p.engine, index, v)) return v;
     }
     return r->def;
@@ -40,6 +65,16 @@ bool synthParamSet(SynthPatch& p, int index, float v) {
     const PatchParamRange* r = synthParamRange(p.engine, index);
     if (!r || !std::isfinite(v)) return false;
     v = synthParamClamp(p.engine, index, v);
+    const int mini = synthParamCount(p.engine);
+    if (index >= mini) {
+        // [OT] extension: grow up to it; entries in front stay absent.
+        const int k = index - mini;
+        for (int i = p.extCount; i <= k; ++i) p.ext[i] = PatchParam{0u, false};
+        if (k >= p.extCount) p.extCount = uint8_t(k + 1);
+        p.ext[k].bits = patchFloatToBits(v);
+        p.ext[k].present = true;
+        return true;
+    }
     if (index >= p.paramCount) {
         // Grow to the engine count; new entries keep the default (absent).
         const int n = synthParamCount(p.engine);

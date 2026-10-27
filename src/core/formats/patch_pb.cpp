@@ -449,6 +449,18 @@ PatchStatus decodePatch(const uint8_t* data, size_t len, SynthPatch* out) {
                 out->extraPresent = true;
                 break;
             }
+            case kPatchExtField: {
+                // [OT] extension parameters; entries past kPatchExtMax (a
+                // later build's) are dropped.
+                PB_EXPECT_WT(wt, kWtLen);
+                Reader s;
+                PB_TRY(readLen(r, &s));
+                if (out->extCount < kPatchExtMax) {
+                    PB_TRY(decodeParam(s, &out->ext[out->extCount]));
+                    ++out->extCount;
+                }
+                break;
+            }
             default: {
                 PB_TRY(skipValue(r, wt));
                 size_t n = size_t(r.p - start);
@@ -483,7 +495,8 @@ void patchExtraPayload(uint8_t* out) {
 PatchStatus encodePatch(const SynthPatch& pt, uint8_t* out, size_t cap, size_t* written) {
     *written = 0;
     Writer w{out, out + cap};
-    if (pt.opaqueLen > kPatchOpaqueMax || pt.paramCount > kPatchMaxParams) return PatchStatus::kBadValue;
+    if (pt.opaqueLen > kPatchOpaqueMax || pt.paramCount > kPatchMaxParams || pt.extCount > kPatchExtMax)
+        return PatchStatus::kBadValue;
 
     // Unknown fields are flushed, in stored order, ahead of the first known
     // field with a higher number.
@@ -577,6 +590,22 @@ PatchStatus encodePatch(const SynthPatch& pt, uint8_t* out, size_t cap, size_t* 
         w.ok = false;
     }
 
+    // [OT] extension parameters, up to the last one set: a patch without
+    // them encodes exactly as the Mini's.
+    PB_TRY(flushOpaque(kPatchExtField));
+    int extN = pt.extCount;
+    while (extN > 0 && !pt.ext[extN - 1].present) --extN;
+    for (int i = 0; i < extN; ++i) {
+        w.tag(kPatchExtField, kWtLen);
+        if (pt.ext[i].present) {
+            w.byte(5);
+            w.tag(1, kWtFixed32);
+            w.fixed32(pt.ext[i].bits);
+        } else {
+            w.byte(0);
+        }
+    }
+
     PB_TRY(flushOpaque(0xFFFFFFFFu));
     if (opos != pt.opaqueLen) return PatchStatus::kBadField;
     if (!w.ok) return PatchStatus::kBufferTooSmall;
@@ -593,6 +622,26 @@ const PatchParamRange* patchEngineParams(int32_t engine, int* count) {
         case kSynthEngineVap: t = kVap, n = 60; break;
         case kSynthEngineWtfm: t = kWtfm, n = 63; break;
         case kSynthEnginePerc: t = kPerc, n = 84; break;
+        default: break;
+    }
+    if (count) *count = n;
+    return t;
+}
+
+namespace {
+// [OT] Width (all but PERC) and FAT Stereo: 0..1, 0 = mono (today's sound).
+const PatchParamRange kExtWidth[] = {{0.0f, 0.0f, 1.0f, kParamFlagInitAbsent}};
+const PatchParamRange kExtFat[] = {{0.0f, 0.0f, 1.0f, kParamFlagInitAbsent}, {0.0f, 0.0f, 1.0f, kParamFlagInitAbsent}};
+}  // namespace
+
+const PatchParamRange* patchEngineExtParams(int32_t engine, int* count) {
+    const PatchParamRange* t = nullptr;
+    int n = 0;
+    switch (engine) {
+        case kSynthEngineAcd:
+        case kSynthEngineVap:
+        case kSynthEngineWtfm: t = kExtWidth, n = 1; break;
+        case kSynthEngineFat: t = kExtFat, n = 2; break;
         default: break;
     }
     if (count) *count = n;
@@ -655,11 +704,13 @@ bool patchInit(int32_t engine, SynthPatch* out) {
 }
 
 bool patchParamInRange(int32_t engine, int index, float v) {
-    int n = 0;
+    int n = 0, ne = 0;
     const PatchParamRange* t = patchEngineParams(engine, &n);
-    if (!t || index < 0 || index >= n || !std::isfinite(v)) return false;
-    if (t[index].flags & kParamFlagNoRange) return true;
-    return v >= toHalfPrecision(t[index].min) && v <= toHalfPrecision(t[index].max);
+    const PatchParamRange* x = patchEngineExtParams(engine, &ne);
+    if (!t || index < 0 || index >= n + ne || !std::isfinite(v)) return false;
+    const PatchParamRange& r = index < n ? t[index] : x[index - n];
+    if (r.flags & kParamFlagNoRange) return true;
+    return v >= toHalfPrecision(r.min) && v <= toHalfPrecision(r.max);
 }
 
 int validatePatch(const SynthPatch& p, PatchIssue* out, int cap) {
@@ -677,6 +728,12 @@ int validatePatch(const SynthPatch& p, PatchIssue* out, int cap) {
         for (int i = 0; i < m; ++i)
             if (p.params[i].present && !patchParamInRange(p.engine, i, patchBitsToFloat(p.params[i].bits)))
                 add(PatchIssue::kParamRange, i, -1);
+        // [OT] extension parameters: index n + k; entries this engine does not have are ignored.
+        int ne = 0;
+        patchEngineExtParams(p.engine, &ne);
+        for (int k = 0; k < p.extCount && k < ne; ++k)
+            if (p.ext[k].present && !patchParamInRange(p.engine, n + k, patchBitsToFloat(p.ext[k].bits)))
+                add(PatchIssue::kParamRange, n + k, -1);
     }
     for (int k = 0; k < kPatchMacros; ++k) {
         const PatchMacro& mc = p.macros[k];

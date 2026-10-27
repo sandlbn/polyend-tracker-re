@@ -31,6 +31,13 @@ constexpr int kPatchMacroTargets = 6;    // Macro.targets[6]
 constexpr int kPatchOpaqueMax = 256;     // raw unknown top-level fields
 constexpr int kPatchMacroVelocity = 6;   // M7 "Velocity", driven by Volume FX
 constexpr int kPatchMacroPressure = 7;   // M8 "Pressure", stored only
+// [OT] Extension parameters (2.x stereo: Width, FAT Stereo): settings the
+// Mini does not have, indexed after the engine's Mini parameters and stored
+// in their own top-level field 16 (`repeated ParamValue ot_ext`, written
+// after Extra, only when one is set). The Mini skips the field; 2.0-2.2 keep
+// it as an unknown field. Absent = default.
+constexpr int kPatchExtMax = 8;
+constexpr uint32_t kPatchExtField = 16;
 
 struct PatchParam {
     uint32_t bits;   // IEEE-754 single, exactly as stored
@@ -64,6 +71,8 @@ struct SynthPatch {
     PatchName names[kPatchNameSlots];
     PatchMacro macros[kPatchMacros];
     bool extraPresent;                  // field 9; always regenerated as the constant block
+    uint8_t extCount;                   // number of ot_ext (field 16) entries
+    PatchParam ext[kPatchExtMax];       // [OT] extension parameters (see kPatchExtField)
     uint16_t opaqueLen;                 // bytes used in opaque[]
     uint8_t opaque[kPatchOpaqueMax];    // unknown top-level fields, raw (tag + payload), file order
 };

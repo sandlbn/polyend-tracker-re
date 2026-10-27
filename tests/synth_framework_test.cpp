@@ -138,7 +138,7 @@ TEST(synth_param_get_set_ranges) {
     CHECK_NEAR(synthParamGet(p, 9), 20000.0f, 1e-3);
     CHECK(synthParamSet(p, 3, -3.0f));                     // Noise Mix -1..1
     CHECK_NEAR(synthParamGet(p, 3), -1.0f, 1e-6);
-    CHECK(!synthParamSet(p, 29, 1.0f));                    // no such index
+    CHECK(!synthParamSet(p, 30, 1.0f));                    // no such index (29 = [OT] Width)
     CHECK(!synthParamSet(p, 0, NAN));
     // Absent or out-of-range stored value reads as the default.
     p.params[10].present = false;

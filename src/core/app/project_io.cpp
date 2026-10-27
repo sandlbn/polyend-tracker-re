@@ -349,7 +349,8 @@ bool writePatchAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_
 // A complete .patch (restoring an orphan .patch.tmp): it decodes with the
 // Extra field (written last by writePatchAtomic) and has the full expected
 // size: it re-encodes to exactly its own `len` bytes (encBuf: scratch of
-// kPatchMaxFileSize bytes).
+// kPatchMaxFileSize bytes). A file cut right after Extra loses only the [OT]
+// extension parameters (field 16, after Extra): it plays mono.
 bool completePatch(const uint8_t* b, uint32_t len, SynthPatch* scratchPatch, uint8_t* encBuf) {
     if (!len || decodePatch(b, len, scratchPatch) != PatchStatus::kOk || !scratchPatch->extraPresent) return false;
     size_t n = 0;
