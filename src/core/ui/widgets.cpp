@@ -198,9 +198,12 @@ CpuCell cpuCell(uint8_t mode, bool hasData, uint32_t peak, bool overrunRecent, b
     c.overrun = overrunRecent;
     const uint32_t pct = (peak + 5) / 10;
     c.percent = uint8_t(pct > 99 ? 99 : pct);
-    if (peak >= 850 || overrunRecent) c.level = CpuLevel::kCritical;
-    else if (peak >= 700 || cutRecent) c.level = CpuLevel::kAlarm;
-    else if (peak >= 600) c.level = CpuLevel::kWarn;
+    // Polyend's levels on the Tracker Mini 2.0 / Tracker+ (yellow 85 %, orange
+    // 93 %, red 99 %; Polyend on backstage.polyend.com "CPU almost always in
+    // red"), on the peak block; the governor cut and an overrun as before.
+    if (peak >= 990 || overrunRecent) c.level = CpuLevel::kCritical;
+    else if (peak >= 930 || cutRecent) c.level = CpuLevel::kAlarm;
+    else if (peak >= 850) c.level = CpuLevel::kWarn;
     else c.level = mode == 1 ? CpuLevel::kNormal : CpuLevel::kHidden;
     if (c.level == CpuLevel::kHidden) c = CpuCell{};
     return c;

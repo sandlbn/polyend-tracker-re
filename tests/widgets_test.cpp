@@ -630,15 +630,20 @@ TEST(cpu_cell_levels) {
     // Off / no data: hidden.
     CHECK(!wg::cpuCell(2, true, 990, true, true).shown());
     CHECK(!wg::cpuCell(1, false, 500, false, false).shown());
-    // Auto: hidden below 60 %, Always: dim.
-    CHECK(!wg::cpuCell(0, true, 594, false, false).shown());
-    CHECK(wg::cpuCell(1, true, 594, false, false).level == CpuLevel::kNormal);
+    // Polyend's levels (Tracker Mini 2.0 / Tracker+, Polyend on backstage.polyend.com
+    // "CPU almost always in red"): yellow 85 %, orange 93 %, red 99 % of the
+    // peak block. Auto: hidden below 85 %, Always: dim.
+    CHECK(!wg::cpuCell(0, true, 849, false, false).shown());
+    CHECK(!wg::cpuCell(0, true, 700, false, false).shown());
+    CHECK(wg::cpuCell(1, true, 849, false, false).level == CpuLevel::kNormal);
     CHECK_EQ(wg::cpuCell(1, true, 594, false, false).percent, 59);
     CHECK_EQ(wg::cpuCell(1, true, 595, false, false).percent, 60);
-    CHECK(wg::cpuCell(0, true, 600, false, false).level == CpuLevel::kWarn);
-    CHECK(wg::cpuCell(0, true, 700, false, false).level == CpuLevel::kAlarm);
+    CHECK(wg::cpuCell(0, true, 850, false, false).level == CpuLevel::kWarn);
+    CHECK(wg::cpuCell(0, true, 929, false, false).level == CpuLevel::kWarn);
+    CHECK(wg::cpuCell(0, true, 930, false, false).level == CpuLevel::kAlarm);
     CHECK(wg::cpuCell(0, true, 300, false, true).level == CpuLevel::kAlarm);    // governor cut
-    CHECK(wg::cpuCell(0, true, 850, false, false).level == CpuLevel::kCritical);
+    CHECK(wg::cpuCell(0, true, 989, false, false).level == CpuLevel::kAlarm);
+    CHECK(wg::cpuCell(0, true, 990, false, false).level == CpuLevel::kCritical);
     wg::CpuCell o = wg::cpuCell(0, true, 200, true, false);                    // overrun
     CHECK(o.level == CpuLevel::kCritical && o.overrun);
     CHECK_EQ(wg::cpuCell(0, true, 1400, true, false).percent, 99);

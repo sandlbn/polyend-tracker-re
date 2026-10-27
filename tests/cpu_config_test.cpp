@@ -153,12 +153,16 @@ TEST(cpu_cell_poll_and_frame) {
     h.audio.pump(8);
     h.run(1000);
     CHECK_EQ(h.disp.swaps, swaps);
-    // Auto: hidden below 60 %, shown (and redrawn) at 65 %.
+    // Auto: hidden below 85 % (65 % too), shown (and redrawn) at 88 %.
     a.cfg.cpuMeter = 0;
     h.run(300);
     CHECK(!a.ui.cpuCell().shown());
     CHECK(h.disp.swaps > swaps);
     setLoad(650);
+    h.audio.pump(8);
+    h.run(300);
+    CHECK(!a.ui.cpuCell().shown());
+    setLoad(880);
     h.audio.pump(8);
     h.run(300);
     CHECK(a.ui.cpuCell().level == wg::CpuLevel::kWarn);

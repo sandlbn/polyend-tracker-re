@@ -118,7 +118,7 @@ constexpr int kCpuCellH = 24;
 constexpr int kCpuCellGap = 4;      // cell right edge = time ink x - 4
 constexpr int kCpuTitleGap = 10;    // title clip ends this far before the cell
 // Display state from the meter (mode: Config "CPU meter" 0 Auto, 1 Always,
-// 2 Off). Auto: hidden below 60 % unless an overrun / governor cut in the
+// 2 Off). Auto: hidden below 85 % unless an overrun / governor cut in the
 // last 2 s; Off or no data: hidden. right is left 0 (the caller sets it).
 CpuCell cpuCell(uint8_t mode, bool hasData, uint32_t peakPermille, bool overrunRecent, bool cutRecent);
 uint32_t cpuCellColour(const Theme& th, CpuLevel level);
