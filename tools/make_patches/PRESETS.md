@@ -102,10 +102,12 @@ page, not part of the patch.
 | OT Noise Hit | Metallic noise burst: Add 11 row, full feedback, short. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
 | OT Laser Zap | Falling FM zap: the pitch and FM depth drop together. | 1 | Brightness (+-), Feedback (+-), Cutoff (+-), Vibrato, Glide, Release (+-) |
 
-## PERC (8)
+## PERC (16)
 
 Notes (MIDI numbers): kick 60, snare 62, hi-hats 64-67 (closed to open), cymbal 69, perc 71; any other
-note plays the tom at that pitch.
+note plays the tom at that pitch. The `OT Kit SW` kits are synthwave / retrowave kits
+(gated snares, sweeping toms); their per-drum Delay / Reverb sends sound only when the
+instrument's own Delay / Reverb send is up (drum send = patch send x instrument send).
 
 | Patch | Description | Poly | Macros M1-M6 |
 |---|---|---|---|
@@ -117,5 +119,13 @@ note plays the tom at that pitch.
 | OT Kit Minimal | Minimal kit: tight kick, rimshot-like snare, short hats, shaker on delay. | 1 | Tone (+-), Decay (+-), Pitch (+-), Snap (+-), Drive (+-), Space (+-) |
 | OT Kit Studio | Tight acoustic-like kit: beater kick, ringing toms, crisp snare, washy cymbal. | 1 | Tone (+-), Decay (+-), Pitch (+-), Snap (+-), Drive (+-), Space (+-) |
 | OT Kit Glitch | Glitch kit: bit-twisted bodies, crushed bus, delays on hats and shaker. | 1 | Tone (+-), Decay (+-), Pitch (+-), Snap (+-), Drive (+-), Space (+-) |
+| OT Kit SW Gated | 80s gated kit: big snap-heavy snare with a hard-cut room tail, sweeping toms, Clap+. | 1 | Kick Decay (+-), Snare Gate (+-), Snare Tone (+-), Hat Decay (+-), Drive (+-), Room (+-) |
+| OT Kit SW Outrun | Driving outrun kit: tight clicky kick, bright gated snare, open hats on delay, cowbell. | 1 | Kick Decay (+-), Snare Tone (+-), Hat Decay (+-), Echo (+-), Drive (+-), Room (+-) |
+| OT Kit SW Darksynth | Dark heavy kit: saturated low kick, huge snare, resonant toms, hard overdrive. | 1 | Kick Decay (+-), Snare Gate (+-), Tom Sweep (+-), Hat Decay (+-), Drive (+-), Room (+-) |
+| OT Kit SW Vapor | Vaporwave lo-fi kit: soft round kick, washed-out snare, dull hats, 6-bit crush. | 1 | Kick Decay (+-), Snare Tone (+-), Hat Decay (+-), Crush (+-), Echo (+-), Room (+-) |
+| OT Kit SW Hex Toms | Electronic tom kit: singing pitch-sweep toms with stick noise, ping snare, clap. | 1 | Tom Sweep (+-), Tom Decay (+-), Tom Stick (+-), Snare Tone (+-), Drive (+-), Room (+-) |
+| OT Kit SW Electro | Electro 808-style kit: long boomy kick, snappy snare, ticking hats, roomy clap. | 1 | Kick Decay (+-), Snare Tone (+-), Hat Decay (+-), Pitch (+-), Drive (+-), Room (+-) |
+| OT Kit SW Drive | Midtempo driving kit: overdriven punchy kick and snare, shaker on delay, wide toms. | 1 | Kick Decay (+-), Snare Tone (+-), Snare Gate (+-), Echo (+-), Drive (+-), Room (+-) |
+| OT Kit SW Studio 80 | 80s studio drum-machine kit: short beater kick, crisp snare, airy hats, clap, crash. | 1 | Kick Decay (+-), Snare Tone (+-), Hat Decay (+-), Pitch (+-), Drive (+-), Room (+-) |
 
-Total: 74 patches.
+Total: 82 patches.

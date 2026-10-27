@@ -732,10 +732,12 @@ std::vector<Macro> kitMacros() {
     };
 }
 
+std::vector<Preset> synthwaveKits();
+
 std::vector<Preset> percPresets() {
     using namespace pc;
     const SynthModel P = SynthModel::PERC;
-    return {
+    std::vector<Preset> v = {
         {P, "OT Kit Boom", "Analog-style boom kit: long sine kick with a pitch drop, soft snare, clap.", 1,
          {{lvl(kKick, 0), 0.85f}, {lvl(kTom, 0), 0.68f}, {lvl(kSnare, 0), 0.85f},
           {lvl(kHat, 0), 0.85f}, {lvl(kCymbal, 0), 0.85f}, {lvl(kPerc, 0), 0.85f},
@@ -830,6 +832,242 @@ std::vector<Preset> percPresets() {
           {lvl(kHat, 2), 0.5f}, {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.6f}, {kWsType, 4.0f},
           {kWsLevel, 0.35f}},
          kitMacros()},
+    };
+    for (Preset& p : synthwaveKits()) v.push_back(p);
+    return v;
+}
+
+// ---------------------------------------------------------------------------
+// Synthwave / retrowave kits ("OT Kit SW ..."). The 80s gated snare is a
+// long, snap-heavy noise tail (Snap Decay 0.3-0.45 s) cut by the body's
+// short decay, plus a reverb send; the toms sweep down several semitones
+// (Pitch Mod) for the electronic-tom "pew". Every drum sets all four mixer
+// fields; the per-drum sends only sound when the instrument's own Delay /
+// Reverb send is up (send = patch send x instrument send). Each kit has its
+// own six macros (all bipolar: 63 = the kit as saved).
+
+// Macro helpers shared by the synthwave kits.
+Macro swKickDecay(float a = 0.04f) {
+    using namespace pc;
+    return {"Kick Decay", true, {{kKickDecay, a}, {kKickModDecay, a * 0.15f}}};
+}
+Macro swSnareTone() {
+    using namespace pc;
+    return {"Snare Tone", true, {{kSnareTone, 0.35f}, {kSnareSnapTimbre, 0.3f}, {kSnarePitch, 0.03f}}};
+}
+Macro swGate(float a = 0.025f) {
+    using namespace pc;
+    return {"Snare Gate", true, {{kSnareSnapDecay, a}, {kSnareDecay, a * 0.5f}, {kPercDecay, a * 4.0f}}};
+}
+Macro swHatDecay() {
+    using namespace pc;
+    return {"Hat Decay", true, {{kHatOpen, 0.04f}, {kHatClosed, 0.004f}, {kCymBodyDecay, 0.08f}}};
+}
+Macro swDrive(float a = 0.35f) {
+    using namespace pc;
+    return {"Drive", true, {{kWsLevel, a}}};
+}
+Macro swRoom(float a = 0.35f) {
+    using namespace pc;
+    return {"Room", true,
+            {{lvl(kSnare, 3), a}, {lvl(kTom, 3), a}, {lvl(kPerc, 3), a}, {lvl(kCymbal, 3), a * 0.7f},
+             {lvl(kHat, 3), a * 0.4f}, {lvl(kKick, 3), a * 0.15f}}};
+}
+Macro swPitch() {
+    using namespace pc;
+    return {"Pitch", true,
+            {{kKickPitch, 0.04f}, {kSnarePitch, 0.06f}, {kHatPitch, 0.12f}, {kCymPitch, 0.12f}, {kPercTimbre, 0.15f}}};
+}
+Macro swTomSweep() {
+    using namespace pc;
+    return {"Tom Sweep", true, {{kTomPitchMod, 0.12f}, {kTomModDecay, 0.012f}, {kTomDecay, 0.03f}}};
+}
+Macro swEcho(float a = 0.35f) {
+    using namespace pc;
+    return {"Echo", true, {{lvl(kHat, 2), a}, {lvl(kPerc, 2), a}, {lvl(kSnare, 2), a * 0.5f}}};
+}
+
+std::vector<Preset> synthwaveKits() {
+    using namespace pc;
+    const SynthModel P = SynthModel::PERC;
+    return {
+        {P, "OT Kit SW Gated", "80s gated kit: big snap-heavy snare with a hard-cut room tail, sweeping toms, Clap+.", 1,
+         {{lvl(kKick, 0), 1.05f}, {lvl(kTom, 0), 0.62f}, {lvl(kSnare, 0), 0.70f},
+          {lvl(kHat, 0), 0.62f}, {lvl(kCymbal, 0), 0.55f}, {lvl(kPerc, 0), 0.70f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), -0.15f}, {lvl(kSnare, 1), 0.0f}, {lvl(kHat, 1), 0.3f},
+          {lvl(kCymbal, 1), -0.35f}, {lvl(kPerc, 1), 0.1f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.0f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.0f},
+          {lvl(kKick, 3), 0.05f}, {lvl(kTom, 3), 0.4f}, {lvl(kSnare, 3), 0.65f}, {lvl(kHat, 3), 0.1f},
+          {lvl(kCymbal, 3), 0.3f}, {lvl(kPerc, 3), 0.55f},
+          {kKickWave, wave(0, 1)}, {kKickModel, 2.0f}, {kKickPitch, 32.0f}, {kKickAttack, 0.8f}, {kKickDecay, 0.38f},
+          {kKickModAmount, 0.25f}, {kKickModDecay, 0.035f}, {kKickTrTimbre, 0.4f}, {kKickTrLevel, 0.5f},
+          {kTomWave, wave(1, 2)}, {kTomModel, 1.0f}, {kTomAttack, 0.5f}, {kTomDecay, 0.6f}, {kTomTrLevel, 0.45f},
+          {kTomTrTimbre, 1.2f}, {kTomPitchMod, 2.5f}, {kTomModDecay, 0.15f}, {kTomWaveMod, 0.2f},
+          {kSnareModel, 2.0f}, {kSnarePitch, 55.0f}, {kSnareTone, 0.45f}, {kSnareDecay, 0.2f},
+          {kSnareSnapAttack, 0.5f}, {kSnareSnapDecay, 0.42f}, {kSnareMix, 0.3f}, {kSnareSnapTimbre, 0.6f},
+          {kHatModel, 0.0f}, {kHatTimbre, 12.0f}, {kHatPitch, 330.0f}, {kHatShape, 0.25f}, {kHatClosed, 0.05f},
+          {kHatOpen, 0.5f}, {kHatHpf, 7000.0f}, {kHatLpf, 15000.0f}, {kHatMix, -0.4f},
+          {kCymModel, 0.0f}, {kCymTimbre, 14.0f}, {kCymBodyDecay, 2.5f}, {kCymMix, -0.4f},
+          {kPercModel, 1.0f}, {kPercVariation, 0.4f}, {kPercTimbre, 0.5f}, {kPercDecay, 0.35f},
+          {kWsType, 0.0f}, {kWsLevel, 0.2f}, {kEqHigh, 2.0f}},
+         {swKickDecay(), swGate(), swSnareTone(), swHatDecay(), swDrive(), swRoom()}},
+
+        {P, "OT Kit SW Outrun", "Driving outrun kit: tight clicky kick, bright gated snare, open hats on delay, cowbell.", 1,
+         {{lvl(kKick, 0), 1.05f}, {lvl(kTom, 0), 0.60f}, {lvl(kSnare, 0), 0.75f},
+          {lvl(kHat, 0), 0.65f}, {lvl(kCymbal, 0), 0.55f}, {lvl(kPerc, 0), 0.45f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), 0.2f}, {lvl(kSnare, 1), -0.05f}, {lvl(kHat, 1), 0.35f},
+          {lvl(kCymbal, 1), -0.3f}, {lvl(kPerc, 1), -0.4f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.3f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.35f},
+          {lvl(kKick, 3), 0.0f}, {lvl(kTom, 3), 0.35f}, {lvl(kSnare, 3), 0.5f}, {lvl(kHat, 3), 0.1f},
+          {lvl(kCymbal, 3), 0.25f}, {lvl(kPerc, 3), 0.2f},
+          {kKickWave, wave(1, 2)}, {kKickModel, 0.0f}, {kKickPitch, 33.0f}, {kKickAttack, 0.5f}, {kKickDecay, 0.3f},
+          {kKickModAmount, 0.45f}, {kKickModDecay, 0.03f}, {kKickTrTimbre, 0.6f}, {kKickTrLevel, 0.6f},
+          {kTomWave, wave(1, 3)}, {kTomModel, 2.0f}, {kTomDecay, 0.5f}, {kTomTrLevel, 0.4f}, {kTomTrTimbre, 1.0f},
+          {kTomPitchMod, 2.0f}, {kTomModDecay, 0.12f},
+          {kSnareModel, 4.0f}, {kSnarePitch, 57.0f}, {kSnareTone, 0.4f}, {kSnareDecay, 0.16f},
+          {kSnareSnapAttack, 0.3f}, {kSnareSnapDecay, 0.32f}, {kSnareMix, 0.35f}, {kSnareSnapTimbre, 0.72f},
+          {kHatModel, 0.0f}, {kHatTimbre, 16.0f}, {kHatPitch, 380.0f}, {kHatShape, 0.15f}, {kHatClosed, 0.045f},
+          {kHatOpen, 0.45f}, {kHatHpf, 8000.0f}, {kHatLpf, 16000.0f}, {kHatMix, -0.5f},
+          {kCymModel, 0.0f}, {kCymTimbre, 16.0f}, {kCymBodyDecay, 2.2f}, {kCymImpactDecay, 0.3f},
+          {kPercModel, 4.0f}, {kPercVariation, 0.35f}, {kPercTimbre, 0.55f}, {kPercDecay, 0.2f},
+          {kWsType, 1.0f}, {kWsLevel, 0.15f}, {kEqLow, 1.5f}, {kEqHigh, 2.5f}},
+         {swKickDecay(0.03f), swSnareTone(), swHatDecay(), swEcho(), swDrive(), swRoom()}},
+
+        {P, "OT Kit SW Darksynth", "Dark heavy kit: saturated low kick, huge snare, resonant toms, hard overdrive.", 1,
+         {{lvl(kKick, 0), 0.85f}, {lvl(kTom, 0), 0.55f}, {lvl(kSnare, 0), 0.70f},
+          {lvl(kHat, 0), 0.55f}, {lvl(kCymbal, 0), 0.50f}, {lvl(kPerc, 0), 0.60f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), -0.2f}, {lvl(kSnare, 1), 0.0f}, {lvl(kHat, 1), 0.25f},
+          {lvl(kCymbal, 1), 0.3f}, {lvl(kPerc, 1), -0.15f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.0f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.0f},
+          {lvl(kKick, 3), 0.0f}, {lvl(kTom, 3), 0.45f}, {lvl(kSnare, 3), 0.7f}, {lvl(kHat, 3), 0.15f},
+          {lvl(kCymbal, 3), 0.4f}, {lvl(kPerc, 3), 0.6f},
+          {kKickWave, wave(0, 6)}, {kKickModel, 2.0f}, {kKickPitch, 28.0f}, {kKickAttack, 1.0f}, {kKickDecay, 0.55f},
+          {kKickModAmount, 0.3f}, {kKickModDecay, 0.045f}, {kKickTrTimbre, -0.6f}, {kKickTrLevel, 0.55f},
+          {kTomWave, wave(0, 5)}, {kTomModel, 2.0f}, {kTomDecay, 0.75f}, {kTomTrLevel, 0.5f}, {kTomTrTimbre, 0.8f},
+          {kTomPitchMod, 3.0f}, {kTomModDecay, 0.2f},
+          {kSnareModel, 4.0f}, {kSnarePitch, 50.0f}, {kSnareTone, 0.35f}, {kSnareDecay, 0.25f},
+          {kSnareSnapAttack, 0.8f}, {kSnareSnapDecay, 0.45f}, {kSnareMix, 0.2f}, {kSnareSnapTimbre, 0.45f},
+          {kHatModel, 1.0f}, {kHatTimbre, 7.0f}, {kHatPitch, 280.0f}, {kHatShape, 0.2f}, {kHatClosed, 0.06f},
+          {kHatOpen, 0.6f}, {kHatHpf, 5500.0f}, {kHatLpf, 11000.0f}, {kHatMix, -0.3f},
+          {kCymModel, 1.0f}, {kCymTimbre, 9.0f}, {kCymBodyDecay, 3.0f}, {kCymBodyF, 2500.0f},
+          {kPercModel, 1.0f}, {kPercVariation, 0.6f}, {kPercTimbre, 0.35f}, {kPercDecay, 0.45f},
+          {kWsType, 2.0f}, {kWsLevel, 0.35f}, {kEqLow, 3.0f}, {kEqMid, -2.0f}, {kEqHigh, 1.0f}},
+         {swKickDecay(0.05f), swGate(0.03f), swTomSweep(), swHatDecay(), swDrive(0.3f), swRoom(0.3f)}},
+
+        {P, "OT Kit SW Vapor", "Vaporwave lo-fi kit: soft round kick, washed-out snare, dull hats, 6-bit crush.", 1,
+         {{lvl(kKick, 0), 0.95f}, {lvl(kTom, 0), 0.62f}, {lvl(kSnare, 0), 0.80f},
+          {lvl(kHat, 0), 0.75f}, {lvl(kCymbal, 0), 0.80f}, {lvl(kPerc, 0), 0.75f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), 0.15f}, {lvl(kSnare, 1), 0.0f}, {lvl(kHat, 1), -0.25f},
+          {lvl(kCymbal, 1), 0.3f}, {lvl(kPerc, 1), 0.25f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.25f}, {lvl(kHat, 2), 0.2f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.45f},
+          {lvl(kKick, 3), 0.1f}, {lvl(kTom, 3), 0.5f}, {lvl(kSnare, 3), 0.8f}, {lvl(kHat, 3), 0.3f},
+          {lvl(kCymbal, 3), 0.5f}, {lvl(kPerc, 3), 0.6f},
+          {kKickWave, wave(0, 0)}, {kKickModel, 2.0f}, {kKickPitch, 30.0f}, {kKickAttack, 2.5f}, {kKickDecay, 0.5f},
+          {kKickModAmount, 0.12f}, {kKickModDecay, 0.05f}, {kKickTrTimbre, 0.15f}, {kKickTrLevel, 0.2f},
+          {kTomWave, wave(0, 0)}, {kTomModel, 0.0f}, {kTomDecay, 0.55f}, {kTomPitchMod, 1.2f}, {kTomModDecay, 0.1f},
+          {kSnareModel, 0.0f}, {kSnarePitch, 52.0f}, {kSnareTone, 0.5f}, {kSnareDecay, 0.22f},
+          {kSnareSnapAttack, 1.5f}, {kSnareSnapDecay, 0.35f}, {kSnareMix, 0.1f}, {kSnareSnapTimbre, 0.3f},
+          {kHatModel, 0.0f}, {kHatTimbre, 9.0f}, {kHatPitch, 260.0f}, {kHatShape, 0.4f}, {kHatClosed, 0.07f},
+          {kHatOpen, 0.6f}, {kHatHpf, 3500.0f}, {kHatLpf, 7500.0f}, {kHatMix, -0.2f},
+          {kCymModel, 0.0f}, {kCymTimbre, 10.0f}, {kCymBodyF, 2200.0f}, {kCymImpactF, 4000.0f},
+          {kCymBodyDecay, 3.0f},
+          {kPercModel, 0.0f}, {kPercVariation, 0.5f}, {kPercTimbre, 0.4f}, {kPercDecay, 0.4f},
+          {kWsType, 3.0f}, {kWsLevel, 0.4f}, {kEqLow, 2.0f}, {kEqMid, -1.0f}, {kEqHigh, -6.0f}},
+         {swKickDecay(), swSnareTone(), swHatDecay(), {"Crush", true, {{kWsLevel, 0.4f}}}, swEcho(0.3f),
+          swRoom(0.2f)}},
+
+        {P, "OT Kit SW Hex Toms", "Electronic tom kit: singing pitch-sweep toms with stick noise, ping snare, clap.", 1,
+         {{lvl(kKick, 0), 1.05f}, {lvl(kTom, 0), 0.70f}, {lvl(kSnare, 0), 0.75f},
+          {lvl(kHat, 0), 0.60f}, {lvl(kCymbal, 0), 0.55f}, {lvl(kPerc, 0), 0.65f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), 0.25f}, {lvl(kSnare, 1), 0.0f}, {lvl(kHat, 1), 0.35f},
+          {lvl(kCymbal, 1), -0.35f}, {lvl(kPerc, 1), -0.1f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.15f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.0f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.0f},
+          {lvl(kKick, 3), 0.0f}, {lvl(kTom, 3), 0.5f}, {lvl(kSnare, 3), 0.55f}, {lvl(kHat, 3), 0.1f},
+          {lvl(kCymbal, 3), 0.3f}, {lvl(kPerc, 3), 0.45f},
+          {kKickWave, wave(0, 0)}, {kKickModel, 2.0f}, {kKickPitch, 31.0f}, {kKickAttack, 0.5f}, {kKickDecay, 0.4f},
+          {kKickModAmount, 0.35f}, {kKickModDecay, 0.03f}, {kKickTrTimbre, 0.5f}, {kKickTrLevel, 0.45f},
+          {kTomWave, wave(1, 3)}, {kTomModel, 1.0f}, {kTomAttack, 0.3f}, {kTomDecay, 0.85f}, {kTomTrLevel, 0.7f},
+          {kTomTrTimbre, 1.5f}, {kTomPitchMod, 4.0f}, {kTomModDecay, 0.28f}, {kTomWaveMod, 0.3f},
+          {kSnareModel, 3.0f}, {kSnarePitch, 60.0f}, {kSnareTone, 0.4f}, {kSnareDecay, 0.2f},
+          {kSnareSnapAttack, 0.3f}, {kSnareSnapDecay, 0.3f}, {kSnareMix, 0.15f}, {kSnareSnapTimbre, 0.55f},
+          {kHatModel, 0.0f}, {kHatTimbre, 12.0f}, {kHatPitch, 340.0f}, {kHatClosed, 0.05f}, {kHatOpen, 0.45f},
+          {kHatHpf, 7500.0f}, {kHatLpf, 14000.0f}, {kHatMix, -0.4f},
+          {kCymModel, 0.0f}, {kCymTimbre, 14.0f}, {kCymBodyDecay, 2.2f},
+          {kPercModel, 0.0f}, {kPercVariation, 0.35f}, {kPercTimbre, 0.5f}, {kPercDecay, 0.3f},
+          {kWsType, 0.0f}, {kWsLevel, 0.2f}, {kEqHigh, 1.5f}},
+         {swTomSweep(), {"Tom Decay", true, {{kTomDecay, 0.05f}}}, {"Tom Stick", true, {{kTomTrLevel, 0.4f},
+          {kTomTrTimbre, 0.3f}}}, swSnareTone(), swDrive(), swRoom()}},
+
+        {P, "OT Kit SW Electro", "Electro 808-style kit: long boomy kick, snappy snare, ticking hats, roomy clap.", 1,
+         {{lvl(kKick, 0), 1.00f}, {lvl(kTom, 0), 0.62f}, {lvl(kSnare, 0), 0.72f},
+          {lvl(kHat, 0), 0.70f}, {lvl(kCymbal, 0), 0.75f}, {lvl(kPerc, 0), 0.90f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), -0.2f}, {lvl(kSnare, 1), 0.05f}, {lvl(kHat, 1), 0.3f},
+          {lvl(kCymbal, 1), -0.3f}, {lvl(kPerc, 1), -0.05f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.15f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.2f},
+          {lvl(kKick, 3), 0.0f}, {lvl(kTom, 3), 0.3f}, {lvl(kSnare, 3), 0.35f}, {lvl(kHat, 3), 0.05f},
+          {lvl(kCymbal, 3), 0.2f}, {lvl(kPerc, 3), 0.5f},
+          {kKickWave, wave(0, 0)}, {kKickModel, 2.0f}, {kKickPitch, 29.0f}, {kKickAttack, 1.0f}, {kKickDecay, 0.9f},
+          {kKickModAmount, 0.2f}, {kKickModDecay, 0.05f}, {kKickTrTimbre, 0.3f}, {kKickTrLevel, 0.35f},
+          {kTomWave, wave(0, 0)}, {kTomModel, 0.0f}, {kTomDecay, 0.45f}, {kTomPitchMod, 1.5f}, {kTomModDecay, 0.06f},
+          {kSnareModel, 0.0f}, {kSnarePitch, 58.0f}, {kSnareTone, 0.6f}, {kSnareDecay, 0.15f},
+          {kSnareSnapDecay, 0.18f}, {kSnareMix, 0.15f}, {kSnareSnapTimbre, 0.7f},
+          {kHatModel, 0.0f}, {kHatTimbre, 12.0f}, {kHatPitch, 320.0f}, {kHatClosed, 0.035f}, {kHatOpen, 0.4f},
+          {kHatHpf, 8000.0f}, {kHatLpf, 15000.0f}, {kHatMix, -0.2f},
+          {kCymModel, 0.0f}, {kCymTimbre, 12.0f}, {kCymBodyDecay, 2.0f},
+          {kPercModel, 0.0f}, {kPercVariation, 0.3f}, {kPercTimbre, 0.55f}, {kPercDecay, 0.28f},
+          {kEqLow, 1.0f}},
+         {swKickDecay(0.06f), swSnareTone(), swHatDecay(), swPitch(), swDrive(0.4f), swRoom(0.3f)}},
+
+        {P, "OT Kit SW Drive", "Midtempo driving kit: overdriven punchy kick and snare, shaker on delay, wide toms.", 1,
+         {{lvl(kKick, 0), 0.90f}, {lvl(kTom, 0), 0.55f}, {lvl(kSnare, 0), 0.68f},
+          {lvl(kHat, 0), 0.60f}, {lvl(kCymbal, 0), 0.50f}, {lvl(kPerc, 0), 0.60f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), 0.3f}, {lvl(kSnare, 1), 0.0f}, {lvl(kHat, 1), -0.3f},
+          {lvl(kCymbal, 1), 0.35f}, {lvl(kPerc, 1), 0.4f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.1f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.45f},
+          {lvl(kKick, 3), 0.0f}, {lvl(kTom, 3), 0.35f}, {lvl(kSnare, 3), 0.5f}, {lvl(kHat, 3), 0.05f},
+          {lvl(kCymbal, 3), 0.25f}, {lvl(kPerc, 3), 0.2f},
+          {kKickWave, wave(2, 2)}, {kKickModel, 1.0f}, {kKickPitch, 32.0f}, {kKickAttack, 0.5f}, {kKickDecay, 0.35f},
+          {kKickModAmount, 0.4f}, {kKickModDecay, 0.04f}, {kKickTrTimbre, -0.4f}, {kKickTrLevel, 0.6f},
+          {kTomWave, wave(1, 4)}, {kTomModel, 1.0f}, {kTomDecay, 0.55f}, {kTomTrLevel, 0.5f}, {kTomTrTimbre, 1.1f},
+          {kTomPitchMod, 2.2f}, {kTomModDecay, 0.14f},
+          {kSnareModel, 4.0f}, {kSnarePitch, 54.0f}, {kSnareTone, 0.45f}, {kSnareDecay, 0.18f},
+          {kSnareSnapAttack, 0.4f}, {kSnareSnapDecay, 0.3f}, {kSnareMix, 0.25f}, {kSnareSnapTimbre, 0.6f},
+          {kHatModel, 0.0f}, {kHatTimbre, 14.0f}, {kHatPitch, 360.0f}, {kHatShape, 0.3f}, {kHatClosed, 0.05f},
+          {kHatOpen, 0.4f}, {kHatHpf, 7000.0f}, {kHatLpf, 14000.0f}, {kHatMix, -0.5f},
+          {kCymModel, 0.0f}, {kCymTimbre, 15.0f}, {kCymBodyDecay, 2.0f},
+          {kPercModel, 3.0f}, {kPercVariation, 0.4f}, {kPercTimbre, 0.65f}, {kPercDecay, 0.12f},
+          {kWsType, 2.0f}, {kWsLevel, 0.3f}, {kEqLow, 1.5f}, {kEqMid, 1.0f}},
+         {swKickDecay(), swSnareTone(), swGate(), swEcho(), swDrive(0.3f), swRoom()}},
+
+        {P, "OT Kit SW Studio 80", "80s studio drum-machine kit: short beater kick, crisp snare, airy hats, clap, crash.", 1,
+         {{lvl(kKick, 0), 1.10f}, {lvl(kTom, 0), 0.62f}, {lvl(kSnare, 0), 0.78f},
+          {lvl(kHat, 0), 0.80f}, {lvl(kCymbal, 0), 0.55f}, {lvl(kPerc, 0), 0.70f},
+          {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), -0.2f}, {lvl(kSnare, 1), 0.05f}, {lvl(kHat, 1), 0.3f},
+          {lvl(kCymbal, 1), -0.35f}, {lvl(kPerc, 1), -0.1f},
+          {lvl(kKick, 2), 0.0f}, {lvl(kTom, 2), 0.0f}, {lvl(kSnare, 2), 0.0f}, {lvl(kHat, 2), 0.0f},
+          {lvl(kCymbal, 2), 0.0f}, {lvl(kPerc, 2), 0.0f},
+          {lvl(kKick, 3), 0.05f}, {lvl(kTom, 3), 0.3f}, {lvl(kSnare, 3), 0.35f}, {lvl(kHat, 3), 0.05f},
+          {lvl(kCymbal, 3), 0.25f}, {lvl(kPerc, 3), 0.35f},
+          {kKickWave, wave(0, 3)}, {kKickModel, 2.0f}, {kKickPitch, 34.0f}, {kKickAttack, 0.5f}, {kKickDecay, 0.26f},
+          {kKickModAmount, 0.15f}, {kKickModDecay, 0.025f}, {kKickTrTimbre, -0.25f}, {kKickTrLevel, 0.6f},
+          {kTomWave, wave(0, 2)}, {kTomModel, 1.0f}, {kTomDecay, 0.5f}, {kTomTrLevel, 0.6f}, {kTomTrTimbre, 1.0f},
+          {kTomPitchMod, 1.0f}, {kTomModDecay, 0.08f},
+          {kSnareModel, 1.0f}, {kSnarePitch, 54.0f}, {kSnareTone, 0.45f}, {kSnareDecay, 0.16f},
+          {kSnareSnapAttack, 0.5f}, {kSnareSnapDecay, 0.24f}, {kSnareMix, 0.3f}, {kSnareSnapTimbre, 0.65f},
+          {kHatModel, 0.0f}, {kHatTimbre, 20.0f}, {kHatPitch, 420.0f}, {kHatShape, 0.2f}, {kHatClosed, 0.06f},
+          {kHatOpen, 0.7f}, {kHatHpf, 8000.0f}, {kHatLpf, 16000.0f}, {kHatMix, -0.6f},
+          {kCymModel, 0.0f}, {kCymTimbre, 18.0f}, {kCymPitch, 450.0f}, {kCymBodyF, 5000.0f}, {kCymImpactF, 8000.0f},
+          {kCymBodyDecay, 3.0f}, {kCymMix, -0.6f},
+          {kPercModel, 0.0f}, {kPercVariation, 0.25f}, {kPercTimbre, 0.6f}, {kPercDecay, 0.25f},
+          {kWsType, 0.0f}, {kWsLevel, 0.15f}, {kEqHigh, 2.0f}},
+         {swKickDecay(0.03f), swSnareTone(), swHatDecay(), swPitch(), swDrive(), swRoom()}},
     };
 }
 
@@ -931,7 +1169,9 @@ std::string markdown() {
             o += std::string("\n## ") + modelName(cur) + " (" + std::to_string(n) + ")\n\n";
             if (cur == SynthModel::PERC)
                 o += "Notes (MIDI numbers): kick 60, snare 62, hi-hats 64-67 (closed to open), cymbal 69, perc 71; any other\n"
-                     "note plays the tom at that pitch.\n\n";
+                     "note plays the tom at that pitch. The `OT Kit SW` kits are synthwave / retrowave kits\n"
+                     "(gated snares, sweeping toms); their per-drum Delay / Reverb sends sound only when the\n"
+                     "instrument's own Delay / Reverb send is up (drum send = patch send x instrument send).\n\n";
             o += "| Patch | Description | Poly | Macros M1-M6 |\n|---|---|---|---|\n";
         }
         std::string macros;

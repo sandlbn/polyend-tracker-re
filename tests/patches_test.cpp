@@ -7,7 +7,8 @@
 // real SynthBank slot at the default slot record (-9 dB, sends off, macros
 // at their page defaults: 63 bipolar = the patch as saved): a few notes
 // (ACD, FAT / WTFM Poly 1), 4-voice chords and single notes (VAP, FAT / WTFM Poly 4),
-// every drum and the whole kit at once (PERC). It must be audible (peak >
+// every drum and the whole kit at once (PERC; every drum of a kit
+// must also be audible on its own). It must be audible (peak >
 // -30 dBFS) and stay at least 1 dB below full scale. Macros M1..M6 at both extremes must stay finite and
 // below full scale too. When the release folder (releases/OpenTracker-Presets)
 // exists, its files must be the generator's bytes (for the models it has).
@@ -191,7 +192,7 @@ TEST(presets_names_counts_and_macros) {
     CHECK(fat >= 8);
     CHECK(vap >= 14);
     CHECK(wtfm >= 30);
-    CHECK(perc >= 8);
+    CHECK(perc >= 16);
 }
 
 TEST(presets_save_and_load_through_the_app) {
@@ -261,6 +262,31 @@ TEST(presets_render_audible_and_never_full_scale) {
     }
     std::printf("  loudest %s %.1f dBFS, quietest %s %.1f dBFS\n", loudName.c_str(), dbfs(loud), quietName.c_str(),
                 dbfs(quiet));
+}
+
+// PERC: every drum of every kit on its own (kick, snare, closed and open
+// hat, cymbal, perc, a low and a high tom) is audible and below full scale.
+TEST(presets_perc_every_drum_audible) {
+    const Pack& pk = pack();
+    for (size_t i = 0; i < pk.loaded.size(); ++i) {
+        const presets::Preset& p = presets::all()[i];
+        if (p.model != SynthModel::PERC) continue;
+        const int notes[8] = {60, 62, 64, 67, 69, 71, 45, 57};
+        std::string line;
+        for (int n : notes) {
+            Slot s(pk.loaded[i], p.model, 1);
+            s.on(0, n);
+            s.run(kBlocksPerSec);
+            char b[16];
+            std::snprintf(b, sizeof b, " %6.1f", dbfs(s.peak));
+            line += b;
+            if (dbfs(s.peak) <= -30.0 || dbfs(s.peak) >= -1.0) std::printf("       %s note %d\n", p.name, n);
+            CHECK(dbfs(s.peak) > -30.0);
+            CHECK(dbfs(s.peak) < -1.0);
+            CHECK_EQ(s.clips, 0L);
+        }
+        std::printf("  %-22s%s\n", p.name, line.c_str());
+    }
 }
 
 TEST(presets_macro_extremes_stay_in_bounds) {
