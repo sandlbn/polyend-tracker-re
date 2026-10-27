@@ -1512,3 +1512,22 @@ TEST(width_and_stereo_rows) {
     for (int i = 0; i < np; ++i)
         for (int r = 0; r < sec[i].count; ++r) CHECK(sec[i].params[r] < audio::synthParamCount(kSynthEnginePerc));
 }
+
+// A macro name with a control byte (a device report: "Cutoff\r" from a patch
+// made elsewhere drew "Cutoff" with a stray glyph) is shown without it; the
+// patch keeps its bytes.
+TEST(macro_names_hide_control_bytes) {
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    PatchMacro& m = a.synthPatch(1).macros[0];
+    std::snprintf(m.name, sizeof(m.name), "Cutoff\r");
+    m.nameLen = 7;
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    CHECK(frameHas(h, "Cutoff"));
+    CHECK(frameHas(h, "M1 Cutoff"));
+    bool raw = false;
+    for (const std::string& l : h.disp.last) raw |= l.find('\r') != std::string::npos;
+    CHECK(!raw);
+    CHECK_EQ(int(a.synthPatch(1).macros[0].nameLen), 7);   // stored as read
+}

@@ -58,6 +58,21 @@ void listColumn(Gfx& g, const Theme& th, int col, int span, const char* const* i
 
 // Text cut so that it fits `room` px in `font` (the cut glyphs would still
 // cost display-list words).
+// A patch or macro name as shown: control bytes left out. A patch made
+// elsewhere can end a name in "\r", which the font draws as a stray glyph
+// (device report: "Cutoff" + a small D); the stored name keeps its bytes.
+const char* shown(const char* s) {
+    static char buf[4][kPatchNameMax + 1];
+    static int next = 0;
+    char* o = buf[next];
+    next = (next + 1) & 3;
+    int n = 0;
+    for (; *s && n < kPatchNameMax; ++s)
+        if (uint8_t(*s) >= 0x20 && uint8_t(*s) != 0x7F) o[n++] = *s;
+    o[n] = 0;
+    return o;
+}
+
 void fit(char* s, uint8_t font, int room) {
     int n = 0, pen = 0;
     while (s[n] && pen + textWidth(font, s + n, 1) <= room) pen += textWidth(font, s + n++, 1);
@@ -214,7 +229,7 @@ void SynthScreen::refreshBar() {
             const SynthPatch& p = app_.synthPatch(slot);
             for (int k = 0; k < audio::kSynthSeqMacros; ++k) {
                 char top[24];
-                std::snprintf(top, sizeof(top), "M%d %s", k + 1, p.macros[k].name);
+                std::snprintf(top, sizeof(top), "M%d %s", k + 1, shown(p.macros[k].name));
                 fit(top, kFont3, 92);
                 const int val = r.macros[k];
                 if (p.macros[k].bipolar) std::snprintf(v, sizeof(v), "%d", val - 63);
@@ -395,7 +410,7 @@ void SynthScreen::macroRowText(int m, int r, char* label, int lcap, char* value,
     const int count = audio::synthMacroTargets(mc);
     if (r == 0) {
         std::snprintf(label, size_t(lcap), "Name");
-        std::snprintf(value, size_t(vcap), "%s", mc.name[0] ? mc.name : "-");
+        std::snprintf(value, size_t(vcap), "%s", mc.name[0] ? shown(mc.name) : "-");
     } else if (r == 1) {
         std::snprintf(label, size_t(lcap), "Bipolar");
         std::snprintf(value, size_t(vcap), "%s", mc.bipolar ? "On" : "Off");
@@ -461,7 +476,8 @@ void SynthScreen::macroNameKeyboard() {
     const int n = synthui::sections(engine(), &sec);
     if (!available() || section >= n || sec[section].macro < 0 || row != 0) return;
     const PatchMacro& mc = app_.synthPatch(slot).macros[sec[section].macro];
-    ui_.kb.open("Macro Name", mc.name, kPatchMacroNameMax - 1, "Enter",
+    // Renaming drops the control bytes the name was shown without.
+    ui_.kb.open("Macro Name", shown(mc.name), kPatchMacroNameMax - 1, "Enter",
                 [](void* c, bool ok, const char* text) {
                     auto* s = static_cast<SynthScreen*>(c);
                     const synthui::Section* sc = nullptr;
@@ -930,7 +946,7 @@ void SynthScreen::drawParams(Gfx& g) {
     const int x = wg::columnX(6) + 12;
     g.text(x, 47, kFont3, th.slot(slot::kBottomLabel), "Patch:", IDisplay::kOptCenterY);
     char name[40];
-    std::snprintf(name, sizeof(name), "%s", r.patchName[0] ? r.patchName : "-");
+    std::snprintf(name, sizeof(name), "%s", r.patchName[0] ? shown(r.patchName) : "-");
     fit(name, kFont2, wg::columnW(2) - 24);
     g.text(x, 73, kFont2, th.slot(slot::kList + 4), name, IDisplay::kOptCenterY);
     if (ro) {
@@ -965,7 +981,7 @@ void SynthScreen::drawMacros(Gfx& g) {
         const int x = 21 + 400 * (k / 3), y = kLegendY + 26 + 32 * (k % 3);
         char lab[20], name[40];
         std::snprintf(lab, sizeof(lab), "Macro %d", k + 1);
-        std::snprintf(name, sizeof(name), "%s", p.macros[k].name[0] ? p.macros[k].name : "-");
+        std::snprintf(name, sizeof(name), "%s", p.macros[k].name[0] ? shown(p.macros[k].name) : "-");
         fit(name, kFont3, 240);
         g.text(x, y, kFont3, dim, lab, IDisplay::kOptCenterY);
         g.text(x + 110, y, kFont3, k == macro ? white : dim, name, IDisplay::kOptCenterY);
@@ -978,7 +994,7 @@ void SynthScreen::drawEdit(Gfx& g) {
     const SynthSlotRecord r = app_.synthSlot(slot);
     const int32_t eng = engine();
     char t[64];
-    std::snprintf(t, sizeof(t), "Edit Patch: %s", r.patchName[0] ? r.patchName : "-");
+    std::snprintf(t, sizeof(t), "Edit Patch: %s", r.patchName[0] ? shown(r.patchName) : "-");
     title(g, t);
     // Section grid (4 x 4, mirrors the lit pads), columns 0..3.
     wg::panel(g, th, 1, wg::kPanelY, wg::columnW(4), wg::kPanelH);
