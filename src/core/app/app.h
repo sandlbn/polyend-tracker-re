@@ -109,6 +109,18 @@ constexpr const char* kWorkspace = "Workspace";
 constexpr const char* kProjectsDir = "Projects";
 constexpr const char* kExportDir = "Export";
 
+// SD streaming C14 (sample_import.cpp): how the Sample Loader can import a
+// file into a slot.
+enum class ImportRoute : uint8_t {
+    Fits,        // into the sample memory (App::importSample)
+    Streams,     // too big, but converted onto the card and streamed
+    Off,         // too big and Stream from card is Off
+    TooMany,     // too big: 16 instruments already stream
+    NoMemory,    // too big, and not even its streamed head fits
+    CardFull,    // the card cannot hold the converted file
+    Unreadable,  // not a supported WAV / .pti
+};
+
 class App final : public ISequencerHost {
 public:
     App();
@@ -348,6 +360,18 @@ public:
     // Editor, play modes that need memory). False (nothing changed, notice)
     // when it does not fit.
     bool loadStreamedIntoMemory(int slot);
+    // SD streaming C14: the route of importing `path` into `slot` (the
+    // slot's current sample replaced), and the import of a file that does
+    // not fit: a background job (progress popup, Back cancels) converts it
+    // into the slot's Workspace .pti through instruments/import.tmp, then
+    // loads its head and streams the rest. The old instrument stays until
+    // the new one is in place. False (importNotice() says why) when the
+    // route is not Streams or the job could not start.
+    ImportRoute importRoute(const char* path, int slot);
+    bool startStreamedImport(const char* path, int slot, void (*done)(void* ctx, bool ok) = nullptr,
+                             void* ctx = nullptr);
+    const char* importNotice() const { return importNotice_; }
+    static constexpr const char* kImportTmp = "Workspace/instruments/import.tmp";
     bool streamTestEnable = false;   // tests: carve the rings without the Config option
     IUsbStorage::Host usbHost() const {
         return hal_.usbStorage ? hal_.usbStorage->host() : IUsbStorage::Host::kNoUsb;
@@ -696,6 +720,14 @@ private:
         uint32_t blocks = 0, tail = 0;
         int songLen = 0;
     } job_;
+    // SD streaming C14 import (sample_import.cpp).
+    char importNotice_[64] = {};
+    int importUnit(uint32_t& cost);
+    void importCleanup();
+    bool importFinalize();
+    static int importUnitThunk(void* ctx, uint32_t& cost);
+    static int importPercentThunk(void* ctx);
+    static void importDoneThunk(void* ctx, bool ok);
     OT_APP_SDRAM_MEMBER(ProjectJob, pj_);   // background project operation (project_io.cpp)
     bool lastJobOk_ = true;
     int lastJobErrors_ = 0;

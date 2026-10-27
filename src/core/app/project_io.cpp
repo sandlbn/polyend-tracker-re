@@ -2297,6 +2297,8 @@ bool App::jobUnit(uint32_t& cost) {
 bool App::startLoadWorkspace(JobDoneFn done, void* ctx) {
     finishJob();
     if (!fs().exists("Workspace/project.mt")) return false;
+    // SD streaming C14: an import cut by a power loss / card removal.
+    fs().remove(kImportTmp);
     pj_ = ProjectJob{};
     pj_.op = JobOp::LoadWorkspace;
     g_clock = hal_.clock;
