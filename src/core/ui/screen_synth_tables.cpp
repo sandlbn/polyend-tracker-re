@@ -56,7 +56,9 @@ const char* const kBodyWave[16] = {"Sat-Sin", "Triangle", "Square", "Square FM",
 #define F(f) f, nullptr, 0
 
 // --- ACD (29) ------------------------------------------------------------------
-const ParamUi kAcd[29] = {
+// [OT] stereo: each engine table ends with its extension parameters (Width;
+// FAT also Stereo; audio::synthParamTotal), not macro targets.
+const ParamUi kAcd[30] = {
     {"Saw Mix", F(kFmtPct)},       {"Square Mix", F(kFmtPct)},   {"Sub Mix", F(kFmtPct)},
     {"Noise Mix", F(kFmtPct)},     {"PW", F(kFmtPct)},           {"Sub Mode", E(kSubMode)},
     {"PW LFO", F(kFmtPct)},        {"PW Env", F(kFmtPct)},       {"Pitch LFO", F(kFmtPctMax)},
@@ -66,17 +68,17 @@ const ParamUi kAcd[29] = {
     {"Release", F(kFmtSec)},       {"Attack", F(kFmtSec)},       {"Decay", F(kFmtSec)},
     {"Sustain", F(kFmtPct)},       {"Release", F(kFmtSec)},      {"Frequency", F(kFmtLfoHz)},
     {"Waveform", E(kWave)},        {"Retrigger", E(kRetrig)},    {"Glide Mode", E(kGlide)},
-    {"Glide Time", F(kFmtSec)},    {"Volume", F(kFmtPct)},
+    {"Glide Time", F(kFmtSec)},    {"Volume", F(kFmtPct)},       {"Width", F(kFmtPct)},
 };
 const uint8_t kAcdOsc[] = {0, 1, 2, 3, 4, 5, 8, 7, 6};
 const uint8_t kAcdFlt[] = {9, 10, 11, 14, 12, 13};
 const uint8_t kAcdAmp[] = {15, 16, 17, 18};
 const uint8_t kAcdEnv1[] = {19, 20, 21, 22};
 const uint8_t kAcdLfo[] = {23, 24, 25};
-const uint8_t kAcdVoice[] = {26, 27, 28};
+const uint8_t kAcdVoice[] = {26, 27, 28, 29};
 
 // --- FAT (25) ------------------------------------------------------------------
-const ParamUi kFat[25] = {
+const ParamUi kFat[27] = {
     {"Fatness", F(kFmtVal100)},    {"Brightness", F(kFmtVal100)}, {"LFO Amt", F(kFmtPct)},
     {"Timbre", F(kFmtVal100)},     {"Noise", F(kFmtPct)},         {"Reset", F(kFmtOnOff)},
     {"Type", E(kFatFilter)},       {"Cutoff", F(kFmtHz)},         {"Resonance", F(kFmtPctMax)},
@@ -85,18 +87,18 @@ const ParamUi kFat[25] = {
     {"Attack", F(kFmtSec)},        {"Decay", F(kFmtSec)},         {"Sustain", F(kFmtPct)},
     {"Release", F(kFmtSec)},       {"Frequency", F(kFmtLfoHz)},   {"Waveform", E(kWave)},
     {"Retrigger", E(kRetrig)},     {"Glide Mode", E(kGlide)},     {"Glide Time", F(kFmtSec)},
-    {"Volume", F(kFmtPct)},
+    {"Volume", F(kFmtPct)},        {"Width", F(kFmtPct)},         {"Stereo", F(kFmtPct)},
 };
-const uint8_t kFatOsc[] = {0, 1, 3, 2, 4, 5};
+const uint8_t kFatOsc[] = {0, 1, 3, 2, 4, 5, 26};
 const uint8_t kFatFlt[] = {7, 8, 6, 10, 9};
 const uint8_t kFatAmp[] = {11, 12, 13, 14};
 const uint8_t kFatEnv1[] = {15, 16, 17, 18};
 const uint8_t kFatLfo[] = {19, 20, 21};
-const uint8_t kFatVoice[] = {22, 23, 24};
+const uint8_t kFatVoice[] = {22, 23, 24, 25};
 
 // --- VAP (60) ------------------------------------------------------------------
 #define MODROW(k) {"Src " #k, E(kModSrc)}, {"Dest " #k, E(kVapDest)}, {"Amt " #k, F(kFmtPctMax)}
-const ParamUi kVap[60] = {
+const ParamUi kVap[61] = {
     {"Shape 1", F(kFmtVal100)},   {"Shape 2", F(kFmtVal100)},  {"PW 1", F(kFmtVal100)},
     {"PW 2", F(kFmtVal100)},      {"Mix", F(kFmtPct)},         {"Tune 1", F(kFmtSemi)},
     {"Tune 2", F(kFmtSemi)},      {"Detune", F(kFmtCents)},    {"Finetune", F(kFmtCents)},
@@ -112,6 +114,7 @@ const ParamUi kVap[60] = {
     {"Glide Time", F(kFmtSec)},   {"Note Track", F(kFmtPct)},  {"Mix Env Amt", F(kFmtPct)},
     {"Volume", F(kFmtPct)},       {"Sync", F(kFmtOnOff)},      {"Noise", F(kFmtPct)},
     MODROW(1), MODROW(2), MODROW(3), MODROW(4), MODROW(5), MODROW(6),
+    {"Width", F(kFmtPct)},
 };
 #undef MODROW
 const uint8_t kVapOsc[] = {4, 0, 1, 2, 3, 5, 6, 8, 7, 41, 40, 9, 10, 38};
@@ -122,11 +125,11 @@ const uint8_t kVapEnv2[] = {23, 24, 25, 26};
 const uint8_t kVapLfo1[] = {27, 28, 29, 30};
 const uint8_t kVapLfo2[] = {31, 32, 33, 34};
 const uint8_t kVapMod[] = {42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59};
-const uint8_t kVapVoice[] = {35, 36, 39};
+const uint8_t kVapVoice[] = {35, 36, 39, 60};
 
 // --- WTFM (63) -----------------------------------------------------------------
 #define MODROW(k) {"Src " #k, E(kModSrc)}, {"Dest " #k, E(kWtfmDest)}, {"Amt " #k, F(kFmtPctMax)}
-const ParamUi kWtfm[63] = {
+const ParamUi kWtfm[64] = {
     {"Ratio 1", F(kFmtRatio)},     {"Ratio 2", F(kFmtRatio)},     {"Finetune 1", F(kFmtCents)},
     {"Finetune 2", F(kFmtCents)},  {"Shape 1", F(kFmtVal100)},    {"Shape 2", F(kFmtVal100)},
     {nullptr, F(kFmtVal100)},      {nullptr, F(kFmtVal100)},      {"Oversampling", F(kFmtOnOff)},
@@ -143,7 +146,7 @@ const ParamUi kWtfm[63] = {
     {"Sync", F(kFmtOnOff)},        {"Glide Mode", E(kGlide)},     {"Glide Time", F(kFmtSec)},
     {"Volume", F(kFmtPct)},
     MODROW(1), MODROW(2), MODROW(3), MODROW(4), MODROW(5), MODROW(6),
-    {"Reset 1", F(kFmtOnOff)},     {"Reset 2", F(kFmtOnOff)},
+    {"Reset 1", F(kFmtOnOff)},     {"Reset 2", F(kFmtOnOff)},     {"Width", F(kFmtPct)},
 };
 #undef MODROW
 const uint8_t kWtfmOsc[] = {11, 0, 1, 4, 5, 9, 10, 12, 13, 14, 2, 3, 61, 62, 8};
@@ -154,7 +157,7 @@ const uint8_t kWtfmEnv2[] = {28, 29, 30, 31};
 const uint8_t kWtfmLfo1[] = {32, 33, 34, 35};
 const uint8_t kWtfmLfo2[] = {36, 37, 38, 39};
 const uint8_t kWtfmMod[] = {43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60};
-const uint8_t kWtfmVoice[] = {40, 41, 42};
+const uint8_t kWtfmVoice[] = {40, 41, 42, 63};
 
 // --- PERC (84) -----------------------------------------------------------------
 #define MIXROW(d) {d " Level", F(kFmtPct)}, {d " Pan", F(kFmtPan)}, {d " Delay", F(kFmtVal100)}, \
@@ -431,11 +434,14 @@ float stepValue(int32_t engine, int index, float v, int d) {
     return clampf(nv, lo, hi);
 }
 
+// Macro targets: the Mini's parameters only ([OT] extension rows skipped).
 int targetChoices(int32_t engine) {
     const Section* sec = nullptr;
     const int ns = sections(engine, &sec);
+    const int mini = audio::synthParamCount(engine);
     int n = 1;
-    for (int s = 0; s < ns; ++s) n += sec[s].count;
+    for (int s = 0; s < ns; ++s)
+        for (int j = 0; j < sec[s].count; ++j) n += sec[s].params[j] < mini;
     return n;
 }
 
@@ -443,21 +449,27 @@ int targetChoice(int32_t engine, int k) {
     if (k <= 0) return -1;
     const Section* sec = nullptr;
     const int ns = sections(engine, &sec);
+    const int mini = audio::synthParamCount(engine);
     int i = 1;
     for (int s = 0; s < ns; ++s)
-        for (int j = 0; j < sec[s].count; ++j, ++i)
-            if (i == k) return sec[s].params[j];
+        for (int j = 0; j < sec[s].count; ++j) {
+            if (sec[s].params[j] >= mini) continue;
+            if (i++ == k) return sec[s].params[j];
+        }
     return -1;
 }
 
 int targetChoiceIndex(int32_t engine, int param) {
-    if (param < 0) return 0;
+    if (param < 0 || param >= audio::synthParamCount(engine)) return 0;
     const Section* sec = nullptr;
     const int ns = sections(engine, &sec);
     int i = 1;
     for (int s = 0; s < ns; ++s)
-        for (int j = 0; j < sec[s].count; ++j, ++i)
+        for (int j = 0; j < sec[s].count; ++j) {
+            if (sec[s].params[j] >= audio::synthParamCount(engine)) continue;
             if (sec[s].params[j] == param) return i;
+            ++i;
+        }
     return 0;
 }
 

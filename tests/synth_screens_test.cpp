@@ -1461,3 +1461,54 @@ TEST(wtfm_ratio_shows_its_value) {
     synthui::formatValue(kSynthEngineWtfm, 11, 10.0f, t, sizeof t);
     CHECK_STR(t, "1000 %");
 }
+
+// Stereo S3: Width is the last row of the Voice section (ACD, FAT, VAP, WTFM),
+// FAT Stereo the last row of FAT's Osc section. The rows edit, show and reset
+// like any other; macros cannot target them; PERC has neither.
+TEST(width_and_stereo_rows) {
+    Harness h;
+    App& a = *h.app;
+    SynthScreen& s = synth(a);
+    for (SynthModel m : {SynthModel::ACD, SynthModel::FAT, SynthModel::VAP, SynthModel::WTFM}) {
+        openSlot(h, 1, m);
+        const int32_t eng = synthEngineId(m);
+        const int wi = audio::synthWidthParam(eng);
+        const synthui::Section* sec = nullptr;
+        const int n = synthui::sections(eng, &sec);
+        int voice = -1;
+        for (int i = 0; i < n; ++i)
+            if (sec[i].macro < 0 && std::strcmp(sec[i].name, "Voice") == 0) voice = i;
+        CHECK(voice >= 0);
+        if (voice < 0) continue;
+        CHECK_EQ(int(sec[voice].params[sec[voice].count - 1]), wi);
+        h.tap(btn::F8);   // Edit view
+        s.section = voice;
+        s.row = sec[voice].count - 1;
+        CHECK(frameHas(h, "Width"));
+        CHECK(frameHas(h, "0 %"));
+        h.enc(25);
+        CHECK(audio::synthParamGet(a.synthPatch(1), wi) > 0.2f);
+        CHECK(a.synthPatchDirty(1));
+        h.tap(btn::Delete);   // back to the Init value: absent (mono)
+        CHECK(audio::synthParamGet(a.synthPatch(1), wi) == 0.0f);
+        CHECK(!(wi - audio::synthParamCount(eng) < a.synthPatch(1).extCount &&
+                a.synthPatch(1).ext[wi - audio::synthParamCount(eng)].present));
+        // Macro target list: Mini parameters only.
+        for (int k = 1; k < synthui::targetChoices(eng); ++k)
+            CHECK(synthui::targetChoice(eng, k) < audio::synthParamCount(eng));
+        CHECK_EQ(synthui::targetChoiceIndex(eng, wi), 0);
+    }
+    // FAT Stereo: last row of Osc.
+    openSlot(h, 1, SynthModel::FAT);
+    const synthui::Section* sec = nullptr;
+    const int n = synthui::sections(kSynthEngineFat, &sec);
+    CHECK(n > 0 && std::strcmp(sec[0].name, "Osc") == 0);
+    CHECK_EQ(int(sec[0].params[sec[0].count - 1]), audio::synthFatStereoParam());
+    char label[32];
+    synthui::paramFullName(kSynthEngineFat, audio::synthFatStereoParam(), label, sizeof label);
+    CHECK_STR(label, "Osc Stereo");
+    // PERC: no Width row anywhere.
+    const int np = synthui::sections(kSynthEnginePerc, &sec);
+    for (int i = 0; i < np; ++i)
+        for (int r = 0; r < sec[i].count; ++r) CHECK(sec[i].params[r] < audio::synthParamCount(kSynthEnginePerc));
+}

@@ -337,6 +337,15 @@ void SynthScreen::resetEditRow() {
     SynthPatch& p = app_.synthPatch(slot);
     if (sec[section].macro < 0) {
         const int idx = sec[section].params[row];
+        const int mini = audio::synthParamCount(engine());
+        if (idx >= mini) {
+            // [OT] extension (Width, FAT Stereo): absent in the Init patch.
+            const int k = idx - mini;
+            if (k >= p.extCount || !p.ext[k].present) return;
+            p.ext[k] = PatchParam{0u, false};
+            edited();
+            return;
+        }
         if (idx >= g_initPatch.paramCount) return;
         const PatchParam want = g_initPatch.params[idx];
         if (idx < p.paramCount && p.params[idx].present == want.present && (!want.present || p.params[idx].bits == want.bits))
