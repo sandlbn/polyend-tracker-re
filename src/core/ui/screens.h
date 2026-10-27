@@ -550,6 +550,9 @@ public:
     static int categoryCount();
     static const char* categoryName(int cat);
     static int optionCount(int cat);
+    // Pen x where category cat's values end (right-aligned): the stock x
+    // without a scroll bar, left of the bar when the list scrolls.
+    static int valueRight(int cat);
     static bool optionInfo(int cat, int i, OptionInfo* out);
     int optionIndex(int cat, int i) const;   // current picker index of the value
     void optionText(int cat, int i, char* out, int cap) const;

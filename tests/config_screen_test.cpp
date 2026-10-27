@@ -509,3 +509,20 @@ TEST(config_synth_voices_reaches_governor) {
     a.preBlock(0.0f);
     CHECK_EQ(a.engine.governor().budget(), 6);
 }
+
+// Values of a list with a scroll bar end left of it (device photo: General,
+// longer since 2.x, drew "Europe" / "Medium" under the bar with the Original
+// font). A list without one keeps the stock position [S snap 004].
+TEST(config_values_clear_the_scroll_bar) {
+    int general = -1, metronome = -1;
+    for (int c = 0; c < ConfigScreen::categoryCount(); ++c) {
+        if (std::string(ConfigScreen::categoryName(c)) == "General") general = c;
+        if (std::string(ConfigScreen::categoryName(c)) == "Metronome") metronome = c;
+    }
+    CHECK(general >= 0 && metronome >= 0);
+    CHECK(ConfigScreen::optionCount(general) > wg::listVisibleRows(wg::ListView{}.h));   // it scrolls
+    CHECK(ConfigScreen::optionCount(metronome) <= wg::listVisibleRows(wg::ListView{}.h));
+    // The list's text area ends at x 201 + 3 + (397 - 13) = 588 with the bar.
+    CHECK(ConfigScreen::valueRight(general) <= 584);
+    CHECK_EQ(ConfigScreen::valueRight(metronome), 590);
+}

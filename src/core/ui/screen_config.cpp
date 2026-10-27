@@ -725,7 +725,7 @@ void ConfigScreen::draw(Gfx& g) {
         const Opt& o = c.opts[ov.top + r];
         optValueText(a, o, optIndex(a, o), v, sizeof(v));
         if (v[0])
-            g.text(kValueRight, ov.y + 17 + wg::kListRowH * r, kFont1, textC, v,
+            g.text(valueRight(category), ov.y + 17 + wg::kListRowH * r, kFont1, textC, v,
                    IDisplay::kOptCenterY | IDisplay::kOptRightX);
     }
     if (focus == 1) wg::panelFocus(g, th, 201, 397);
@@ -736,6 +736,14 @@ void ConfigScreen::draw(Gfx& g) {
 
 int ConfigScreen::categoryCount() { return kCatCount; }
 const char* ConfigScreen::categoryName(int cat) { return cat >= 0 && cat < kCatCount ? kCats[cat].name : ""; }
+int ConfigScreen::valueRight(int cat) {
+    // With a scroll bar the list's text area is 7 px narrower (wg::list:
+    // 13 instead of 6 px at the right): the values move with it. General
+    // scrolls since 2.x added rows; stock's lists never did.
+    const int n = optionCount(cat);
+    return n > wg::listVisibleRows(wg::ListView{}.h) ? kValueRight - 7 : kValueRight;
+}
+
 int ConfigScreen::optionCount(int cat) { return cat >= 0 && cat < kCatCount ? catCount(cat) : 0; }
 
 bool ConfigScreen::optionInfo(int cat, int i, OptionInfo* out) {
