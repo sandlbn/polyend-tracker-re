@@ -390,6 +390,10 @@ const BootReport& boardInit() {
     // MIDI (spec 01 §8).
     diagStage("MIDI init");
     gMidi.init();
+    // MIDI clock out to the DIN jack at every audio block end, not only when
+    // the main loop gets round to it (user report: clock to a Mother-32 /
+    // DFAM wobbled on screen changes and pad auditions).
+    gAudio.setBlockEndHook([] { gMidi.pumpDin(); });
     r.stage = 16;
     diagStage("step 14: boardInit done");
     // step 14: status LED (UNVERIFIED [I] that PTC19 is an LED): off = boot done.

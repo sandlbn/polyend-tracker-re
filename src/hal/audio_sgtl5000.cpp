@@ -48,6 +48,7 @@ volatile bool gRxStarted = false;
 uint32_t gRxLastRecoverMs = 0;
 constexpr uint32_t kRcsrFef = 1u << 18;   // K66 RM SAI RCSR[FEF] (w1c)
 volatile IAudioOut::FillFn gFill = nullptr;
+void (*volatile gBlockEnd)() = nullptr;
 void* volatile gCtx = nullptr;
 volatile bool gRunning = false;
 volatile uint32_t gBlocks = 0;
@@ -79,6 +80,7 @@ void txIsr() {
     } else {
         memset(dst, 0, sizeof(txBuf) / 2);
     }
+    if (void (*end)() = gBlockEnd) end();
     gBlocks = gBlocks + 1;
 }
 
@@ -508,6 +510,8 @@ uint32_t Sgtl5000Audio::renderCyclesWindow(uint32_t& minC, uint32_t& avgC, uint3
     __enable_irq();
     return n;
 }
+
+void Sgtl5000Audio::setBlockEndHook(void (*fn)()) { gBlockEnd = fn; }
 
 void Sgtl5000Audio::setCallback(FillFn fn, void* ctx) {
     __disable_irq();

@@ -78,6 +78,13 @@ TEST(telemetry_format) {
     CHECK(std::strstr(b, "(70.0% of 522240)") != nullptr);
     CHECK(std::strstr(b, "loop max 0.007 ms") != nullptr);
     CHECK(std::strstr(b, " RENDER>70%") != nullptr);
+    CHECK(std::strstr(b, "din clock") == nullptr);   // no clock out: no field
+    // MIDI clock out on DIN: queued -> UART, the longest in the window.
+    s.cycMax = 104448;
+    s.dinClocks = 240;
+    s.dinClockLateMaxUs = 31250;
+    formatTelemetry(b, sizeof b, s);
+    CHECK(std::strstr(b, "stale 12 | din clock late max 31.250 ms (n 240)") != nullptr);
     // Small buffers truncate safely.
     char small[16];
     formatTelemetry(small, sizeof small, s);

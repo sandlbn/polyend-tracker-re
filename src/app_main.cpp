@@ -11,6 +11,7 @@
 #include "hal/fw_update.h"
 #include "hal/hal.h"
 #include "hal/i2c_bus.h"
+#include "hal/midi_ports.h"
 #include "hal/input.h"
 #include "hal/nvstore_eeprom.h"
 #include "hal/pad_leds.h"
@@ -272,6 +273,7 @@ void telemetryTick() {
     s.loopMaxUs = gTelemetry.loopMaxUs();
     s.loops = gTelemetry.loops();
     gTelemetry.resetWindow();
+    ot::hal::midi().takeDinClockStats(&s.dinClockLateMaxUs, &s.dinClocks);
     if (!ot::hal::diagTerminalOpen()) return;
     s.sdramFree = kSdramFree;
     s.i2c0Errors = ot::hal::i2c0().errorCount();

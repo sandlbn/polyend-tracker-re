@@ -93,36 +93,49 @@ bool MidiPorts::send(MidiPortId port, const uint8_t* data, uint32_t len) {
     // Never touches the UART or USB here: usb_midi_write_packed() can wait (and call
     // yield()) for up to tens of ms, which must not happen in the audio ISR.
     if (port != MidiPortId::kDin && !usb_configuration) return false;
-    TxQueue& q = txq_[port == MidiPortId::kDin ? 0 : 1];
+    MidiTxQueue& q = txq_[port == MidiPortId::kDin ? 0 : 1];
+    // micros() re-enables IRQs (Teensy core): read the time before masking.
+    const uint32_t now = micros();
     uint32_t primask;
     __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(primask)::"memory");
-    uint32_t head = q.head, used = head - q.tail;
-    bool ok = len <= kTxQueue - used;
-    if (ok) {
-        for (uint32_t i = 0; i < len; i++) q.buf[(head + i) & (kTxQueue - 1)] = data[i];
-        q.head = head + len;
-    } else {
-        dropped_ = dropped_ + 1;
-    }
+    const bool ok = q.push(data, len, now);
+    if (!ok) dropped_ = dropped_ + 1;
     __asm__ volatile("msr primask, %0" ::"r"(primask) : "memory");
     return ok;
 }
 
-void MidiPorts::service() {
-    // DIN: only as much as the UART ring takes (never blocks).
-    TxQueue& d = txq_[0];
-    uint32_t room = uint32_t(Serial5.availableForWrite());
-    while (room && d.tail != d.head) {
-        Serial5.write(d.buf[d.tail & (kTxQueue - 1)]);
-        d.tail = d.tail + 1;
-        room--;
+void MidiPorts::pumpDin() {
+    // micros() re-enables IRQs (Teensy core): read the time before masking.
+    const uint32_t now = micros();
+    uint32_t primask;
+    __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(primask)::"memory");
+    MidiTxQueue& d = txq_[0];
+    if (d.tail != d.head) {
+        // Only what the UART ring has room for: Serial5.write() never waits.
+        // The bytes still in the ring go out first (320 us each at 31250 Bd).
+        const int room = Serial5.availableForWrite();
+        if (room > 0)
+            d.pump(uint32_t(room), now, [](uint8_t b) { Serial5.write(b); },
+                   uint32_t(SERIAL5_TX_BUFFER_SIZE - 1 - room), kDinByteUs);
     }
+    __asm__ volatile("msr primask, %0" ::"r"(primask) : "memory");
+}
+
+void MidiPorts::takeDinClockStats(uint32_t* lateMaxUs, uint32_t* count) {
+    uint32_t primask;
+    __asm__ volatile("mrs %0, primask\n cpsid i" : "=r"(primask)::"memory");
+    txq_[0].takeClockStats(lateMaxUs, count);
+    __asm__ volatile("msr primask, %0" ::"r"(primask) : "memory");
+}
+
+void MidiPorts::service() {
+    pumpDin();
     // USB: encode to event packets; discarded while the host is not configured.
-    TxQueue& u = txq_[1];
+    MidiTxQueue& u = txq_[1];
     if (u.tail == u.head) return;
     bool configured = usb_configuration;
     while (u.tail != u.head) {
-        uint8_t b = u.buf[u.tail & (kTxQueue - 1)];
+        uint8_t b = u.buf[u.tail & (MidiTxQueue::kSize - 1)];
         u.tail = u.tail + 1;
         if (configured) usbEncode(b);
     }

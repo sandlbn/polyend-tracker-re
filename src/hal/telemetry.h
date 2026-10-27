@@ -37,6 +37,8 @@ struct TelemetrySample {
     uint32_t stackPeak = 0;                        // deepest stack use since boot (stack_watch.h)
     uint32_t heap = 0;                             // newlib heap below the stack (__brkval - _ebss)
     uint32_t rxRestarts = 0, rxStale = 0;          // cumulative I2S RX restarts / input blocks lost
+    uint32_t dinClocks = 0;                        // MIDI clocks sent on DIN in the window
+    uint32_t dinClockLateMaxUs = 0;                // longest clock queued -> UART (shown with clocks)
 };
 
 // Stack high-water mark: the device paints the free stack at boot
@@ -154,7 +156,8 @@ private:
 
 // "telemetry: render cyc/block min A avg B max C (P.P% of 522240) blocks N |
 //  loop max M.MMM ms (n L) | SDRAM free F B | i2c errors i2c0 X i2c2 Y[ nak i2c0 A i2c2 B]
-//  [| stack peak P B heap H B of S B (free F B)] | rx restarts R stale T"
+//  [| stack peak P B heap H B of S B (free F B)] | rx restarts R stale T
+//  [ | din clock late max M.MMM ms (n C)]" (the last part while MIDI clock goes out on DIN)
 // with " RENDER>70%" appended when the max crosses the alarm. Returns length.
 size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s);
 

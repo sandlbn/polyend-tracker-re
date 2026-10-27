@@ -183,6 +183,12 @@ size_t formatTelemetry(char* out, size_t cap, const TelemetrySample& s) {
         o.str(" B (free ").dec(s.stackSize - heap - peak).str(" B)");
     }
     o.str(" | rx restarts ").dec(s.rxRestarts).str(" stale ").dec(s.rxStale);
+    if (s.dinClocks) {
+        o.str(" | din clock late max ").dec(s.dinClockLateMaxUs / 1000).ch('.');
+        const uint32_t c = s.dinClockLateMaxUs % 1000;
+        o.ch(char('0' + c / 100)).ch(char('0' + c / 10 % 10)).ch(char('0' + c % 10));
+        o.str(" ms (n ").dec(s.dinClocks).str(")");
+    }
     if (permille >= kRenderAlarmPermille) o.str(" RENDER>70%");
     return o.len;
 }
