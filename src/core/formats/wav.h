@@ -111,6 +111,11 @@ public:
     void pushBlock(const int16_t* s, uint32_t n);
     // Treat all remaining source samples as zero and emit the rest.
     void finish();
+    // Windowed output (SD streaming C14a): the next output goes to win[0]
+    // (output k to win[k - produced()]). finishSome() emits at most max of
+    // the remaining outputs and returns how many.
+    void rebase(int16_t* win);
+    uint32_t finishSome(uint32_t max);
     uint32_t outputFrames() const { return uint32_t(outTotal_); }
     uint32_t produced() const { return uint32_t(outNext_); }
 
@@ -130,6 +135,7 @@ private:
     float curMu_ = 0.0f;        // t - floor(t)
     uint64_t curNeed_ = 0;      // source samples needed (received_ > curNeed_)
     int16_t* dst_ = nullptr;
+    uint64_t dstBase_ = 0;      // output index of dst_[0]
 };
 
 struct WavImportOptions {
@@ -183,6 +189,43 @@ private:
     uint32_t written_ = 0;     // direct path: output frames filled so far
     bool direct_ = false;      // 44.1 kHz: decode without the resampler
     bool directRead_ = false;  // ... and the raw bytes are the output samples
+};
+
+// SD streaming C14a: the import of one output channel in bounded windows
+// (a file larger than the sample memory is converted onto the card): the
+// same decode and resampler arithmetic as WavImporter, so the samples equal
+// the in-memory import's channel `channel` byte for byte. Each full window
+// (and the rest at finish()) goes to sink(ctx, samples, n), n <= winFrames.
+// One pass per output channel: feed the whole data chunk again for channel 1.
+class WavChunkConverter {
+public:
+    using Sink = void (*)(void* ctx, const int16_t* s, uint32_t n);
+    FmtStatus begin(const WavInfo& info, const WavImportOptions& opt, int channel, int16_t* win, uint32_t winFrames);
+    void feed(const uint8_t* bytes, size_t n, Sink sink, void* ctx);
+    // Pads a short data chunk with silence up to outputFrames().
+    void finish(Sink sink, void* ctx);
+    const WavImportPlan& plan() const { return plan_; }
+    uint32_t outputFrames() const { return plan_.outFrames; }
+    uint32_t produced() const { return uint32_t(done_ + fill_); }
+
+private:
+    void frames(const uint8_t* f, uint64_t count, Sink sink, void* ctx);
+    void flush(Sink sink, void* ctx);
+
+    WavInfo info_;
+    WavImportPlan plan_;
+    CubicResampler rs_;
+    int16_t* win_ = nullptr;
+    uint32_t winFrames_ = 0;
+    uint32_t fill_ = 0;        // samples in the window (direct path) / since the last rebase
+    uint64_t done_ = 0;        // samples handed to the sink
+    uint32_t chOff_ = 0;       // byte offset of the channel inside a frame
+    uint32_t bpf_ = 0;
+    uint8_t carry_[8] = {};
+    uint32_t carryLen_ = 0;
+    uint64_t frameIdx_ = 0;
+    uint32_t maxIn_ = 0;       // source frames per push that cannot overflow the window
+    bool direct_ = false;
 };
 
 struct WavImportResult {

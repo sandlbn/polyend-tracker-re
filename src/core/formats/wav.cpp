@@ -184,7 +184,8 @@ void CubicResampler::locate() {
 void CubicResampler::emitOne() {
     const int64_t n = curN_;
     const float mu = curMu_;
-    dst_[outNext_++] = cubicS16(float(src(n - 1)), float(src(n)), float(src(n + 1)), float(src(n + 2)), mu);
+    dst_[outNext_ - dstBase_] = cubicS16(float(src(n - 1)), float(src(n)), float(src(n + 1)), float(src(n + 2)), mu);
+    ++outNext_;
     locate();
 }
 
@@ -199,6 +200,128 @@ void CubicResampler::pushBlock(const int16_t* s, uint32_t n) {
 
 void CubicResampler::finish() {
     while (outNext_ < outTotal_) emitOne();
+}
+
+void CubicResampler::rebase(int16_t* win) {
+    dst_ = win;
+    dstBase_ = outNext_;
+}
+
+uint32_t CubicResampler::finishSome(uint32_t max) {
+    uint32_t n = 0;
+    while (n < max && outNext_ < outTotal_) {
+        emitOne();
+        ++n;
+    }
+    return n;
+}
+
+// ------------------------------------------------- chunked converter (C14a)
+
+FmtStatus WavChunkConverter::begin(const WavInfo& info, const WavImportOptions& opt, int channel, int16_t* win,
+                                   uint32_t winFrames) {
+    *this = WavChunkConverter{};
+    if (!wavIsSupported(info)) return FmtStatus::Unsupported;
+    if (!win || winFrames < 16) return FmtStatus::NoSpace;
+    info_ = info;
+    plan_ = wavPlanImport(info, opt);
+    if (channel < 0 || channel >= plan_.outChannels) return FmtStatus::Unsupported;
+    bpf_ = wavBytesPerFrame(info);
+    chOff_ = uint32_t(channel) * (info.bitsPerSample / 8u);
+    win_ = win;
+    winFrames_ = winFrames;
+    // As WavImporter: 44.1 kHz is decoded without the resampler.
+    direct_ = info.sampleRate == kSampleRate && plan_.outFrames < (1u << 24);
+    if (!direct_) {
+        rs_.begin(info.sampleRate, plan_.srcFrames, win);
+        // m source frames give at most m * 44100 / rate + 2 outputs: a push
+        // stays under half a window minus that slack, and the window is
+        // flushed once half full, so it never overflows.
+        const uint64_t m = uint64_t(winFrames / 2 - 4) * info.sampleRate / kSampleRate;
+        maxIn_ = m < 1 ? 1u : (m > 128 ? 128u : uint32_t(m));
+    }
+    return FmtStatus::Ok;
+}
+
+void WavChunkConverter::flush(Sink sink, void* ctx) {
+    if (!fill_) return;
+    sink(ctx, win_, fill_);
+    done_ += fill_;
+    fill_ = 0;
+    if (!direct_) rs_.rebase(win_);
+}
+
+void WavChunkConverter::frames(const uint8_t* f, uint64_t count, Sink sink, void* ctx) {
+    uint64_t idx = frameIdx_;
+    frameIdx_ += count;
+    const uint64_t lo = plan_.srcStart, hi = lo + plan_.srcFrames;
+    if (idx + count <= lo || idx >= hi) return;
+    if (idx < lo) {
+        f += (lo - idx) * bpf_;
+        count -= lo - idx;
+        idx = lo;
+    }
+    if (idx + count > hi) count = hi - idx;
+    const uint16_t fmt = info_.format, bits = info_.bitsPerSample;
+    const bool pcm16 = fmt == wav::kFormatPcm && bits == 16;
+    f += chOff_;
+    if (direct_) {
+        for (uint64_t i = 0; i < count; ++i, f += bpf_) {
+            win_[fill_++] = pcm16 ? rdI16(f) : wavDecodeSample(f, fmt, bits);
+            if (fill_ == winFrames_) flush(sink, ctx);
+        }
+        return;
+    }
+    int16_t tmp[128];
+    while (count) {
+        const uint32_t m = count < maxIn_ ? uint32_t(count) : maxIn_;
+        for (uint32_t i = 0; i < m; ++i, f += bpf_) tmp[i] = pcm16 ? rdI16(f) : wavDecodeSample(f, fmt, bits);
+        rs_.pushBlock(tmp, m);
+        fill_ = rs_.produced() - uint32_t(done_);
+        if (fill_ >= winFrames_ / 2) flush(sink, ctx);
+        count -= m;
+    }
+}
+
+void WavChunkConverter::feed(const uint8_t* bytes, size_t n, Sink sink, void* ctx) {
+    if (!bpf_) return;
+    if (carryLen_) {
+        while (n && carryLen_ < bpf_) {
+            carry_[carryLen_++] = *bytes++;
+            --n;
+        }
+        if (carryLen_ < bpf_) return;
+        frames(carry_, 1, sink, ctx);
+        carryLen_ = 0;
+    }
+    const size_t whole = n / bpf_;
+    if (whole) frames(bytes, whole, sink, ctx);
+    bytes += whole * bpf_;
+    n -= whole * bpf_;
+    while (n) {
+        carry_[carryLen_++] = *bytes++;
+        --n;
+    }
+}
+
+void WavChunkConverter::finish(Sink sink, void* ctx) {
+    if (!bpf_) return;
+    if (direct_) {
+        while (done_ + fill_ < plan_.outFrames) {   // a short data chunk: silence
+            win_[fill_++] = 0;
+            if (fill_ == winFrames_) flush(sink, ctx);
+        }
+        flush(sink, ctx);
+        return;
+    }
+    for (;;) {
+        const uint32_t room = winFrames_ - fill_;
+        const uint32_t n = rs_.finishSome(room);
+        fill_ += n;
+        if (fill_ == winFrames_) flush(sink, ctx);
+        if (n < room) break;
+    }
+    flush(sink, ctx);
 }
 
 // ---------------------------------------------------------------- importer
