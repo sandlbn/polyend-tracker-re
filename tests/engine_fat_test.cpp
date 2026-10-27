@@ -1090,3 +1090,123 @@ TEST(fat_factory_patches_render_cleanly) {
     }
     std::printf("  %d factory FAT patches rendered, loudest peak %.2f\n", n, worst);
 }
+
+// --- [OT] Stereo (stereo S4) -------------------------------------------------------
+// Stereo s puts each pair's up-detuned saw toward L and its down-detuned saw
+// toward R: L = M + s D, R = M - s D with M the mono stack and D = sum of
+// (up - down) per pair, each side through its own filter. s = 0 (absent in
+// every existing patch) is today's engine, bit for bit.
+
+namespace {
+std::vector<float> withStereo(std::vector<float> v, float s) {
+    v.resize(size_t(fat::kStereoParam) + 1, 0.0f);
+    v[size_t(fat::kStereoParam)] = s;
+    return v;
+}
+struct StereoRig : Rig {
+    explicit StereoRig(const std::vector<float>& vals) : Rig(initValues()) {
+        p.count = int(vals.size());
+        for (int i = 0; i < p.count; ++i) p.start[i] = p.end[i] = vals[size_t(i)];
+        ++p.serial;
+    }
+};
+}  // namespace
+
+TEST(fat_stereo_index_is_the_patch_extension) {
+    CHECK_EQ(fat::kStereoParam, synthFatStereoParam());
+}
+
+TEST(fat_stereo_zero_is_bit_identical) {
+    uint32_t seed = 777;
+    auto rnd = [&seed]() {
+        seed = seed * 1664525u + 1013904223u;
+        return float(seed >> 8) * (1.0f / 16777216.0f);
+    };
+    for (int set = 0; set < 100; ++set) {
+        std::vector<float> a(kN);
+        for (int i = 0; i < kN; ++i) a[i] = range(i)->min + rnd() * (range(i)->max - range(i)->min);
+        for (int t : {fat::kAmpA, fat::kAmpD, fat::kAmpR, fat::kEnvA, fat::kEnvD, fat::kEnvR}) a[t] *= 0.05f;
+        Rig m(a);
+        StereoRig s(withStereo(a, 0.0f));
+        for (Rig* r : {static_cast<Rig*>(&m), static_cast<Rig*>(&s)}) {
+            r->on(0, 60.0f);
+            r->on(1, 67.0f);
+            r->run(12);
+            r->off(0);
+            r->off(1);
+            r->run(12);
+        }
+        CHECK(m.L == s.L && m.R == s.R);
+        CHECK(m.L == m.R);
+    }
+}
+
+TEST(fat_stereo_splits_the_pairs_and_keeps_the_mono_sum) {
+    std::vector<float> a = initValues();
+    a[fat::kFatness] = 1.0f;
+    a[fat::kFilterType] = float(fat::kLpMg24);   // linear stages: the sum is exact
+    Rig m(a);
+    StereoRig s(withStereo(a, 1.0f));
+    for (Rig* r : {static_cast<Rig*>(&m), static_cast<Rig*>(&s)}) {
+        r->on(0, 57.0f);
+        r->run(60);
+    }
+    CHECK(rmsDiff(s.L, s.R) > 0.05 * rms(s.L));
+    Buf sum(s.L.size());
+    for (size_t i = 0; i < sum.size(); ++i) sum[i] = 0.5f * (s.L[i] + s.R[i]);
+    CHECK(rmsDiff(sum, m.L) < 1e-4 * rms(m.L));
+    CHECK(finite(s.L) && finite(s.R));
+}
+
+TEST(fat_stereo_without_pairs_is_mono) {
+    std::vector<float> a = initValues();
+    a[fat::kFatness] = 0.0f;   // the centre saw only: nothing to spread
+    StereoRig s(withStereo(a, 1.0f));
+    s.on(0, 60.0f);
+    s.run(30);
+    CHECK(s.L == s.R);
+}
+
+TEST(fat_stereo_edit_ramps_without_a_click) {
+    std::vector<float> a = initValues();
+    a[fat::kFatness] = 1.0f;
+    StereoRig s(withStereo(a, 0.0f));
+    s.on(0, 60.0f);
+    s.run(40);
+    const size_t at = s.L.size();
+    s.p.end[fat::kStereoParam] = 1.0f;   // a live edit: start 0 -> end 1
+    ++s.p.serial;
+    s.p.moving = true;
+    s.run(1);
+    s.p.start[fat::kStereoParam] = 1.0f;
+    s.p.moving = false;
+    s.run(1);
+    float d0 = 0.0f, d1 = 0.0f;
+    for (size_t i = at; i < at + 8; ++i) d0 = std::max(d0, std::fabs(s.L[i] - s.R[i]));
+    for (size_t i = at + kBlock; i < at + 2 * kBlock; ++i) d1 = std::max(d1, std::fabs(s.L[i] - s.R[i]));
+    CHECK(d1 > 0.0f);
+    CHECK(d0 < 0.25f * d1);
+}
+
+TEST(fat_stereo_random_sets_stay_finite) {
+    uint32_t seed = 4242;
+    auto rnd = [&seed]() {
+        seed = seed * 1664525u + 1013904223u;
+        return float(seed >> 8) * (1.0f / 16777216.0f);
+    };
+    int bad = 0;
+    for (int set = 0; set < 300; ++set) {
+        std::vector<float> a(kN);
+        for (int i = 0; i < kN; ++i) a[i] = range(i)->min + rnd() * (range(i)->max - range(i)->min);
+        for (int t : {fat::kAmpA, fat::kAmpD, fat::kAmpR, fat::kEnvA, fat::kEnvD, fat::kEnvR}) a[t] *= 0.05f;
+        StereoRig s(withStereo(a, rnd()));
+        s.on(0, float(int(rnd() * 127.0f)));
+        s.on(1, float(int(rnd() * 127.0f)));
+        s.run(10);
+        s.off(0);
+        s.off(1);
+        s.run(10);
+        if (!finite(s.L) || !finite(s.R) || peak(s.L) > 8.0f || peak(s.R) > 8.0f) ++bad;
+    }
+    CHECK_EQ(bad, 0);
+}

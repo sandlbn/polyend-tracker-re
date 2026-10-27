@@ -165,3 +165,18 @@ TEST(stems_are_post_width) {
     }
     CHECK(differ);
 }
+
+TEST(fat_stereo_reaches_the_engine) {
+    // The bank hands the extension parameters to the engine: FAT Stereo on a
+    // fat patch opens L / R even with Width 0.
+    Rig mono(SynthModel::FAT, 0.0f), st(SynthModel::FAT, 0.0f);
+    CHECK(synthParamSet(mono.patch, 0, 1.0f));   // Fatness 1
+    CHECK(synthParamSet(st.patch, 0, 1.0f));
+    CHECK(synthParamSet(st.patch, synthFatStereoParam(), 1.0f));
+    mono.bank.patchChanged(0);
+    st.bank.patchChanged(0);
+    mono.play(40);
+    st.play(40);
+    CHECK(sideEnergy(mono) == 0.0);
+    CHECK(sideEnergy(st) > 0.0);
+}

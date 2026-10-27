@@ -239,8 +239,9 @@ TEST(synth_bank_params_match_reference_and_ramp) {
     const uint8_t v[kSynthSeqMacros] = {100, 0, 0, 0, 0, 0};
     synthEffectiveParams(r.patch[0], v, 1.0f, ref);
     const SynthParams& p = r.bank.params(0);
-    CHECK_EQ(p.count, 29);
-    for (int i = 0; i < p.count; ++i) CHECK_NEAR(p.end[i], ref[i], 1e-3);
+    CHECK_EQ(p.count, 30);   // 29 Mini parameters + the [OT] Width (absent: 0)
+    for (int i = 0; i < 29; ++i) CHECK_NEAR(p.end[i], ref[i], 1e-3);
+    CHECK(p.end[29] == 0.0f);
     CHECK(!p.moving);
     // A macro change ramps over one block: start = old, end = new.
     r.on(0, 0, 60);

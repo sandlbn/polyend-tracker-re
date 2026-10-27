@@ -53,6 +53,11 @@ enum Param : int {
     kVolume,
     kParamCount   // 25
 };
+// [OT] Extension parameters after the Mini's (synth_params.h, patch field 16):
+// Width (slot level, SynthBank) and Stereo (here: the stack's pairs split
+// between L and R, 0 = mono). Read only when SynthParams::count covers them.
+constexpr int kWidthParam = kParamCount;
+constexpr int kStereoParam = kParamCount + 1;
 
 enum FilterType : int { kLpMg24 = 0, kLpOb24 = 1, kLpOb12 = 2 };
 enum LfoWave : int { kTri = 0, kSine, kRampUp, kRampDown, kSquare, kSampleHold };

@@ -275,8 +275,11 @@ void SynthBank::reloadParams(int s, bool jump) {
     const PatchParamRange* t = patchEngineParams(sl.engineId, &n);
     // A live edit ramps from where the last block ended (like a macro move).
     if (!jump) catchUp(sl);
-    p.count = n;
-    for (int i = 0; i < n; ++i) {
+    // The Mini's parameters, then the [OT] extension ones (Width, FAT
+    // Stereo; synth_params.h) for the engines that read them.
+    const int total = synthParamTotal(sl.engineId);
+    p.count = total;
+    for (int i = 0; i < total; ++i) {
         p.end[i] = paramBase(sl, i);
         if (jump) p.start[i] = p.end[i];
     }

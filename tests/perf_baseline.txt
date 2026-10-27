@@ -52,6 +52,10 @@
 # (recorded +4.3 %, 0 underruns).
 # synth4w (stereo S2, Width): synth4 with the slot's Width at 1 -- the widener's four
 # allpasses on the slot bus, ~4k insn per slot and block; 0 with Width 0 (synth4 unchanged).
+# fatstereo (stereo S4, FAT Stereo): fatworst with Stereo 1 -- the pair-difference stack
+# (flash, not SRAM_L) and a second filter chain for the R side (+12.4k insn per voice; limit
+# 34k). Opt-in: Stereo 0 runs the mono kernels (fatinit / fatworst unchanged); four such
+# voices land near mixwtfm (above the 70 % alarm; the governor may take a voice).
 idle     11112
 idle2    11470
 play8    145418
@@ -64,6 +68,7 @@ vapinit  9027
 vapworst 17150
 fatinit  9224
 fatworst 18679
+fatstereo 31078
 mix      257071
 mix5     273064
 mix6     273069

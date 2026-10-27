@@ -26,6 +26,7 @@
 //             saturation, side-chain limiter, line-in with sends
 //   synth4    2.x synth framework: 4 voices of the internal test engine
 //   synth4w   synth4 with Width 1 (stereo S2 slot widener)
+//   fatstereo fatworst with the [OT] Stereo at 1 (stereo S4: D stack, two filter paths)
 //             (sine + envelope) in Synth 1, reverb send on; WP-F engines
 //             replace the test engine (docs/MINI_PLAN.md §4: <= 72k/block)
 //   synth.fw  (component) framework overhead per block for those 4 voices:
@@ -318,13 +319,18 @@ void fatWorst(float* vals) {
 // down from pitch 108 to 96 on a reused voice: the polyBLEP event cost grows
 // with pitch, so the figure is taken at the top of the range; the 3 s glide
 // moves ~1.2 semitones over the emulated run, so it is measured at ~108).
-double fatVoice(bool worst) {
+double fatVoice(bool worst, bool stereo = false) {
     static float vals[kSynthParamMax];
     int count = 0;
     const PatchParamRange* t = patchEngineParams(kSynthEngineFat, &count);
     for (int i = 0; i < count; ++i) vals[i] = t[i].def;
     vals[fat::kAmpS] = 1.0f;   // keep the voice sounding for the whole run
     if (worst) fatWorst(vals);
+    if (stereo) {   // [OT] Stereo 1 (both sides' filters), Width 0
+        vals[fat::kWidthParam] = 0.0f;
+        vals[fat::kStereoParam] = 1.0f;
+        count = fat::kStereoParam + 1;
+    }
     static SynthParams p;
     p.engine = kSynthEngineFat;
     p.count = count;
@@ -1268,6 +1274,7 @@ int main(int argc, char** argv) {
     reportVoice("vapworst", vapVoice(true), 18000);
     reportVoice("fatinit", fatVoice(false), 12000);
     reportVoice("fatworst", fatVoice(true), 22000);
+    reportVoice("fatstereo", fatVoice(true, true), 34000);
     reportVoice("wtfminit", wtfmVoice(false), 12000);
     reportVoice("wtfmworst", wtfmVoice(true), 32000);
     components();

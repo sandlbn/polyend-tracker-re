@@ -206,6 +206,7 @@ struct OscDest {
     float tone;    // Brightness one-pole coefficient G (1 = off)
     float noise;   // noise level (filter drive included)
     float k;       // damping of the resonant filter stage
+    float st;      // [OT] Stereo 0..1 (0: the mono engine)
 };
 
 // Slot scratch (per-block caches shared by the slot's voices).
@@ -245,6 +246,7 @@ struct VoiceState {
     float lastAmp;     // output amplitude ...
     float tz;          // Brightness filter state
     float f[4];        // filter states: first stage s1, s2; last stage s1, s2
+    float tzR, fR[4];  // [OT] Stereo: the R side's (f / tz are the L side's); copies while mono
     uint32_t rng;
     uint8_t ampSt, fenvSt, flags, pad;
 };
@@ -256,8 +258,9 @@ inline float pitchToDt(float pitch) {
 
 inline int pairsOf(float F) { return F > 2.0f / 3.0f ? 3 : (F > 1.0f / 3.0f ? 2 : (F > 0.0f ? 1 : 0)); }
 
-// Patch-only destinations from parameter values P.
-FAT_PER_BLOCK void oscDest(const float* P, OscDest& d) {
+// Patch-only destinations from parameter values P (count entries).
+FAT_PER_BLOCK void oscDest(const float* P, int count, OscDest& d) {
+    d.st = count > kStereoParam ? clampf(P[kStereoParam], 0.0f, 1.0f) : 0.0f;
     const float F = clampf(P[kFatness], 0.0f, 1.0f);
     float sum = 0.0f;
     for (int k = 0; k < 3; ++k) {
@@ -401,6 +404,124 @@ OT_FASTRUN_FN void stackKernel(float* buf, float* phase, const StackRamp& o) {
 using StackFn = void (*)(float*, float*, const StackRamp&);
 constexpr StackFn kStackFns[4] = {stackKernel<1>, stackKernel<1>, stackKernel<3>, stackKernel<3>};
 
+// [OT] Stereo: stackKernel's mono sum M into buf (the same arithmetic) and
+// the pair difference D = sum (up - down) into bufD: every oscillator's
+// terms again with sign s_k (centre 0, up +1, down -1). In flash, not
+// SRAM_L: it runs only while Stereo > 0.
+template <int kPairs>
+void stackKernelSt(float* buf, float* bufD, float* phase, const StackRamp& o) {
+    constexpr int kN = 1 + 2 * kPairs;
+    float h[kN], r[kN], ir[kN], sg[kN];
+    uint32_t par = 0;
+    for (int k = 0; k < kN; ++k) {
+        const float p = phase[k];
+        if (p >= 0.0f) {
+            h[k] = p;
+            par |= 1u << k;
+        } else {
+            h[k] = p + 1.0f;
+        }
+        r[k] = o.ratio[k];
+        ir[k] = o.invRatio[k] * o.idt;
+        sg[k] = k == 0 ? 0.0f : ((k & 1) ? 1.0f : -1.0f);
+    }
+    float dt = o.dt;
+    const float ddt = o.ddt;
+    float sink = 0.0f, sinkD = 0.0f;
+    float* prev = &sink;
+    float* prevD = &sinkD;
+    float* out = buf;
+    float* outD = bufD;
+    float w[4], tb = o.tb0;
+    for (int seg = 0; seg < kSegs; ++seg) {
+        const float f = (float(seg) + 0.5f) * (1.0f / float(kSegs));
+        for (int g = 0; g <= kPairs; ++g) w[g] = o.w0[g] + (o.w1[g] - o.w0[g]) * f;
+        tb = o.tb0 + (o.tb1 - o.tb0) * f;
+        const float up = 1.0f + tb, saw = 1.0f - tb;
+        float K = 0.0f, Kd = 0.0f;
+        for (int k = 0; k < kN; ++k) {
+            const float e = w[(k + 1) >> 1] * ((par >> k) & 1u ? tb : -1.0f);
+            K += e;
+            Kd += sg[k] * e;
+        }
+        const float v0 = saw * w[0], v1 = kPairs > 0 ? saw * w[1] : 0.0f, v2 = kPairs > 1 ? saw * w[2] : 0.0f,
+                    v3 = kPairs > 2 ? saw * w[3] : 0.0f;
+        for (uint32_t i = 0; i < kSegLen; ++i) {
+            float y = 0.0f, yd = 0.0f;
+#pragma GCC unroll 7
+            for (int k = 0; k < kN; ++k) {
+                h[k] += dt * r[k];
+                if (h[k] >= 1.0f) {
+                    h[k] -= 1.0f;
+                    const float t = h[k] * ir[k], u = 1.0f - t, a = w[(k + 1) >> 1];
+                    par ^= 1u << k;
+                    // Event terms: e into M; +e (up, odd k) / -e (down) into D.
+                    float ey, ep, eK;
+                    if ((par >> k) & 1u) {   // half-cycle point: +2 T w
+                        const float b = tb * a;
+                        ey = -b * u * u;
+                        ep = b * t * t;
+                        eK = up * a;
+                    } else {                 // wrap: -2 w
+                        ey = a * u * u;
+                        ep = -a * t * t;
+                        eK = -up * a;
+                    }
+                    y += ey;
+                    *prev += ep;
+                    K += eK;
+                    if (k != 0) {
+                        if (k & 1) {
+                            yd += ey;
+                            *prevD += ep;
+                            Kd += eK;
+                        } else {
+                            yd -= ey;
+                            *prevD -= ep;
+                            Kd -= eK;
+                        }
+                    }
+                }
+            }
+            y += K + v0 * h[0];
+            yd += Kd;
+            if (kPairs > 0) {
+                y += v1 * (h[1] + h[2]);
+                yd += v1 * (h[1] - h[2]);
+            }
+            if (kPairs > 1) {
+                y += v2 * (h[3] + h[4]);
+                yd += v2 * (h[3] - h[4]);
+            }
+            if (kPairs > 2) {
+                y += v3 * (h[5] + h[6]);
+                yd += v3 * (h[5] - h[6]);
+            }
+            *out = y;
+            *outD = yd;
+            prev = out++;
+            prevD = outD++;
+            dt += ddt;
+        }
+    }
+    float fix = 0.0f, fixD = 0.0f;
+    for (int k = 0; k < kN; ++k) {
+        const float a = w[(k + 1) >> 1], d = dt * r[k];
+        if (h[k] + d >= 1.0f) {
+            const float t = (h[k] + d - 1.0f) * ir[k];
+            const float c = ((par >> k) & 1u ? -a : tb * a) * t * t;
+            fix += c;
+            fixD += sg[k] * c;
+        }
+        phase[k] = (par >> k) & 1u ? h[k] : h[k] - 1.0f;
+    }
+    buf[kBlock - 1] += fix;
+    bufD[kBlock - 1] += fixD;
+}
+
+using StackStFn = void (*)(float*, float*, float*, const StackRamp&);
+constexpr StackStFn kStackStFns[4] = {stackKernelSt<1>, stackKernelSt<1>, stackKernelSt<3>, stackKernelSt<3>};
+
 // ---------------------------------------------------------------------------
 // Filter kernels: TPT state-variable stages (Simper's form, VAP's code) over
 // buf, low-pass output.
@@ -505,7 +626,7 @@ public:
         if (!S.valid || S.serial != p.serial) refresh(S, p);
         // Patch-only destinations: the block end is cached by refresh(); the
         // start differs only while a value moves.
-        if (p.moving) oscDest(p.start, S.d0);
+        if (p.moving) oscDest(p.start, p.count, S.d0);
         else S.d0 = S.d1;
         const int pairs0 = pairsOf(p.start[kFatness]), pairs1 = pairsOf(p.end[kFatness]);
         S.pairs = uint8_t(pairs0 > pairs1 ? pairs0 : pairs1);
@@ -606,7 +727,7 @@ private:
             S.ratio[2 * k - 1] = S.invRatio[2 * k] = up;
             S.ratio[2 * k] = S.invRatio[2 * k - 1] = dn;
         }
-        oscDest(e, S.d1);
+        oscDest(e, p.count, S.d1);
     }
 };
 
@@ -677,7 +798,22 @@ FAT_PER_BLOCK bool FatEngine::render(SynthVoice& v, const SynthParams& p, float 
     o.tb1 = S.d1.tb;
     o.ratio = S.ratio;
     o.invRatio = S.invRatio;
-    kStackFns[S.pairs](buf, V.ph, o);
+    // [OT] Stereo: only with pairs sounding (the centre alone has no spread).
+    const bool stereo = S.pairs > 0 && (S.d0.st > 0.0f || S.d1.st > 0.0f);
+    float bufR[kBlock];
+    if (stereo) {
+        kStackStFns[S.pairs](buf, bufR, V.ph, o);
+        float s = S.d0.st;
+        const float ds = (S.d1.st - S.d0.st) * kInvBlock;
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            s += ds;
+            const float m = buf[i], d = s * bufR[i];
+            buf[i] = m + d;    // L side
+            bufR[i] = m - d;   // R side
+        }
+    } else {
+        kStackFns[S.pairs](buf, V.ph, o);
+    }
 
     // 4. filter (Brightness / noise in its first pass) and output -------------------------
     InRamp in{S.d0.tone, (S.d1.tone - S.d0.tone) * kInvBlock, S.d0.noise, (S.d1.noise - S.d0.noise) * kInvBlock,
@@ -685,12 +821,39 @@ FAT_PER_BLOCK bool FatEngine::render(SynthVoice& v, const SynthParams& p, float 
     const float ga = V.lastAmp * g0, gb = amp1 * (g0 + gInc * float(kBlock));
     const float dg = (gb - ga) * kInvBlock;
     const SvfRamp res = svfRamp(V.lastG, S.d0.k, g1, S.d1.k);
-    if (S.ftype == kLpOb12) {
-        kSvfOnly[S.tone][S.noise](buf, V.f + 2, res, &in, L, R, ga, dg);
+    const float k1 = S.ftype == kLpMg24 ? kStage1KMG : kStage1K;
+    if (!stereo) {
+        if (S.ftype == kLpOb12) {
+            kSvfOnly[S.tone][S.noise](buf, V.f + 2, res, &in, L, R, ga, dg);
+        } else {
+            kSvfFirst[S.tone][S.noise](buf, V.f, svfRamp(V.lastG, k1, g1, k1), &in, nullptr, nullptr, 0.0f, 0.0f);
+            kSvfLast[S.ftype == kLpOb24](buf, V.f + 2, res, &in, L, R, ga, dg);
+        }
+        // The R side's state follows the L side's: Stereo starts without a step.
+        V.tzR = in.tz;
+        for (int k = 0; k < 4; ++k) V.fR[k] = V.f[k];
     } else {
-        const float k1 = S.ftype == kLpMg24 ? kStage1KMG : kStage1K;
-        kSvfFirst[S.tone][S.noise](buf, V.f, svfRamp(V.lastG, k1, g1, k1), &in, nullptr, nullptr, 0.0f, 0.0f);
-        kSvfLast[S.ftype == kLpOb24](buf, V.f + 2, res, &in, L, R, ga, dg);
+        // Each side through its own filter (OB soft clip: not linear); the
+        // kernels add into both of their outputs, so a side passes its own
+        // channel twice at half gain. The noise is the same on both sides.
+        InRamp inR = in;
+        inR.tz = V.tzR;
+        float* sides[2] = {buf, bufR};
+        float* outs[2] = {L, R};
+        float* st[2] = {V.f, V.fR};
+        InRamp* ins[2] = {&in, &inR};
+        for (int c = 0; c < 2; ++c) {
+            if (S.ftype == kLpOb12) {
+                kSvfOnly[S.tone][S.noise](sides[c], st[c] + 2, res, ins[c], outs[c], outs[c], 0.5f * ga, 0.5f * dg);
+            } else {
+                kSvfFirst[S.tone][S.noise](sides[c], st[c], svfRamp(V.lastG, k1, g1, k1), ins[c], nullptr, nullptr,
+                                           0.0f, 0.0f);
+                kSvfLast[S.ftype == kLpOb24](sides[c], st[c] + 2, res, ins[c], outs[c], outs[c], 0.5f * ga, 0.5f * dg);
+            }
+        }
+        V.tzR = inR.tz;
+        for (float& z : V.fR)
+            if (absf(z) < 1.0e-20f) z = 0.0f;
     }
     V.tz = in.tz;
     V.rng = in.rng;
