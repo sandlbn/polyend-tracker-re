@@ -69,6 +69,11 @@ public:
     // 512 bytes of `path` at byte offset `off` through FatFs (bind self-check).
     bool readBytesAt(const char* path, uint32_t off, uint8_t* dst512);
 
+    // SD streaming C14: f_expand (opt 0: find a contiguous run and point the
+    // allocation at it; the file stays empty) / f_getfree.
+    bool reserve(Handle h, uint32_t bytes) override;
+    uint64_t freeBytes() override;
+
     Handle open(const char* path, OpenMode mode) override;
     int32_t read(Handle h, void* dst, uint32_t len) override;
     int32_t write(Handle h, const void* src, uint32_t len) override;

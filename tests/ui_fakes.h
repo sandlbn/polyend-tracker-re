@@ -49,6 +49,25 @@ public:
     // Tests may fill files / dirs directly with longer paths (a computer can).
     uint32_t maxPath = ot::IStorage::kMaxPath;
     bool tooLong(const char* p) const { return maxPath && std::strlen(p) > maxPath; }
+    // Card size in bytes (0: unlimited): a write past it is short, reserve()
+    // refuses what does not fit; reserves logs every reserve() size.
+    uint64_t capacity = 0;
+    std::vector<uint32_t> reserves;
+    uint64_t usedBytes() const {
+        uint64_t n = 0;
+        for (const auto& f : files) n += f.second.size();
+        return n;
+    }
+    bool reserve(Handle h, uint32_t bytes) override {
+        if (refuse() || !open_.count(h)) return false;
+        reserves.push_back(bytes);
+        return !capacity || usedBytes() + bytes <= capacity;
+    }
+    uint64_t freeBytes() override {
+        if (!capacity) return UINT64_MAX;
+        const uint64_t u = usedBytes();
+        return u >= capacity ? 0 : capacity - u;
+    }
 
     static std::string parent(const std::string& p) {
         size_t s = p.rfind('/');
@@ -93,6 +112,10 @@ public:
         auto o = open_.find(h);
         if (o == open_.end()) return -1;
         auto& f = files[o->second.path];
+        if (capacity && o->second.pos + len > f.size()) {   // card full: as much as fits
+            const uint64_t grow = o->second.pos + len - f.size(), room = freeBytes();
+            if (grow > room) len = uint32_t(len - (grow - room));
+        }
         if (f.size() < o->second.pos + len) f.resize(o->second.pos + len);
         if (len) std::memcpy(f.data() + o->second.pos, src, len);
         o->second.pos += len;

@@ -349,6 +349,16 @@ public:
     virtual bool remove(const char* path) = 0;   // file or empty directory
     virtual bool rename(const char* from, const char* to) = 0;
     virtual int32_t listDir(const char* path, DirFn fn, void* ctx) = 0; // entry count, <0 error
+    // SD streaming C14: a file just opened for writing (still empty) is about
+    // to grow to `bytes`: lay it out contiguously when the card can (FatFs
+    // f_expand), false when it cannot hold it. Default: accepted.
+    virtual bool reserve(Handle h, uint32_t bytes) {
+        (void)h;
+        (void)bytes;
+        return true;
+    }
+    // Free space of the card in bytes; UINT64_MAX when unknown.
+    virtual uint64_t freeBytes() { return UINT64_MAX; }
     // Longest path (without a leading '/') the card storage takes; a longer
     // one fails instead of being cut (a cut path names another file or the
     // folder itself, issue #55).

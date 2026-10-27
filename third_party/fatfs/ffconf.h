@@ -44,7 +44,7 @@
 /  are for files opened read-only. */
 
 
-#define FF_USE_EXPAND	0
+#define FF_USE_EXPAND	1   /* OpenTracker: f_expand for SD streaming imports (C14) */
 /* This option switches f_expand(). (0:Disable or 1:Enable) */
 
 

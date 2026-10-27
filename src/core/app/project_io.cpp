@@ -1158,7 +1158,9 @@ bool App::bindStreamSlot(int slot, const char* path) {
     audio::StreamBindInfo info;
     if (!hal_.streamReader->bind(s, path, pj_.dataOff[slot], s.headR != nullptr, &info)) {
         if (!loadNotice_[0])
-            std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %d: %s, loaded into memory", slot + 1,
+            // The slot as a byte: the compiler sees the notice fits (no -Wformat-truncation).
+            std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %u: %s, loaded into memory",
+                          unsigned(uint8_t(slot + 1)),
                           std::strcmp(info.reason, "fragmented") == 0 ? "too fragmented to stream" : "cannot stream");
         return false;
     }

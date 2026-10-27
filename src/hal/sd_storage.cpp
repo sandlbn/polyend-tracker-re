@@ -311,6 +311,24 @@ int32_t SdStorage::write(Handle h, const void* src, uint32_t len) {
     return f_write(f, src, len, &bw) == FR_OK ? int32_t(bw) : -1;
 }
 
+bool SdStorage::reserve(Handle h, uint32_t bytes) {
+    FIL* f = fileFor(h);
+    if (!f || !mounted_ || storageMode_) return false;
+    if (bytes == 0) return true;
+    // opt 0: no clusters are taken yet; the writes that follow fill the
+    // contiguous run (a cancelled import just removes the file). FR_DENIED:
+    // no contiguous run of that size, or the card is full.
+    return f_expand(f, FSIZE_t(bytes), 0) == FR_OK;
+}
+
+uint64_t SdStorage::freeBytes() {
+    if (!mounted_ || storageMode_) return 0;
+    DWORD clusters = 0;
+    FATFS* fs = nullptr;
+    if (f_getfree("", &clusters, &fs) != FR_OK || !fs) return UINT64_MAX;
+    return uint64_t(clusters) * uint64_t(fs->csize) * 512u;
+}
+
 bool SdStorage::seek(Handle h, uint32_t pos) {
     FIL* f = fileFor(h);
     return f && f_lseek(f, pos) == FR_OK;
