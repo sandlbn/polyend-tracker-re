@@ -269,6 +269,10 @@ private:
         float volMin = 0.0f, volMax = 2.0f;   // Volume parameter range
         // mixer ramps
         Ramp gl, gr, sd, sr;
+        // [OT] Width (stereo S2): the patch value, the value the last block
+        // ended on, and the side signal's allpass chain state (x1, y1).
+        float widthEnd = 0.0f, widthCur = 0.0f;
+        float ap[4][2] = {};
         SynthSlotScratch scratch;
     };
 
@@ -282,6 +286,9 @@ private:
     void bindEngine(int s);
     void reloadParams(int s, bool jump);
     void applyMacros(int s);
+    // [OT] Width on the slot bus (busL_ / busR_), before mixSlot; nothing
+    // at all while the width is and stays 0.
+    void widen(Slot& sl);
     void catchUp(Slot& sl);   // start[] = end[] of the moves of the last block
     float paramBase(const Slot& sl, int i) const;
     float voiceGain(const Slot& sl, const Voice& v) const;

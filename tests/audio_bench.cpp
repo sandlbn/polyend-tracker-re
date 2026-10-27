@@ -25,6 +25,7 @@
 //             ping-pong, filter + overdrive + bit crusher on all, 5 LFOs,
 //             saturation, side-chain limiter, line-in with sends
 //   synth4    2.x synth framework: 4 voices of the internal test engine
+//   synth4w   synth4 with Width 1 (stereo S2 slot widener)
 //             (sine + envelope) in Synth 1, reverb send on; WP-F engines
 //             replace the test engine (docs/MINI_PLAN.md §4: <= 72k/block)
 //   synth.fw  (component) framework overhead per block for those 4 voices:
@@ -1237,6 +1238,19 @@ int main(int argc, char** argv) {
         for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
         report("synth4", timeBlocks(r, 2000, lineNoise));
         std::printf("  (synth voices sounding after the run: %d)\n", r.eng->synth().sounding());
+    }
+    {   // synth4w: synth4 with the slot's [OT] Width at 1 (stereo S2 widener)
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        rc.reverbSend = 40.0f;
+        synthParamSet(gSynthPatch, synthWidthParam(kSynthEngineAcd), 1.0f);
+        r.eng->synth().setSlotRecord(0, rc);
+        r.eng->synth().patchChanged(0);
+        for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+        report("synth4w", timeBlocks(r, 2000, lineNoise));
     }
     for (int i = 0; i < kBlock * 2; ++i) gLineNoise[i] = lineNoise[i];
     mixBench(4, "mix");   // Governor::kDefaultBudget

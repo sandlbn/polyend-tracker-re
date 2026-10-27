@@ -50,6 +50,8 @@
 # instruments streamed (resident head, the rest through the track rings; the refill is the
 # main loop's work and not timed). Gated absolutely by the stream.lim line: <= stereo8 + 5 %
 # (recorded +4.3 %, 0 underruns).
+# synth4w (stereo S2, Width): synth4 with the slot's Width at 1 -- the widener's four
+# allpasses on the slot bus, ~4k insn per slot and block; 0 with Width 0 (synth4 unchanged).
 idle     11112
 idle2    11470
 play8    145418
@@ -57,6 +59,7 @@ worst    244349
 stereo8  174615
 stream8  182222
 synth4   66860
+synth4w  71209
 vapinit  9027
 vapworst 17150
 fatinit  9224

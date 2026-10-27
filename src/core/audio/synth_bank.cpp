@@ -284,6 +284,10 @@ void SynthBank::reloadParams(int s, bool jump) {
     sl.fullCopy = !jump;
     sl.fresh = !jump;
     ++p.serial;
+    // [OT] Width: not a macro target; a live edit ramps over one block.
+    const int wi = synthWidthParam(sl.engineId);
+    sl.widthEnd = wi >= 0 ? paramBase(sl, wi) : 0.0f;
+    if (jump) sl.widthCur = sl.widthEnd;
     sl.volIdx = patchVolumeParam(sl.engineId);
     if (sl.volIdx >= 0 && sl.volIdx < n) {
         sl.volMin = t[sl.volIdx].min;
@@ -1008,6 +1012,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         }
         if (tapped) sl.eng->setSendTap(s, nullptr, nullptr, 0.0f, 0.0f);
         if (prof) prof_->slot[s] += engCyc;
+        widen(sl);
         const float pk = mixSlot(sl, mL, mR, dsend, rsend, stem);
         // Track Mixer meters: the slot's block peak shared by its sounding
         // voices by envelope level x gain (exact for one voice).
@@ -1067,6 +1072,50 @@ const MixFn kMix[2][2][2] = {{{mixLoop<false, false, false, false>, mixLoop<fals
                              {{mixLoop<true, false, false, false>, mixLoop<true, false, true, false>},
                               {mixLoop<true, true, false, false>, mixLoop<true, true, true, false>}}};
 }  // namespace
+
+// [OT] Width: S = w * (AP(M) - M) / 2 with M = (L + R) / 2 and AP four
+// first-order allpasses (breaks ~120 / 400 / 1300 / 4300 Hz at 44117.6 Hz:
+// a = (tan(pi f / fs) - 1) / (tan(pi f / fs) + 1)); L += S, R -= S. L + R
+// is unchanged (mono, the sends), S = 0 at DC (the bass stays centred) and
+// |S| <= w |M|: frequency bands lean left or right. Width 0 skips it all.
+OT_FASTRUN_FN void SynthBank::widen(Slot& sl) {
+    if (sl.widthCur == 0.0f && sl.widthEnd == 0.0f) return;
+    static constexpr float kAp[4] = {-0.983054128f, -0.944595595f, -0.83009807f, -0.51959139f};
+    float* bl = busL_;
+    float* br = busR_;
+    float w = sl.widthCur * 0.5f;
+    const float wi = (sl.widthEnd - sl.widthCur) * 0.5f / float(kBlock);
+    float x0 = sl.ap[0][0], y0 = sl.ap[0][1], x1 = sl.ap[1][0], y1 = sl.ap[1][1];
+    float x2 = sl.ap[2][0], y2 = sl.ap[2][1], x3 = sl.ap[3][0], y3 = sl.ap[3][1];
+    for (uint32_t i = 0; i < kBlock; ++i) {
+        w += wi;
+        const float m = 0.5f * (bl[i] + br[i]);
+        // y = a (x - y1) + x1 per stage (transposed direct form).
+        const float a0 = kAp[0] * (m - y0) + x0;
+        x0 = m;
+        y0 = a0;
+        const float a1 = kAp[1] * (a0 - y1) + x1;
+        x1 = a0;
+        y1 = a1;
+        const float a2 = kAp[2] * (a1 - y2) + x2;
+        x2 = a1;
+        y2 = a2;
+        const float a3 = kAp[3] * (a2 - y3) + x3;
+        x3 = a2;
+        y3 = a3;
+        const float s = w * (a3 - m);
+        bl[i] += s;
+        br[i] -= s;
+    }
+    sl.widthCur = sl.widthEnd;
+    if (sl.widthEnd == 0.0f) {
+        std::memset(sl.ap, 0, sizeof(sl.ap));   // off: the next start begins clean
+        return;
+    }
+    // No denormals in silence.
+    const float st[8] = {x0, y0, x1, y1, x2, y2, x3, y3};
+    for (int k = 0; k < 8; ++k) sl.ap[k / 2][k % 2] = std::fabs(st[k]) < 1.0e-20f ? 0.0f : st[k];
+}
 
 OT_FASTRUN_FN float SynthBank::mixSlot(Slot& sl, float* mL, float* mR, float* dsend, float* rsend, int16_t* stem) {
     float l0, r0, d0, e0;
