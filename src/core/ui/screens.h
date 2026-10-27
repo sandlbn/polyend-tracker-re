@@ -332,6 +332,7 @@ public:
     uint16_t trimStart = 0, trimEnd = 65535;
     int trimSel = 0;
     uint32_t trimLen_ = 0;
+    uint32_t trimBytes_ = 0;            // the whole file in the bank (2.x: stereo stays stereo)
 
     void list();
     void enter();
@@ -340,12 +341,15 @@ public:
     // §5.5 gating: Normal iff 2n < free - 10000, low quality iff n < free - 10000.
     bool importAllowed(bool lowQuality) const;
     bool over() const { return over_; }
+    uint32_t memoryShown() const { return shown_; }   // bytes the memory bar and label show
 
 private:
     void refreshBar();
     void selectionRange(int* first, int* last) const;               // focused list
     void listRange(bool sd, int* first, int* last) const;
     void memoryProjection();
+    void projectSelection();            // projected_ / over_: the selection loaded at the cursor
+    void importDone();                  // show the actual use until a cursor moves (#93)
     void startTrim();
     void moveCursor(int d);
     void doAdd(bool next);
@@ -365,6 +369,10 @@ private:
     int prevFocus_ = 0;
     uint32_t projected_ = 0;
     bool over_ = false;
+    uint32_t shown_ = 0;                // the bar and the Memory label
+    bool shownOver_ = false;
+    bool imported_ = false;
+    int importSd_ = 0, importIns_ = 0, importF_ = 0, importL_ = 0;
     bool addNext_ = false;
     int addI_ = 0, addN_ = 0;   // C14: where a streamed import resumes the Add
     int copySrc_ = -1, copyCount_ = 0;

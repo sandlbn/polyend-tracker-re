@@ -417,11 +417,49 @@ void LoaderScreen::listRange(bool sd, int* first, int* last) const {
 }
 
 void LoaderScreen::memoryProjection() {
+    projectSelection();
+    // What the bar and the Memory label show (issue #93). Right after an
+    // import (Add, trim Import) the actual use, until a cursor or the
+    // selection moves: the slot now holds the file, a trimmed import less
+    // than the whole file, so a projection of the whole file again is no
+    // longer what the user is looking at.
+    shown_ = projected_;
+    shownOver_ = over_;
+    if (!imported_) return;
+    int f, l;
+    listRange(true, &f, &l);
+    if (trim || sdCursor != importSd_ || insCursor != importIns_ || f != importF_ || l != importL_) {
+        imported_ = false;
+        return;
+    }
+    shown_ = app_.bank.usedBytes();
+    shownOver_ = false;
+}
+
+void LoaderScreen::importDone() {
+    imported_ = true;
+    importSd_ = sdCursor;
+    importIns_ = insCursor;
+    listRange(true, &importF_, &importL_);
+    memoryProjection();
+}
+
+void LoaderScreen::projectSelection() {
     // spec 06 §5.4 memory bar.
     App& a = app_;
     uint64_t used = a.bank.usedBytes();
     over_ = false;
     projected_ = uint32_t(used);
+    if (trim) {
+        // Trimming (issue #93): the Start..End selection at Normal quality
+        // replaces the instrument slot (2.x: a stereo file stays stereo).
+        const uint64_t n = uint64_t(uint32_t(trimEnd - trimStart)) * trimBytes_ / 65535;
+        const uint64_t slot = uint64_t(a.bank.samples(insCursor)) * 2;
+        used = used + n > slot ? used + n - slot : 0;
+        projected_ = uint32_t(used);
+        over_ = used > a.bank.capacityBytes();
+        return;
+    }
     // The projection always concerns the SD selection loaded at the
     // instrument cursor, whichever list has the focus.
     if (count == 0 || isDir[sdCursor]) return;
@@ -477,7 +515,7 @@ void LoaderScreen::refreshBar() {
     if (g <= 0) std::snprintf(v, sizeof(v), "-inf dB");
     else std::snprintf(v, sizeof(v), "%.2f dB", double(20.0f * std::log10(g)));
     b.set(6, "Preview Vol", v);
-    const unsigned pct = unsigned(uint64_t(projected_) * 100 / (a.bank.capacityBytes() ? a.bank.capacityBytes() : 1));
+    const unsigned pct = unsigned(uint64_t(shown_) * 100 / (a.bank.capacityBytes() ? a.bank.capacityBytes() : 1));
     if (const int n = a.streamedCount()) std::snprintf(v, sizeof(v), "%u%% +%d", pct, n);   // + samples streamed
     else std::snprintf(v, sizeof(v), "%u%%", pct);
     b.set(7, "Memory", v);
@@ -526,11 +564,13 @@ void LoaderScreen::startTrim() {
         return;
     }
     trimLen_ = res.frames;
+    trimBytes_ = a.sampleBytesNeeded(path);
     trimStart = 0;
     trimEnd = 65535;
     trimSel = 0;
     trimPlaying_ = false;
     trim = true;
+    memoryProjection();
     refreshBar();
 }
 
@@ -595,7 +635,7 @@ void LoaderScreen::addFrom(int i, int n) {
     ui_.progressDone();
     if (addNext_) insCursor = clampi(insCursor + n, 0, 47);
     a.setCurrentInstrument(insCursor);
-    memoryProjection();
+    importDone();
     refreshBar();
 }
 
@@ -669,6 +709,7 @@ void LoaderScreen::add(bool next) {
 
 void LoaderScreen::moveCursor(int d) {
     const bool sh = ui_.shift();
+    imported_ = false;   // a cursor move: the projection again (#93)
     if (focus == 0) {
         if (count == 0) return;
         const int old = sdCursor;
@@ -750,6 +791,7 @@ void LoaderScreen::onButton(uint8_t id, uint8_t state) {
                     trim = false;
                     trimPlaying_ = false;
                     a.previewAllOff();
+                    memoryProjection();   // back to the whole file
                     break;
                 case btn::F7:
                 case btn::F8: {
@@ -762,7 +804,7 @@ void LoaderScreen::onButton(uint8_t id, uint8_t state) {
                     ui_.progress("Importing", 50);
                     if (!a.importSample(path, insCursor, trimStart, trimEnd, id == btn::F7)) ui_.notify("Import failed");
                     ui_.progressDone();
-                    memoryProjection();
+                    importDone();
                     break;
                 }
                 default: break;
@@ -960,6 +1002,7 @@ void LoaderScreen::onEncoder(int d) {
         // 109 units per detent; Start <= End - 2 (spec 06 §5.5).
         if (trimSel == 0) trimStart = uint16_t(clampi(int(trimStart) + d * 109, 0, int(trimEnd) - 2));
         else trimEnd = uint16_t(clampi(int(trimEnd) + d * 109, int(trimStart) + 2, 65535));
+        memoryProjection();
         refreshBar();
         return;
     }
@@ -1091,9 +1134,9 @@ void LoaderScreen::draw(Gfx& g) {
     if (focus == 2) wg::panelFocus(g, th, 601, 97);
     const float cap = float(a.bank.capacityBytes() ? a.bank.capacityBytes() : 1);
     const float cur = float(a.bank.usedBytes()) / cap;
-    const float proj = float(projected_) / cap;
+    const float proj = float(shown_) / cap;
     wg::ValueBarStyle ms;
-    if (over_) {
+    if (shownOver_) {
         ms.fill = th.slot(slot::kFocusFrame);
         wg::valueBar(g, th, 701, 29, 97, 394, 1.0f, ms);
     } else {

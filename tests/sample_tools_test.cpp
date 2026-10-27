@@ -385,6 +385,51 @@ TEST(loader_import_gating_by_free_memory) {
     CHECK(!l.trim);
 }
 
+TEST(loader_memory_follows_the_trim_and_the_import) {
+    // Issue #93: the Memory value projects the SD file at the cursor into the
+    // instrument slot. It ignored the trim (Start / End), and after a trimmed
+    // import it still projected the whole file, so it stayed high until the
+    // cursor moved (a reboot). Now: the trimmed size while trimming, the
+    // actual use after an import until a cursor moves.
+    Harness h(true, 120000);   // 240000 bytes of sample memory
+    App& a = *h.app;
+    putWav(h, "big.wav", std::vector<int16_t>(118000, 100));
+    h.tap(btn::SampleLoader);
+    LoaderScreen& l = ld(h);
+    int idx = -1;
+    for (int i = 0; i < l.count; ++i)
+        if (!std::strcmp(l.entries[i], "big.wav")) idx = i;
+    CHECK(idx >= 0);
+    while (l.sdCursor < idx) h.tap(btn::Down);
+    h.run(1000);   // the projection follows the cursor after a pause
+    const uint32_t cap = a.bank.capacityBytes();
+    const uint32_t full = l.memoryShown();
+    CHECK(full >= 236000u);   // the whole file
+    h.tap(btn::F5);
+    CHECK(l.trim);
+    h.tap(btn::F3);
+    for (int i = 0; i < 4; ++i) h.enc(-127);   // keep ~15 %
+    const uint64_t n = uint64_t(uint32_t(l.trimEnd - l.trimStart)) * l.trimLen_ / 65535;
+    const uint32_t trimmed = l.memoryShown();
+    if (trimmed > 2 * n + 64 || trimmed + 64 < 2 * n) std::printf("       trimming: shown %u, the trim needs %u\n", trimmed, unsigned(2 * n));
+    CHECK(trimmed <= 2 * n + 64 && trimmed + 64 >= 2 * n);
+    h.tap(btn::F8);   // Import Normal
+    CHECK(!l.trim);
+    CHECK(a.instrPresent[0]);
+    // After the import: the actual use, in the bar and in the label.
+    CHECK_EQ(l.memoryShown(), a.bank.usedBytes());
+    char want[24];
+    std::snprintf(want, sizeof(want), "%u%%", unsigned(uint64_t(a.bank.usedBytes()) * 100 / cap));
+    if (std::strcmp(a.ui.bar.label[7].bottom, want)) std::printf("       label %s, want %s\n", a.ui.bar.label[7].bottom, want);
+    CHECK(!std::strcmp(a.ui.bar.label[7].bottom, want));
+    CHECK(!l.over());
+    // Moving the cursor away and back projects the whole file again.
+    h.tap(btn::Up);
+    h.tap(btn::Down);
+    h.run(1000);
+    CHECK_EQ(l.memoryShown(), full);
+}
+
 TEST(loader_focus_keys) {
     Harness h;
     App& a = *h.app;
@@ -739,4 +784,25 @@ TEST(playback_granular_span_is_the_grain_that_plays) {
         CHECK(std::abs(got - want) <= 2);
         CHECK(f <= c.pos && c.pos <= l);
     }
+}
+
+TEST(loader_trim_projection_keeps_stereo) {
+    // Issue #93 on 2.x: a stereo WAV imports as stereo, 4 bytes per frame;
+    // the trim screen's projection counts both channels.
+    Harness h(true, 200000);
+    App& a = *h.app;
+    putWavCh(h, "st.wav", std::vector<int16_t>(2 * 40000, 100), 2);
+    h.tap(btn::SampleLoader);
+    LoaderScreen& l = ld(h);
+    CHECK(selectSd(h, "st.wav") >= 0);
+    h.tap(btn::F5);
+    CHECK(l.trim);
+    h.tap(btn::F3);
+    for (int i = 0; i < 2; ++i) h.enc(-127);
+    const uint64_t frames = uint64_t(uint32_t(l.trimEnd - l.trimStart)) * 40000 / 65535;
+    const uint32_t shown = l.memoryShown();
+    CHECK(shown + 64 >= 4 * frames && shown <= 4 * frames + 64);
+    h.tap(btn::F8);
+    CHECK(a.instrPresent[0]);
+    CHECK_EQ(l.memoryShown(), a.bank.usedBytes());
 }
