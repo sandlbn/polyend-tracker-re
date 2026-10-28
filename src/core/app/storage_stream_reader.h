@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "audio/stream_bindings.h"
 #include "audio/stream_source.h"
 #include "hal_api.h"
 
@@ -29,7 +30,7 @@ public:
 
 private:
     struct Binding {
-        uint8_t instrument = 0xFF;
+        uint8_t instrument = audio::kStreamFree;
         bool stereo = false;
         uint32_t dataOffset = 0, frames = 0;
         char path[344] = {};
