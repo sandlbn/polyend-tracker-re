@@ -28,7 +28,7 @@ namespace ot {
 namespace hal {
 
 constexpr uint32_t kHeapReserveBytes = 4096;   // measured heap use 0.2 KB (telemetry, 2026-10-20)
-constexpr uint32_t kStackGuardBytes = 8192;    // > the deepest frame (6,032 B)
+constexpr uint32_t kStackGuardBytes = 8192;    // > the deepest frame (5,672 B, startOpenProject)
 
 // Lowest guard address (32-byte aligned, the SYSMPU granule) and the first
 // address above it, where the stack's room begins.

@@ -51,7 +51,7 @@ OT_GAMES ?= 0
 ifeq ($(OT_GAMES),1)
 BUILD     := $(BUILD)/games
 endif
-# [I] Stack guard test build (src/hal/stack_guard.h): 1 = with
+# Stack guard test build (src/hal/stack_guard.h): 1 = with
 # /Firmware/ot_guardtest.txt on the card, overflows the stack once on purpose.
 OT_STACK_GUARD_TEST ?= 0
 ifeq ($(OT_STACK_GUARD_TEST),1)
