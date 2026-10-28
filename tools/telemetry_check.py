@@ -29,9 +29,10 @@
       (docs/OPTIMIZATION_2X.md OP-4 / OP-5).
   telemetry_check.py frames <build dir> [--guard-header src/hal/stack_guard.h]
       Per-function stack frames from the build's -fstack-usage .su files against
-      the stack guard (kStackGuardBytes): a frame as large as the guard could
-      step over it, so fail at >= the guard and on unbounded dynamic frames, warn
-      above 75 % of it. Prints the deepest few.
+      the stack guard (kStackGuardBytes): a frame plus an interrupt's exception
+      frame (104 B with FP state) must stay inside the guard, so fail at >= the
+      guard - 256 B and on unbounded dynamic frames, warn above 75 % of it.
+      Prints the deepest few.
   telemetry_check.py cpi <device.log> <bench_m4 output> [--top 5]
       CPI calibration (docs/OPTIMIZATION_2X.md "CPU round 3"): device cycles per bench-m4
       instruction, per phase and over the render, from the device's peak blocks (the `pk`
@@ -444,6 +445,10 @@ def check_symbols(nm_output, quiet=False):
 
 GUARD_HEADER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "hal", "stack_guard.h")
 FRAME_WARN = 0.75   # warn above this share of the guard
+# An interrupt can push its exception frame (26 words with FP state, plus
+# alignment) right below a frame that only just reached the guard, so the frame
+# alone must leave that much of the guard: 256 B covers it with room to spare.
+FRAME_SLACK = 256
 
 
 def guard_bytes(header=GUARD_HEADER):
@@ -456,9 +461,10 @@ def guard_bytes(header=GUARD_HEADER):
 
 
 def check_frames(su_lines, guard, quiet=False, top=5):
-    """-fstack-usage lines -> (ok, deepest frame bytes). A frame as large as the
-    stack guard could step over it, so the overflow would write the heap
-    reserve instead of faulting: fail at >= guard; warn above FRAME_WARN of it.
+    """-fstack-usage lines -> (ok, deepest frame bytes). A frame (plus an
+    interrupt's exception frame below it) as large as the stack guard could step
+    over it, so the overflow would write the heap reserve instead of faulting:
+    fail at >= guard - FRAME_SLACK; warn above FRAME_WARN of the guard.
     Dynamic frames (alloca / VLAs) have no bound: they fail too."""
     frames, dynamic = [], []
     for line in su_lines:
@@ -470,14 +476,15 @@ def check_frames(su_lines, guard, quiet=False, top=5):
             dynamic.append(f[0])
     frames.sort(reverse=True)
     deepest = frames[0][0] if frames else 0
-    ok = bool(frames) and deepest < guard and not dynamic
+    limit = guard - FRAME_SLACK
+    ok = bool(frames) and deepest < limit and not dynamic
     if not quiet:
         if not frames:
             print("frames: FAIL no -fstack-usage output found")
         else:
-            state = "FAIL" if deepest >= guard else ("WARN" if deepest > guard * FRAME_WARN else "ok")
+            state = "FAIL" if deepest >= limit else ("WARN" if deepest > guard * FRAME_WARN else "ok")
             print(f"frames: {state} deepest {deepest} B of a {guard} B stack guard "
-                  f"({len(frames)} functions); fail >= {guard} B, warn > {int(guard * FRAME_WARN)} B")
+                  f"({len(frames)} functions); fail >= {limit} B, warn > {int(guard * FRAME_WARN)} B")
             for size, name in frames[:top]:
                 print(f"  {size:6d} B  {name}")
         for name in dynamic:
@@ -570,6 +577,8 @@ def selftest():
     ok, deep = check_frames(su, 8192, quiet=True)
     assert ok and deep == 6032, deep
     assert not check_frames(su + ["d.cpp:4:6:void big()\t8192\tstatic"], 8192, quiet=True)[0]
+    assert not check_frames(su + ["d.cpp:4:6:void big()\t8100\tstatic"], 8192, quiet=True)[0]
+    assert check_frames(su + ["d.cpp:4:6:void big()\t7935\tstatic"], 8192, quiet=True)[0]
     assert not check_frames(su + ["e.cpp:5:6:void vla(int)\t16\tdynamic"], 8192, quiet=True)[0]
     assert not check_frames([], 8192, quiet=True)[0]
     assert guard_bytes() > 0

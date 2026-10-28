@@ -207,8 +207,9 @@ clean:
 #     against the thresholds (render avg < 45 %, max < 70 %, loop max < 50 ms outside loading).
 #  4. Flash size of the firmware image (.text + .data): fail above 720,000 B, warn above
 #     600,000 B (docs/VERIFY_M1.md R4); builds build/opentracker.elf when it is stale.
-#  5. Stack frames (-fstack-usage .su files): fail when one function's frame is as large as
-#     the stack guard (src/hal/stack_guard.h) or unbounded, warn above 75 % of it.
+#  5. Stack frames (-fstack-usage .su files): fail when one function's frame reaches the stack
+#     guard (src/hal/stack_guard.h) less 256 B for an interrupt's exception frame, or is
+#     unbounded; warn above 75 % of the guard.
 PERF_OUT := build/perf
 perf-gate:
 	@mkdir -p $(PERF_OUT)

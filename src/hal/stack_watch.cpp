@@ -5,7 +5,7 @@
 #include "telemetry.h"
 
 extern "C" uint32_t _ebss, _estack;   // opentracker.ld
-extern "C" char* __brkval;            // heap top (third_party/teensy3/mk20dx128.c _sbrk)
+extern "C" char* __brkval;            // heap top (third_party/teensy3/mk20dx128.c; _sbrk: stack_guard.cpp)
 
 namespace ot {
 namespace hal {

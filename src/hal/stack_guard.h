@@ -19,7 +19,8 @@
 //   guard that is not a stack overflow is an ordinary BusFault with the
 //   diag fault report; diag.cpp adds the SYSMPU error address to it.
 // - The guard is larger than the deepest single stack frame of the firmware
-//   (6 KB, startOpenRecent; -fstack-usage), so no frame can step over it.
+//   plus an interrupt's exception frame (telemetry_check.py frames), so no
+//   frame can step over it.
 #pragma once
 
 #include <stdint.h>

@@ -67,7 +67,7 @@ void stackGuardInit(bool arm) {
     MPU_RGD2_WORD2 = kCoreAllAccess;
     MPU_RGD2_WORD3 = 1;
     MPU_RGDAAC0 = (MPU_RGDAAC0 & ~kCoreFields) | kCoreNoAccess;
-    MPU_CESR = 1u;   // enabled (its reset state); the error flags are write-1-to-clear, so kept
+    MPU_CESR = 0xF8000001u;   // enabled; clears the sticky SPERR flags (write 1), so a fault names a fresh port
     __asm__ volatile("dsb\n\tisb" ::: "memory");
     gArmed = true;
     diagLogf("stack guard: %lu B at 0x%08lX..0x%08lX, heap reserve %lu B, stack room %lu B",
@@ -103,7 +103,10 @@ void stackGuardSelfTest(IStorage& fs) {
         return;
     }
     if (!fs.exists(kTestTrigger)) return;
-    fs.remove(kTestTrigger);
+    if (!fs.remove(kTestTrigger)) {   // a read-only card would loop: overflow, reset, overflow ...
+        diagLog("stack guard test: skipped (could not delete /Firmware/ot_guardtest.txt)");
+        return;
+    }
     if (!gArmed) {
         diagLog("stack guard test: skipped (guard off)");
         return;
