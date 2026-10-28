@@ -129,6 +129,7 @@ bool App::boot() {
     f.mkdir("Workspace/samples");
     f.mkdir(kProjectsDir);
     loadConfig();
+    restoreCustomTheme();
     applySequencerSettings();
     // spec 02 §1.1 boot / resume.
     bool ok = false;

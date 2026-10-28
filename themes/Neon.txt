@@ -1,0 +1,22 @@
+# Neon: magenta and electric cyan on a near-black violet night.
+# Built on the Original theme; copy this file to the Themes folder of the card.
+base = original
+
+background = #06030F
+panel = #140A26
+panel2 = #1E1038
+label_bg = #1E1038
+strip = #0C0618
+accent = #FF2BD6
+good = #39FF88
+note = #00F0FF
+instrument = #FFE135
+fx1 = #C86BFF
+fx2 = #5FD3FF
+note_empty = #003A40
+instrument_empty = #403810
+fx1_empty = #2E1A40
+fx2_empty = #12344A
+grid_bg = #0A0518
+grid_beat = #1A0E33
+grid_muted = #120A24

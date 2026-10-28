@@ -1,0 +1,29 @@
+# Paper: dark ink on warm off-white paper.
+# Built on the Monochrome theme (the light one).
+base = monochrome
+
+background = #F0EEE8
+title_bg = #DAD6CC
+title_text = #1E1E1E
+panel = #E4E0D6
+panel2 = #D2CEC4
+label_bg = #C8C4BA
+label_text = #1E1E1E
+strip = #DAD6CC
+text = #202020
+dim = #6A6660
+accent = #B02020
+grid_bg = #E8E4DA
+grid_beat = #D6D2C8
+grid_muted = #CCC8BE
+note = #202020
+instrument = #2C4A8A
+fx1 = #6A2C8A
+fx2 = #1E6A5A
+note_empty = #B8B4AA
+instrument_empty = #B8B4AA
+fx1_empty = #B8B4AA
+fx2_empty = #B8B4AA
+grid_header = #202020
+grid_cursor_alt = #202020
+wave = #303030

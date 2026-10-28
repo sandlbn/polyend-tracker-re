@@ -729,3 +729,15 @@ TEST(cpu_cell_title_geometry_and_words) {
     applyFontSet(nullptr, 0);
 }
 
+
+// 2.x theme files: the Original-theme detectors (slot 58 == 0a0a0a) became
+// Theme::darkStrip(): half the strip colour on a fading theme, else the strip.
+TEST(dark_strip_matches_stock) {
+    CHECK_EQ(theme(0).darkStrip(), 0x050505u);
+    CHECK_EQ(theme(1).darkStrip(), theme(1).slot(slot::kStrip + 1));
+    CHECK_EQ(theme(2).darkStrip(), theme(2).slot(slot::kStrip + 1));
+    CHECK_EQ(wg::stripColour(theme(0), wg::StripStyle::kDark), 0x050505u);
+    CHECK_EQ(wg::stripColour(theme(1), wg::StripStyle::kDark), 0x4B4B4Bu);
+    CHECK_EQ(wg::stripColour(theme(2), wg::StripStyle::kDark), 0x000000u);
+    CHECK_EQ(wg::stripColour(theme(0), wg::StripStyle::kNormal), 0x0A0A0Au);
+}

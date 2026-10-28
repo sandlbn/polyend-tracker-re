@@ -1,0 +1,38 @@
+# C64: the Commodore 64 boot screen, light blue on blue. READY.
+# Built on the Original theme.
+base = original
+
+background = #352879
+title_bg = #6C5EB5
+title_text = #FFFFFF
+text = #A59BF0
+dim = #8A7FD8
+label_text = #FFFFFF
+label_bg = #4A3E9A
+panel = #3E3290
+panel2 = #4A3E9A
+strip = #30246C
+accent = #FFFFFF
+good = #9AE29B
+alert = #9A6759
+yellow = #EDF171
+orange = #C08040
+cyan = #6ABFC6
+note = #FFFFFF
+instrument = #EDF171
+fx1 = #9AE29B
+fx2 = #6ABFC6
+note_empty = #5446A8
+instrument_empty = #5446A8
+fx1_empty = #5446A8
+fx2_empty = #5446A8
+grid_header = #A59BF0
+grid_bg = #352879
+grid_beat = #40338C
+grid_muted = #3A2E82
+grid_cursor_row = #4A3E9A
+grid_lines = #4A3E9A
+wave = #A59BF0
+inverse_bg = #A59BF0
+inverse_text = #352879
+focus_fill = #6C5EB5

@@ -148,6 +148,11 @@ Theme makeTheme(const char* name, const uint32_t* s) {
     return t;
 }
 
+}  // namespace
+
+Theme themeView(const char* name, const uint32_t* slots) { return makeTheme(name, slots); }
+
+namespace {
 const Theme* themes() {
     static const Theme kThemes[kThemeCount] = {
         makeTheme("Original", kOriginalSlots),
@@ -157,6 +162,15 @@ const Theme* themes() {
     return kThemes;
 }
 }  // namespace
+
+uint32_t Theme::darkStrip() const {
+    const uint32_t c = slot(slot::kStrip + 1);
+    if (!panelFade()) return c;
+    // wg::mix(000000, c, 128) per channel.
+    uint32_t out = 0;
+    for (int sh = 0; sh <= 16; sh += 8) out |= ((((c >> sh) & 255u) * 128u) / 255u) << sh;
+    return out;
+}
 
 const Theme& theme(uint8_t index) { return themes()[index < kThemeCount ? index : 0]; }
 

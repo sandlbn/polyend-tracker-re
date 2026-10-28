@@ -1,0 +1,30 @@
+# Amber: an old amber monochrome terminal, warm orange on black.
+# Built on the Original theme.
+base = original
+
+background = #0A0600
+title_bg = #140C00
+title_text = #FFB000
+text = #FFB000
+dim = #8A5E00
+label_text = #C88A00
+label_bg = #2A1C00
+panel = #120A00
+panel2 = #1E1400
+strip = #100800
+accent = #FFD060
+alert = #FF5A1F
+good = #FFC640
+wave = #FFB000
+note = #FFC640
+instrument = #FFA000
+fx1 = #E08A00
+fx2 = #FFD890
+note_empty = #3A2800
+instrument_empty = #3A2400
+fx1_empty = #321E00
+fx2_empty = #3C3018
+grid_bg = #0E0800
+grid_beat = #1C1200
+grid_muted = #160E00
+inverse_bg = #FFB000

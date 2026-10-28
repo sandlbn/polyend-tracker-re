@@ -9,6 +9,7 @@
 #include "ui/config_help.h"
 #include "ui/notes.h"
 #include "ui/screens.h"
+#include "ui/theme_file.h"
 #include "sdram_bss.h"
 
 #ifndef OT_VERSION
@@ -84,6 +85,7 @@ const Opt kGeneral[] = {
     {"Display brightness", kEnum, kCfg, CF(brightness), 0, 3, kLowMedHigh, 0},
     {"Display theme", kEnum, kCfg, CF(theme), 0, 3, kThemes, 0},
     {"Display font", kEnum, kCfg, CF(font), 0, 2, kFonts, 0},
+    {"Export theme", kAction, kNone, 4, 0, 0, nullptr, 0},   // [I] 2.x theme files
     {"Pads brightness", kEnum, kCfg, CF(padsBrightness), 0, 3, kLowMedHigh, 0},
     {"Pads preview", kEnum, kCfg, CF(padsPreview), 0, 3, kPreview, 0},
     {"Recording options", kEnum, kCfg, CF(recordingOptions), 0, 4, kRecOpts, 0},
@@ -195,10 +197,8 @@ constexpr int kValueRight = 590;   // pen end: value ink ends at x 586..588 [S s
 constexpr int kHelpTop = 60;       // help box (210, 60, 185, 365), spec 20 §4.2
 
 // Stock Config strip: half-dark 050505 on the Original theme (C5); the other
-// themes keep their strip colour [S snap 034, 038].
-uint32_t configStrip(const Theme& th) {
-    return th.slot(slot::kStrip + 1) == 0x0A0A0Au ? 0x050505u : wg::kThemeColour;
-}
+// themes keep their strip colour [S snap 034, 038]. Theme::darkStrip().
+uint32_t configStrip(const Theme& th) { return th.panelFade() ? th.darkStrip() : wg::kThemeColour; }
 
 // Display brightness to the backlight (spec 05 §1.8: Low/Medium/High ->
 // REG_PWM_DUTY 20/50/128). The device glue also re-applies it every loop.
@@ -251,6 +251,14 @@ bool fwFn(const IStorage::DirEntry& e, void* c) {
     return gFwCount < kFwMax;
 }
 
+// [I] 2.x theme files: the Display theme picker lists the stock themes, then
+// Themes/*.txt (ui/theme_file.h), rebuilt on every Enter.
+char (*const gThemeList)[kThemeNameMax + 1] = reinterpret_cast<char (*)[kThemeNameMax + 1]>(g_browserLists);
+int gThemeCount = 0;
+bool gThemeMode = false;
+static_assert(kThemeListMax * (kThemeNameMax + 1) <= kBrowserListBytes, "Theme list");
+bool isThemeOpt(const Opt& o) { return o.store == kCfg && o.off == offsetof(Config, theme); }
+
 // Factory-test entry sequences (spec 06 §7.6).
 const uint8_t kCodeKeys[4] = {btn::F8, btn::F1, btn::F7, btn::F2};
 const uint8_t kCodePads[4] = {47, 10, 45, 8};
@@ -286,7 +294,8 @@ static void optValueText(App& a, const Opt& o, int index, char* out, int cap) {
         std::snprintf(out, size_t(cap), "%d", index + o.min + o.displayOffset);
         return;
     }
-    if (o.labels) std::snprintf(out, size_t(cap), "%s", o.labels[clampi(index, 0, o.max - 1)]);
+    if (isThemeOpt(o) && a.customThemeActive()) std::snprintf(out, size_t(cap), "%s", a.customThemeName());
+    else if (o.labels) std::snprintf(out, size_t(cap), "%s", o.labels[clampi(index, 0, o.max - 1)]);
     else if (o.off == pf::kScale && o.store == kProj) std::snprintf(out, size_t(cap), "%s", scaleName(uint8_t(index)));
     else std::snprintf(out, size_t(cap), "%d", index);
     (void)a;
@@ -303,6 +312,7 @@ void ConfigScreen::start(int opt) {
     (void)opt;
     editing = false;
     gFwMode = false;
+    gThemeMode = false;
     gLicMode = false;
     focus = 0;
     gDevRows = ui_.developMode();
@@ -311,6 +321,8 @@ void ConfigScreen::start(int opt) {
 }
 
 int ConfigScreen::firmwareCount() { return gFwCount; }
+int ConfigScreen::themeCount() { return gThemeCount; }
+const char* ConfigScreen::themeName(int i) { return i >= 0 && i < gThemeCount ? gThemeList[i] : ""; }
 const char* ConfigScreen::firmwareName(int i) { return i >= 0 && i < gFwCount ? gFw[i] : ""; }
 
 void ConfigScreen::feedCode(bool pad, uint8_t v) {
@@ -402,13 +414,14 @@ void ConfigScreen::refreshBar() {
 void ConfigScreen::moveCat(int d) {
     editing = false;
     gFwMode = false;
+    gThemeMode = false;
     category = clampi(category + d, 0, kCatCount - 1);
     option = 0;
 }
 void ConfigScreen::moveOpt(int d) { option = clampi(option + d, 0, catCount(category) - 1); }
 void ConfigScreen::movePick(int d) {
     const Opt& o = kCats[category].opts[option];
-    const int n = gFwMode ? gFwCount : optCount(o);
+    const int n = gFwMode ? gFwCount : (gThemeMode ? kThemeCount + gThemeCount : optCount(o));
     picker = clampi(picker + d, 0, n > 0 ? n - 1 : 0);
 }
 
@@ -418,6 +431,14 @@ void ConfigScreen::enter() {
     if (o.kind == kNum || o.kind == kEnum) {
         editing = true;
         picker = optIndex(a, o);
+        if (isThemeOpt(o)) {
+            // [I] 2.x: the card's theme files after the stock three (never
+            // while the computer owns the card).
+            gThemeMode = true;
+            gThemeCount = a.usbStorageActive() || !a.hal().storage ? 0 : listThemeFiles(a.fs(), gThemeList, kThemeListMax);
+            for (int i = 0; a.customThemeActive() && i < gThemeCount; ++i)
+                if (!std::strcmp(gThemeList[i], a.customThemeName())) picker = kThemeCount + i;
+        }
         return;
     }
     if (o.kind != kAction) return;
@@ -450,12 +471,24 @@ void ConfigScreen::enter() {
                     std::memcpy(ap.cfg.recGain, keep.recGain, sizeof(keep.recGain));
                     ap.cfg.recMonitor = keep.recMonitor;
                     ap.cfg.radioFreq10 = keep.radioFreq10;
+                    ap.clearCustomTheme();
                     ap.requestConfigSave(true);
                     ap.applySequencerSettings();
                     applyBacklight(ap);   // spec 06 §7.5: re-apply the hardware state
                     ap.ui.notify("Config reset");
                 },
                 &a);
+    } else if (o.off == 4) {
+        // [I] 2.x Export theme: the active theme as a file to edit.
+        char msg[64];
+        const char* name = a.activeThemeName();
+        switch (a.exportTheme()) {
+            case App::ThemeExport::kOk: std::snprintf(msg, sizeof(msg), "Saved %s/%s.txt", kThemesDir, name); break;
+            case App::ThemeExport::kExists: std::snprintf(msg, sizeof(msg), "%s/%s.txt exists", kThemesDir, name); break;
+            case App::ThemeExport::kUnavailable: std::snprintf(msg, sizeof(msg), "Not available in USB Storage mode"); break;
+            default: std::snprintf(msg, sizeof(msg), "Cannot write %s/%s.txt", kThemesDir, name); break;
+        }
+        ui_.notify(msg);
     } else {
         gLicMode = true;
     }
@@ -483,6 +516,26 @@ void ConfigScreen::apply() {
                 this);
         gFwMode = false;
         editing = false;
+        return;
+    }
+    if (gThemeMode) {
+        // [I] 2.x: a stock theme drops the file; a file must open to apply.
+        gThemeMode = false;
+        editing = false;
+        if (picker < kThemeCount) {
+            a.clearCustomTheme();
+            a.cfg.theme = uint8_t(clampi(picker, 0, kThemeCount - 1));
+        } else if (picker - kThemeCount < gThemeCount) {
+            const char* name = gThemeList[picker - kThemeCount];
+            if (!a.loadCustomTheme(name)) {
+                char msg[64];
+                std::snprintf(msg, sizeof(msg), "Cannot read %s/%s.txt", kThemesDir, name);
+                ui_.notify(msg);
+                return;
+            }
+        }
+        a.markConfigDirty();
+        a.applySequencerSettings();
         return;
     }
     // Values are stored only on Apply (spec 06 §7.4).
@@ -554,6 +607,7 @@ void ConfigScreen::onButton(uint8_t id, uint8_t state) {
             case btn::Left:
                 editing = false;
                 gFwMode = false;
+                gThemeMode = false;
                 break;
             case btn::F8: apply(); break;
             case btn::F1:
@@ -625,7 +679,8 @@ void optItem(void* c, int i, char* out, int cap) {
 }
 void pickItem(void* c, int i, char* out, int cap) {
     const ListCtx& x = *static_cast<ListCtx*>(c);
-    if (x.pick) optValueText(*x.app, *x.pick, i, out, cap);
+    if (gThemeMode) std::snprintf(out, size_t(cap), "%s", i < kThemeCount ? theme(uint8_t(i)).name : gThemeList[i - kThemeCount]);
+    else if (x.pick) optValueText(*x.app, *x.pick, i, out, cap);
     else std::snprintf(out, size_t(cap), "%s", gFw[i]);
 }
 int gOptTop = 0, gPickTop = 0;   // first visible rows (scrolling lists)
@@ -681,7 +736,7 @@ void ConfigScreen::draw(Gfx& g) {
         // and value list x 401..595 from y 34, one red focus frame around
         // both; caption font 1 at x 215, help text font 5, pitch 19.
         const Opt& o = c.opts[option];
-        const int n = gFwMode ? gFwCount : optCount(o);
+        const int n = gFwMode ? gFwCount : (gThemeMode ? kThemeCount + gThemeCount : optCount(o));
         wg::panel(g, th, 204, 34, 195, 389);
         wg::panel(g, th, 401, 34, 194, 389);
         const char* title = gFwMode ? "Firmware update" : o.name;
@@ -778,6 +833,7 @@ void ConfigScreen::applyOption(int cat, int i, int index) {
     category = cat;
     option = i;
     gFwMode = false;
+    gThemeMode = false;
     picker = clampi(index, 0, optCount(o) - 1);
     apply();
     if (ui_.active() == kModConfig) refreshBar();

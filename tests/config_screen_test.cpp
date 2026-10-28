@@ -125,6 +125,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
     const Want general[] = {
         {"Radio region", 3, 0, 4, 0, 0},      {"Display brightness", 3, 0, 3, 0, 2},
         {"Display theme", 3, 0, 3, 0, 0},     {"Display font", 3, 0, 2, 0, 0},
+        {"Export theme", 7, 2, 0, 0, -1},                                    // 2.x [I] theme files
         {"Pads brightness", 3, 0, 3, 0, 2},   {"Pads preview", 3, 0, 3, 0, 2},
         {"Recording options", 3, 0, 4, 0, 0}, {"Numbering mode", 3, 0, 3, 0, 1},
         {"Pattern arrangement", 3, 0, 3, 0, 0}, {"Pattern top info", 3, 0, 3, 0, 0},
@@ -164,7 +165,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
         int n;
     };
     const CatWant cats[] = {
-        {"Project Settings", project, 10}, {"General", general, 16}, {"MIDI", midi, 11},
+        {"Project Settings", project, 10}, {"General", general, 17}, {"MIDI", midi, 11},
         {"USB", usb, 1},                   // [I] 2.x (Tracker Mini order)
         {"Metronome", metro, 5},           {"Firmware", firmware, 4}, {"Info", info, 4},
     };
@@ -185,7 +186,7 @@ TEST(config_menu_lists_all_options_with_defaults) {
             if (w.def >= 0) CHECK_EQ(c.optionIndex(k, i), w.def);
         }
     }
-    CHECK_EQ(total, 51);   // stock 42 + 2.x CPU meter, Synth voices, Export sample rate, two stream rows, three Info lines, USB Storage
+    CHECK_EQ(total, 52);   // stock 42 + 2.x Export theme, CPU meter, Synth voices, Export sample rate, two stream rows, three Info lines, USB Storage
     char t[48];
     c.optionText(3, 0, t, sizeof t);   // USB Storage: Off
     CHECK_STR(t, "Off");
@@ -206,8 +207,8 @@ TEST(config_menu_lists_all_options_with_defaults) {
             CHECK_EQ(o.help != nullptr, want);
             helps += o.help != nullptr;
         }
-    CHECK_EQ(helps, 31);   // stock 25 + 2.x CPU meter, Synth voices, Export sample rate, two stream rows, USB Storage
-    CHECK_EQ(configHelpCount(), 31);
+    CHECK_EQ(helps, 32);   // stock 25 + 2.x Export theme, CPU meter, Synth voices, Export sample rate, two stream rows, USB Storage
+    CHECK_EQ(configHelpCount(), 32);
     c.optionText(5, 1, t, sizeof t);
     CHECK(std::strlen(t) > 0);
 }
@@ -387,10 +388,10 @@ TEST(config_stock_value_labels) {
     const L ls[] = {
         {0, 0, 1, "Per Project"},          {1, 0, 0, "Europe"},
         {1, 0, 2, "Australia"},            {1, 3, 1, "New"},
-        {1, 6, 0, "Only notes"},           {1, 6, 3, "Microtiming + Velocity"},
-        {1, 7, 1, "Decimal, Steps from 1"}, {1, 7, 2, "Hexadecimal"},
-        {1, 8, 0, "Vertical Revolver"},    {1, 9, 0, "Additional info"},
-        {1, 10, 1, "Mono Left"},           {1, 10, 2, "Mono Right"},
+        {1, 7, 0, "Only notes"},           {1, 7, 3, "Microtiming + Velocity"},   // after 2.x Export theme
+        {1, 8, 1, "Decimal, Steps from 1"}, {1, 8, 2, "Hexadecimal"},
+        {1, 9, 0, "Vertical Revolver"},    {1, 10, 0, "Additional info"},
+        {1, 11, 1, "Mono Left"},           {1, 11, 2, "Mono Right"},
         {2, 0, 2, "MIDI In jack"},         {2, 1, 3, "USB + MIDI Out jack"},
         {2, 4, 3, "USB + MIDI In jack"},   {2, 5, 0, "ALL"},
         {2, 5, 16, "CH16"},                {2, 10, 0, "-6"},
@@ -467,7 +468,7 @@ TEST(config_line_in_channel_reaches_engine) {
     h.tap(btn::Config);
     h.tap(btn::Down);         // General
     h.tap(btn::Right);
-    for (int i = 0; i < 10; ++i) h.tap(btn::Down);   // Line in channel
+    for (int i = 0; i < 11; ++i) h.tap(btn::Down);   // Line in channel (after 2.x Export theme)
     h.tap(btn::F8);
     h.tap(btn::Down);         // Mono Left
     h.tap(btn::Down);         // Mono Right
@@ -496,10 +497,10 @@ TEST(config_synth_voices_reaches_governor) {
     h.tap(btn::Config);
     h.tap(btn::Down);         // General
     h.tap(btn::Right);
-    for (int i = 0; i < 12; ++i) h.tap(btn::Down);   // Synth voices
+    for (int i = 0; i < 13; ++i) h.tap(btn::Down);   // Synth voices (after 2.x Export theme)
     ConfigScreen& c = cfgScreen(h);
     char t[48];
-    c.optionText(1, 12, t, sizeof t);
+    c.optionText(1, 13, t, sizeof t);
     CHECK_STR(t, "4");
     h.tap(btn::F8);
     h.tap(btn::Down);

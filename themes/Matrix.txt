@@ -1,0 +1,35 @@
+# Matrix: black screen, phosphor greens only. Follow the white rabbit.
+# Built on the Original theme.
+base = original
+
+background = #000000
+title_bg = #001A00
+title_text = #00FF41
+text = #00FF41
+dim = #008F11
+label_text = #00C030
+label_bg = #002A08
+panel = #000A00
+panel2 = #001A04
+strip = #000800
+accent = #00FF41
+alert = #9CFF9C
+good = #00C030
+yellow = #B6FF00
+orange = #6CFF00
+cyan = #00FF9C
+note = #00FF41
+instrument = #7CFF7C
+fx1 = #00C030
+fx2 = #B6FFB6
+note_empty = #003B0F
+instrument_empty = #1E3A1E
+fx1_empty = #00300C
+fx2_empty = #2A3A2A
+grid_bg = #000500
+grid_beat = #001400
+grid_muted = #000C00
+grid_lines = #002A08
+wave = #00FF41
+inverse_bg = #00FF41
+focus_fill = #004010

@@ -1,0 +1,30 @@
+# Barbie: very, very pink.
+# Built on the Original theme.
+base = original
+
+background = #2B0A1E
+title_bg = #FF1493
+title_text = #FFFFFF
+text = #FFE4F2
+dim = #D07AA8
+label_text = #FFB6DA
+label_bg = #5A1440
+panel = #3A0E2A
+panel2 = #561640
+strip = #330C24
+accent = #FF1493
+alert = #FFFFFF
+good = #FF8FCF
+note = #FF69B4
+instrument = #FFC0E0
+fx1 = #FF85C8
+fx2 = #FFFFFF
+note_empty = #5A1A3C
+instrument_empty = #5A3048
+fx1_empty = #50203E
+fx2_empty = #4A3A44
+grid_bg = #300C22
+grid_beat = #4A1236
+grid_muted = #3C0F2C
+wave = #FF69B4
+focus_fill = #7A1E58

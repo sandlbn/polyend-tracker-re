@@ -1,0 +1,30 @@
+# Lava: black rock with glowing reds, oranges and yellow.
+# Built on the Original theme.
+base = original
+
+background = #0A0200
+title_bg = #1A0500
+title_text = #FFB000
+text = #FFE0C0
+dim = #A05A30
+label_text = #FF8A30
+label_bg = #3A0E00
+panel = #140400
+panel2 = #2A0A00
+strip = #120300
+accent = #FF3D00
+alert = #FFEA00
+good = #FF9100
+note = #FF6D00
+instrument = #FFD600
+fx1 = #FF3D00
+fx2 = #FFAB40
+note_empty = #401800
+instrument_empty = #403400
+fx1_empty = #400E00
+fx2_empty = #402A10
+grid_bg = #0E0300
+grid_beat = #240800
+grid_muted = #1A0500
+wave = #FF6D00
+focus_fill = #5A1400

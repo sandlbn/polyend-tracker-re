@@ -22,12 +22,16 @@ const char* const kProjectHelp[] = {
     "Makes the sample editor markers move to the nearest zero crossing, which avoids clicks at loop and slice "
     "points.",
 };
-// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds CPU meter, Synth voices, Export sample rate and the two SD streaming rows.
+// spec 15 §2.2 General: all 11 have help (9 and 10 short in stock); 2.x adds Export theme, CPU meter, Synth voices, Export sample rate and the two SD streaming rows.
 const char* const kGeneralHelp[] = {
     "Selects the FM band and channel steps used by the built-in radio in your part of the world.",
     "Sets the backlight level of the screen.",
-    "Selects the colour scheme of the user interface.",
+    "Selects the colour scheme of the user interface. Theme files from the Themes folder of the SD card are "
+    "listed after the three built-in themes.",
     "Selects the set of fonts used on screen.",
+    // [I] 2.x theme files.
+    "Saves the current colour scheme as a text file in the Themes folder of the SD card, to edit on a "
+    "computer and choose under Display theme. An existing file is never overwritten.",
     "Sets how bright the pad lights are.",
     "Lights the pads of the notes on the current pattern line: on the cursor track only, on all tracks, or "
     "not at all.",

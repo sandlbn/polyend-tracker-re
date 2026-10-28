@@ -541,6 +541,9 @@ public:
     static constexpr int kFwMax = 101;
     static int firmwareCount();
     static const char* firmwareName(int i);
+    // [I] 2.x Display theme picker: the card's theme files (after the stock three).
+    static int themeCount();
+    static const char* themeName(int i);
     // /.develop overlay values (spec 06 §7.2), refreshed every > 1 s.
     DevStats dev;
     bool devValid = false;

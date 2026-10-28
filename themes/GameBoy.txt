@@ -1,0 +1,42 @@
+# GameBoy: the four greens of the original handheld's screen.
+# Built on the Monochrome theme.
+base = monochrome
+
+background = #0F380F
+title_bg = #306230
+title_text = #9BBC0F
+text = #9BBC0F
+dim = #8BAC0F
+label_text = #9BBC0F
+label_bg = #306230
+panel = #0F380F
+panel2 = #306230
+strip = #0F380F
+accent = #8BAC0F
+alert = #9BBC0F
+good = #8BAC0F
+yellow = #9BBC0F
+orange = #8BAC0F
+cyan = #9BBC0F
+inverse_bg = #9BBC0F
+inverse_text = #0F380F
+scroll_thumb = #8BAC0F
+scroll_track = #306230
+note = #9BBC0F
+instrument = #8BAC0F
+fx1 = #9BBC0F
+fx2 = #8BAC0F
+note_empty = #306230
+instrument_empty = #306230
+fx1_empty = #306230
+fx2_empty = #306230
+grid_header = #9BBC0F
+grid_bg = #0F380F
+grid_beat = #306230
+grid_muted = #1F4A1F
+grid_cursor_row = #306230
+grid_cursor_text = #0F380F
+grid_cursor_alt = #9BBC0F
+grid_lines = #306230
+wave = #9BBC0F
+focus_fill = #306230

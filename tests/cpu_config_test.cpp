@@ -35,7 +35,8 @@ TEST(cpu_config_extension_record) {
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 4, 6, 1, 4, 0, 1, 0, 1, 7);
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 1, 4, 0, 1, 0, 1, 0);   // v5: + themeFile[21]
+    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 7);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -77,7 +78,8 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 4, 6, 0, 6, 0, 1, 0, 1, 8);
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 0, 6, 0, 1, 0, 1, 0);   // v5: + themeFile[21]
+    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 8);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -114,7 +116,7 @@ TEST(cpu_config_info_lines) {
     CHECK_STR(t, "0");
     c.optionText(info, 3, t, sizeof t);
     CHECK_STR(t, "4/4");
-    c.optionText(1, 11, t, sizeof t);
+    c.optionText(1, 12, t, sizeof t);   // after 2.x Export theme
     CHECK_STR(t, "Auto");
 }
 
@@ -186,7 +188,8 @@ TEST(export_rate_config_record) {
     CHECK_EQ(c.exportRate, 1);
     c.exportRate = 0;   // alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 4, 6, 0, 4, 0, 1, 0, 0, 5);
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 0, 4, 0, 1, 0, 0, 0);   // v5: + themeFile[21]
+    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 5);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.exportRate, 0);
@@ -200,7 +203,8 @@ TEST(export_rate_config_record) {
     CHECK_EQ(r.streamThreshold, 3);
     r.cpuMeter = 1;
     CHECK(r.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 4, 6, 1, 4, 2, 3, 1, 1, 12);
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 1, 4, 2, 3, 1, 1, 0);   // v5: + themeFile[21]
+    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 12);
     // An older record (payload 2) loads with the default 44.1 kHz.
     const uint8_t v1[] = {'O', 'T', 'X', 1, 2, 2, 4, 6};
     for (size_t i = 0; i < sizeof(v1); ++i) nv.mem[0xF4 + i] = v1[i];

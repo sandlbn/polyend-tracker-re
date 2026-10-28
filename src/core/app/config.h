@@ -79,6 +79,10 @@ struct Config {
     // converted, 44100 in the header; default), 0 = the device rate with
     // 44117 in the header, as stock (spec 04 §6.1). Extension record byte 6.
     uint8_t exportRate = 1;
+    // [I] 2.x theme files (ui/theme_file.h): basename of the chosen
+    // Themes/<name>.txt, empty = a stock theme. While it is set, `theme`
+    // holds the file's base. Extension record bytes 7..27 (record v5).
+    char themeFile[21] = {};
     // Extension record byte 5: an option of later 2.x builds this one does
     // not know yet; read and written back unchanged (its default).
     uint8_t extKeep[1] = {0};
@@ -101,8 +105,9 @@ struct Config {
     // ignores it: "OTX" magic, version, payload length, payload, 8-bit sum of
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
-    static constexpr uint8_t kExtVersion = 4;
-    static constexpr uint32_t kExtPayload = 6;               // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate
+    static constexpr uint8_t kExtVersion = 5;
+    // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21]
+    static constexpr uint32_t kExtPayload = 6 + 21;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

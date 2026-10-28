@@ -5,11 +5,12 @@
 #
 # - Clean firmware build (make clean; make) with the image checks, host tests unless
 #   --skip-tests, the test-song projects (make testsongs) and the preset pack (make patches).
-# - dist/ gets three files:
+# - dist/ gets four files:
 #     PolyendTrackerOTv<NNN>.ptf          the firmware image (copy it to /Firmware)
 #     OpenTracker-<VERSION>-Patches.zip   the preset pack (unzip to the card root: /Patches)
 #     OpenTracker-<VERSION>-Projects.zip  the example songs (unzip to the card root: /Projects)
-# - --publish: a DRAFT GitHub release v<VERSION> with the three files (gh CLI, logged in);
+#     OpenTracker-<VERSION>-Themes.zip    the example theme files (themes/; unzip to the card root: /Themes)
+# - --publish: a DRAFT GitHub release v<VERSION> with the four files (gh CLI, logged in);
 #   review it and publish it on GitHub.
 # VERSION comes from the Makefile (VERSION ?= x.y.z).
 set -euo pipefail
@@ -51,6 +52,8 @@ mkdir -p dist
 cp "$ptf" dist/
 (cd build/patches && zip -qr "../../dist/OpenTracker-$version-Patches.zip" Patches)
 (cd build/testsongs && zip -qr "../../dist/OpenTracker-$version-Projects.zip" Projects)
+rm -rf build/themes && mkdir -p build/themes/Themes && cp themes/*.txt build/themes/Themes/
+(cd build/themes && zip -qr "../../dist/OpenTracker-$version-Themes.zip" Themes)
 echo "== dist/ (from $rev)"
 (cd dist && sha256sum ./*)
 

@@ -79,7 +79,7 @@ void GamesScreen::refreshBar() {
     ui_.bar.set(7, "Back");
     // Stock strip 050505 (VISUAL_DIFF C5); "Start / Game" is the two-line
     // grey set, drawn by draw() [S snap 028].
-    ui_.bar.stripBg = ui_.th().slot(slot::kStrip + 1) == 0x0A0A0Au ? 0x050505u : wg::kThemeColour;
+    ui_.bar.stripBg = ui_.th().panelFade() ? ui_.th().darkStrip() : wg::kThemeColour;
     ui_.bar.label[6].hidden = true;
 }
 

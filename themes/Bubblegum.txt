@@ -1,0 +1,29 @@
+# Bubblegum: hot pink and pastel pinks on deep plum. Pop it!
+# Built on the Original theme.
+base = original
+
+background = #1A0612
+title_bg = #2A0A1E
+title_text = #FFD1E8
+text = #FFE6F2
+dim = #B07A98
+label_text = #FF9AD5
+label_bg = #3A1230
+panel = #24081A
+panel2 = #3A1230
+strip = #200716
+accent = #FF4FA3
+good = #7CFFCB
+note = #FF9AD5
+instrument = #FFD1E8
+fx1 = #C77DFF
+fx2 = #7FDBFF
+note_empty = #4A1E38
+instrument_empty = #4A3440
+fx1_empty = #362048
+fx2_empty = #1E3A4A
+grid_bg = #1E0816
+grid_beat = #33102A
+grid_muted = #280C20
+wave = #FF9AD5
+focus_fill = #5A1A44

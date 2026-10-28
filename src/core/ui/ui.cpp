@@ -578,7 +578,7 @@ bool Ui::encoderOnList() const {
 }
 #endif
 
-const Theme& Ui::th() const { return theme(app.cfg.theme); }
+const Theme& Ui::th() const { return app.activeTheme(); }
 
 void Ui::start() {
     if (!screenOwner_) screenOwner_ = createScreens(*this, app, screens_);

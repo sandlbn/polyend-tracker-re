@@ -1,0 +1,32 @@
+# Vaporwave: a purple, teal and pink sunset. A E S T H E T I C.
+# Built on the Original theme.
+base = original
+
+background = #1B0B33
+title_bg = #2E1450
+title_text = #FF71CE
+text = #F6E9FF
+dim = #9A86C0
+label_text = #01CDFE
+label_bg = #33185A
+panel = #241044
+panel2 = #33185A
+strip = #200E3C
+accent = #FF71CE
+good = #05FFA1
+alert = #FF4F7B
+yellow = #FFFB96
+cyan = #01CDFE
+note = #01CDFE
+instrument = #FFFB96
+fx1 = #FF71CE
+fx2 = #B967FF
+note_empty = #12406A
+instrument_empty = #4A4632
+fx1_empty = #4A2050
+fx2_empty = #382460
+grid_bg = #1E0C3A
+grid_beat = #2E1652
+grid_muted = #261046
+wave = #01CDFE
+focus_fill = #4A2070

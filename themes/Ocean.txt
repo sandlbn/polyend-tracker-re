@@ -1,0 +1,31 @@
+# Ocean: deep blues with cyan and aqua highlights.
+# Built on the Original theme.
+base = original
+
+background = #020B1A
+title_bg = #04152E
+title_text = #7FE7FF
+text = #E0F7FF
+dim = #5A86A8
+label_text = #4FC3F7
+label_bg = #0A2A4A
+panel = #051428
+panel2 = #0A2240
+strip = #03101F
+accent = #00B8D4
+good = #1DE9B6
+alert = #FF6E6E
+cyan = #18FFFF
+note = #18FFFF
+instrument = #A7FFEB
+fx1 = #40C4FF
+fx2 = #82B1FF
+note_empty = #063A44
+instrument_empty = #1E3E3A
+fx1_empty = #0C3048
+fx2_empty = #1C2C4A
+grid_bg = #030E20
+grid_beat = #0A2038
+grid_muted = #06182C
+wave = #4FC3F7
+focus_fill = #0E3A5E

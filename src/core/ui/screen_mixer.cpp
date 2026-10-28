@@ -179,7 +179,7 @@ void bodies(Gfx& g, const Theme& th, const Ui& ui, const Body* b, int n) {
     const int fy = 64 + 360 - wg::kFadeH, x0 = b[0].x, x1 = b[n - 1].x + b[n - 1].w;
     if (!g.saveContext(7)) return;   // scissor 2 + CMD_GRADIENT 5
     g.clip(x0, fy, x1 - x0 + 1, wg::kFadeH + 2);
-    g.gradient(x0, fy, x0, 64 + 360 + 2, c, 0x000000);
+    g.gradient(x0, fy, x0, 64 + 360 + 2, c, th.bg);   // stock: 000000
     g.restoreContext();
     if (n < 2) return;
     auto gaps = [&](int y, int h) {

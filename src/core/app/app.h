@@ -303,6 +303,23 @@ public:
     bool saveConfig();                            // INvStore, else kConfigPath
     void loadConfig();                            // boot: EEPROM, else import the file once
     void setNvStore(INvStore* nv) { hal_.nvstore = nv; }
+
+    // ---- 2.x theme files from the card (ui/theme_file.h) -------------------
+    // The stock themes stay in flash; a Themes/<name>.txt chosen in Config is
+    // parsed into one SDRAM table and drawn instead while it is active. Its
+    // name is kept in cfg.themeFile (cfg.theme = its base) and the file is
+    // read again at every boot(); without it the base theme is used.
+    // loadCustomTheme: false (nothing changes) when the file does not open.
+    bool loadCustomTheme(const char* name);
+    void clearCustomTheme();                      // back to the stock cfg.theme
+    bool customThemeActive() const { return themeActive_; }
+    const char* customThemeName() const { return themeName_; }
+    const Theme& activeTheme() const { return themeActive_ ? themeView_ : theme(cfg.theme); }
+    const char* activeThemeName() const { return themeActive_ ? themeName_ : theme(cfg.theme).name; }
+    // Config > Export theme: Themes/<activeThemeName()>.txt, never overwritten;
+    // refused in USB Storage mode.
+    enum class ThemeExport : uint8_t { kOk = 0, kExists, kUnavailable, kFailed };
+    ThemeExport exportTheme();
     void setUsbStorage(IUsbStorage* u) { hal_.usbStorage = u; }
 
     // ---- 2.x USB Storage mode (Tracker Mini manual §13.10) ----------------
@@ -741,6 +758,11 @@ private:
     uint32_t unmuteFrom_ = 0;  // start-up load finished at (ms), 0 = not yet
     static constexpr uint32_t kUnmuteSettleMs = 500;
     bool booted_ = false;
+    // 2.x theme file (custom_theme.cpp): the view over the SDRAM slot table.
+    void restoreCustomTheme();
+    Theme themeView_{};
+    char themeName_[21] = {};
+    bool themeActive_ = false;
     bool usbActive_ = false;   // USB Storage mode: the computer owns the card
     bool wasPlaying_ = false;
     // [I] Resample bar tracking (audio context, App::preBlock).

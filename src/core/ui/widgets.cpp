@@ -403,9 +403,8 @@ void fullPopupHeader(Gfx& g, const Theme& th, const char* title) {
 // Bottom bar
 
 uint32_t stripColour(const Theme& th, StripStyle style) {
-    const uint32_t c = th.slot(slot::kStrip + 1);
-    if (style == StripStyle::kDark && c == 0x0A0A0Au) return 0x050505u;
-    return c;
+    // Dark: 050505 on Original (0a0a0a halved), the strip elsewhere.
+    return style == StripStyle::kDark ? th.darkStrip() : th.slot(slot::kStrip + 1);
 }
 
 void bottomStrip(Gfx& g, const Theme& th, uint8_t separators, uint32_t bg) {
@@ -525,7 +524,7 @@ void bottomFade(Gfx& g, const Theme& th, int x, int y, int w, int h, uint32_t bg
     const int fy = y + h - kFadeH;
     if (!g.saveContext(7)) return;   // scissor 2 + CMD_GRADIENT 5
     g.clip(x, fy, w + 1, kFadeH + 2);
-    g.gradient(x, fy, x, y + h + 2, bg, 0x000000);
+    g.gradient(x, fy, x, y + h + 2, bg, th.bg);   // stock: 000000 (Original's background)
     g.restoreContext();
 }
 
@@ -736,7 +735,7 @@ void valueBar(Gfx& g, const Theme& th, int x, int y, int w, int h, float value, 
     g.rectsEnd();
     g.alpha(255);
     g.fill(tx, ty, tw, tH, track);
-    if (th.flag(slot::kFlagValueBarGrad)) g.gradientRect(tx, ty, 9 < tw ? 9 : tw, tH, 0x000000, track, false);
+    if (th.flag(slot::kFlagValueBarGrad)) g.gradientRect(tx, ty, 9 < tw ? 9 : tw, tH, th.bg, track, false);
     const uint32_t fc = pick(st.fill, th.slot(s));
     const int fx = x + 11, fw = w - 21, base = y + h - 15, span = h - 24;
     auto band = [&](int y0, int y1, uint32_t c) {   // solid rows y0..y1 with soft edges
@@ -802,7 +801,7 @@ void valueBars(Gfx& g, const Theme& th, const ValueBarItem* bars, int n) {
     if (th.flag(slot::kFlagValueBarGrad))
         for (int i = 0; i < n; ++i) {
             const ValueBarItem& b = bars[i];
-            if (shown(b)) g.gradientRect(b.x + 10, b.y + 11, 9 < b.w - 19 ? 9 : b.w - 19, b.h - 24, 0x000000, track, false);
+            if (shown(b)) g.gradientRect(b.x + 10, b.y + 11, 9 < b.w - 19 ? 9 : b.w - 19, b.h - 24, th.bg, track, false);
         }
     // Fills (rows y0..y1 with soft edges), one edge batch and one fill batch
     // per colour.

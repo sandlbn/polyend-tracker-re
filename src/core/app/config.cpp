@@ -3,6 +3,8 @@
 #include <cstddef>
 #include <cstring>
 
+#include "ui/theme_file.h"
+
 namespace ot {
 
 namespace {
@@ -140,6 +142,8 @@ void Config::sanitize() {
     if (radioFreq10 < 760 || radioFreq10 > 1080) radioFreq10 = 875;
     clampField<uint8_t>(cpuMeter, 2, 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
+    themeFile[sizeof(themeFile) - 1] = 0;
+    if (themeFile[0] && !themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     validateImage(image);
 }
 
@@ -170,6 +174,7 @@ void Config::toExt(uint8_t* out) const {
     out[8] = streamThreshold;
     out[9] = extKeep[0];
     out[10] = exportRate;
+    std::memcpy(out + 11, themeFile, sizeof(themeFile));
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -190,6 +195,11 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     streamThreshold = (n >= 4 && in[8] <= 3) ? in[8] : d.streamThreshold;
     extKeep[0] = n >= 5 ? in[9] : d.extKeep[0];
     exportRate = (n >= 6 && in[10] <= 1) ? in[10] : 1;
+    std::memset(themeFile, 0, sizeof(themeFile));
+    if (n >= 6 + sizeof(themeFile) && in[11 + sizeof(themeFile) - 1] == 0) {
+        std::memcpy(themeFile, in + 11, sizeof(themeFile));
+        if (!themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
+    }
     return true;
 }
 
@@ -209,6 +219,7 @@ bool Config::fromImage(const uint8_t* img) {
     c.streamMode = streamMode;
     c.streamThreshold = streamThreshold;
     c.exportRate = exportRate;
+    std::memcpy(c.themeFile, themeFile, sizeof(themeFile));
     std::memcpy(c.extKeep, extKeep, sizeof(extKeep));
     c.sanitize();
     *this = c;
@@ -227,6 +238,7 @@ bool Config::load(INvStore& nv) {
     streamMode = d.streamMode;
     streamThreshold = d.streamThreshold;
     exportRate = d.exportRate;
+    themeFile[0] = 0;
     std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
     // The longest record that fits the store (older records are shorter;
     // fromExt reads the payload length from the record).
@@ -247,7 +259,7 @@ bool Config::save(INvStore& nv) {
     uint8_t ext[kExtSize];
     const Config d;
     if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && streamMode == d.streamMode &&
-        streamThreshold == d.streamThreshold && exportRate == d.exportRate &&
+        streamThreshold == d.streamThreshold && exportRate == d.exportRate && themeFile[0] == 0 &&
         std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
@@ -276,6 +288,7 @@ bool Config::load(IStorage& fs) {
         streamMode = d.streamMode;
         streamThreshold = d.streamThreshold;
         exportRate = d.exportRate;
+        themeFile[0] = 0;
         std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
         return true;
