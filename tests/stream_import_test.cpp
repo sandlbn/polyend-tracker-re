@@ -173,6 +173,34 @@ TEST(import_cancel_removes_tmp_keeps_old_instrument) {
     CHECK_EQ(a.bank.frames(0), 20000u);
 }
 
+TEST(import_bind_failure_names_the_reason) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    // Only a fragmented card is fixed by formatting it.
+    h.streamReader.failBind = "fragmented";
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(!a.lastJobOk());
+    CHECK_STR(a.importNotice(), "Card too fragmented to stream: format the SD card");
+    CHECK(!a.instrPresent[0]);
+    CHECK(!a.streamed(0));
+    CHECK(!h.fs.files.count(instrPath(0)));
+    // Any other reason is named as it is.
+    h.streamReader.failBind = "map check";
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(!a.lastJobOk());
+    CHECK_STR(a.importNotice(), "Cannot stream the file (map check)");
+    CHECK(!a.instrPresent[0]);
+    h.streamReader.failBind = nullptr;
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(a.lastJobOk());
+    CHECK_STR(a.importNotice(), "Streams from the card");
+}
+
 TEST(import_card_full_keeps_old_instrument) {
     Harness h(true, kBank);
     App& a = *h.app;

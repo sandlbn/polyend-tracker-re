@@ -337,7 +337,9 @@ bool App::importFinalize() {
     // Head (and loop head) into the bank: [L head | L loop][R head | R loop].
     const StreamResident r = streamResident(j.ins.playMode, j.frames, j.ins.loopPoint1);
     const uint32_t perCh = r.framesPerChannel();
-    bool ok = bank.freeSamples() >= size_t(perCh) * j.ch;
+    const bool room = bank.freeSamples() >= size_t(perCh) * j.ch;
+    bool ok = room;
+    const char* why = "read";   // bindStreamSlot names its own reason
     int16_t* t = bank.tail();
     IStorage::Handle h = ok ? f.open(j.dst, IStorage::kRead) : -1;
     ok = ok && h >= 0;
@@ -361,7 +363,7 @@ bool App::importFinalize() {
         pj_.resLoopStart = r.loopStart;
         pj_.resLoopFrames = r.loopFrames;
         pj_.dataOff[slot] = pti::kDataOff;
-        ok = bindStreamSlot(slot, j.dst);
+        ok = bindStreamSlot(slot, j.dst, &why);
         if (!ok) bank.remove(slot);
     }
     if (!ok) {
@@ -370,7 +372,13 @@ bool App::importFinalize() {
         instruments[slot].setDefault();
         refreshStreamSources();
         markInstrumentDirty(slot);
-        std::snprintf(importNotice_, sizeof(importNotice_), "Cannot stream the file: format the SD card");
+        // Only a fragmented card is fixed by formatting it.
+        if (!room)
+            std::snprintf(importNotice_, sizeof(importNotice_), "Not enough sample memory");
+        else if (std::strcmp(why, "fragmented") == 0)
+            std::snprintf(importNotice_, sizeof(importNotice_), "Card too fragmented to stream: format the SD card");
+        else
+            std::snprintf(importNotice_, sizeof(importNotice_), "Cannot stream the file (%s)", why);
         return false;
     }
     instrPresent[slot] = true;

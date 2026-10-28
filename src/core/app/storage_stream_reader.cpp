@@ -13,6 +13,10 @@ bool StorageStreamReader::bind(const audio::StreamSource& s, const char* path, u
                                audio::StreamBindInfo* info) {
     audio::StreamBindInfo dummy;
     if (!info) info = &dummy;
+    if (failBind) {
+        info->reason = failBind;
+        return false;
+    }
     Binding* slot = audio::streamBindingSlot(b_, audio::kMaxStreams, s.instrument);
     if (!slot) {
         info->reason = "no slot";

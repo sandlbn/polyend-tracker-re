@@ -24,9 +24,11 @@ public:
     bool read(const audio::StreamSource& s, uint32_t frame, uint32_t n, int16_t* l, int16_t* r) override;
 
     // Test hooks: calls made; failAfter >= 0 makes reads fail after that many
-    // more (a card pulled mid-stream).
+    // more (a card pulled mid-stream); failBind makes binds fail with that
+    // reason (the device reader's "fragmented", "map check").
     uint32_t reads = 0, binds = 0;
     int failAfter = -1;
+    const char* failBind = nullptr;
 
 private:
     struct Binding {

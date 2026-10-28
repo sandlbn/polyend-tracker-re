@@ -1134,7 +1134,8 @@ void App::planStreamRanges(int slot, uint32_t frames, bool stereo, uint32_t off)
     pj_.capLen = perCh * (stereo ? 2u : 1u) * 2u;
 }
 
-bool App::bindStreamSlot(int slot, const char* path) {
+bool App::bindStreamSlot(int slot, const char* path, const char** reason) {
+    if (reason) *reason = "no reader";
     if (!hal_.streamReader) return false;
     int k = -1;
     bool used[audio::kMaxStreams] = {};
@@ -1142,6 +1143,7 @@ bool App::bindStreamSlot(int slot, const char* path) {
         if (stream_.streamOf[i] >= 0) used[stream_.streamOf[i]] = true;
     for (int i = 0; i < audio::kMaxStreams && k < 0; ++i)
         if (!used[i]) k = i;
+    if (reason) *reason = "no slot";
     if (k < 0) return false;
     audio::StreamSource& s = stream_.src[k];
     s = audio::StreamSource{};
@@ -1158,11 +1160,14 @@ bool App::bindStreamSlot(int slot, const char* path) {
     }
     audio::StreamBindInfo info;
     if (!hal_.streamReader->bind(s, path, pj_.dataOff[slot], s.headR != nullptr, &info)) {
-        if (!loadNotice_[0])
+        if (reason) {
+            *reason = info.reason;
+        } else if (!loadNotice_[0]) {
             // The slot as a byte: the compiler sees the notice fits (no -Wformat-truncation).
             std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %u: %s, loaded into memory",
                           unsigned(uint8_t(slot + 1)),
                           std::strcmp(info.reason, "fragmented") == 0 ? "too fragmented to stream" : "cannot stream");
+        }
         return false;
     }
     stream_.streamOf[slot] = int8_t(k);
