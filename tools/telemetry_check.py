@@ -27,8 +27,9 @@
       With nm (default: the size tool's sibling): no double-precision libm in the
       image, and the stack headroom _estack - _ebss: fail below 90 KiB
       (docs/OPTIMIZATION_2X.md OP-4 / OP-5).
-  telemetry_check.py frames <build dir> [--guard-header src/hal/stack_guard.h]
-      Per-function stack frames from the build's -fstack-usage .su files against
+  telemetry_check.py frames <build dir> | --objects <x.o ...> [--guard-header src/hal/stack_guard.h]
+      Per-function stack frames from the -fstack-usage .su files (of the given
+      objects, failing when one has none; else every .su under the build dir) against
       the stack guard (kStackGuardBytes): a frame plus an interrupt's exception
       frame (104 B with FP state) must stay inside the guard, so fail at >= the
       guard - 256 B and on unbounded dynamic frames, warn above 75 % of it.
@@ -48,6 +49,7 @@ import argparse
 import os
 import re
 import sys
+import tempfile
 
 BUDGET = 522240
 
@@ -460,6 +462,21 @@ def guard_bytes(header=GUARD_HEADER):
     return int(m.group(1))
 
 
+def read_su(objects):
+    """Object files -> (their -fstack-usage lines, objects without a .su file).
+    gcc writes x.su next to x.o; an object built before -fstack-usage (an
+    incremental build) has none, and its frames would go unchecked."""
+    lines, missing = [], []
+    for obj in objects:
+        su = (obj[:-2] if obj.endswith(".o") else obj) + ".su"
+        try:
+            with open(su, errors="replace") as f:
+                lines.extend(f.read().splitlines())
+        except FileNotFoundError:
+            missing.append(obj)
+    return lines, missing
+
+
 def check_frames(su_lines, guard, quiet=False, top=5):
     """-fstack-usage lines -> (ok, deepest frame bytes). A frame (plus an
     interrupt's exception frame below it) as large as the stack guard could step
@@ -581,6 +598,17 @@ def selftest():
     assert check_frames(su + ["d.cpp:4:6:void big()\t7935\tstatic"], 8192, quiet=True)[0]
     assert not check_frames(su + ["e.cpp:5:6:void vla(int)\t16\tdynamic"], 8192, quiet=True)[0]
     assert not check_frames([], 8192, quiet=True)[0]
+    with tempfile.TemporaryDirectory() as d:
+        objs = [os.path.join(d, n) for n in ("a.cpp.o", "b.c.o")]
+        for o in objs:
+            open(o, "w").close()
+        with open(os.path.join(d, "a.cpp.su"), "w") as f:
+            f.write(su[0] + "\n")
+        lines, missing = read_su(objs)
+        assert lines == [su[0]] and missing == [objs[1]], (lines, missing)
+        with open(os.path.join(d, "b.c.su"), "w") as f:
+            f.write(su[1] + "\n")
+        assert read_su(objs) == ([su[0], su[1]], [])
     assert guard_bytes() > 0
     print("telemetry_check: selftest ok")
 
@@ -605,7 +633,9 @@ def main(argv):
     sz.add_argument("--nm-tool", default=None)
     sz.add_argument("elf")
     fr = sub.add_parser("frames")
-    fr.add_argument("build_dir")
+    fr.add_argument("build_dir", nargs="?")
+    fr.add_argument("--objects", nargs="+", default=None,
+                    help="the image's object files: only their .su files, and fail on a missing one")
     fr.add_argument("--guard-header", default=GUARD_HEADER)
     cp = sub.add_parser("cpi")
     cp.add_argument("log")
@@ -645,13 +675,22 @@ def main(argv):
             ok_sym, _ = check_symbols(r.stdout.splitlines())
             ok = ok and ok_sym
         elif a.cmd == "frames":
-            su = []
-            for root, _, files in os.walk(a.build_dir):
-                for name in files:
-                    if name.endswith(".su"):
-                        with open(os.path.join(root, name), errors="replace") as f:
-                            su.extend(f.read().splitlines())
+            su, missing = [], []
+            if a.objects:
+                su, missing = read_su(a.objects)
+            elif a.build_dir:
+                for root, _, files in os.walk(a.build_dir):
+                    for name in files:
+                        if name.endswith(".su"):
+                            with open(os.path.join(root, name), errors="replace") as f:
+                                su.extend(f.read().splitlines())
+            else:
+                fr.error("give a build dir or --objects")
             ok, _ = check_frames(su, guard_bytes(a.guard_header))
+            if missing:
+                print(f"frames: FAIL {len(missing)} of {len(a.objects)} objects have no .su file "
+                      f"(built before -fstack-usage? make clean), e.g. {missing[0]}")
+                ok = False
         else:
             selftest()
             ok = True
