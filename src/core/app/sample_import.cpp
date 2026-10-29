@@ -251,19 +251,24 @@ bool App::startStreamedImport(const char* path, int slot, void (*done)(void*, bo
     j.in = f.open(path, IStorage::kRead);
     j.out = j.in >= 0 ? f.open(kImportTmp, IStorage::kWrite) : -1;
     const uint64_t need = ptiFileSize(s.frames, s.stereo);
-    if (j.out >= 0 && !f.reserve(j.out, uint32_t(need))) {
-        // Room on the card but no contiguous run of that size: formatting fixes it.
+    bool reserved = j.out >= 0 && f.reserve(j.out, uint32_t(need));
+    if (j.out >= 0 && !reserved) {
+        // No contiguous run of that size. A full card is refused; one with
+        // room but only in pieces is written unreserved (FatFs places it):
+        // a stream may span up to kStreamMaxExtents pieces, and bind() after
+        // the conversion refuses a file in more.
         const uint64_t free = f.freeBytes();
-        importCleanup();
-        std::snprintf(importNotice_, sizeof(importNotice_), "%s",
-                      free != UINT64_MAX && free >= need ? "Card too fragmented to stream: format the SD card"
-                                                         : "Not enough space on the SD card");
-        return false;
+        if (free == UINT64_MAX || free < need) {
+            importCleanup();
+            std::snprintf(importNotice_, sizeof(importNotice_), "Not enough space on the SD card");
+            return false;
+        }
     }
     // Pre-check: the laid-out file can be bound, before minutes of
-    // conversion (the size and the map self-check stay in bind()).
+    // conversion (the size and the map self-check stay in bind()). An
+    // unreserved file has no layout yet: the route counted the free slots.
     audio::StreamBindInfo bi;
-    if (j.out >= 0 && !hal_.streamReader->streamable(uint8_t(slot), kImportTmp, &bi)) {
+    if (reserved && !hal_.streamReader->streamable(uint8_t(slot), kImportTmp, &bi)) {
         importCleanup();
         if (std::strcmp(bi.reason, "no slot") == 0)
             std::snprintf(importNotice_, sizeof(importNotice_), "16 instruments already stream from the card");
@@ -337,7 +342,7 @@ int App::importUnit(uint32_t& cost) {
     IStorage& f = fs();
     cost += kChunk;
     if (j.finishing) {
-        // The file ends where the conversion did (reserve() laid out all of it).
+        // The file ends where the conversion did (reserve() may have laid out all of it).
         if (!f.truncate(j.out)) {
             std::snprintf(importNotice_, sizeof(importNotice_), "Cannot write the instrument file");
             return -1;
@@ -394,6 +399,20 @@ bool App::importFinalize() {
     IStorage& f = fs();
     const int slot = j.slot;
     const bool stereo = j.ch == 2;
+    // The converted file must map into a binding (at most kStreamMaxExtents
+    // pieces when it was written unreserved) before the slot's instrument
+    // goes: a refusal keeps the old one.
+    audio::StreamBindInfo bi;
+    if (!hal_.streamReader->streamable(uint8_t(slot), kImportTmp, &bi)) {
+        f.remove(kImportTmp);
+        if (std::strcmp(bi.reason, "fragmented") == 0)
+            std::snprintf(importNotice_, sizeof(importNotice_), "Card too fragmented to stream: format the SD card");
+        else if (std::strcmp(bi.reason, "no slot") == 0)
+            std::snprintf(importNotice_, sizeof(importNotice_), "16 instruments already stream from the card");
+        else
+            std::snprintf(importNotice_, sizeof(importNotice_), "Cannot stream the file (%s)", bi.reason);
+        return false;
+    }
     // The new file replaces the slot's Workspace instrument.
     allVoicesOff();
     streamUnbind(slot);
