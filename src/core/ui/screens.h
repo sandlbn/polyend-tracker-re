@@ -15,6 +15,8 @@
 
 namespace ot {
 
+struct ImportProbe;   // app/app.h
+
 // [I] One buffer for the browsers' name lists (SDRAM on the device,
 // screens.cpp): Sample Loader, Synth patch browser, File Open / Save,
 // Import Mod and the firmware-update list. Only one is on screen at a time
@@ -359,6 +361,7 @@ private:
     void addFrom(int i, int n);
     static void streamedDone(void* ctx, bool ok);
     bool entryPath(int i, char* out, int cap) const;
+    ImportProbe probeOf(int i) const;   // the listing's probe of entry i
     uint32_t now() const { return ui_.now(); }
     LoaderList* list_ = static_cast<LoaderList*>(browserListMem());
     int depth_ = 0;

@@ -77,7 +77,9 @@ public:
         std::string par = parent(p);
         return par.empty() || dirs.count(par);
     }
+    int opens = 0;   // open() calls (a test checks a screen makes none)
     Handle open(const char* path, OpenMode mode) override {
+        ++opens;
         if (refuse()) return -1;
         if (tooLong(path)) return -1;
         std::string p(path);

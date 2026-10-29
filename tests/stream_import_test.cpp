@@ -585,3 +585,25 @@ TEST(playback_streamed_hides_wave) {
     CHECK(waveAreaVertices(h) < 60);
     CHECK(waveAreaVertices(h) > 0);
 }
+
+TEST(loader_marker_needs_no_probe_after_listing) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/a.wav"] = makeWav(20000, 1, 44100, 1);
+    h.fs.files["Samples/b.pti"] = makePti(12 * kSec, PlayMode::OneShot);
+    h.fs.files["Samples/c.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+    CHECK(onFile(h, "a.wav"));
+    const int opens = h.fs.opens;
+    // Cursor moves: the projection (300 ms later) and the draws read the
+    // listing's probe cache, never the card.
+    for (int k = 0; k < 2; ++k) {
+        h.enc(1);
+        h.run(400);
+    }
+    CHECK_EQ(h.fs.opens, opens);
+    // c.wav streams: the bar counts its head only.
+    CHECK(!ld(h).over());
+    CHECK(ld(h).memoryShown() < a.bank.usedBytes() + 12 * kSec);
+}

@@ -251,13 +251,23 @@ bool countFn(const IStorage::DirEntry& e, void* ctx) {
 
 // spec 06 §5.2: a .wav is listed only when its header passes the WAV check
 // (RIFF/WAVE, 1-2 channels, PCM 8/16/24/32 or float 32; stock 0x70bb0).
-bool wavHeaderOk(IStorage& fs, const char* path) {
+// The same read fills the file's import probe (frames / channels as the
+// import writes them).
+bool wavHeaderOk(IStorage& fs, const char* path, LoaderList::Probe& pr) {
     IStorage::Handle h = fs.open(path, IStorage::kRead);
     if (h < 0) return false;
     StorageReader r(fs, h);
     WavInfo info;
     const bool ok = wavParseHeader(r, info) && wavIsSupported(info);
     fs.close(h);
+    if (ok) {
+        WavImportOptions opt;
+        opt.stereo = true;   // as App::importProbe
+        const WavImportPlan p = wavPlanImport(info, opt);
+        pr.frames = p.outFrames;
+        pr.flags = uint8_t(p.outFrames ? LoaderList::kProbeOk : 0) |
+                   uint8_t(p.outChannels == 2 ? LoaderList::kProbeStereo : 0);
+    }
     return ok;
 }
 
@@ -270,6 +280,18 @@ int cmpNoCase(const char* a, const char* b) {
     }
 }
 }  // namespace
+
+ImportProbe LoaderScreen::probeOf(int i) const {
+    const LoaderList::Probe& pr = list_->probe[i];
+    ImportProbe p;
+    if (!(pr.flags & LoaderList::kProbeOk)) return p;   // frames 0: Unreadable
+    p.frames = pr.frames;
+    p.stereo = (pr.flags & LoaderList::kProbeStereo) != 0;
+    p.pti = (pr.flags & LoaderList::kProbePti) != 0;
+    p.playMode = pr.playMode;
+    p.loopPoint1 = pr.loop1;
+    return p;
+}
 
 bool LoaderScreen::entryPath(int i, char* out, int cap) const {
     const int n = dir[0] ? std::snprintf(out, size_t(cap), "%s/%s", dir, entries[i])
@@ -359,12 +381,20 @@ void LoaderScreen::list() {
         L.part[j + 1] = tp;
         L.isDir[j + 1] = td;
     }
-    // Drop .wav files whose header fails the check.
+    // Drop .wav files whose header fails the check; probe the files for the
+    // projection (a .pti: one header read).
     int w = first;
     for (int i = first; i < c.count; ++i) {
+        LoaderList::Probe pr{0, 0, 0, 0};
         if (!L.isDir[i] && hasExt(entries[i], ".wav")) {
-            if (!entryPath(i, path, sizeof(path)) || !wavHeaderOk(app_.fs(), path)) continue;
+            if (!entryPath(i, path, sizeof(path)) || !wavHeaderOk(app_.fs(), path, pr)) continue;
+        } else if (!L.isDir[i] && entryPath(i, path, sizeof(path))) {
+            ImportProbe p;
+            if (app_.importProbe(path, p))
+                pr = {p.frames, p.loopPoint1, p.playMode,
+                      uint8_t(LoaderList::kProbeOk | LoaderList::kProbePti | (p.stereo ? LoaderList::kProbeStereo : 0))};
         }
+        L.probe[w] = pr;
         if (w != i) {
             L.off[w] = L.off[i];
             L.part[w] = L.part[i];
@@ -465,15 +495,15 @@ void LoaderScreen::projectSelection() {
     if (count == 0 || isDir[sdCursor]) return;
     int f, l;
     listRange(true, &f, &l);
-    char path[kPathMax + 1];
     for (int i = f; i <= l; ++i) {
         if (isDir[i]) continue;
-        entryPath(i, path, sizeof(path));
         const int slot = insCursor + (i - f);
         // The whole sample when it fits (or cannot stream: the bar turns
         // red), only its head when it will stream from the card (C14).
+        // From the listing's probe: no file read; the card space is checked
+        // at Add (a first f_getfree after a mount scans the whole FAT).
         uint32_t b = 0;
-        if (slot < kSampleInstrumentCount) a.importRoute(path, slot, &b);
+        if (slot < kSampleInstrumentCount) a.importRoute(probeOf(i), slot, &b, nullptr, UINT64_MAX);
         used += b;
         if (slot < kSampleInstrumentCount) used -= a.bank.samples(slot) * 2;
     }

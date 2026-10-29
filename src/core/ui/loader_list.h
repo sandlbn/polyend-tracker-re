@@ -27,6 +27,16 @@ struct LoaderList {
     // files, label "<name> ((k-1)*100+1-k*100)".
     uint16_t part[kMaxEntries];
     bool isDir[kMaxEntries];
+    // The import probe of each listed file (App::importProbe), read by the
+    // listing so the memory projection and the stream marks open no file.
+    struct Probe {
+        uint32_t frames;
+        uint16_t loop1;     // a .pti's loop start
+        uint8_t playMode;   // a .pti's play mode
+        uint8_t flags;      // kProbe*; 0: not probed (a folder, an unreadable file)
+    };
+    static constexpr uint8_t kProbeOk = 1, kProbeStereo = 2, kProbePti = 4;
+    Probe probe[kMaxEntries];
 };
 
 }  // namespace ot
