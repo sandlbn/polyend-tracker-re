@@ -1024,7 +1024,10 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
             if (g > done) renderPlayer(x + done, g - done);
             done = g;
             if (ev & VolumeEnvelope::kEvForcedDone) startNote();
-            if (ev & VolumeEnvelope::kEvIdle) playing_ = false;
+            if (ev & VolumeEnvelope::kEvIdle) {
+                playing_ = false;
+                if (ring_) ring_->src = nullptr;   // released: the stream service frees the ring
+            }
         }
     }
     if (done < kBlock) renderPlayer(x + done, kBlock - done);

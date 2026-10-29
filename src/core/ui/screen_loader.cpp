@@ -581,6 +581,19 @@ void LoaderScreen::openImport() {
     int f, l;
     listRange(true, &f, &l);
     if (focus > 1 || count == 0 || f != l || isDir[sdCursor] || !hasExt(entries[sdCursor], ".wav")) return;
+    {   // The trim view decodes the whole file into sample memory: say so up
+        // front when it cannot fit (a long file streams with Add next).
+        const App& a = app_;
+        char path[kPathMax + 1];
+        entryPath(sdCursor, path, sizeof(path));
+        const int64_t room = int64_t(a.bank.capacityBytes()) - int64_t(a.bank.usedBytes()) +
+                             2 * int64_t(a.bank.samples(insCursor));
+        if (int64_t(app_.sampleBytesNeeded(path)) > room) {
+            ui_.notify(a.streamingOn() ? "Too long for Import: use Add next (streams)"
+                                       : "Too long for Import: not enough sample memory");
+            return;
+        }
+    }
     if (app_.instrPresent[insCursor]) {
         ui_.ask("Replace sample?", "The sample will be replaced", nullptr, "Cancel", "Yes",
                 [](void* ctx, int key) {
