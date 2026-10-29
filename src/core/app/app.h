@@ -400,11 +400,13 @@ public:
     // (the whole sample when it fits, the streamed head when it streams).
     // The route follows Config > Stream from card like a project open
     // (importDecision); why (optional): the reason it streams. The probe
-    // form makes no I/O; cardFree UINT64_MAX skips the card-space check.
+    // form makes no I/O; cardFree UINT64_MAX skips the card-space check;
+    // pendingBytes / pendingStreams: what the files placed before this one
+    // add to the memory and the streams (the Sample Loader's selection).
     ImportRoute importRoute(const char* path, int slot, uint32_t* bankBytes = nullptr);
     bool importProbe(const char* path, ImportProbe& p);
     ImportRoute importRoute(const ImportProbe& p, int slot, uint32_t* bankBytes, StreamWhy* why,
-                            uint64_t cardFree);
+                            uint64_t cardFree, int64_t pendingBytes = 0, int pendingStreams = 0);
     bool startStreamedImport(const char* path, int slot, void (*done)(void* ctx, bool ok) = nullptr,
                              void* ctx = nullptr);
     const char* importNotice() const { return importNotice_; }

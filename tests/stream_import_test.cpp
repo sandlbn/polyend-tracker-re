@@ -607,3 +607,122 @@ TEST(loader_marker_needs_no_probe_after_listing) {
     CHECK(!ld(h).over());
     CHECK(ld(h).memoryShown() < a.bank.usedBytes() + 12 * kSec);
 }
+
+// ---- Sample Loader: the '~' mark and the notices ----------------------------
+
+namespace {
+// SD list rows (x < 300) drawn with the '~' tag: their row numbers (row y =
+// 61 + 17 + 27 r; r 0 is "..").
+std::vector<int> sdMarks(Harness& h) {
+    h.run(400);   // past the 300 ms projection debounce, one more frame
+    std::vector<int> rows;
+    for (const std::string& l : h.disp.last) {
+        int x = 0, y = 0;
+        if (l.find("\"~\"") != std::string::npos && std::sscanf(l.c_str(), "TEXT %d %d", &x, &y) == 2 && x < 300)
+            rows.push_back((y - 78) / 27);
+    }
+    return rows;
+}
+void addAndWait(Harness& h, int lastSlot) {
+    App& a = *h.app;
+    h.tap(btn::F1);   // Add
+    for (int k = 0; k < 2000 && (a.jobBusy() || !a.instrPresent[lastSlot]); ++k) h.run(20);
+}
+}  // namespace
+
+TEST(loader_marks_files_that_will_stream) {
+    Harness h(true, kBank);
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/long.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+    h.fs.files["Samples/short.wav"] = makeWav(2 * kSec, 1, 44100, 4);
+    CHECK(onFile(h, "short.wav"));
+    const std::vector<int> m = sdMarks(h);
+    CHECK_EQ(m.size(), size_t(1));
+    CHECK(!m.empty() && m[0] == 1);   // "..", long.wav, short.wav
+}
+
+TEST(loader_marker_follows_the_config) {
+    auto marks = [](uint8_t mode, uint8_t threshold) {
+        Harness h(true, kBank);
+        streaming(h, mode);
+        h.app->cfg.streamThreshold = threshold;
+        h.fs.mkdir("Samples");
+        h.fs.files["Samples/long.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+        h.fs.files["Samples/short.wav"] = makeWav(2 * kSec, 1, 44100, 4);   // 88,200 frames
+        CHECK(onFile(h, "short.wav"));
+        return sdMarks(h).size();
+    };
+    CHECK_EQ(marks(0, 1), size_t(0));   // Off
+    CHECK_EQ(marks(1, 1), size_t(1));   // Auto 10 s: the 12 s file
+    CHECK_EQ(marks(1, 2), size_t(0));   // Auto 20 s
+    CHECK_EQ(marks(2, 1), size_t(2));   // All: both
+}
+
+TEST(loader_marker_uses_the_target_slot_play_mode) {
+    // The instrument cursor on `slot`; slot 2 holds a Slice instrument.
+    auto marks = [](int slot) {
+        Harness h(true, kBank);
+        App& a = *h.app;
+        streaming(h, 1);
+        h.fs.files["Samples/old.wav"] = makeWav(20000, 1, 44100, 1);
+        CHECK(a.importSample("Samples/old.wav", 2));
+        a.instruments[2].playMode = uint8_t(PlayMode::Slice);
+        h.fs.mkdir("Samples");
+        h.fs.files["Samples/long.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+        a.setCurrentInstrument(slot);
+        CHECK(onFile(h, "long.wav"));
+        return sdMarks(h).size();
+    };
+    CHECK_EQ(marks(2), size_t(0));   // the Slice slot keeps it in memory
+    CHECK_EQ(marks(3), size_t(1));   // an empty slot: 1-Shot, streams
+}
+
+TEST(loader_marker_for_a_selection_counts_memory_in_order) {
+    Harness h(true, kBank);
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    for (const char* n : {"a.wav", "b.wav", "c.wav"}) h.fs.files[std::string("Samples/") + n] = makeWav(9 * kSec, 1, 44100, 3);
+    CHECK(onFile(h, "a.wav"));
+    CHECK(sdMarks(h).empty());   // alone, each 9 s file fits
+    h.down(btn::Shift);
+    h.tap(btn::Down);
+    h.tap(btn::Down);
+    h.up(btn::Shift);
+    // a, b, c into slots 1-3: the third no longer fits after the other two.
+    const std::vector<int> m = sdMarks(h);
+    CHECK_EQ(m.size(), size_t(1));
+    CHECK(!m.empty() && m[0] == 3);
+}
+
+TEST(loader_notice_names_why_it_streams) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/long.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+    CHECK(onFile(h, "long.wav"));
+    addAndWait(h, 0);
+    CHECK(a.streamed(0));
+    CHECK_STR(a.ui.notice(), "Streams from the card (longer than 10 s)");
+}
+
+TEST(loader_multi_add_summarises_streams) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.mkdir("Samples");
+    h.fs.files["Samples/a.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+    h.fs.files["Samples/b.wav"] = makeWav(2 * kSec, 1, 44100, 4);
+    h.fs.files["Samples/c.wav"] = makeWav(12 * kSec, 1, 44100, 5);
+    CHECK(onFile(h, "a.wav"));
+    h.down(btn::Shift);
+    h.tap(btn::Down);
+    h.tap(btn::Down);
+    h.up(btn::Shift);
+    addAndWait(h, 2);
+    CHECK(a.streamed(0));
+    CHECK(!a.streamed(1));
+    CHECK(a.streamed(2));
+    CHECK_STR(a.ui.notice(), "2 of 3 stream from the card");
+}

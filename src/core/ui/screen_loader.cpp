@@ -491,21 +491,34 @@ void LoaderScreen::projectSelection() {
         return;
     }
     // The projection always concerns the SD selection loaded at the
-    // instrument cursor, whichever list has the focus.
-    if (count == 0 || isDir[sdCursor]) return;
+    // instrument cursor, whichever list has the focus. From the listing's
+    // probes: no file read; the card space is checked at Add (a first
+    // f_getfree after a mount scans the whole FAT).
+    // 2.x '~' marks (rowRoute_): where each file lands when added at the
+    // instrument cursor, a selection row at its slot after the rows before.
     int f, l;
     listRange(true, &f, &l);
+    const bool sel = count > 0 && !isDir[sdCursor];
+    for (int i = 0; i < count; ++i) {
+        rowRoute_[i] = uint8_t(ImportRoute::Unreadable);
+        if (isDir[i] || (sel && i >= f && i <= l)) continue;
+        rowRoute_[i] = uint8_t(a.importRoute(probeOf(i), insCursor, nullptr, nullptr, UINT64_MAX));
+    }
+    if (!sel) return;
+    int streams = 0;
     for (int i = f; i <= l; ++i) {
         if (isDir[i]) continue;
         const int slot = insCursor + (i - f);
+        if (slot >= kSampleInstrumentCount) continue;
         // The whole sample when it fits (or cannot stream: the bar turns
         // red), only its head when it will stream from the card (C14).
-        // From the listing's probe: no file read; the card space is checked
-        // at Add (a first f_getfree after a mount scans the whole FAT).
         uint32_t b = 0;
-        if (slot < kSampleInstrumentCount) a.importRoute(probeOf(i), slot, &b, nullptr, UINT64_MAX);
+        const ImportRoute r = a.importRoute(probeOf(i), slot, &b, nullptr, UINT64_MAX,
+                                            int64_t(used) - int64_t(a.bank.usedBytes()), streams);
+        rowRoute_[i] = uint8_t(r);
+        streams += r == ImportRoute::Streams;
         used += b;
-        if (slot < kSampleInstrumentCount) used -= a.bank.samples(slot) * 2;
+        used -= a.bank.samples(slot) * 2;
     }
     projected_ = uint32_t(used);
     // [I] A resample take holds the free memory it may record into (#7).
@@ -634,6 +647,9 @@ void LoaderScreen::doAdd(bool next) {
     addNext_ = next;
     int f, l;
     listRange(true, &f, &l);
+    addFiles_ = addStreamed_ = 0;
+    for (int i = f; i <= l; ++i) addFiles_ += isDir[i] ? 0 : 1;
+    addLastFailed_ = false;
     addFrom(f, 0);
 }
 
@@ -655,14 +671,23 @@ void LoaderScreen::addFrom(int i, int n) {
             addN_ = n + 1;
             if (a.startStreamedImport(path, slot, &LoaderScreen::streamedDone, this)) return;
             ui_.notify(a.importNotice()[0] ? a.importNotice() : "Import failed", 3000);
+            addLastFailed_ = true;
             ++n;
             continue;
         }
         ui_.progress("Loading", (i - f) * 100 / (l - f + 1));
-        if (!a.importSample(path, slot)) ui_.notify("Import failed");
+        addLastFailed_ = !a.importSample(path, slot);
+        if (addLastFailed_) ui_.notify("Import failed");
         ++n;
     }
     ui_.progressDone();
+    // 2.x: several files, some streamed: one summary (a failure of the last
+    // file keeps its own notice).
+    if (addFiles_ > 1 && addStreamed_ > 0 && !addLastFailed_) {
+        char msg[40];
+        std::snprintf(msg, sizeof(msg), "%d of %d stream from the card", addStreamed_ & 63, addFiles_ & 63);
+        ui_.notify(msg, 3000);
+    }
     if (addNext_) insCursor = clampi(insCursor + n, 0, 47);
     a.setCurrentInstrument(insCursor);
     importDone();
@@ -672,7 +697,10 @@ void LoaderScreen::addFrom(int i, int n) {
 void LoaderScreen::streamedDone(void* ctx, bool ok) {
     LoaderScreen& s = *static_cast<LoaderScreen*>(ctx);
     const char* msg = s.app_.importNotice();
-    s.ui_.notify(msg[0] ? msg : (ok ? "Streams from the card" : "Import failed"), 3000);
+    s.addStreamed_ += ok ? 1 : 0;
+    s.addLastFailed_ = !ok;
+    // One file: why it streams; several: the summary at the end of the Add.
+    if (!ok || s.addFiles_ <= 1) s.ui_.notify(msg[0] ? msg : (ok ? "Streams from the card" : "Import failed"), 3000);
     s.addFrom(s.addI_, s.addN_);
 }
 
@@ -1153,6 +1181,10 @@ void LoaderScreen::draw(Gfx& g) {
                 ls.entryLabel(i, out, cap);
             };
             v.marked = [](void* c, int i) { return static_cast<LoaderScreen*>(c)->marked_[i] != 0; };
+            // 2.x: '~' at the right, a file that will stream from the card.
+            v.tag = [](void* c, int i) -> const char* {
+                return static_cast<LoaderScreen*>(c)->rowRoute_[i] == uint8_t(ImportRoute::Streams) ? "~" : nullptr;
+            };
         }
         wg::list(g, th, v);
     }

@@ -139,15 +139,16 @@ ImportRoute App::importRoute(const char* path, int slot, uint32_t* bankBytes) {
 }
 
 ImportRoute App::importRoute(const ImportProbe& p, int slot, uint32_t* bankBytes, StreamWhy* why,
-                             uint64_t cardFree) {
+                             uint64_t cardFree, int64_t pendingBytes, int pendingStreams) {
     if (bankBytes) *bankBytes = 0;
     if (why) *why = StreamWhy::None;
     if (slot < 0 || slot >= kSampleInstrumentCount || !p.frames) return ImportRoute::Unreadable;
     const uint64_t bytes = uint64_t(p.frames) * (p.stereo ? 2u : 1u) * 2u;
     if (bankBytes) *bankBytes = bytes > 0xFFFFFFFFu ? 0xFFFFFFFFu : uint32_t(bytes);
-    const uint64_t others = uint64_t(bank.usedBytes()) - uint64_t(bank.samples(slot)) * 2u;
+    const int64_t o = int64_t(bank.usedBytes()) - int64_t(bank.samples(slot)) * 2 + pendingBytes;
+    const uint64_t others = o > 0 ? uint64_t(o) : 0;
     const uint64_t cap = uint64_t(bank.capacityBytes()) - uint64_t(bank.reserved()) * 2u;
-    int inUse = 0;
+    int inUse = pendingStreams;
     for (int i = 0; i < kSampleInstrumentCount; ++i) inUse += i != slot && stream_.streamOf[i] >= 0;
     // Kept settings (WAV into an existing instrument) or the file's (.pti).
     uint8_t pm = !p.pti ? (instrPresent[slot] ? instruments[slot].playMode : uint8_t(PlayMode::OneShot)) : p.playMode;
