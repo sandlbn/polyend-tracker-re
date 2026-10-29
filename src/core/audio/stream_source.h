@@ -94,6 +94,14 @@ public:
         (void)s, (void)path, (void)dataOffset, (void)stereo, (void)info;
         return true;
     }
+    // SD streaming import pre-check, before the conversion (no binding made):
+    // a binding slot is free (or the instrument's own) and `path` opens; the
+    // device reader also maps it (more than kStreamMaxExtents runs:
+    // "fragmented"). False: the reason in info.
+    virtual bool streamable(uint8_t instrument, const char* path, StreamBindInfo* info) {
+        (void)instrument, (void)path, (void)info;
+        return true;
+    }
     virtual void unbind(uint8_t instrument) { (void)instrument; }
     virtual void unbindAll() {}
     virtual bool bound(uint8_t instrument) const { return (void)instrument, true; }

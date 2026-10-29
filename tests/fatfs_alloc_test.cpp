@@ -285,3 +285,50 @@ TEST(fatfs_random_rewrites_up_to_a_full_card) {
         f_unmount("");
     }
 }
+
+// SD streaming import (SdStorage::reserve): f_expand opt 1 + f_sync lays the
+// file out as one allocated run that a second handle (fileExtents, the
+// stream pre-check) maps before any data is written; f_truncate after a
+// shorter write returns the rest; a cancelled import's unlink frees it all.
+TEST(fatfs_expand_allocates_a_run_a_second_handle_maps) {
+    format();
+    CHECK(mount());
+    CHECK_EQ(writeFile("a.bin", 10 * kCl), 1);
+    CHECK_EQ(writeFile("b.bin", 10 * kCl), 1);
+    CHECK(f_unlink("a.bin") == FR_OK);   // a 10-cluster hole before b.bin
+    const DWORD free0 = freeClusters();
+    FIL w;
+    CHECK(f_open(&w, "import.tmp", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK);
+    CHECK(f_expand(&w, 1000 * kCl, 1) == FR_OK);
+    CHECK(f_sync(&w) == FR_OK);
+    CHECK_EQ(freeClusters(), free0 - 1000);
+    FIL r;
+    CHECK(f_open(&r, "import.tmp", FA_READ | FA_OPEN_EXISTING) == FR_OK);
+    CHECK_EQ(uint32_t(f_size(&r)), 1000 * kCl);
+    DWORD clmt[16];
+    clmt[0] = 16;
+    r.cltbl = clmt;
+    CHECK(f_lseek(&r, CREATE_LINKMAP) == FR_OK);
+    CHECK_EQ(clmt[0], DWORD(4));         // one fragment: size, (count, start), 0
+    CHECK_EQ(clmt[1], DWORD(1000));
+    r.cltbl = nullptr;
+    f_close(&r);
+    // 600 clusters written, the rest cut.
+    for (uint32_t o = 0; o < 600 * kCl; o += sizeof(gBuf)) {
+        const uint32_t k = 600 * kCl - o < sizeof(gBuf) ? 600 * kCl - o : uint32_t(sizeof(gBuf));
+        pattern(7, o, gBuf, k);
+        UINT bw = 0;
+        CHECK(f_write(&w, gBuf, k, &bw) == FR_OK && bw == k);
+    }
+    CHECK(f_truncate(&w) == FR_OK);
+    CHECK(f_close(&w) == FR_OK);
+    CHECK(fileIs("import.tmp", 600 * kCl, 7));
+    CHECK_EQ(freeClusters(), free0 - 600);
+    // Cancelled: laid out, closed, removed.
+    CHECK(f_open(&w, "c.tmp", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK);
+    CHECK(f_expand(&w, 300 * kCl, 1) == FR_OK);
+    CHECK(f_sync(&w) == FR_OK);
+    CHECK(f_close(&w) == FR_OK);
+    CHECK(f_unlink("c.tmp") == FR_OK);
+    CHECK_EQ(freeClusters(), free0 - 600);
+}

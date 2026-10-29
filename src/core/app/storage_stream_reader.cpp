@@ -44,6 +44,27 @@ bool StorageStreamReader::bind(const audio::StreamSource& s, const char* path, u
     return true;
 }
 
+bool StorageStreamReader::streamable(uint8_t instrument, const char* path, audio::StreamBindInfo* info) {
+    audio::StreamBindInfo dummy;
+    if (!info) info = &dummy;
+    if (failStreamable) {
+        info->reason = failStreamable;
+        return false;
+    }
+    if (!audio::streamBindingSlot(b_, audio::kMaxStreams, instrument)) {
+        info->reason = "no slot";
+        return false;
+    }
+    const IStorage::Handle h = fs_.open(path, IStorage::kRead);
+    if (h < 0) {
+        info->reason = "open";
+        return false;
+    }
+    fs_.close(h);
+    info->extents = 1;
+    return true;
+}
+
 void StorageStreamReader::unbind(uint8_t instrument) { audio::streamBindingUnbind(b_, audio::kMaxStreams, instrument); }
 
 void StorageStreamReader::unbindAll() { audio::streamBindingUnbindAll(b_, audio::kMaxStreams); }

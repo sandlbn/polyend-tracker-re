@@ -81,6 +81,29 @@ bool SdStreamReader::bind(const audio::StreamSource& s, const char* path, uint32
     return true;
 }
 
+bool SdStreamReader::streamable(uint8_t instrument, const char* path, audio::StreamBindInfo* info) {
+    audio::StreamBindInfo dummy;
+    if (!info) info = &dummy;
+    const uint32_t t0 = micros();
+    if (!audio::streamBindingSlot(b_, audio::kMaxStreams, instrument)) {
+        info->reason = "no slot";
+        return false;
+    }
+    // The import's reserved file (an allocated chain, SdStorage::reserve):
+    // its map must fit a binding, as bind() checks after the conversion.
+    audio::StreamExtent ext[audio::kStreamMaxExtents];
+    int n = 0;
+    if (!sd_.fileExtents(path, ext, audio::kStreamMaxExtents, &n, nullptr)) {
+        info->reason = "fragmented";
+        diagLogf("sd stream: pre-check \"%s\": fragmented", path);
+        return false;
+    }
+    info->extents = uint16_t(n);
+    info->bindUs = micros() - t0;
+    diagLogf("sd stream: pre-check \"%s\" extents %d in %lu us", path, n, static_cast<unsigned long>(info->bindUs));
+    return true;
+}
+
 void SdStreamReader::unbind(uint8_t instrument) { audio::streamBindingUnbind(b_, audio::kMaxStreams, instrument); }
 
 void SdStreamReader::unbindAll() { audio::streamBindingUnbindAll(b_, audio::kMaxStreams); }

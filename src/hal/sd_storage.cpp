@@ -315,17 +315,33 @@ bool SdStorage::reserve(Handle h, uint32_t bytes) {
     FIL* f = fileFor(h);
     if (!f || !mounted_ || storageMode_) return false;
     if (bytes == 0) return true;
-    // opt 0: no clusters are taken yet; the writes that follow fill the
-    // contiguous run (a cancelled import just removes the file). FR_DENIED:
-    // no contiguous run of that size, or the card is full.
-    return f_expand(f, FSIZE_t(bytes), 0) == FR_OK;
+    // opt 1: the contiguous run is allocated now and the file is `bytes`
+    // long (the writes overwrite it from the start; truncate() cuts what
+    // they leave); f_sync puts the chain in the directory entry so the
+    // stream pre-check (fileExtents, its own FIL) maps it before the
+    // conversion. A cancelled import just removes the file. FR_DENIED: no
+    // contiguous run of that size, or the card is full.
+    const uint32_t t0 = micros();
+    const bool ok = f_expand(f, FSIZE_t(bytes), 1) == FR_OK && f_sync(f) == FR_OK;
+    diagLogf("sd: reserve %lu B %s in %lu us", static_cast<unsigned long>(bytes), ok ? "ok" : "refused",
+             static_cast<unsigned long>(micros() - t0));
+    return ok;
+}
+
+bool SdStorage::truncate(Handle h) {
+    FIL* f = fileFor(h);
+    return f && f_truncate(f) == FR_OK;
 }
 
 uint64_t SdStorage::freeBytes() {
     if (!mounted_ || storageMode_) return 0;
     DWORD clusters = 0;
     FATFS* fs = nullptr;
+    // FF_FS_NOFSINFO: the first call after a mount scans the whole FAT.
+    const uint32_t t0 = micros();
     if (f_getfree("", &clusters, &fs) != FR_OK || !fs) return UINT64_MAX;
+    const uint32_t us = micros() - t0;
+    if (us >= 10000) diagLogf("sd: free space scan in %lu us", static_cast<unsigned long>(us));
     return uint64_t(clusters) * uint64_t(fs->csize) * 512u;
 }
 

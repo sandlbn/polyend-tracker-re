@@ -356,10 +356,18 @@ public:
     virtual int32_t listDir(const char* path, DirFn fn, void* ctx) = 0; // entry count, <0 error
     // SD streaming C14: a file just opened for writing (still empty) is about
     // to grow to `bytes`: lay it out contiguously when the card can (FatFs
-    // f_expand), false when it cannot hold it. Default: accepted.
+    // f_expand; the device allocates the run at once, the file is then
+    // `bytes` long and the writes overwrite it from the start), false when
+    // it cannot hold it. Default: accepted.
     virtual bool reserve(Handle h, uint32_t bytes) {
         (void)h;
         (void)bytes;
+        return true;
+    }
+    // Cuts a file open for writing at its current position (a reserved
+    // file the writes did not fill). Default: nothing to cut.
+    virtual bool truncate(Handle h) {
+        (void)h;
         return true;
     }
     // Free space of the card in bytes; UINT64_MAX when unknown.

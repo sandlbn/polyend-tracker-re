@@ -72,6 +72,7 @@ public:
     // SD streaming C14: f_expand (opt 0: find a contiguous run and point the
     // allocation at it; the file stays empty) / f_getfree.
     bool reserve(Handle h, uint32_t bytes) override;
+    bool truncate(Handle h) override;
     uint64_t freeBytes() override;
 
     Handle open(const char* path, OpenMode mode) override;

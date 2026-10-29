@@ -51,8 +51,14 @@ public:
     bool tooLong(const char* p) const { return maxPath && std::strlen(p) > maxPath; }
     // Card size in bytes (0: unlimited): a write past it is short, reserve()
     // refuses what does not fit; reserves logs every reserve() size.
+    // Like the device (f_expand opt 1), reserve() allocates: the file is
+    // `bytes` long at once, filled with stale card data (0xA5) until written;
+    // truncate() cuts it at the position. reserveFails: no contiguous run;
+    // reserveExtra: bytes laid out past the request.
     uint64_t capacity = 0;
     std::vector<uint32_t> reserves;
+    bool reserveFails = false;
+    uint32_t reserveExtra = 0;
     uint64_t usedBytes() const {
         uint64_t n = 0;
         for (const auto& f : files) n += f.second.size();
@@ -61,7 +67,15 @@ public:
     bool reserve(Handle h, uint32_t bytes) override {
         if (refuse() || !open_.count(h)) return false;
         reserves.push_back(bytes);
-        return !capacity || usedBytes() + bytes <= capacity;
+        if (reserveFails || (capacity && usedBytes() + bytes > capacity)) return false;
+        files[open_[h].path].assign(size_t(bytes) + reserveExtra, 0xA5);
+        return true;
+    }
+    bool truncate(Handle h) override {
+        if (refuse() || !open_.count(h)) return false;
+        auto& f = files[open_[h].path];
+        if (f.size() > open_[h].pos) f.resize(open_[h].pos);
+        return true;
     }
     uint64_t freeBytes() override {
         if (!capacity) return UINT64_MAX;

@@ -726,3 +726,99 @@ TEST(loader_multi_add_summarises_streams) {
     CHECK(a.streamed(2));
     CHECK_STR(a.ui.notice(), "2 of 3 stream from the card");
 }
+
+// ---- Pre-check before the conversion ------------------------------------------
+
+namespace {
+// An old instrument in slot 0 and a 34 s file that streams.
+void precheckSetup(Harness& h) {
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/old.wav"] = makeWav(20000, 1, 44100, 1);
+    CHECK(a.importSample("Samples/old.wav", 0));
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    h.fs.reserves.clear();
+}
+void oldKept(Harness& h) {
+    App& a = *h.app;
+    CHECK(!a.jobBusy());
+    CHECK(!h.fs.files.count("Workspace/instruments/import.tmp"));
+    CHECK(a.instrPresent[0]);
+    CHECK_STR(a.instruments[0].name, "old");
+    CHECK(!a.streamed(0));
+}
+}  // namespace
+
+TEST(import_precheck_refuses_a_fragmented_card_before_converting) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    precheckSetup(h);
+    h.streamReader.failStreamable = "fragmented";
+    const uint32_t binds = h.streamReader.binds;
+    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+    CHECK_EQ(h.fs.reserves.size(), size_t(1));   // laid out, then checked: no conversion
+    CHECK_EQ(h.streamReader.binds, binds);
+    CHECK_STR(a.importNotice(), "Card too fragmented to stream: format the SD card");
+    oldKept(h);
+    // Any other reason is named.
+    h.streamReader.failStreamable = "open";
+    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+    CHECK_STR(a.importNotice(), "Cannot stream the file (open)");
+    oldKept(h);
+}
+
+TEST(import_precheck_refuses_without_a_free_binding) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    precheckSetup(h);
+    // The reader's 16 slots taken behind the App's back.
+    for (int i = 0; i < audio::kMaxStreams; ++i) {
+        audio::StreamSource s;
+        s.instrument = uint8_t(30 + i);
+        s.frames = 1;
+        CHECK(h.streamReader.bind(s, "Samples/old.wav", 0, false, nullptr));
+    }
+    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+    CHECK_STR(a.importNotice(), "16 instruments already stream from the card");
+    oldKept(h);
+}
+
+TEST(import_reserve_failure_with_room_says_fragmented) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    precheckSetup(h);
+    h.fs.capacity = h.fs.usedBytes() + 50000000;   // room, but no contiguous run
+    h.fs.reserveFails = true;
+    CHECK(a.importRoute("Samples/long.wav", 0) == ImportRoute::Streams);
+    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+    CHECK_STR(a.importNotice(), "Card too fragmented to stream: format the SD card");
+    oldKept(h);
+}
+
+TEST(import_file_ends_where_the_conversion_ends) {
+    // reserve() lays the whole file out at once (stale card data until
+    // written): the file ends where the writes did, here with a reserve
+    // that took more than the conversion writes.
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.reserveExtra = 4096;
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(a.lastJobOk());
+    CHECK_EQ(h.fs.files[instrPath(0)].size(), size_t(pti::kDataOff + 1500000u * 2u));
+    uint32_t frames = 0;
+    bool stereo = false;
+    CHECK(payloadEquals(h, 0, ramImport(h.fs.files["Samples/long.wav"], &frames, &stereo)));
+}
+
+TEST(import_cancel_after_reserve_removes_the_laid_out_file) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    precheckSetup(h);
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    CHECK(h.fs.files.count("Workspace/instruments/import.tmp"));
+    a.abortJob();
+    oldKept(h);
+}

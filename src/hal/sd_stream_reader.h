@@ -19,6 +19,7 @@ public:
     explicit SdStreamReader(SdStorage& sd);
     bool bind(const audio::StreamSource& s, const char* path, uint32_t dataOffset, bool stereo,
               audio::StreamBindInfo* info) override;
+    bool streamable(uint8_t instrument, const char* path, audio::StreamBindInfo* info) override;
     void unbind(uint8_t instrument) override;
     void unbindAll() override;
     bool bound(uint8_t instrument) const override;
