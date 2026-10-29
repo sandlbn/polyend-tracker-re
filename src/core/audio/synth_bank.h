@@ -138,6 +138,10 @@ public:
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
     void setSlotRecord(int s, const SynthSlotRecord& r);
+    // A hand edit of macro m (Synth Macros page) takes over from its FX CC
+    // override: the page value applies from the next block (slotView shows it
+    // at once); the next FX CC on that macro overrides it again.
+    void releaseMacro(int s, int m);
     const SynthSlotRecord& slotRecord(int s) const { return slots_[clampSlot(s)].rec; }
     SynthSlotView slotView(int s) const;
     bool slotAvailable(int s) const;
@@ -325,6 +329,7 @@ private:
     // before its data is read, so a later write is seen at the next block).
     volatile bool rebind_[kSynthSlots] = {};  // engine / patch must be re-read
     volatile bool recDirty_[kSynthSlots] = {};
+    volatile bool ovrRelease_[kSynthSlots][kSynthSeqMacros] = {};   // releaseMacro()
     SynthSlotRecord pendRec_[kSynthSlots];
     struct Audition {
         volatile uint8_t req = 0;   // 1 note on, 2 note off

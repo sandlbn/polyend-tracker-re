@@ -516,6 +516,39 @@ TEST(synth_stop_resets_macro_overrides) {
     CHECK_EQ(r.bank.slotView(1).macro[0], 0);
 }
 
+TEST(synth_macro_release_hands_back_to_the_page_value) {
+    // A hand edit of a macro on the Synth Macros page takes over from an FX
+    // CC override (user report: the macro stayed yellow and "locked" until
+    // Stop); the next FX CC on a later step takes it back.
+    BankRig r;
+    PatchMacro& m1 = r.patch[1].macros[0];
+    m1.count = 1;
+    m1.targets[0] = PatchTarget{10, b(0.5f)};   // resonance 0.5 -> +0.75 at m = 1
+    r.bank.patchChanged(1);
+    SynthSlotRecord rc = rec(SynthModel::ACD, 2);
+    rc.macros[0] = 0;
+    r.bank.setSlotRecord(1, rc);
+    r.block();
+    r.bank.macroFx(1, 0, 127);
+    r.bank.macroFx(1, 1, 90);   // another macro's override stays
+    r.block();
+    CHECK_NEAR(r.bank.params(1).end[10], 1.25f, 1e-6);
+    r.bank.releaseMacro(1, 0);
+    CHECK(!r.bank.slotView(1).overridden[0]);   // shown at once, before the block
+    CHECK_EQ(r.bank.slotView(1).macro[0], 0);
+    r.block();
+    CHECK_NEAR(r.bank.params(1).end[10], 0.5f, 1e-6);
+    CHECK(!r.bank.slotView(1).overridden[0]);
+    CHECK(r.bank.slotView(1).overridden[1]);
+    r.bank.macroFx(1, 0, 127);   // a later FX CC a takes over again
+    r.block();
+    CHECK_NEAR(r.bank.params(1).end[10], 1.25f, 1e-6);
+    CHECK(r.bank.slotView(1).overridden[0]);
+    r.bank.releaseMacro(1, 2);   // no override: nothing changes
+    r.block();
+    CHECK(r.bank.slotView(1).overridden[0]);
+}
+
 TEST(synth_unsupported_engine_silent) {
     // An engine missing from the build (WTFM hidden; every Mini model has an
     // engine since 2.2): the slot keeps its patch, plays nothing and reports

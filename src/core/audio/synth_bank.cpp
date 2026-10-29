@@ -66,6 +66,11 @@ void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
     recDirty_[s] = true;
 }
 
+void SynthBank::releaseMacro(int s, int m) {
+    if (s < 0 || s >= kSynthSlots || m < 0 || m >= kSynthSeqMacros) return;
+    ovrRelease_[s][m] = true;
+}
+
 bool SynthBank::slotAvailable(int s) const {
     const SynthSlotRecord& r = slotRecord(s);
     if (r.model >= uint32_t(kSynthModelCount)) return false;
@@ -89,7 +94,7 @@ SynthSlotView SynthBank::slotView(int s) const {
     v.limited = c < v.polyphony;
     v.sounding = voicesOf(s);
     for (int k = 0; k < kSynthSeqMacros; ++k) {
-        v.overridden[k] = sl.ovr[k] >= 0;
+        v.overridden[k] = sl.ovr[k] >= 0 && !ovrRelease_[s][k];
         v.macro[k] = v.overridden[k] ? uint8_t(sl.ovr[k]) : (r.macros[k] > 127 ? 127 : r.macros[k]);
     }
     v.lastVelocity = sl.lastVel;
@@ -188,6 +193,14 @@ int SynthBank::busyRecords() const {
 void SynthBank::sync() {
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
+        for (int k = 0; k < kSynthSeqMacros; ++k) {
+            if (!ovrRelease_[s][k]) continue;
+            ovrRelease_[s][k] = false;
+            if (sl.ovr[k] >= 0) {
+                sl.ovr[k] = -1;
+                sl.macroDirty = true;
+            }
+        }
         if (recDirty_[s]) {
             recDirty_[s] = false;
             // The App re-sends every record after any project edit

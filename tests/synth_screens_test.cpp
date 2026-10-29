@@ -175,6 +175,36 @@ TEST(record_edits_apply_live) {
     (void)s;
 }
 
+TEST(macro_edit_takes_over_from_fx_override) {
+    // User report: after an FX CC a set M1 during playback, M1 stayed yellow
+    // and turning it did nothing until Stop. A hand edit (encoder, Up/Down,
+    // Delete) now releases that macro's override.
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    audio::SynthBank& bank = a.engine.synth();
+    const uint8_t page0 = a.synthSlot(1).macros[0];
+    bank.macroFx(1, 0, 100);
+    bank.macroFx(1, 1, 100);
+    CHECK(bank.slotView(1).overridden[0]);
+    h.tap(btn::F1);
+    h.enc(3);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), int(page0) + 3);
+    CHECK(!bank.slotView(1).overridden[0]);
+    CHECK_EQ(int(bank.slotView(1).macro[0]), int(page0) + 3);
+    CHECK(bank.slotView(1).overridden[1]);   // only the edited macro
+    bank.auditionOn(1, 60);
+    h.audio.pump(1);
+    bank.auditionOff();
+    h.audio.pump(1);
+    CHECK(!bank.slotView(1).overridden[0]);
+    // Delete on an overridden macro: back to its default, override gone.
+    h.tap(btn::F2);
+    h.tap(btn::Delete);
+    CHECK(!bank.slotView(1).overridden[1]);
+}
+
 TEST(model_change_loads_init) {
     Harness h;
     App& a = *h.app;

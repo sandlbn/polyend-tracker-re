@@ -336,6 +336,7 @@ void SynthScreen::resetSelected() {
     } else if (view == View::Macros) {
         const int k = clampi(macro, 0, audio::kSynthSeqMacros - 1);
         r.macros[k] = audio::synthMacroDefault(app_.synthPatch(slot).macros[k].bipolar);
+        app_.engine.synth().releaseMacro(slot, k);   // the hand edit wins over an FX CC
     } else {
         return;
     }
@@ -400,6 +401,7 @@ void SynthScreen::macroChange(int d) {
     SynthSlotRecord r = app_.synthSlot(slot);
     const int k = clampi(macro, 0, audio::kSynthSeqMacros - 1);
     r.macros[k] = uint8_t(clampi(int(r.macros[k]) + d, 0, 127));
+    app_.engine.synth().releaseMacro(slot, k);   // the hand edit wins over an FX CC
     app_.setSynthSlotRecord(slot, r);
     refreshBar();
     ui_.dirty();
@@ -969,7 +971,7 @@ void SynthScreen::drawMacros(Gfx& g) {
         const int val = sv.overridden[k] ? sv.macro[k] : r.macros[k];
         const bool bi = p.macros[k].bipolar;
         const float v = bi ? clampf(float(val - 63) / 64.0f, -1.0f, 1.0f) : float(val) / 127.0f;
-        // An FX CC override (sequencer) shows in yellow until Stop.
+        // An FX CC override (sequencer) shows in yellow until Stop or a hand edit.
         barColumn(g, th, k, v, bi, !ro, kMacroBarH, sv.overridden[k] ? th.slot(slot::kYellow) : wg::kThemeColour);
     }
     wg::panel(g, th, wg::columnX(6), wg::kPanelY, wg::columnW(2), kMacroBarH);
