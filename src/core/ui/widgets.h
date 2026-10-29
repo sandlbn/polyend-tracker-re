@@ -290,6 +290,10 @@ struct ListView {
     // Item text; `marked` (may be null) selects text colour[5].
     void (*item)(void* ctx, int index, char* out, int cap) = nullptr;
     bool (*marked)(void* ctx, int index) = nullptr;
+    // 2.x (may be null): a short tag drawn right-aligned at the row's right
+    // edge in the row's text colour; the name column ends before it (the
+    // Sample Loader's '~' for a file that will stream from the card).
+    const char* (*tag)(void* ctx, int index) = nullptr;
     void* ctx = nullptr;
 };
 // Rows that fit: (h - 4) / 27 (14 for a 394-px list).

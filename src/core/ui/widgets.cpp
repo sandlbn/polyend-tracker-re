@@ -648,7 +648,7 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
     if (v.item) {
         g.clip(v.x + 3, v.y, innerW, v.h);
         // Text from x + 13; the column ends at the clip's right edge.
-        const int left = v.x + 3, right = v.x + 3 + innerW;
+        const int left = v.x + 3, colRight = v.x + 3 + innerW;
         for (int r = 0; r < visible; ++r) {
             const int idx = v.top + r;
             if (idx >= v.count) break;
@@ -658,6 +658,14 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             const bool marked = v.marked && v.marked(v.ctx, idx);
             const uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
             const int ty = v.y + 17 + kListRowH * r;
+            // A tag takes the row's right end; the name column shrinks by it.
+            const char* tag = v.tag ? v.tag(v.ctx, idx) : nullptr;
+            int right = colRight, tagW = 0;
+            if (tag && tag[0]) {
+                tagW = textWidth(v.font, tag) + 8;
+                right -= tagW;
+                g.text(colRight - 4, ty, v.font, tc, tag, IDisplay::kOptRightX | IDisplay::kOptCenterY);
+            }
             const int tw = textWidth(v.font, buf);
             if (idx == v.sel && v.selStyle != ListSel::kNone && v.x + 13 + tw > right) {
                 // Marquee (spec 20 §1.6): the text and its repeat after a
@@ -670,7 +678,7 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             }
             // Glyphs that start right of the clip are invisible but still
             // cost RAM_DL words (31-char names: VERIFY_1.9.5 R4): cut them.
-            const int room = innerW - 10;
+            const int room = innerW - 10 - tagW;
             int n = 0, pen = 0;
             while (buf[n] && pen < room) pen += textWidth(v.font, buf + n++, 1);
             buf[n] = 0;

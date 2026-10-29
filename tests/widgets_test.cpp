@@ -741,3 +741,53 @@ TEST(dark_strip_matches_stock) {
     CHECK_EQ(wg::stripColour(theme(2), wg::StripStyle::kDark), 0x000000u);
     CHECK_EQ(wg::stripColour(theme(0), wg::StripStyle::kNormal), 0x0A0A0Au);
 }
+
+// 2.x: an optional right-aligned tag per row (the Sample Loader's '~' for a
+// file that will stream from the card). The name column ends before it.
+TEST(list_tag_is_right_aligned_and_shrinks_the_name_column) {
+    // The cut is counted in glyphs of one width ('a'). Column (scroll
+    // bar): x 4..288, text from x 14, glyphs cut at innerW - 10 = 274 px.
+    static const int gw = textWidth(kFont1, "a", 1);
+    static const int fitN = (288 - 14) / gw - 1;   // fits the full column, not the tagged one
+    auto run = [](bool tagged) {
+        wg::ListView lv;
+        lv.x = 1;
+        lv.y = 61;
+        lv.w = 297;
+        lv.h = 362;
+        lv.count = 20;
+        lv.sel = 0;
+        lv.background = false;
+        lv.item = [](void*, int i, char* o, int cap) {
+            std::snprintf(o, size_t(cap), "%s", i == 0 ? std::string(size_t(fitN), 'a').c_str()
+                                                : i == 1 ? std::string(60, 'a').c_str()
+                                                         : "short");
+        };
+        if (tagged) lv.tag = [](void*, int i) -> const char* { return i <= 1 ? "~" : (i == 2 ? "" : nullptr); };
+        return frame([&](Gfx& g) { wg::list(g, O(), lv); });
+    };
+    auto count = [](const std::string& l, char c) { return int(std::count(l.begin(), l.end(), c)); };
+    auto rowText = [](const std::vector<std::string>& dl, int y) {
+        const std::string pre = "TEXT 14 " + std::to_string(y) + " ";
+        for (const std::string& l : dl)
+            if (l.rfind(pre, 0) == 0) return l;
+        return std::string();
+    };
+    const std::vector<std::string> plain = run(false), tag = run(true);
+    CHECK(!hasText(plain, "~"));
+    // The tag at the column's right edge - 4, right-aligned, centred on the row.
+    const std::string t = textLine(tag, "~");
+    CHECK(t.rfind("TEXT 284 78 ", 0) == 0);
+    CHECK(t.find(" o3072 ") != std::string::npos);
+    int tags = 0;
+    for (const std::string& l : tag) tags += l.rfind("TEXT", 0) == 0 && l.find("\"~\"") != std::string::npos;
+    CHECK_EQ(tags, 2);   // rows 0 and 1; "" and null draw nothing
+    // A long unselected name is cut textWidth("~") + 8 px earlier.
+    const int shrink = (textWidth(kFont1, "~") + 8 + gw - 1) / gw;
+    CHECK(count(rowText(plain, 105), 'a') < 60);
+    CHECK_EQ(count(rowText(plain, 105), 'a') - count(rowText(tag, 105), 'a'), shrink);
+    // A selected name that fits the full column scrolls inside the narrower one.
+    CHECK_EQ(count(rowText(plain, 78), 'a'), fitN);
+    CHECK(count(rowText(tag, 78), 'a') < fitN);
+    CHECK(textLine(tag, "short") == textLine(plain, "short"));
+}
