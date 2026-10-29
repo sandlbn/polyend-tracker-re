@@ -77,7 +77,9 @@ public:
         if (f.size() > open_[h].pos) f.resize(open_[h].pos);
         return true;
     }
+    int freeScans = 0;   // freeBytes() calls (the device scans the whole FAT the first time)
     uint64_t freeBytes() override {
+        ++freeScans;
         if (!capacity) return UINT64_MAX;
         const uint64_t u = usedBytes();
         return u >= capacity ? 0 : capacity - u;

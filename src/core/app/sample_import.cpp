@@ -135,7 +135,9 @@ ImportRoute App::importRoute(const char* path, int slot, uint32_t* bankBytes) {
     if (bankBytes) *bankBytes = 0;
     ImportProbe p;
     if (!path || slot < 0 || slot >= kSampleInstrumentCount || !importProbe(path, p)) return ImportRoute::Unreadable;
-    return importRoute(p, slot, bankBytes, nullptr, fs().freeBytes());
+    // No free-space query (a whole-FAT scan after a mount): the import's
+    // reserve() says when the card is full.
+    return importRoute(p, slot, bankBytes, nullptr, UINT64_MAX);
 }
 
 ImportRoute App::importRoute(const ImportProbe& p, int slot, uint32_t* bankBytes, StreamWhy* why,
@@ -182,7 +184,9 @@ bool App::startStreamedImport(const char* path, int slot, void (*done)(void*, bo
     StreamWhy streamWhy = StreamWhy::None;
     const ImportRoute route = !path || !probe(fs(), path, s)
                                   ? ImportRoute::Unreadable
-                                  : importRoute(probeOf(s), slot, nullptr, &streamWhy, fs().freeBytes());
+                                  // No free-space query: the first after a mount scans the
+                                  // whole FAT (seconds); reserve() below fails on a full card.
+                                  : importRoute(probeOf(s), slot, nullptr, &streamWhy, UINT64_MAX);
     if (route != ImportRoute::Streams) {
         const char* why = "Cannot read the file";
         switch (route) {

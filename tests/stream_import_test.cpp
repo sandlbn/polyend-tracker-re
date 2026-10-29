@@ -238,9 +238,31 @@ TEST(import_card_full_keeps_old_instrument) {
     CHECK(a.importSample("Samples/old.wav", 0));
     h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
     h.fs.capacity = h.fs.usedBytes() + 300000;   // less than the 3 MB file
-    CHECK(a.importRoute("Samples/long.wav", 0) == ImportRoute::CardFull);
-    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+    CHECK(!a.startStreamedImport("Samples/long.wav", 0));   // reserve() refuses, before converting
+    CHECK_STR(a.importNotice(), "Not enough space on the SD card");
     CHECK_STR(a.instruments[0].name, "old");
+}
+
+TEST(streamed_import_with_room_scans_no_free_space) {
+    // Device: the first free-space query after a mount scans the whole FAT
+    // (2.3 s on a 16 GB card, the main loop stalled). The reservation fails
+    // by itself on a full card, so a streamed Add only asks for the free
+    // space when it does.
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    h.fs.capacity = h.fs.usedBytes() + 8000000;
+    h.fs.freeScans = 0;
+    CHECK(a.importRoute("Samples/long.wav", 0) == ImportRoute::Streams);   // the Loader's Add asks this first
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    CHECK_EQ(h.fs.freeScans, 0);
+    // A full card still says so, before any conversion.
+    h.fs.files["Samples/long2.wav"] = makeWav(1500000, 1, 44100, 4);
+    for (int k = 0; k < 4000 && a.jobBusy(); ++k) h.run(20);
+    h.fs.capacity = h.fs.usedBytes() + 300000;
+    CHECK(!a.startStreamedImport("Samples/long2.wav", 1));
+    CHECK_STR(a.importNotice(), "Not enough space on the SD card");
 }
 
 TEST(import_refused_when_streaming_is_off) {
