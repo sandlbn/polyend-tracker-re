@@ -1046,7 +1046,12 @@ void PatternScreen::editEncoder(int d) {
         a.markProjectDirty();
         if (!a.seq.isPlaying() && r.single() && n >= 0) {
             a.editorTrack = uint8_t(track);
-            a.previewOn(App::kAuditionEncoder, a.pattern().tracks[r.t0].steps[r.s0].instrument, uint8_t(n), 127);
+            const uint8_t ins = a.pattern().tracks[r.t0].steps[r.s0].instrument;
+            // A synth audition has no release event, so it held the note
+            // (issue #117): re-trigger the row as stock does (spec 06 §1.6),
+            // one step and then the patch's release.
+            if (isSynthInstrument(ins)) a.seq.playSelection(r.s0, r.s0, r.t0, r.t0, false);
+            else a.previewOn(App::kAuditionEncoder, ins, uint8_t(n), 127);
         }
     } else if (col == 1) {
         pops::stepInstrument(a.pattern(), r, d);

@@ -1417,6 +1417,37 @@ TEST(stop_cuts_synth_voices) {
     CHECK_EQ(a.engine.synth().busyRecords(), 0);
 }
 
+// Issue #117: in edit mode the note encoder on a synth step held the note
+// forever. Stock re-triggers the edited row (spec 06 §1.6 Encoder, Note
+// column), so the note gets one step and then the patch's release.
+TEST(note_encoder_on_a_synth_step_releases) {
+    Harness h;
+    App& a = *h.app;
+    audio::synthParamSet(a.synthPatch(1), 17, 1.0f);    // held tone
+    audio::synthParamSet(a.synthPatch(1), 18, 0.01f);   // short release
+    a.markSynthPatchDirty(1);
+    Step& st = a.pattern().tracks[0].steps[0];
+    st.note = 60;
+    st.instrument = 65;
+    a.patternEdited();
+    h.tap(btn::Rec);
+    CHECK(a.editMode);
+    h.enc(1);
+    CHECK_EQ(int(a.pattern().tracks[0].steps[0].note), 61);
+    bool sounded = false;
+    for (int i = 0; i < 10; ++i) {
+        h.audio.pump(4);
+        h.run(10);
+        sounded = sounded || a.engine.synth().sounding() > 0;
+    }
+    CHECK(sounded);
+    for (int i = 0; i < 200; ++i) {   // ~2 s: one step at 130 BPM, then the release
+        h.audio.pump(4);
+        h.run(10);
+    }
+    CHECK_EQ(a.engine.synth().sounding(), 0);
+}
+
 TEST(synth_edit_wheel_hint_lists_and_values) {
     // The simulator flips its wheel on lists (Ui::encoderOnList): in Edit
     // Patch the enum rows (Filter Type, LFO Waveform) are lists, value rows
