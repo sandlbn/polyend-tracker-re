@@ -18,6 +18,32 @@ bool streamDecision(const StreamDecisionIn& in) {
     return in.frames >= uint32_t(in.thresholdSec) * kRate || (in.overBudget && in.frames >= 2u * kRate);
 }
 
+ImportDecision importDecision(const ImportDecisionIn& in) {
+    ImportDecision d;
+    if (in.mode == StreamMode::Off || !in.readerAvailable) return d;
+    StreamDecisionIn o;
+    o.mode = in.mode;
+    o.playMode = in.playMode;
+    o.frames = in.frames;
+    o.stereo = in.stereo;
+    o.thresholdSec = in.thresholdSec;
+    o.overBudget = !in.fitsWhole;
+    o.readerAvailable = true;
+    o.streamsInUse = in.streamsInUse;
+    if (streamDecision(o)) {
+        d.streams = true;
+        d.why = in.mode == StreamMode::All                          ? StreamWhy::All
+                : in.frames >= uint32_t(in.thresholdSec) * kRate ? StreamWhy::Threshold
+                                                                   : StreamWhy::NoFit;
+        return d;
+    }
+    if (in.fitsWhole) return d;
+    d.streams = true;   // does not fit: the fallback, whatever the length
+    d.why = StreamWhy::NoFit;
+    d.forcedOneShot = in.playMode != uint8_t(PlayMode::OneShot) && in.playMode != uint8_t(PlayMode::ForwardLoop);
+    return d;
+}
+
 StreamResident streamResident(uint8_t playMode, uint32_t frames, uint16_t loopPoint1) {
     StreamResident r;
     r.headFrames = frames < audio::kStreamHeadFrames ? frames : audio::kStreamHeadFrames;

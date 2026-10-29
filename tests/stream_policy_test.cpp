@@ -46,6 +46,81 @@ TEST(decision_table) {
     CHECK(!streamDecision(d));
 }
 
+namespace {
+ImportDecisionIn imp(StreamMode m, uint8_t play, uint32_t frames, bool fits) {
+    ImportDecisionIn d;
+    d.mode = m;
+    d.playMode = play;
+    d.frames = frames;
+    d.thresholdSec = 10;
+    d.fitsWhole = fits;
+    d.readerAvailable = true;
+    d.streamsInUse = 0;
+    return d;
+}
+}  // namespace
+
+// The Sample Loader import (sample_import.cpp) follows the open rule above,
+// with "the project does not fit" read as "this sample does not fit".
+TEST(import_decision_follows_the_open_rule_for_streamable_modes) {
+    const uint8_t one = uint8_t(PlayMode::OneShot), loop = uint8_t(PlayMode::ForwardLoop);
+    const uint32_t s = 44100;
+    ImportDecision d = importDecision(imp(StreamMode::Auto, one, 12 * s, true));
+    CHECK(d.streams);
+    CHECK(d.why == StreamWhy::Threshold);
+    CHECK(!d.forcedOneShot);
+    CHECK(!importDecision(imp(StreamMode::Auto, one, 9 * s, true)).streams);   // under 10 s, fits
+    ImportDecisionIn t = imp(StreamMode::Auto, loop, 12 * s, true);
+    t.thresholdSec = 20;
+    CHECK(!importDecision(t).streams);
+    t.thresholdSec = 5;
+    CHECK(importDecision(t).why == StreamWhy::Threshold);
+    d = importDecision(imp(StreamMode::All, loop, 65537, true));
+    CHECK(d.streams);
+    CHECK(d.why == StreamWhy::All);
+    CHECK(!importDecision(imp(StreamMode::All, one, 65536, true)).streams);
+    CHECK(!importDecision(imp(StreamMode::Off, one, 60 * s, true)).streams);
+    ImportDecisionIn r = imp(StreamMode::All, one, 60 * s, true);
+    r.readerAvailable = false;
+    CHECK(!importDecision(r).streams);
+    // 16 already stream: one that fits loads into memory, as at an open.
+    r = imp(StreamMode::All, one, 60 * s, true);
+    r.streamsInUse = audio::kMaxStreams;
+    CHECK(!importDecision(r).streams);
+    // Does not fit, over 2 s: streams for that reason.
+    d = importDecision(imp(StreamMode::Auto, one, 3 * s, false));
+    CHECK(d.streams);
+    CHECK(d.why == StreamWhy::NoFit);
+}
+
+TEST(import_decision_keeps_non_streamable_modes_that_fit) {
+    const uint32_t s = 44100;
+    const uint8_t modes[] = {uint8_t(PlayMode::Slice), uint8_t(PlayMode::Granular), uint8_t(PlayMode::Wavetable),
+                             uint8_t(PlayMode::BackwardLoop), uint8_t(PlayMode::PingPongLoop)};
+    for (uint8_t m : modes) {
+        CHECK(!importDecision(imp(StreamMode::Auto, m, 30 * s, true)).streams);
+        CHECK(!importDecision(imp(StreamMode::All, m, 30 * s, true)).streams);
+    }
+}
+
+TEST(import_decision_no_fit_fallback_forces_oneshot_without_a_length_floor) {
+    const uint32_t s = 44100;
+    // A non-streamable mode that does not fit: streams as 1-Shot.
+    ImportDecision d = importDecision(imp(StreamMode::Auto, uint8_t(PlayMode::Slice), 30 * s, false));
+    CHECK(d.streams);
+    CHECK(d.why == StreamWhy::NoFit);
+    CHECK(d.forcedOneShot);
+    // Short (under 2 s, under 65,536 frames) and still too big: streams.
+    d = importDecision(imp(StreamMode::Auto, uint8_t(PlayMode::OneShot), 30000, false));
+    CHECK(d.streams);
+    CHECK(d.why == StreamWhy::NoFit);
+    CHECK(!d.forcedOneShot);
+    d = importDecision(imp(StreamMode::All, uint8_t(PlayMode::Granular), 30000, false));
+    CHECK(d.streams && d.forcedOneShot);
+    // Off or no reader: refused (the caller says why).
+    CHECK(!importDecision(imp(StreamMode::Off, uint8_t(PlayMode::OneShot), 30 * s, false)).streams);
+}
+
 TEST(resident_layout_head_and_loop_head) {
     const StreamResident a = streamResident(uint8_t(PlayMode::OneShot), 500000, 30000);
     CHECK_EQ(a.headFrames, audio::kStreamHeadFrames);
