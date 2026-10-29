@@ -1,0 +1,71 @@
+name: Theme Editor Pages
+
+on:
+  push:
+    paths:
+      - .github/workflows/theme-editor-pages.yml
+      - tools/theme-editor/**
+      - src/core/ui/theme.cpp
+      - src/core/ui/theme_file.cpp
+      - themes/**
+  pull_request:
+    paths:
+      - .github/workflows/theme-editor-pages.yml
+      - tools/theme-editor/**
+      - src/core/ui/theme.cpp
+      - src/core/ui/theme_file.cpp
+      - themes/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: theme-editor-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pages: read
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: tools/theme-editor/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: tools/theme-editor
+      - name: Test
+        run: npm test
+        working-directory: tools/theme-editor
+      - name: Build for GitHub Pages
+        run: npm run build -- --base "/${{ github.event.repository.name }}/"
+        working-directory: tools/theme-editor
+      - name: Configure Pages
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: tools/theme-editor/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref_name == github.event.repository.default_branch
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
