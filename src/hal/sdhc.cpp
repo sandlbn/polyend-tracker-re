@@ -468,6 +468,10 @@ void skipDirectWriteCheck() { gSdramWr = false; gDirectWr = DirectCheck::Skipped
 
 void release() {
     gReady = false;
+    // Without a card init() never ran: the SDHC clock gate is off and any
+    // register access is a BusFault (boot with no card, then the power gate
+    // or a soft-off unmounts: HardFault at SYSCTL 0x400B102C).
+    if (!(SIM_SCGC3 & SIM_SCGC3_SDHC)) return;
     SDHC_SYSCTL &= ~SDHC_SYSCTL_SDCLKEN;
 }
 
