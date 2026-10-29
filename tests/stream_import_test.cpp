@@ -79,6 +79,35 @@ void streaming(Harness& h, uint8_t mode) {
     CHECK(a.streamingOn() == (mode != 0));
 }
 
+bool drew(Harness& h, const char* s) {
+    for (const std::string& l : h.disp.last)
+        if (l.find(s) != std::string::npos) return true;
+    return false;
+}
+
+// Vertices drawn inside the Sample Playback wave area (x < 600, y 116..334):
+// the wave is hundreds of column rects, the markers and strip a few.
+int waveAreaVertices(Harness& h) {
+    int n = 0;
+    for (const std::string& l : h.disp.last) {
+        int x = 0, y = 0;
+        if (std::sscanf(l.c_str(), "VERTEX %d %d", &x, &y) == 2 && x >= 0 && x < 600 && y >= 116 && y <= 334) ++n;
+    }
+    return n;
+}
+
+// A 34.014 s mono WAV imported into slot 0: streams, 32768 frames resident.
+void importLong(Harness& h) {
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(a.streamed(0));
+    CHECK_EQ(a.bank.frames(0), 32768u);
+    CHECK_EQ(a.bank.fullFrames(0), 1500000u);
+}
+
 }  // namespace
 
 TEST(import_long_wav_streams_from_workspace_file) {
@@ -171,6 +200,34 @@ TEST(import_cancel_removes_tmp_keeps_old_instrument) {
     CHECK_STR(a.instruments[0].name, "old");
     CHECK(!a.bank.partial(0));
     CHECK_EQ(a.bank.frames(0), 20000u);
+}
+
+TEST(import_bind_failure_names_the_reason) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/long.wav"] = makeWav(1500000, 1, 44100, 3);
+    // Only a fragmented card is fixed by formatting it.
+    h.streamReader.failBind = "fragmented";
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(!a.lastJobOk());
+    CHECK_STR(a.importNotice(), "Card too fragmented to stream: format the SD card");
+    CHECK(!a.instrPresent[0]);
+    CHECK(!a.streamed(0));
+    CHECK(!h.fs.files.count(instrPath(0)));
+    // Any other reason is named as it is.
+    h.streamReader.failBind = "map check";
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(!a.lastJobOk());
+    CHECK_STR(a.importNotice(), "Cannot stream the file (map check)");
+    CHECK(!a.instrPresent[0]);
+    h.streamReader.failBind = nullptr;
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    run(a);
+    CHECK(a.lastJobOk());
+    CHECK_STR(a.importNotice(), "Streams from the card");
 }
 
 TEST(import_card_full_keeps_old_instrument) {
@@ -297,4 +354,45 @@ TEST(loader_delete_cancels_the_import) {
     CHECK(!a.instrPresent[0]);
     CHECK(!h.fs.files.count("Workspace/instruments/import.tmp"));
     CHECK(std::string(a.ui.notice()).find("cancelled") != std::string::npos);
+}
+
+TEST(playback_bar_times_use_the_full_length_when_streamed) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    importLong(h);
+    a.setCurrentInstrument(0);
+    h.tap(btn::SamplePlayback);
+    h.run(50);
+    CHECK_STR(a.ui.bar.label[4].bottom, "34.014s");   // the whole sample, not the 0.743 s head
+    CHECK_STR(a.ui.bar.label[1].bottom, "0.000s");
+    // The markers move over the whole length: a step of End is a step of 34 s.
+    CHECK_EQ(a.instruments[0].endPoint, 65535);
+    h.tap(btn::InstrParams);
+    h.run(50);
+    a.instruments[0].endPoint = 32768;
+    h.tap(btn::SamplePlayback);
+    h.run(50);
+    CHECK_STR(a.ui.bar.label[4].bottom, "17.007s");
+}
+
+TEST(playback_streamed_hides_wave) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    importLong(h);
+    h.fs.files["Samples/short.wav"] = makeWav(20000, 1, 44100, 9);
+    CHECK(a.importSample("Samples/short.wav", 1));
+    // A RAM instrument: its wave is drawn.
+    a.setCurrentInstrument(1);
+    h.tap(btn::SamplePlayback);
+    h.run(50);
+    CHECK(waveAreaVertices(h) > 300);
+    CHECK(!drew(h, "Streams from the card"));
+    // Streamed: no wave (only the head is in memory), a caption instead; the
+    // Start / End markers stay.
+    a.setCurrentInstrument(0);
+    h.tap(btn::SamplePlayback);
+    h.run(50);
+    CHECK(drew(h, "Streams from the card"));
+    CHECK(waveAreaVertices(h) < 60);
+    CHECK(waveAreaVertices(h) > 0);
 }

@@ -6,17 +6,18 @@
 namespace ot {
 
 const StorageStreamReader::Binding* StorageStreamReader::find(uint8_t instrument) const {
-    for (const Binding& b : b_)
-        if (b.instrument == instrument) return &b;
-    return nullptr;
+    return audio::streamBindingFind(b_, audio::kMaxStreams, instrument);
 }
 
 bool StorageStreamReader::bind(const audio::StreamSource& s, const char* path, uint32_t dataOffset, bool stereo,
                                audio::StreamBindInfo* info) {
     audio::StreamBindInfo dummy;
     if (!info) info = &dummy;
-    Binding* slot = const_cast<Binding*>(find(s.instrument));
-    if (!slot) slot = const_cast<Binding*>(find(0xFF));
+    if (failBind) {
+        info->reason = failBind;
+        return false;
+    }
+    Binding* slot = audio::streamBindingSlot(b_, audio::kMaxStreams, s.instrument);
     if (!slot) {
         info->reason = "no slot";
         return false;
@@ -43,13 +44,9 @@ bool StorageStreamReader::bind(const audio::StreamSource& s, const char* path, u
     return true;
 }
 
-void StorageStreamReader::unbind(uint8_t instrument) {
-    if (Binding* b = const_cast<Binding*>(find(instrument))) *b = Binding{};
-}
+void StorageStreamReader::unbind(uint8_t instrument) { audio::streamBindingUnbind(b_, audio::kMaxStreams, instrument); }
 
-void StorageStreamReader::unbindAll() {
-    for (Binding& b : b_) b = Binding{};
-}
+void StorageStreamReader::unbindAll() { audio::streamBindingUnbindAll(b_, audio::kMaxStreams); }
 
 bool StorageStreamReader::bound(uint8_t instrument) const { return instrument != 0xFF && find(instrument); }
 

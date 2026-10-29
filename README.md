@@ -114,6 +114,10 @@ same way, or put its file name into `/Firmware/ot_restore.txt` and power-cycle. 
 image you want, plus stock, in `/Firmware`: the rear reset button installs a random `.ptf`
 from that folder.
 
+**Stack guard:** 2.x stops a stack overflow with a reset and says "Restarted after a crash
+(stack overflow)" on the next boot. To run without the guard, put an empty
+`/Firmware/ot_noguard.txt` on the card.
+
 **Note:** projects saved by 2.x use the Mini's 16-track patterns. Stock firmware for the
 original Tracker reads only tracks 1–8 of those patterns (expected from the stock loader's
 rules; not yet confirmed on a stock unit).

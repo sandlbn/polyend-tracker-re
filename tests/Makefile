@@ -25,6 +25,11 @@ $(OUT)/%_test: %_test.cpp $(OUT)/libcore.a
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $< $(OUT)/libcore.a $(LDFLAGS) -o $@
 
+# Simulator storage boundary checks without SDL or the core library.
+$(OUT)/host_storage_test: host_storage_test.cpp ../sim/src/host_storage.cpp ../sim/src/host_storage.h
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) $< ../sim/src/host_storage.cpp $(LDFLAGS) -o $@
+
 # The Sample Editor effects against their pre-speed-work copy (sample_fx_ref.cpp).
 $(OUT)/sample_fx_speed_test: sample_fx_speed_test.cpp sample_fx_ref.cpp sample_fx_ref.h $(OUT)/libcore.a
 	@mkdir -p $(dir $@)

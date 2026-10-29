@@ -38,7 +38,9 @@ Options:
 | `--wav OUT.wav` | headless: record the rendered audio |
 | `--instant-display` | show every frame at once (also `OT_SIM_BUSY=0`). Default: FT81x frame pacing -- a frame is uploaded, then shown at the next 54 Hz vsync, `frameReady()` false meanwhile |
 
-The workspace is autosaved to the SD folder when the window closes.
+The workspace is autosaved to the SD folder when the window closes. Symlinks
+inside that folder are refused and omitted from file listings, so card paths
+cannot follow them into other host directories.
 
 ## Front panel and key map
 

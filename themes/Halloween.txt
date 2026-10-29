@@ -1,0 +1,45 @@
+# OpenTracker theme "Halloween" (Config > General > Export theme).
+# Hybrid of Anniversary + Original with Dracula-inspired highlights.
+base = original
+
+background = #000000
+title_bg = #000000
+title_text = #FFFFFF
+text = #C9C9CA
+inverse_text = #FFFFFF
+inverse_bg = #000000
+dim = #6272a4
+scroll_thumb = #575757
+scroll_track = #000000
+line2 = #000000
+label_text_off = #333333
+label_bg = #323132
+strip = #0A0A0A
+panel = #0A0A0A
+panel2 = #222222
+accent = #CD1818
+alert = #ff5555
+good = #50fa7b
+yellow = #FEF749
+orange = #ffb86c
+cyan = #8be9fd
+note = #7acabd
+instrument = #FEF749
+fx1 = #BB58F1
+fx2 = #93ced8
+note_empty = #7acabd
+instrument_empty = #FEF749
+fx1_empty = #BB58F1
+fx2_empty = #93ced8
+grid_header = #282a36
+grid_bg = #080808
+grid_beat = #0E0E0E
+grid_muted = #171717
+grid_cursor_row = #734096
+grid_cursor_text = #2d2d2d
+grid_cursor_alt = #fe8249
+grid_lines = #734096
+wave = #C9C9CA
+focus_fill = #3F3F3F
+marker_grey = #909090
+marker_sel = #444344

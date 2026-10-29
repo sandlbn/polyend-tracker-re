@@ -7,6 +7,7 @@
 
 #include <cstdint>
 
+#include "audio/stream_bindings.h"
 #include "audio/stream_source.h"
 #include "hal_api.h"
 
@@ -23,13 +24,15 @@ public:
     bool read(const audio::StreamSource& s, uint32_t frame, uint32_t n, int16_t* l, int16_t* r) override;
 
     // Test hooks: calls made; failAfter >= 0 makes reads fail after that many
-    // more (a card pulled mid-stream).
+    // more (a card pulled mid-stream); failBind makes binds fail with that
+    // reason (the device reader's "fragmented", "map check").
     uint32_t reads = 0, binds = 0;
     int failAfter = -1;
+    const char* failBind = nullptr;
 
 private:
     struct Binding {
-        uint8_t instrument = 0xFF;
+        uint8_t instrument = audio::kStreamFree;
         bool stereo = false;
         uint32_t dataOffset = 0, frames = 0;
         char path[344] = {};

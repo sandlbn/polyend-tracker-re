@@ -13,6 +13,10 @@ namespace sim {
 class HostStorage final : public ot::IStorage {
 public:
     static constexpr int kMaxOpen = 32;
+    ~HostStorage() override;
+    HostStorage() = default;
+    HostStorage(const HostStorage&) = delete;
+    HostStorage& operator=(const HostStorage&) = delete;
     // Creates the root directory if needed. Returns false if it is unusable.
     bool init(const std::string& root);
     const std::string& root() const { return root_; }
@@ -42,9 +46,10 @@ private:
     }
     bool locked_ = false;
     int lockedAccess_ = 0;
-    // Resolve a card path to a host path. If the last component does not exist,
-    // it is appended as given (parent components must exist when mustExist).
-    bool resolve(const char* path, std::string& out, bool* existsOut = nullptr) const;
+    // Returns an owned parent directory descriptor and a leaf name. Each
+    // directory is opened without following symlinks, relative to the root.
+    int resolve(const char* path, std::string& leaf, bool* existsOut = nullptr) const;
+    int rootFd_ = -1;
     std::FILE* get(Handle h) const { return h >= 0 && h < kMaxOpen ? files_[h] : nullptr; }
 
     std::string root_;

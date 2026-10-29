@@ -432,7 +432,10 @@ void otAppMain(ot::hal::HalSet& hal) {
     gApp.ui.platform.dlOverflow = &dlOverflow;     // RAM_DL guard (Ui::render)
     if (hal::bootReport().sdMounted) gApp.boot();
     // Stack guard: an overflow resets the Tracker; say so on screen, not
-    // only in the USB diag log, so it never looks like a random reboot.
-    if (hal::lastResetWasLockup()) gApp.ui.notify("Restarted after a crash (stack overflow)", 8000);
+    // only in the USB diag log, so it never looks like a random reboot. With
+    // the guard off (ot_noguard.txt) a lockup is some other double fault.
+    if (hal::lastResetWasLockup())
+        gApp.ui.notify(hal::stackGuardArmed() ? "Restarted after a crash (stack overflow)"
+                                              : "Restarted after a crash", 8000);
     gApp.run();
 }

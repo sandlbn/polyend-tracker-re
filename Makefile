@@ -209,7 +209,8 @@ clean:
 #     600,000 B (docs/VERIFY_M1.md R4); builds build/opentracker.elf when it is stale.
 #  5. Stack frames (-fstack-usage .su files): fail when one function's frame reaches the stack
 #     guard (src/hal/stack_guard.h) less 256 B for an interrupt's exception frame, or is
-#     unbounded; warn above 75 % of the guard.
+#     unbounded, or when an object of the image has no .su file (built before the flag:
+#     make clean); warn above 75 % of the guard.
 PERF_OUT := build/perf
 perf-gate:
 	@mkdir -p $(PERF_OUT)
@@ -221,7 +222,7 @@ perf-gate:
 	    { $(MAKE) -s $(BUILD)/opentracker.elf > $(PERF_OUT)/firmware_build.txt 2>&1 || \
 	      { tail -20 $(PERF_OUT)/firmware_build.txt; exit 1; }; } && \
 	    python3 tools/telemetry_check.py size --size-tool $(SIZE) $(BUILD)/opentracker.elf && \
-	    python3 tools/telemetry_check.py frames $(BUILD); \
+	    python3 tools/telemetry_check.py frames --objects $(OBJS); \
 	else echo "perf-gate: $(CXX) missing -- flash size and stack frame checks SKIPPED"; fi
 	@$(MAKE) -s -C tests bench > $(PERF_OUT)/bench_host.txt && sed 's/^/  host: /' $(PERF_OUT)/bench_host.txt | head -8
 	@python3 tools/telemetry_check.py selftest

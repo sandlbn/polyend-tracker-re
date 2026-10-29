@@ -683,7 +683,10 @@ private:
     // whether it streams), its bank ranges, and the bind at the end.
     uint32_t streamWouldResident(int slot, uint32_t frames, bool stereo);
     void planStreamRanges(int slot, uint32_t frames, bool stereo, uint32_t off);
-    bool bindStreamSlot(int slot, const char* path);
+    // False with *reason (StreamBindInfo::reason, or "no reader" / "no slot")
+    // when the slot cannot stream; a load without `reason` notes it in
+    // loadNotice_ instead.
+    bool bindStreamSlot(int slot, const char* path, const char** reason = nullptr);
     ExtTrackPool ext_;              // tracks 12..15 of the store (SDRAM blocks)
     Track* extDiscard_ = nullptr;   // storedTrack() target when the pool is full (SDRAM)
     uint32_t extFullReported_ = 0;  // ext_.fullEvents() at the last notice
