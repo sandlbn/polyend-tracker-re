@@ -1,0 +1,35 @@
+# Solarized Light: warm cream with muted blue-green text.
+# Built on the Monochrome theme.
+base = monochrome
+
+background = #FDF6E3
+title_bg = #EEE8D5
+title_text = #586E75
+text = #586E75
+dim = #657B83
+label_text = #586E75
+label_bg = #E7E0CA
+panel = #F6EFD9
+panel2 = #EEE8D5
+strip = #F3ECD8
+accent = #268BD2
+good = #718400
+alert = #DC322F
+yellow = #9B7500
+orange = #CB4B16
+cyan = #16877F
+note = #16877F
+instrument = #9B7500
+fx1 = #D33682
+fx2 = #6C71C4
+note_empty = #B7CEC6
+instrument_empty = #D8CCA8
+fx1_empty = #DDBBCB
+fx2_empty = #C6C5DD
+grid_bg = #FCF4DF
+grid_beat = #EEE8D5
+grid_muted = #F4ECD8
+grid_header = #586E75
+grid_cursor_alt = #586E75
+wave = #16877F
+focus_fill = #DDD6BF

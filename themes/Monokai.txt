@@ -1,0 +1,33 @@
+# Monokai: warm charcoal with pink, green, yellow, and cyan accents.
+# Built on the Original theme.
+base = original
+
+background = #272822
+title_bg = #3E3D32
+title_text = #FFFCEB
+text = #FFF6DA
+dim = #C9C4A2
+label_text = #FFEB70
+label_bg = #3E3D32
+panel = #2D2E27
+panel2 = #3E3D32
+strip = #22231E
+accent = #F92672
+good = #A6E22E
+alert = #F92672
+yellow = #E6DB74
+orange = #FD971F
+cyan = #66D9EF
+note = #A6E22E
+instrument = #E6DB74
+fx1 = #F92672
+fx2 = #66D9EF
+note_empty = #46502D
+instrument_empty = #514B32
+fx1_empty = #4D2A3A
+fx2_empty = #2E4549
+grid_bg = #272822
+grid_beat = #38392F
+grid_muted = #303128
+wave = #66D9EF
+focus_fill = #49483E
