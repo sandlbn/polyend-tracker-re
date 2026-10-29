@@ -227,7 +227,7 @@ TEST(import_bind_failure_names_the_reason) {
     CHECK(a.startStreamedImport("Samples/long.wav", 0));
     run(a);
     CHECK(a.lastJobOk());
-    CHECK_STR(a.importNotice(), "Streams from the card");
+    CHECK_STR(a.importNotice(), "Streams from the card (longer than 10 s)");
 }
 
 TEST(import_card_full_keeps_old_instrument) {
@@ -279,6 +279,195 @@ TEST(stale_import_tmp_removed_at_load) {
     h.fs.files["Workspace/instruments/import.tmp"] = std::vector<uint8_t>(1000, 1);
     CHECK(a.loadWorkspace());
     CHECK(!h.fs.files.count("Workspace/instruments/import.tmp"));
+}
+
+// ---- The import follows Stream from card (Off / Auto / All + threshold) ----
+
+namespace {
+constexpr uint32_t kSec = 44100;
+
+// `frames` mono frames as Samples/<name>.wav, streamed-imported into `slot`
+// when the route says so: true when it streams.
+bool importAs(Harness& h, const char* name, uint32_t frames, int slot, uint32_t seed = 5) {
+    App& a = *h.app;
+    const std::string p = std::string("Samples/") + name;
+    h.fs.files[p] = makeWav(frames, 1, 44100, seed);
+    const ImportRoute r = a.importRoute(p.c_str(), slot);
+    if (r == ImportRoute::Fits) return a.importSample(p.c_str(), slot), false;
+    if (r != ImportRoute::Streams || !a.startStreamedImport(p.c_str(), slot)) return false;
+    run(a);
+    return a.lastJobOk() && a.streamed(slot);
+}
+
+std::vector<uint8_t> makePti(uint32_t frames, PlayMode pm) {
+    std::vector<int16_t> s(frames);
+    for (size_t i = 0; i < s.size(); ++i) s[i] = int16_t(i * 13);
+    Instrument ins;
+    ins.setDefault();
+    ins.lengthFrames = frames;
+    ins.playMode = uint8_t(pm);
+    std::vector<uint8_t> file(ptiFileSize(frames, false));
+    CHECK_EQ(encodePti(ins, s.data(), nullptr, file.data(), file.size()), file.size());
+    return file;
+}
+}  // namespace
+
+TEST(import_policy_auto_streams_a_long_file_that_fits) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);   // Auto, 10 s
+    h.fs.files["Samples/twelve.wav"] = makeWav(12 * kSec, 1, 44100, 3);   // fits the free memory
+    CHECK(a.importRoute("Samples/twelve.wav", 0) == ImportRoute::Streams);
+    CHECK(a.startStreamedImport("Samples/twelve.wav", 0));
+    run(a);
+    CHECK(a.lastJobOk());
+    CHECK(a.streamed(0));
+    CHECK_STR(a.importNotice(), "Streams from the card (longer than 10 s)");
+}
+
+TEST(import_policy_auto_keeps_a_short_file_in_memory) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/nine.wav"] = makeWav(9 * kSec, 1, 44100, 3);
+    CHECK(a.importRoute("Samples/nine.wav", 0) == ImportRoute::Fits);
+    CHECK(!importAs(h, "nine.wav", 9 * kSec, 0));
+    CHECK(a.instrPresent[0]);
+    CHECK(!a.streamed(0));
+}
+
+TEST(import_policy_threshold_moves_the_line) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/twelve.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+    h.fs.files["Samples/six.wav"] = makeWav(6 * kSec, 1, 44100, 3);
+    a.cfg.streamThreshold = 0;   // 5 s
+    CHECK(a.importRoute("Samples/six.wav", 0) == ImportRoute::Streams);
+    CHECK(a.importRoute("Samples/twelve.wav", 0) == ImportRoute::Streams);
+    a.cfg.streamThreshold = 2;   // 20 s
+    CHECK(a.importRoute("Samples/twelve.wav", 0) == ImportRoute::Fits);
+    a.cfg.streamThreshold = 3;   // 30 s
+    CHECK(a.importRoute("Samples/twelve.wav", 0) == ImportRoute::Fits);
+    a.cfg.streamThreshold = 0;
+    CHECK(a.startStreamedImport("Samples/six.wav", 0));
+    run(a);
+    CHECK_STR(a.importNotice(), "Streams from the card (longer than 5 s)");
+}
+
+TEST(import_policy_all_streams_from_65537_frames) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 2);   // All
+    h.fs.files["Samples/a.wav"] = makeWav(65536, 1, 44100, 3);
+    h.fs.files["Samples/b.wav"] = makeWav(65537, 1, 44100, 3);
+    CHECK(a.importRoute("Samples/a.wav", 0) == ImportRoute::Fits);
+    CHECK(a.importRoute("Samples/b.wav", 0) == ImportRoute::Streams);
+    CHECK(a.startStreamedImport("Samples/b.wav", 0));
+    run(a);
+    CHECK(a.streamed(0));
+    CHECK_STR(a.importNotice(), "Streams from the card (Stream from card: All)");
+}
+
+TEST(import_policy_off_never_streams_a_file_that_fits) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 0);
+    h.fs.files["Samples/long.wav"] = makeWav(40 * kSec, 1, 44100, 3);   // fits the whole 4.4 MB bank
+    CHECK(a.importRoute("Samples/long.wav", 0) == ImportRoute::Fits);
+    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+}
+
+TEST(import_policy_kept_slice_mode_that_fits_stays_in_memory) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/old.wav"] = makeWav(20000, 1, 44100, 1);
+    CHECK(a.importSample("Samples/old.wav", 2));
+    a.instruments[2].playMode = uint8_t(PlayMode::Slice);
+    h.fs.files["Samples/twelve.wav"] = makeWav(12 * kSec, 1, 44100, 3);
+    CHECK(a.importRoute("Samples/twelve.wav", 2) == ImportRoute::Fits);
+    // An empty slot takes 1-Shot: streams.
+    CHECK(a.importRoute("Samples/twelve.wav", 3) == ImportRoute::Streams);
+}
+
+TEST(import_policy_pti_play_mode_decides) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/slice.pti"] = makePti(12 * kSec, PlayMode::Slice);
+    h.fs.files["Samples/loop.pti"] = makePti(12 * kSec, PlayMode::ForwardLoop);
+    CHECK(a.importRoute("Samples/slice.pti", 0) == ImportRoute::Fits);
+    CHECK(a.importRoute("Samples/loop.pti", 0) == ImportRoute::Streams);
+}
+
+TEST(import_policy_no_fit_streams_below_threshold) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/fill.wav"] = makeWav(900000, 1, 44100, 1);
+    CHECK(a.importSample("Samples/fill.wav", 1));    // into memory: little room left
+    h.fs.files["Samples/nine.wav"] = makeWav(9 * kSec, 1, 44100, 3);
+    CHECK(a.importRoute("Samples/nine.wav", 0) == ImportRoute::Streams);
+    CHECK(a.startStreamedImport("Samples/nine.wav", 0));
+    run(a);
+    CHECK(a.streamed(0));
+    CHECK_STR(a.importNotice(), "Streams from the card (does not fit memory)");
+}
+
+TEST(import_policy_no_fit_forces_oneshot) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    h.fs.files["Samples/fill.wav"] = makeWav(900000, 1, 44100, 1);
+    CHECK(a.importSample("Samples/fill.wav", 1));
+    a.instruments[1].playMode = uint8_t(PlayMode::Granular);
+    // A WAV into the granular slot: its own sample is replaced, the rest does
+    // not fit with it either: 1-Shot.
+    h.fs.files["Samples/huge.wav"] = makeWav(1300000, 1, 44100, 3);
+    CHECK(a.importRoute("Samples/huge.wav", 1) == ImportRoute::Streams);
+    CHECK(a.startStreamedImport("Samples/huge.wav", 1));
+    run(a);
+    CHECK(a.streamed(1));
+    CHECK_EQ(int(a.instruments[1].playMode), int(PlayMode::OneShot));
+    CHECK_STR(a.importNotice(), "Streams from the card (does not fit memory, 1-Shot)");
+}
+
+TEST(import_policy_seventeenth_stream_loads_into_memory_when_it_fits) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 2);   // All: 70,000 frames stream
+    for (int i = 0; i < audio::kMaxStreams; ++i) {
+        const std::string n = "s" + std::to_string(i) + ".wav";
+        CHECK(importAs(h, n.c_str(), 70000, i, uint32_t(i + 1)));
+    }
+    h.fs.files["Samples/x.wav"] = makeWav(70000, 1, 44100, 99);
+    CHECK(a.importRoute("Samples/x.wav", 20) == ImportRoute::Fits);   // into memory, as at an open
+    h.fs.files["Samples/big.wav"] = makeWav(1000000, 1, 44100, 98);
+    CHECK(a.importRoute("Samples/big.wav", 20) == ImportRoute::TooMany);
+    // Into one of the 16: its own stream is freed first.
+    CHECK(a.importRoute("Samples/x.wav", 3) == ImportRoute::Streams);
+}
+
+TEST(import_and_reopen_agree) {
+    Harness h(true, kBank);
+    App& a = *h.app;
+    streaming(h, 1);
+    a.cfg.streamThreshold = 0;   // 5 s; the whole project fits (else Auto streams from 2 s up at an open)
+    CHECK(importAs(h, "six.wav", 6 * kSec, 0));
+    CHECK(!importAs(h, "four.wav", 4 * kSec, 1));
+    h.fs.files["Samples/old.wav"] = makeWav(20000, 1, 44100, 1);
+    CHECK(a.importSample("Samples/old.wav", 2));
+    a.instruments[2].playMode = uint8_t(PlayMode::Slice);
+    CHECK(!importAs(h, "slice.wav", 6 * kSec, 2));
+    const bool before[3] = {a.streamed(0), a.streamed(1), a.streamed(2)};
+    a.autosave();
+    CHECK(a.loadWorkspace());
+    for (int i = 0; i < 3; ++i) {
+        CHECK(a.instrPresent[i]);
+        CHECK_EQ(a.streamed(i), before[i]);
+    }
+    CHECK(a.streamed(0));
 }
 
 // ---- Sample Loader (C14d) ---------------------------------------------------
