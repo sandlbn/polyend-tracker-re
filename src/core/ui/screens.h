@@ -787,14 +787,16 @@ public:
     // Run the selected effect on Start..End and commit it (keeps one undo).
     bool apply();
     bool undo();
-    bool preview(int note = 60);   // process the selection and play it at `note` (60 = own pitch)
+    // Process the selection and play it at `note` (60 = own pitch). plainIfFull:
+    // without the free memory, play the selection unprocessed (pads, MIDI).
+    bool preview(int note = 60, bool plainIfFull = false);
 
 private:
     void enter();
     void refreshBar();
     void markerDelta(int which, int d);
     void paramDelta(int d);
-    bool fits(uint32_t newFrames, uint32_t extraSamples);
+    bool fits(uint32_t newFrames, uint32_t extraSamples, bool ask = true);
     void stopPreview();
     void selection(uint32_t* s0, uint32_t* s1) const;
     uint32_t undoFrames_ = 0;
