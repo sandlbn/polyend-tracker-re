@@ -805,16 +805,34 @@ TEST(import_precheck_refuses_without_a_free_binding) {
     oldKept(h);
 }
 
-TEST(import_reserve_failure_with_room_says_fragmented) {
+TEST(import_without_a_contiguous_run_writes_the_file_in_pieces) {
+    // Device report (2.2.3-beta3): the second long Add said "Card too
+    // fragmented" on a card with room but no single free run of the file's
+    // size. A stream may span up to kStreamMaxExtents pieces: with room on
+    // the card the import goes on unreserved, and only bind() after the
+    // conversion refuses a file in too many pieces.
     Harness h(true, kBank);
     App& a = *h.app;
     precheckSetup(h);
     h.fs.capacity = h.fs.usedBytes() + 50000000;   // room, but no contiguous run
     h.fs.reserveFails = true;
     CHECK(a.importRoute("Samples/long.wav", 0) == ImportRoute::Streams);
-    CHECK(!a.startStreamedImport("Samples/long.wav", 0));
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    for (int k = 0; k < 4000 && a.jobBusy(); ++k) h.run(20);
+    CHECK(a.streamed(0));
+    CHECK(std::strncmp(a.importNotice(), "Streams from the card", 21) == 0);
+    // In too many pieces after all: refused after the conversion, and the
+    // slot's old instrument is still there (it was removed before the check:
+    // "the imported lines show nothing").
+    precheckSetup(h);
+    h.fs.capacity = h.fs.usedBytes() + 50000000;
+    h.fs.reserveFails = true;
+    h.streamReader.failStreamable = "fragmented";   // the converted file's map
+    CHECK(a.startStreamedImport("Samples/long.wav", 0));
+    for (int k = 0; k < 4000 && a.jobBusy(); ++k) h.run(20);
     CHECK_STR(a.importNotice(), "Card too fragmented to stream: format the SD card");
     oldKept(h);
+    h.streamReader.failStreamable = nullptr;
 }
 
 TEST(import_file_ends_where_the_conversion_ends) {
