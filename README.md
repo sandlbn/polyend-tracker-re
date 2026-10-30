@@ -18,8 +18,24 @@ graphics, and is not affiliated with or endorsed by Polyend.
 
 2.x brings the newer Tracker Mini features to the original hardware: 16 tracks, synth
 engines, stereo samples, Mini-compatible project files and USB Storage mode. These notes cover
-the whole 2.x line (2.0 to 2.2.1); the full list is in the release notes of the
-[2.2.1 download](https://github.com/sandlbn/polyend-tracker-re/releases).
+the whole 2.x line (2.0 to 2.2.3); the full list is in the release notes of the
+[2.2.3 download](https://github.com/sandlbn/polyend-tracker-re/releases).
+
+## New in 2.2.2 to 2.2.3
+
+- **Stream long samples from the card** (optional, Off by default): Config > General >
+  Stream from card. Long samples load only their start into memory and play the rest from
+  the SD card, so projects with long stems fit. The Sample Loader marks files that will
+  stream with `~`.
+- **Your own colour themes:** theme files in `/Themes` on the card, plus Export theme. Twelve
+  example themes come as a separate download, among them Halloween (contributed by
+  AnthonyBerg1983).
+- **Steady MIDI clock on the DIN jack** while you change screens, and **pitch bend** from a
+  MIDI keyboard on live notes.
+- **Synth stereo Width**, and a hand-turned Synth Macro now takes over from a pattern FX CC.
+- **Stack overflow protection** (contributed by syamajala) and many fixes from user and
+  beta reports, among them the Sample Editor, synth notes in the pattern editor and
+  starting without an SD card.
 
 ## New in 2.1 to 2.2.1
 
@@ -104,7 +120,7 @@ the whole 2.x line (2.0 to 2.2.1); the full list is in the release notes of the
 
 ## Install
 
-1. Copy `PolyendTrackerOTv221.ptf` to `/Firmware` on the SD card. Keep the name; the
+1. Copy `PolyendTrackerOTv223.ptf` to `/Firmware` on the SD card. Keep the name; the
    bootloader only accepts 24-character names.
 2. Go to **Config > Firmware update**, select it and confirm. If the screen stays dark
    after the update, press the power button once.
@@ -133,6 +149,9 @@ rules; not yet confirmed on a stock unit).
 - Live resampling from Line In starts 10–14 ms late (the round trip through external gear);
   compensation is planned.
 - Games (the NES player) is not in the release image since 2.2.1.
+- Stream from card is new and Off by default; please report anything odd when you turn it on.
+- A couple of Performance screen issues are still open (among them the global Pattern length
+  in Song mode); fixes are planned for the next version.
 
 ## Test songs
 
