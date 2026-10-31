@@ -85,27 +85,27 @@ TEST(piano_config_record) {
     CHECK_EQ(c.padLayout, 0);
     c.padLayout = 1;   // alone writes the record
     CHECK(c.save(nv));
-    CHECK_EQ(nv.mem[0xF4 + 4], 41);       // payload length
-    CHECK_EQ(nv.mem[0xF4 + 5 + 40], 1);   // payload byte 41
+    CHECK_EQ(nv.mem[0xF4 + 4], 28);       // payload length
+    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 1);   // payload byte 28
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.padLayout, 1);
     c.padLayout = 2;
     c.sanitize();
     CHECK_EQ(c.padLayout, 0);
-    // A record from before the byte (payload 40) keeps Stock.
+    // A record from before the byte (payload 27) keeps Stock.
     Config o;
-    o.noteNames = 1;
+    o.synthVoices = 6;
     uint8_t ext[Config::kExtSize];
     o.toExt(ext);
-    ext[4] = 40;
+    ext[4] = 27;
     uint8_t sum = 0;
-    for (int i = 0; i < 40; ++i) sum = uint8_t(sum + ext[5 + i]);
-    ext[5 + 40] = sum;
+    for (int i = 0; i < 27; ++i) sum = uint8_t(sum + ext[5 + i]);
+    ext[5 + 27] = sum;
     Config k;
     k.padLayout = 1;
-    CHECK(k.fromExt(ext, 5 + 40 + 1));
-    CHECK_EQ(k.noteNames, 1);
+    CHECK(k.fromExt(ext, 5 + 27 + 1));
+    CHECK_EQ(k.synthVoices, 6);
     CHECK_EQ(k.padLayout, 0);
     // File fallback.
     FakeStorage fs;
