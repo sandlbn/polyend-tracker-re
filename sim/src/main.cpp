@@ -487,7 +487,7 @@ struct Headless {
         m.display.setFragments(false);
         // The CMD_TEXT reference is a pixel reference only (the device draws
         // ROM text as glyphs): at its RAM_DL cost a text-heavy screen passes
-        // the guard (#71), so lift it for this frame.
+        // the guard, so lift it for this frame.
         const uint32_t limit = ui.dlFrameLimit();
         ui.setDlFrameLimit(0);
         ot::setRomTextMode(ot::kRomText);

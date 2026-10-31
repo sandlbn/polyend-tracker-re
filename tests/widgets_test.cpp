@@ -324,7 +324,7 @@ TEST(panels_lists_value_bars) {
     CHECK(hasRect(p, 0xFFFFFF, 255, 604, 33, 788, 33));      // scrollbar: inner w - 13
     CHECK(hasRect(p, 0xFFFFFF, 255, 604, 60, 788, 60));
     CHECK(hasRect(p, 0x000000, 255, 792, 37, 795, 416));    // scroll track
-    // Rows are glyph runs (#71) with their top at the row centre (46 + 27 n)
+    // Rows are glyph runs with their top at the row centre (46 + 27 n)
     // minus half the font height; before, a CMD_TEXT centred on it.
     char row0[32], row13[32];
     std::snprintf(row0, sizeof row0, "TEXT 614 %d ", 46 - fontHeight(lv.font) / 2);

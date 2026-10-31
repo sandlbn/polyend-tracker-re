@@ -70,7 +70,7 @@ TEST(custom_fonts_bind_to_handles) {
     CHECK(!customFontsBound());
 }
 
-// CMD_TEXT is charged what the FT81x builds in RAM_DL (#71, measured on a
+// CMD_TEXT is charged what the FT81x builds in RAM_DL (measured on a
 // Tracker): 5 words for the string, 1 per glyph whose pen is inside x / y
 // 0..511, 2 per glyph anywhere else.
 TEST(cmd_text_counts_what_the_ft81x_builds) {
