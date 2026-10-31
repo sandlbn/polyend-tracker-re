@@ -87,8 +87,9 @@ struct Config {
     // not know yet; read and written back unchanged (its default).
     uint8_t extKeep[1] = {0};
     // Config > General "Pad layout": 0 Stock (the project's Notes layout),
-    // 1 Piano (a semitone per column, black / white key rows, two octaves;
-    // the pad lights draw the keyboard). Extension record byte 32.
+    // 1 Piano (two keyboards an octave apart: white keys along a row, black
+    // keys in the row above; the pad lights draw the keys). Extension record
+    // byte 32.
     uint8_t padLayout = 0;
 
     // --- the stock config image --------------------------------------------

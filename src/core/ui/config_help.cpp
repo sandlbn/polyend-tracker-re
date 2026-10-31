@@ -54,9 +54,9 @@ const char* const kGeneralHelp[] = {
     "longer than the threshold (and long ones when the project would not fit); All streams every long "
     "sample. The project reloads when you change it.",
     "How long a sample must be before Auto streams it from the card.",
-    "Stock: the pads follow the project's scale and pad layout. Piano: each column is a semitone, C to B, "
-    "with the black keys in the row above the white ones, two octaves from the root note's octave. The pads "
-    "light up as a keyboard; notes outside the scale are dimmer.",
+    "Stock: the pads follow the project's scale and pad layout. Piano: two keyboards, an octave apart, from "
+    "the root note's octave: the white keys along a row, the black keys in the row above. The pads light up "
+    "as a keyboard; notes outside the scale are dimmer.",
 };
 // spec 15 §2.3 MIDI: only CC in (8), CC in channel (9) and Clock sync correction (11).
 const char* const kMidiHelp[] = {
