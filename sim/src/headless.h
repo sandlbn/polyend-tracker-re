@@ -21,9 +21,11 @@ extern std::vector<std::string> gNotices;
 void recordNotice(const char* text);
 
 struct Headless {
-    Headless(Machine& machine, bool panelShots) : m(machine), panel(panelShots) {}
+    Headless(Machine& machine, bool panelShots, const std::string& frames = std::string())
+        : m(machine), panel(panelShots), framesDir(frames) {}
     Machine& m;
     bool panel;
+    std::string framesDir;   // --frames: each "budget" also saves its frame here (tools/eve_emu)
     uint64_t frameAcc = 0;   // frames * 1000
     // Display budget (2.x performance workstream): the largest per-frame
     // command-FIFO upload since the last "budget" / "budget-reset".
@@ -38,6 +40,9 @@ struct Headless {
     // budget NAME MAXWORDS: fail when a frame since the last reset uploaded
     // more than MAXWORDS display-list words (or the RAM_DL total passed 2000).
     bool budget(const std::string& name, long maxWords, int line);
+    // --frames: the current screen recorded as display commands (DIR/NAME.otf).
+    bool captureFrame(const std::string& path, int line);
+    bool saveFrame(const std::string& name, int line);
     // fragcheck NAME: the current screen drawn inline and through cached
     // fragments must give identical pixels.
     bool fragCheck(const std::string& name, int line);

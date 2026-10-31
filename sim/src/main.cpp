@@ -10,6 +10,8 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,7 @@
 #include "headless.h"
 #include "machine.h"
 #include "panel.h"
+#include "remote/display_tap.h"
 #include "ui/buttons.h"
 #include "ui/screens.h"
 
@@ -32,6 +35,8 @@ struct Options {
     bool romFonts = false, romText = false;   // OP-6 checks (also OT_SIM_ROM_FONTS / OT_SIM_ROM_TEXT = 1)
     bool busyDisplay = true;                  // FT81x pacing model (off: --instant-display / OT_SIM_BUSY = 0)
     std::string script, screenshot, wav;
+    std::string frame;    // draw a recorded frame (.otf) for --screenshot
+    std::string frames;   // headless: save the frame at each "budget" as DIR/NAME.otf (tools/eve_emu)
     float lineInTone = 0.0f;   // headless: synthetic line input (Hz), 0 = none
     long quitAfterMs = -1;
 };
@@ -49,6 +54,9 @@ void usage() {
         "headless (no window, virtual time):\n"
         "  --script FILE     replay scripted input (see README)\n"
         "  --screenshot PNG  save the framebuffer at the end\n"
+        "  --frames DIR      at each 'budget' also save the frame (fragment cache off) as DIR/NAME.otf\n"
+        "                    (tools/eve_emu replays them on the FT81x emulator)\n"
+        "  --frame FILE.otf  draw a saved frame (with --screenshot)\n"
         "  --panel           screenshots include the whole front panel\n"
         "  --wav OUT.wav     record the rendered audio\n"
         "  --line-in-tone HZ synthetic line input: tone bursts (recorder tests)\n"
@@ -78,6 +86,8 @@ bool parseArgs(int argc, char** argv, Options& o) {
         if (a == "--rom-text") { o.romText = true; continue; }
         if (a == "--instant-display") { o.busyDisplay = false; continue; }
         if (a == "--script" && next(o.script)) continue;
+        if (a == "--frame" && next(o.frame)) continue;
+        if (a == "--frames" && next(o.frames)) continue;
         if (a == "--screenshot" && next(o.screenshot)) continue;
         if (a == "--wav" && next(o.wav)) continue;
         if (a == "--line-in-tone" && next(v)) { o.lineInTone = float(std::atof(v.c_str())); continue; }
@@ -168,6 +178,21 @@ int keyToPad(SDL_Scancode sc) {
         for (int c = 0; c < 12; ++c)
             if (rows[r][c] == sc && sc != SDL_SCANCODE_UNKNOWN) return r * 12 + c;
     return -1;
+}
+
+// --frame: a saved frame (core/remote/display_tap.h) into a PNG.
+int drawFrameFile(Machine& m, const Options& o) {
+    std::ifstream f(o.frame, std::ios::binary);
+    if (!f) {
+        std::fprintf(stderr, "cannot read %s\n", o.frame.c_str());
+        return 2;
+    }
+    const std::vector<uint8_t> data((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+    m.display.setRomFontsOnly(o.romFonts);
+    const bool ok = ot::remote::replayFrame(data.data(), data.size(), m.display);
+    if (!ok) std::fprintf(stderr, "%s: malformed or cut frame (drawn up to there)\n", o.frame.c_str());
+    if (!o.screenshot.empty()) saveShot(m, o.screenshot, o.panelShot);
+    return ok ? 0 : 1;
 }
 
 int runInteractive(Machine& m, const Options& o) {
@@ -318,6 +343,7 @@ int main(int argc, char** argv) {
     if (!parseArgs(argc, argv, o)) return 2;
     const bool headless = !o.script.empty() || !o.screenshot.empty();
     Machine m;
+    if (!o.frame.empty()) return drawFrameFile(m, o);
     ot::setRomTextMode(o.romText ? ot::kRomText : ot::kRomGlyphs);
     MachineOptions mo;
     mo.sd = o.sd;
@@ -329,12 +355,13 @@ int main(int argc, char** argv) {
     mo.busyDisplay = o.busyDisplay;
     mo.wav = o.wav;
     mo.lineInTone = o.lineInTone;
+    mo.frames = !o.frames.empty();
     if (!m.start(mo, headless)) return 1;
     if (!headless) {
         if (m.audio) m.audio->start();   // App::init already started it; harmless
         return runInteractive(m, o);
     }
-    Headless h{m, o.panelShot};
+    Headless h{m, o.panelShot, o.frames};
     if (m.audio) m.audio->start();
     h.advance(300);   // boot and first frame
     bool ok = o.script.empty() || h.run(o.script);
