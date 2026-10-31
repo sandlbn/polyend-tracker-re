@@ -648,6 +648,7 @@ void App::handleControlChange(uint8_t cc, uint8_t value) {
     if (ui.active() == kModPerformance && perfCc) {
         if (midicc::isPerfTrackCc(cc)) perfCc->perfTrackPatternCc(uint8_t(cc - 41), value);
         else if (midicc::isPerfSlotCc(cc)) perfCc->perfSlotCc(uint8_t(cc - 51), value);
+        else if (cc == midicc::kPerfSceneCc) perfCc->perfSceneCc(value);
     }
     // (2) Master levels on any screen, playing or not (§B.4).
     if (const uint32_t off = midicc::masterOffset(cc)) {

@@ -96,6 +96,7 @@ void Project::setLoadPrefill() {
         m.channel = uint8_t(i);  // (I) matches the tracker-lib template
         setMidiInstrument(i, m);
     }
+    std::memset(perfScene, 0, sizeof(perfScene));
     setU16(mt::kU16_5FE, 20000);
     for (int i = 0; i < 8; ++i) {
         std::snprintf(buf, sizeof(buf), "Midi %d", i + 9);
