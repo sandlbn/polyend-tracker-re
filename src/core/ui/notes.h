@@ -8,8 +8,20 @@ namespace ot {
 constexpr int kScaleCount = 39;
 
 // Note text, at most 3 chars + NUL: "C5", "C#5" (no separator, stock); specials "FAD", "CUT", "OFF"; empty "---".
-// Note 0 = C0, so note 60 = C5 (spec 06 §1.1).
+// Note 0 = C0, so note 60 = C5 (spec 06 §1.1). Black keys follow the current spelling ("Db5" with flats).
 void noteName(int8_t note, char out[4]);
+
+// [I] Config > General > Note names (not in stock): how black keys are spelled.
+enum NoteSpelling : uint8_t { kSpellSharps = 0, kSpellFlats = 1, kSpellAuto = 2 };
+constexpr int kNoteSpellingCount = 3;
+// Auto: the spelling that names the scale's notes with the fewest repeated
+// letters (C Mixolydian: Bb, not A#); on a tie, flats for flat keys.
+bool keyUsesFlats(int root, uint8_t scale);
+// Sets the spelling noteName() and pitchClassName() use; root/scale are the project's (Auto only).
+void setNoteSpelling(uint8_t spelling, int root, uint8_t scale);
+bool noteSpellingFlats();
+// Pitch class text without octave: "C", "C#" / "Db", ... (current spelling).
+const char* pitchClassName(int note);
 
 uint16_t scaleMask(uint8_t scale);
 const char* scaleName(uint8_t scale);   // stock names (spec 16 §B.2)

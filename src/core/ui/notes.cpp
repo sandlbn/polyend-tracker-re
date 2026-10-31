@@ -19,16 +19,61 @@ const char* const kScaleNames[kScaleCount] = {
     "Blues Maj", "Penta Min", "Penta Maj", "Hung Min",  "Ukrainian", "Marva",    "Todi",     "Wholetone",
     "Dim",       "SLocrian",  "Hirajoshi", "In Sen",    "Yo",        "Iwato",    "WholeHalf", "Kumoi",
     "Overtone",  "DoubHarm",  "Indian",    "GypsyMin",  "NeapoMaj",  "NeapoMin", "Enigmatic"};
-const char* kNoteLetters[12] = {"C-", "C#", "D-", "D#", "E-", "F-", "F#", "G-", "G#", "A-", "A#", "B-"};
+const char* const kSharpNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+const char* const kFlatNames[12] = {"C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"};
+bool gFlats = false;
 }  // namespace
+
+namespace {
+// Letter names the scale's notes repeat when spelled from `names` (C D E F G
+// A Bb: 0; C D E F G A A#: 1).
+int repeatedLetters(int root, uint16_t mask, const char* const* names) {
+    int seen = 0, repeats = 0;
+    for (int i = 0; i < 12; ++i) {
+        if (!((mask >> i) & 1)) continue;
+        const int bit = 1 << (names[(root + i) % 12][0] - 'A');
+        if (seen & bit) ++repeats;
+        seen |= bit;
+    }
+    return repeats;
+}
+}  // namespace
+
+bool keyUsesFlats(int root, uint8_t scale) {
+    const uint16_t m = scaleMask(scale);
+    const int pc = ((root % 12) + 12) % 12;
+    // The spelling that names the scale's notes with the fewest repeated
+    // letters: C Mixolydian ... A Bb (flats), D melodic minor ... B C#
+    // (sharps), whatever the key signature of its major or minor key.
+    const int sharps = repeatedLetters(pc, m, kSharpNames), flats = repeatedLetters(pc, m, kFlatNames);
+    if (sharps != flats) return flats < sharps;
+    // A tie (pentatonic, chromatic, whole-tone, F# / Gb major...): the key
+    // signature. Minor-third scales without a major third are spelled like
+    // their relative major (D minor -> F major -> flats).
+    int major = pc;
+    if (((m >> 3) & 1) && !((m >> 4) & 1)) major = (major + 3) % 12;
+    // Major keys written with flats: F, Bb, Eb, Ab, Db (Gb / F# spelled with sharps).
+    return major == 5 || major == 10 || major == 3 || major == 8 || major == 1;
+}
+
+void setNoteSpelling(uint8_t spelling, int root, uint8_t scale) {
+    gFlats = spelling == kSpellFlats || (spelling == kSpellAuto && keyUsesFlats(root, scale));
+}
+
+bool noteSpellingFlats() { return gFlats; }
+
+const char* pitchClassName(int note) {
+    const char* const* names = gFlats ? kFlatNames : kSharpNames;
+    return names[((note % 12) + 12) % 12];
+}
 
 void noteName(int8_t note, char out[4]) {
     if (note >= 0) {
         // Stock grid / popup text has no separator: "C5", "C#5" (spec 20
         // §4.1 text colour rules; Part 2 §8.5 "C6", "C#6").
+        const char* pc = pitchClassName(note);
         int n = 0;
-        out[n++] = kNoteLetters[note % 12][0];
-        if (kNoteLetters[note % 12][1] == '#') out[n++] = '#';
+        while (*pc) out[n++] = *pc++;
         out[n++] = char('0' + (note / 12) % 10);
         out[n] = 0;
         return;

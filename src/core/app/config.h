@@ -86,6 +86,9 @@ struct Config {
     // Extension record byte 5: an option of later 2.x builds this one does
     // not know yet; read and written back unchanged (its default).
     uint8_t extKeep[1] = {0};
+    // [I] Config > General "Note names" (ui/notes.h NoteSpelling): 0 Sharps,
+    // 1 Flats, 2 Auto (from the project key). Extension record byte 32.
+    uint8_t noteNames = 0;
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -106,8 +109,9 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 5;
-    // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21]
-    static constexpr uint32_t kExtPayload = 6 + 21;
+    // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21],
+    // noteNames
+    static constexpr uint32_t kExtPayload = 6 + 21 + 1;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

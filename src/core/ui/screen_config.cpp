@@ -63,16 +63,14 @@ const char* const kMiddleC[] = {"C-3", "C-4", "C-5", "C-6"};
 const char* const kOneTo12[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"};
 const char* const kLimiter[] = {"Subtle", "Extreme"};
 const char* const kSends[] = {"Pre-fader", "Post-fader"};
-const char* const kRoots[] = {"C1", "C#1", "D1", "D#1", "E1", "F1", "F#1", "G1", "G#1", "A1", "A#1", "B1",
-                              "C2", "C#2", "D2", "D#2", "E2", "F2", "F#2", "G2", "G#2", "A2", "A#2", "B2",
-                              "C3", "C#3", "D3", "D#3", "E3", "F3", "F#3", "G3", "G#3", "A3", "A#3", "B3", "C4"};
+const char* const kNoteNames[] = {"Sharps", "Flats", "Auto"};   // [I] ui/notes.h NoteSpelling
 
 #define CF(f) uint16_t(offsetof(Config, f))
 const Opt kProject[] = {
     {"Performance presets", kEnum, kCfg, CF(perfPresets), 0, 2, kPresets, 0},
     {"Pattern divider", kNum, kProj, uint16_t(pf::kPatternDivider), 0, 15, nullptr, 1},   // shown 1..16
     {"Notes scale", kEnum, kProj, uint16_t(pf::kScale), 0, kScaleCount, nullptr, 0},
-    {"Root note", kEnum, kProj, uint16_t(pf::kRootNote), 0, 37, kRoots, 0},
+    {"Root note", kEnum, kProj, uint16_t(pf::kRootNote), 0, 37, nullptr, 0},   // C1..C4, current spelling
     {"Notes layout", kEnum, kProj, uint16_t(pf::kNotesLayout), 0, 12, kOneTo12, 0},
     {"Anti-aliasing", kEnum, kProj, uint16_t(pf::kAntiAlias), 0, 2, kOffOn, 0},
     {"Limiter mode", kEnum, kProj, uint16_t(pf::kLimiterMode), 0, 2, kLimiter, 0},
@@ -99,6 +97,8 @@ const Opt kGeneral[] = {
     {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
     {"Stream from card", kEnum, kCfg, CF(streamMode), 0, 3, kStreamModes, 0},          // [I] 2.x
     {"Stream threshold", kEnum, kCfg, CF(streamThreshold), 0, 4, kStreamThresholds, 0},   // [I] 2.x
+    // [I] how black keys are named everywhere notes are shown (not in stock).
+    {"Note names", kEnum, kCfg, CF(noteNames), 0, kNoteSpellingCount, kNoteNames, 0},
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},
@@ -297,6 +297,8 @@ static void optValueText(App& a, const Opt& o, int index, char* out, int cap) {
     if (isThemeOpt(o) && a.customThemeActive()) std::snprintf(out, size_t(cap), "%s", a.customThemeName());
     else if (o.labels) std::snprintf(out, size_t(cap), "%s", o.labels[clampi(index, 0, o.max - 1)]);
     else if (o.off == pf::kScale && o.store == kProj) std::snprintf(out, size_t(cap), "%s", scaleName(uint8_t(index)));
+    else if (o.off == pf::kRootNote && o.store == kProj)
+        std::snprintf(out, size_t(cap), "%s%d", pitchClassName(index), index / 12 + 1);   // option 0 = C1
     else std::snprintf(out, size_t(cap), "%d", index);
     (void)a;
 }
