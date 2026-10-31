@@ -765,7 +765,7 @@ TEST(overlay_matrix_tracks_13_16) {
     h.tap(btn::Rec);
     // Measured on a Tracker: this frame (dense grid + arm page) faulted the
     // FT81x; with the honest count the guard drew it in low detail. With its
-    // text as glyph runs (#71 part 4) it fits in full.
+    // text as glyph runs it fits in full.
     r.measure("pattern 13-16 dense + Live-REC arm page (bank B)");
     h.up(btn::Shift);
     h.tap(btn::Rec);

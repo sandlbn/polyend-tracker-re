@@ -77,7 +77,7 @@ bool hasText(const std::vector<std::string>& dl, const char* s) {
     return false;
 }
 
-// The CMD_TEXT or glyph-run (#71 part 4) line drawing `s`.
+// The CMD_TEXT or glyph-run line drawing `s`.
 std::string textLine(const std::vector<std::string>& dl, const char* s) {
     for (const std::string& l : dl)
         if ((l.rfind("TEXT", 0) == 0 || l.rfind("GLYPHS", 0) == 0) && l.find(std::string("\"") + s + "\"") != std::string::npos)
@@ -789,9 +789,9 @@ TEST(list_tag_is_right_aligned_and_shrinks_the_name_column) {
     };
     auto count = [](const std::string& l, char c) { return int(std::count(l.begin(), l.end(), c)); };
     auto rowText = [](const std::vector<std::string>& dl, int y) {
-        const std::string pre = "TEXT 14 " + std::to_string(y) + " ";
+        const std::string top = " 14 " + std::to_string(y - fontHeight(kFont1) / 2) + " ";
         for (const std::string& l : dl)
-            if (l.rfind(pre, 0) == 0) return l;
+            if (l.rfind("TEXT" + top, 0) == 0 || l.rfind("GLYPHS" + top, 0) == 0) return l;
         return std::string();
     };
     const std::vector<std::string> plain = run(false), tag = run(true);

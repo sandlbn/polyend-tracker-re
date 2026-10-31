@@ -301,7 +301,7 @@ public:
     void text(int16_t x, int16_t y, uint8_t font, uint16_t opt, const char* s) override {
         add("TEXT %d %d f%u o%u \"%s\"", x, y, font, opt, s);
     }
-    // Gfx::glyphRun's text (#71 part 4: custom-font text is drawn as glyphs).
+    // Gfx::glyphRun's text (custom-font text is drawn as glyphs).
     void textHint(int16_t x, int16_t y, uint8_t font, const char* s) override {
         add("GLYPHS %d %d f%u \"%s\"", x, y, unsigned(ot::romFontFor(font)), s);   // the handle, as TEXT records it
     }

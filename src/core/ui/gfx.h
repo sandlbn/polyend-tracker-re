@@ -75,7 +75,7 @@ bool customFontsBound();
 enum RomTextMode : uint8_t { kRomGlyphs = 0, kRomText = 1, kRomWholeText = 2 };
 void setRomTextMode(RomTextMode m);
 RomTextMode romTextMode();
-// Gfx::text with custom fonts bound (#71 part 4):
+// Gfx::text with custom fonts bound:
 //  kCustomGlyphs (default): drawn as a glyph run (VERTEX2II, one RAM_DL word
 //    per glyph anywhere on screen) wherever that gives the CMD_TEXT pixels;
 //  kCustomText: always CMD_TEXT (5 words + 1 per glyph, 2 right of x 511), the

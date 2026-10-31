@@ -320,8 +320,10 @@ void SwDisplay::text(int16_t x, int16_t y, uint8_t font, uint16_t options, const
         int w = 0;
         for (const char* p = s; *p; ++p) w += ramg_[h.metric + (uint8_t(*p) & 0x7F)];
         int px = x + translateX_ / 16, py = y;
-        if (options & kOptRightX) px -= w;
-        else if (options & kOptCenterX) px -= w / 2;
+        // The coprocessor's alignment (EVE emulator, pixel-compared): the text
+        // spans w - 1 pixels from its first column, RIGHTX ends it at x.
+        if (options & kOptRightX) px -= w - 1;
+        else if (options & kOptCenterX) px -= (w - 1) / 2;
         if (options & kOptCenterY) py -= h.layoutH / 2;
         applyClip();
         for (const char* p = s; *p; ++p) {
