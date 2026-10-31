@@ -1,0 +1,33 @@
+# Night Owl Vibrant: brighter midnight blue, azure, and mint.
+# Palette source: https://github.com/sdras/night-owl-vscode-theme
+base = original
+
+background = #061B2F
+title_bg = #173550
+title_text = #F0F7FF
+text = #E1ECFA
+dim = #A7BDD3
+label_text = #FFE1A3
+label_bg = #173550
+panel = #0E263C
+panel2 = #1D3B55
+strip = #041525
+accent = #A3C2FF
+good = #B7EF7C
+alert = #FF778C
+yellow = #FFE1A3
+orange = #FFAC83
+cyan = #92F1DA
+note = #B7EF7C
+instrument = #FFE1A3
+fx1 = #DBACFF
+fx2 = #A3C2FF
+note_empty = #315045
+instrument_empty = #544A3D
+fx1_empty = #493D63
+fx2_empty = #2D4D6F
+grid_bg = #0A2035
+grid_beat = #21435E
+grid_muted = #152F48
+wave = #92F1DA
+focus_fill = #365879
