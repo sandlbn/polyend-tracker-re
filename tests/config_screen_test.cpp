@@ -422,7 +422,11 @@ TEST(config_help_box_and_pickers) {
     CHECK(c.editing);
     CHECK_EQ(c.picker, 3);
     h.run(50);
-    CHECK(h.disp.lastHasText("16"));     // picker shows 1..16
+    // The picker lists 1..16, 14 rows at a time. (This checked "16" with
+    // lastHasText, which only passed on a row's y coordinate, 316.)
+    CHECK(h.disp.lastHasExactText("1"));
+    CHECK(h.disp.lastHasExactText("14"));
+    CHECK(!h.disp.lastHasExactText("16"));
     // The help text (OpenTracker's wording) is drawn while editing.
     CHECK(h.disp.lastHasText("highlighted"));
     h.tap(btn::F7);

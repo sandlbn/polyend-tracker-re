@@ -14,6 +14,7 @@ namespace {
 uint8_t gFontSet = 0;
 bool gCustomFonts = false;
 RomTextMode gRomTextMode = kRomGlyphs;
+CustomTextMode gCustomTextMode = kCustomGlyphs;
 
 // FT81x ROM font advance widths (chars 32..126) and cell heights for the
 // handles the UI uses; the same values as the simulator's ROM look-alikes
@@ -74,6 +75,8 @@ bool applyFontSet(IDisplay* d, uint8_t set) {
 bool customFontsBound() { return gCustomFonts; }
 void setRomTextMode(RomTextMode m) { gRomTextMode = m; }
 RomTextMode romTextMode() { return gRomTextMode; }
+void setCustomTextMode(CustomTextMode m) { gCustomTextMode = m; }
+CustomTextMode customTextMode() { return gCustomTextMode; }
 
 uint8_t romFontFor(uint8_t role, uint8_t set) {
     if (role >= kFont1 && role <= kFontIcons) {
@@ -240,6 +243,8 @@ Gfx::State Gfx::snapshot() const {
     st.alphaDepth = alphaDepth_;
     for (int i = 0; i < kAlphaStack; ++i) st.alphaStack[i] = alphaStack_[i];
     st.rectsOpen = rectsOpen_;
+    st.translate = translate_;
+    st.bitmapsOpen = bitmapsOpen_;
     return st;
 }
 
@@ -251,6 +256,8 @@ void Gfx::restore(const State& st) {
     alphaDepth_ = st.alphaDepth;
     for (int i = 0; i < kAlphaStack; ++i) alphaStack_[i] = st.alphaStack[i];
     rectsOpen_ = st.rectsOpen;
+    translate_ = st.translate;
+    bitmapsOpen_ = st.bitmapsOpen;
 }
 
 bool Gfx::probeEnd(uint8_t slot) {
@@ -385,12 +392,73 @@ void Gfx::line(int x0, int y0, int x1, int y1, uint32_t c) {
     words_ += 4;
 }
 
+// RAM_DL words of a CMD_TEXT: 5 for the string, then one VERTEX2II per glyph
+// whose pen is inside 0..511 (x and y) and a CELL + VERTEX2F pair anywhere
+// else -- the right part of the 800-px screen. Measured on a Tracker (REG_CMD_DL
+// after six screens vs the frames' text): the RAM_DL a frame used was
+// 34 + 1.06 x strings + 1.00 x glyphs right of x 511 words more than the old
+// count of 4 + 1 per glyph, within 4 words. That left the MIDI instrument
+// page's right-hand CC lists (1,902 counted words) over the 8 KB RAM_DL, with
+// the guard not stepping in.
+static uint32_t cmdTextWords(int x, int y, uint8_t font, const char* s, uint16_t opt) {
+    const uint32_t n = uint32_t(std::strlen(s));
+    const int w = ot::textWidth(font, s);
+    if (opt & IDisplay::kOptRightX) x -= w;
+    else if (opt & IDisplay::kOptCenterX) x -= w / 2;
+    if (opt & IDisplay::kOptCenterY) y -= ot::fontHeight(font) / 2;
+    if (y < 0 || y > 511) return 5 + 2 * n;
+    if (x >= 0 && x + w <= 512) return 5 + n;
+    uint32_t words = 5;
+    for (uint32_t i = 0, pen = 0; i < n; ++i) {
+        const int gx = x + int(pen);
+        words += gx >= 0 && gx < 512 ? 1u : 2u;
+        pen += uint32_t(ot::textWidth(font, s + i, 1));
+    }
+    return words;
+}
+
+// CMD_TEXT on a custom font as the glyph run that draws the same
+// pixels. The coprocessor applies the options first (RIGHTX: x - width,
+// CENTERX: x - width / 2, CENTERY: y - bitmap height / 2), then puts one
+// glyph per character at the pen (cell = character, no glyph for a space or
+// a zero-width character below the font's first) and advances it by the
+// width. A glyph run does the same at one RAM_DL word per glyph instead of
+// 5 + 1 per glyph (2 right of x 511). It cannot draw a glyph clipped at the
+// left or top edge (VERTEX2II coordinates are unsigned) or a byte >= 127
+// (CMD_TEXT masks it to 7 bits): those stay CMD_TEXT. False: not drawn.
+bool Gfx::textAsGlyphs(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt) {
+    if (gCustomTextMode != kCustomGlyphs || !gCustomFonts) return false;
+    const fontdata::FontInfo* cf = customFont(romFontFor(font));
+    if (!cf) return false;
+    const int w = ot::textWidth(font, s);
+    // The coprocessor treats the text as spanning w - 1 pixels from its first
+    // column (EVE emulator, pixel-compared: RIGHTX ends it at x inclusive).
+    if (opt & IDisplay::kOptRightX) x -= w - 1;
+    else if (opt & IDisplay::kOptCenterX) x -= (w - 1) / 2;
+    if (opt & IDisplay::kOptCenterY) y -= cf->h / 2;
+    if (y < 0 || y > 511) return false;
+    for (int i = 0, pen = x; s[i]; ++i) {
+        const uint8_t ch = uint8_t(s[i]);
+        if (ch >= 127) return false;
+        if (pen < 0 && ch != ' ' && ch >= cf->first) return false;
+        pen += ot::textWidth(font, s + i, 1);
+    }
+    glyphRun(x, y, font, s, c);
+    return true;
+}
+
 void Gfx::text(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt) {
-    if (!s || !*s || !admit(4 + uint32_t(std::strlen(s)))) return;
+    if (!s || !*s) return;
+    if (textAsGlyphs(x, y, font, c, s, opt)) return;
+    textWords(x, y, font, c, s, opt, cmdTextWords(x, y, font, s, opt));
+}
+
+void Gfx::textWords(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt, uint32_t words) {
+    if (!admit(words)) return;
     sync();   // CMD_TEXT draws in the current context (translate included)
     color(c);
     d_->text(int16_t(x), int16_t(y), romFontFor(font), opt, s);
-    words_ += 4 + uint32_t(std::strlen(s));
+    words_ += words;
 }
 
 int textWidth(uint8_t font, const char* s, int len) {
@@ -444,9 +512,24 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
         }
         pen += adv > 0 ? adv : ot::textWidth(font, s + i, 1);
     }
-    if (romText || (rom && (handle < 16 || handle > 31 || y < 0 || y > 511 || first < 0))) {
+    const bool cmdText = rom && (handle < 16 || handle > 31 || y < 0 || y > 511 || first < 0);
+    if (romText || cmdText) {
         // Not a ROM font handle, or a glyph clipped at the top / left edge
         // (VERTEX2II takes unsigned coordinates): the coprocessor's CMD_TEXT.
+        // kRomWholeText only exists so host tests can read whole strings (one
+        // CMD_TEXT per run, the pitch ignored). The device draws the run as
+        // glyphs (kRomGlyphs), so charge that: one VERTEX2II per glyph inside
+        // 0..911 + BEGIN and VERTEX_TRANSLATE_X at most (the device shares
+        // them with the previous run).
+        if (gRomTextMode == kRomWholeText && !cmdText) {
+            uint32_t glyphs = 0;
+            for (int i = 0, pen = x; s[i]; ++i) {
+                if (drawable(uint8_t(s[i])) && pen >= 0 && pen < 912) ++glyphs;
+                pen += adv > 0 ? adv : ot::textWidth(font, s + i, 1);
+            }
+            textWords(x, y, font, c, s, 0, glyphs + 2);
+            return;
+        }
         if (adv <= 0) {
             text(x, y, font, c, s);
             return;
@@ -464,6 +547,7 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
     applyAlpha();
     openBitmaps();                         // shared with the previous run (closePrim ends it)
     if (hi < 0) return;
+    d_->textHint(int16_t(x), int16_t(y), font, s);   // [I] the run's text (IDisplay::textHint)
     int base = -1;
     if (lo >= translate_ && hi - translate_ <= 511) base = translate_;
     else if (hi <= 511) base = 0;
@@ -483,21 +567,24 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
 }
 
 void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int quarterTurns, uint16_t opt) {
-    if (!s || !*s) return;
+    const RotatedText t{x, y, s, opt};
+    textRotatedRun(&t, 1, font, c, quarterTurns);
+}
+
+void Gfx::textRotatedRun(const RotatedText* t, int n, uint8_t font, uint32_t c, int quarterTurns) {
     const uint8_t handle = romFontFor(font);
     const fontdata::FontInfo* cf = customFont(handle);
     const int q = ((quarterTurns % 4) + 4) % 4;
     if (!cf || q == 0) {   // fallback (ROM fonts) / no turn: horizontal text
-        text(x, y, font, c, s, opt);
+        for (int i = 0; i < n; ++i)
+            if (t[i].s && *t[i].s) text(t[i].x, t[i].y, font, c, t[i].s, t[i].opt);
         return;
     }
-    // Box of the turned text: W x H with W along the reading direction.
-    const int W = ot::textWidth(font, s), H = cf->h, cw = cf->w;
+    uint32_t glyphs = 0;
+    for (int i = 0; i < n; ++i) glyphs += t[i].s ? uint32_t(std::strlen(t[i].s)) : 0u;
+    if (!glyphs) return;
+    const int H = cf->h, cw = cf->w;
     const bool side = q != 2;              // reads vertically
-    const int bw = side ? H : W, bh = side ? W : H;
-    if (opt & IDisplay::kOptCenterX) x -= bw / 2;
-    else if (opt & IDisplay::kOptRightX) x -= bw;
-    if (opt & IDisplay::kOptCenterY) y -= bh / 2;
     // BITMAP_TRANSFORM: source (u, v) of the drawn pixel (px, py) from the
     // vertex, NEAREST sampling at pixel centres (8.8 / 1/256 px).
     //   q 1 (CCW, bottom to top): u = cw - py, v = px
@@ -513,7 +600,7 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
     if (q == 1) { B = -256; C = cw * 256 - 128; D = 256; }
     else if (q == 2) { A = -256; C = cw * 256 - 128; E = -256; F = H * 256 - 128; }
     else { B = 256; D = -256; F = H * 256 - 128; }
-    if (!admit(14 + 2 * uint32_t(std::strlen(s)))) return;
+    if (!admit(14 + 2 * glyphs)) return;
     sync();   // the saved context (and the restored one) has translate 0
     color(c);
     d_->saveContext();
@@ -522,27 +609,39 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
     d_->begin(IDisplay::kBitmaps);
     words_ += 10;
     int base = 0;
-    int pen = 0;
-    for (int i = 0; s[i]; ++i) {
-        const uint8_t ch = uint8_t(s[i]);
-        const int step = fontdata::advance(*cf, ch);
-        if (ch != ' ' && ch < 127 && ch >= cf->first) {
-            int vx, vy;   // vertex = top-left of the turned cell
-            if (q == 1) { vx = x; vy = y + W - pen - cw; }
-            else if (q == 2) { vx = x + W - pen - cw; vy = y; }
-            else { vx = x; vy = y + pen; }
-            if (vx >= 0 && vx < 912 && vy >= 0 && vy <= 511) {
-                const int want = vx < 512 ? 0 : 400;
-                if (want != base) {
-                    base = want;
-                    d_->vertexTranslateX(int32_t(base) * 16);
+    for (int i = 0; i < n; ++i) {
+        const char* s = t[i].s;
+        if (!s || !*s) continue;
+        // Box of the turned text: W x H with W along the reading direction.
+        const int W = ot::textWidth(font, s);
+        const int bw = side ? H : W, bh = side ? W : H;
+        int x = t[i].x, y = t[i].y;
+        if (t[i].opt & IDisplay::kOptCenterX) x -= bw / 2;
+        else if (t[i].opt & IDisplay::kOptRightX) x -= bw;
+        if (t[i].opt & IDisplay::kOptCenterY) y -= bh / 2;
+        d_->textHint(int16_t(x), int16_t(y), font, s);   // [I] the run's text (IDisplay::textHint)
+        int pen = 0;
+        for (int k = 0; s[k]; ++k) {
+            const uint8_t ch = uint8_t(s[k]);
+            const int step = fontdata::advance(*cf, ch);
+            if (ch != ' ' && ch < 127 && ch >= cf->first) {
+                int vx, vy;   // vertex = top-left of the turned cell
+                if (q == 1) { vx = x; vy = y + W - pen - cw; }
+                else if (q == 2) { vx = x + W - pen - cw; vy = y; }
+                else { vx = x; vy = y + pen; }
+                if (vx >= 0 && vx < 912 && vy >= 0 && vy <= 511) {
+                    const int want = vx < 512 ? 0 : 400;
+                    if (want != base) {
+                        base = want;
+                        d_->vertexTranslateX(int32_t(base) * 16);
+                        ++words_;
+                    }
+                    d_->vertex2ii(uint16_t(vx - base), uint16_t(vy), handle, ch);
                     ++words_;
                 }
-                d_->vertex2ii(uint16_t(vx - base), uint16_t(vy), handle, ch);
-                ++words_;
             }
+            pen += step;
         }
-        pen += step;
     }
     d_->end();
     d_->restoreContext();   // transform and translate
@@ -552,15 +651,15 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
 }
 
 void Gfx::gradient(int x0, int y0, int x1, int y1, uint32_t c0, uint32_t c1) {
-    if (lowDetail_ || !admit(5)) return;
+    if (lowDetail_ || !admit(kGradientDlWords)) return;
     sync();
     d_->gradient(int16_t(x0), int16_t(y0), c0 & 0xFFFFFFu, int16_t(x1), int16_t(y1), c1 & 0xFFFFFFu);
     cur_ = kNoColor;   // fallback displays change COLOR_RGB
-    words_ += 5;
+    words_ += kGradientDlWords;
 }
 
 void Gfx::gradientRect(int x, int y, int w, int h, uint32_t c0, uint32_t c1, bool vertical) {
-    if (w <= 0 || h <= 0 || lowDetail_ || !admit(9)) return;
+    if (w <= 0 || h <= 0 || lowDetail_ || !admit(4 + kGradientDlWords)) return;
     sync();
     d_->saveContext();
     ++words_;

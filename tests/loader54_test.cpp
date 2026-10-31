@@ -438,14 +438,19 @@ TEST(loader54_marquee_widget) {
     const int innerW = 297 - 6, left = 1 + 3, right = left + innerW;
     const int tw = textWidth(lv.font, kLongItem.c_str());
     CHECK(1 + 13 + tw > right);
+    // [I] Rows that don't scroll are glyph runs, drawn from the
+    // row's top instead of centred on it.
     auto rowTexts = [&](int row) {
         std::vector<std::pair<int, std::string>> v;
-        char want[16];
+        char want[16], wantRun[16];
         std::snprintf(want, sizeof(want), " %d f", 61 + 17 + 27 * row);
+        std::snprintf(wantRun, sizeof(wantRun), " %d f", 61 + 17 + 27 * row - fontHeight(lv.font) / 2);
         for (auto& s : d.last) {
             int x = 0;
-            if (s.rfind("TEXT ", 0) != 0 || s.find(want) == std::string::npos) continue;
-            std::sscanf(s.c_str(), "TEXT %d", &x);
+            const bool text = s.rfind("TEXT ", 0) == 0, run = s.rfind("GLYPHS ", 0) == 0;
+            if (!(text && s.find(want) != std::string::npos) && !((text || run) && s.find(wantRun) != std::string::npos))
+                continue;
+            std::sscanf(s.c_str() + (text ? 5 : 7), "%d", &x);
             const size_t q = s.find('"');
             v.push_back({x, s.substr(q + 1, s.size() - q - 2)});
         }
@@ -534,13 +539,15 @@ TEST(loader54_marquee_redraws_only_while_needed) {
     // The long one: frames about every tick, and the row's text moves.
     while (l.sdCursor < longI) h.tap(btn::Down);
     const int row = longI - wg::listFollow(longI, l.count, wg::listVisibleRows(362), 0);
-    char want[16];
-    std::snprintf(want, sizeof(want), " %d f", 61 + 17 + 27 * row);
+    // [I] The row's text as CMD_TEXT centred on the row, or as a glyph run
+    // from the row's top (half a font height above).
+    const int ty = 61 + 17 + 27 * row;
     auto firstX = [&] {
         for (auto& s : h.disp.last) {
-            int x = 0;
-            if (s.rfind("TEXT ", 0) == 0 && s.find(want) != std::string::npos && s.find("00_xxx") != std::string::npos &&
-                std::sscanf(s.c_str(), "TEXT %d", &x) == 1)
+            const bool text = s.rfind("TEXT ", 0) == 0, run = s.rfind("GLYPHS ", 0) == 0;
+            int x = 0, y = 0;
+            if ((text || run) && s.find("00_xxx") != std::string::npos &&
+                std::sscanf(s.c_str() + (text ? 5 : 7), "%d %d", &x, &y) == 2 && y <= ty && y >= ty - 12)
                 return x;
         }
         return 9999;
