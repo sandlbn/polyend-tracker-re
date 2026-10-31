@@ -60,7 +60,7 @@ void PadNotes::build(uint8_t scale, uint8_t layout, uint8_t root, bool piano) {
     root_ = root;
     piano_ = piano;
     if (piano) {
-        // [I] #42: logical rows 0 / 2 (bottom of each pair) the white keys in
+        // [I] logical rows 0 / 2 (bottom of each pair) the white keys in
         // a row, C D E F G A B C D E F G; rows 1 / 3 above them the black key
         // just below each white key (as grid controllers draw a piano: C#
         // over D), so the gaps sit over C and F.

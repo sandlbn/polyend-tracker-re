@@ -1017,7 +1017,7 @@ void App::refreshPadNotes() {
     if (sc >= kScaleCount) sc = 0;
     if (lay > 11) lay = 11;
     if (root > 36) root = 24;
-    padNotes.build(sc, lay, root, cfg.padLayout == 1);   // [I] #42 piano layout
+    padNotes.build(sc, lay, root, cfg.padLayout == 1);   // [I] piano layout
 }
 
 uint8_t App::padNote(uint8_t pad) {

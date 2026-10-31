@@ -1,4 +1,4 @@
-// [I] #42 Config > General > Pad layout "Piano" (not in stock): in each row
+// [I] Config > General > Pad layout "Piano" (not in stock): in each row
 // pair the white keys along the lower row and the black keys above them,
 // between their white keys; the upper pair an octave up. Gaps play nothing and
 // the pad lights draw the keyboard.

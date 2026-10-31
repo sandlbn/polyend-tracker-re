@@ -528,7 +528,7 @@ uint8_t InstrumentScreen::auditionNote() const {
     const uint8_t ci = app_.currentInstrument();
     if (ci < kSampleInstrumentCount && app_.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice))
         return uint8_t(24 + app_.instruments[ci].selectedSlice);
-    // [I] #42: the piano layout's pad 12 is a gap: its bottom-left C instead.
+    // [I] the piano layout's pad 12 is a gap: its bottom-left C instead.
     return app_.cfg.padLayout == 1 ? app_.padNote(36) : app_.padNote(12);
 }
 
@@ -636,7 +636,7 @@ void InstrumentScreen::padLeds(uint8_t* lv) {
     if (ci < kSampleInstrumentCount && app_.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice))
         for (int p = 0; p < app_.instruments[ci].sliceCount && p < kPadCount; ++p) lv[p] = app_.cfg.padDim();
     else
-        pianoLeds(lv);   // [I] #42
+        pianoLeds(lv);   // [I]
 }
 
 void InstrumentScreen::drawMapping(Gfx& g) {

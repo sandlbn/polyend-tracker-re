@@ -1079,7 +1079,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         int v = pad;
         if (fillField >= 4 && col == 0) {
             v = a.padNote(pad);
-            if (v == PadNotes::kNoNote) return;   // [I] #42 piano layout gap
+            if (v == PadNotes::kNoNote) return;   // [I] piano layout gap
         }
         else if (fillField >= 4 && col >= 2) v = pops::fxValueFromPad(fillFxType(), pad);
         switch (fillField) {
@@ -1142,7 +1142,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     }
     if (focus >= 0) return;   // spec 06 §1.6: no note is entered while a focus is held
     const uint8_t note = a.padNote(pad);
-    if (note == PadNotes::kNoNote && col == 0) return;   // [I] #42: a piano layout gap plays nothing
+    if (note == PadNotes::kNoNote && col == 0) return;   // [I] a piano layout gap plays nothing
     if (a.seq.isRecording() && col <= 1) {
         // spec 16 §A.6: the Note column records notes with the current
         // instrument; the Instr column records instrument triggers: note 60
@@ -1178,7 +1178,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         // 60, like the Instr-column record and edit paths (spec 16 §A.6),
         // not at the pad's own note (user report: every instrument one
         // semitone higher than the previous one).
-        if (col != 1 && note == PadNotes::kNoNote) return;   // [I] #42
+        if (col != 1 && note == PadNotes::kNoNote) return;   // [I]
         a.previewOn(voice, a.currentInstrument(), col == 1 ? uint8_t(60) : note, 127);
         padVoice_[pad] = int8_t(pad);
         return;
@@ -1641,7 +1641,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
                 for (int p = 0; p < a.instruments[ci].sliceCount && p < 48; ++p) lv[p] = dim;
                 if (st.note >= 24 && st.note < 72) lv[st.note - 24] = full;
             } else {
-                // [I] #42: on the piano keys the step's note shows at full.
+                // [I] on the piano keys the step's note shows at full.
                 const uint8_t on = pianoLeds(lv) ? full : dim;
                 if (st.note >= 0) {
                     a.refreshPadNotes();
@@ -1671,7 +1671,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
         }
         return;
     }
-    // Not editing: "Pads preview" (spec 06 §1.6 rule 7). [I] #42: over the
+    // Not editing: "Pads preview" (spec 06 §1.6 rule 7). [I] over the
     // piano keys (outside the Instr column) the played notes show at full.
     const uint8_t on = col != 1 && pianoLeds(lv) ? full : dim;
     if (a.cfg.padsPreview == 0) return;

@@ -19,7 +19,7 @@ bool isInScale(int note, int root, uint8_t scale);
 // Pad -> note table (spec 05 §4.1). Physical pad index = row*12 + col, row 0 = top.
 class PadNotes {
 public:
-    // [I] #42: a pad that plays nothing (a gap of the piano layout).
+    // [I] a pad that plays nothing (a gap of the piano layout).
     static constexpr uint8_t kNoNote = 0xFF;
     // piano: Config > Pad layout "Piano" (layout is then unused): per row
     // pair the white keys along the lower row (C D E F G A B C D E F G) and
@@ -31,7 +31,7 @@ public:
     uint8_t note(uint8_t physicalPad, bool raw = false) const;
     // Physical pad producing `note`, or -1.
     int padsForNote(int note, uint8_t* pads, int cap) const;
-    // [I] #42: the piano layout's key lights (levels 0..31, physical pads):
+    // [I] the piano layout's key lights (levels 0..31, physical pads):
     // the scale's root brightest, white keys `dim`, black keys dimmer, keys
     // outside the scale barely lit, gaps dark. False (lv untouched) when the
     // table isn't the piano layout.

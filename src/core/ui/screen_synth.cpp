@@ -893,7 +893,7 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
     if (state == kPress) {
         if (view == View::Browser && !previewHighlighted()) return;
         const uint8_t n = app_.padNote(pad);
-        if (n == PadNotes::kNoNote) return;   // [I] #42: a piano layout gap
+        if (n == PadNotes::kNoNote) return;   // [I] a piano layout gap
         padNote_ = pad;
         audition(true, n);
     } else if (state == kRelease && padNote_ == int(pad)) {
@@ -904,7 +904,7 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
 
 void SynthScreen::padLeds(uint8_t* lv) {
     if (view != View::Edit) {
-        pianoLeds(lv);   // [I] #42: the browser's pads play the patch
+        pianoLeds(lv);   // [I] the browser's pads play the patch
         return;
     }
     const synthui::Section* sec = nullptr;

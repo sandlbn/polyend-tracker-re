@@ -77,7 +77,7 @@ void Screen::onPad(uint8_t pad, uint8_t state) {
     // One track voice per held pad, voiceId = pad number (spec 07 Q7).
     if (state == kPress) {
         const uint8_t n = app_.padNote(pad);
-        if (n != PadNotes::kNoNote) app_.previewOn(pad, app_.currentInstrument(), n, 127);   // [I] #42: gaps
+        if (n != PadNotes::kNoNote) app_.previewOn(pad, app_.currentInstrument(), n, 127);   // [I] gaps
     }
     else if (state == kRelease) app_.previewOff(pad);
 }

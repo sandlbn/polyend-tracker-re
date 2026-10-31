@@ -525,7 +525,7 @@ void RecorderScreen::onPad(uint8_t pad, uint8_t st) {
     if (state != 1 || app_.capture.active() || len == 0) return;
     if (st == kPress) {
         const uint8_t n = app_.padNote(pad);
-        if (n == PadNotes::kNoNote) return;   // [I] #42: a piano layout gap
+        if (n == PadNotes::kNoNote) return;   // [I] a piano layout gap
         play(n);
         playPad_ = pad;
     } else if (st == kRelease && previewing_ && playPad_ == int(pad)) {
