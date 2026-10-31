@@ -210,6 +210,8 @@ void PatternScreen::start(int opt) {
     colKey_ = 0;
     pickerKey_ = 0;
     for (auto& v : padVoice_) v = -1;
+    chordPads_ = 0;
+    chordStep_ = -1;
     if (step >= len()) step = len() - 1;
     statusStep_ = step;   // Ui resets the status cursor step before start()
     ui_.setStatusCursorStep(step);
@@ -1106,6 +1108,8 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     if (state == kRelease) {
         if (padVoice_[pad] >= 0) a.previewOff(uint16_t(padVoice_[pad]));
         padVoice_[pad] = -1;
+        chordPads_ &= ~(uint64_t(1) << pad);
+        if (!chordPads_) chordStep_ = -1;   // [I] the chord ends with its last pad
         // Instr column: release only, no OFF step (manual p.95, MANUAL_AUDIT #4).
         if (a.seq.isRecording() && col <= 1) {
             const uint8_t n = col == 1 ? uint8_t(60) : a.padNote(pad);
@@ -1180,6 +1184,27 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         return;
     }
     const SelRect r = target();
+    if (col == 0 && r.single() && chordPads_ && chordStep_ >= 0 && chordStep_ < len()) {
+        // [I] Chord step entry: a pad pressed while another note pad is held
+        // writes on the chord's step, one track to the right (a track that
+        // would change the instrument, e.g. a MIDI track for a sample
+        // instrument, ends the chord). No undo entry of its own: one Undo
+        // removes the whole chord. Each note sounds on its own track.
+        const uint8_t ins = a.currentInstrument();
+        const int t = chordTrack_ + 1;
+        if (t >= kTrackCount || pops::mapInstrument(t, ins) != ins) return;
+        a.previewOn(voice, ins, note, 127, t);
+        padVoice_[pad] = int8_t(pad);
+        SelRect c;
+        c.s0 = c.s1 = chordStep_;
+        c.t0 = c.t1 = t;
+        pops::writeNote(a.pattern(), c, note, ins);
+        chordTrack_ = int8_t(t);
+        chordPads_ |= uint64_t(1) << pad;
+        a.markProjectDirty();
+        a.patternEdited();
+        return;
+    }
     if (col == 0) {
         // Note entry in edit mode plays on the cursor track only, after
         // releasing its note (spec 07 Q7 exception).
@@ -1191,7 +1216,12 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         a.project.setU8(pf::kLastNote, note);
         a.markProjectDirty();
         a.patternEdited();
-        if (r.single()) advance();
+        if (r.single()) {
+            chordPads_ = uint64_t(1) << pad;   // [I] the first note of a possible chord
+            chordStep_ = int16_t(r.s0);
+            chordTrack_ = int8_t(r.t0);
+            advance();
+        }
     } else if (col == 1) {
         int ins = pad;
         for (int t = r.t0; t <= r.t1; ++t)
