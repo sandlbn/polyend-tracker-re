@@ -21,10 +21,11 @@ class PadNotes {
 public:
     // [I] #42: a pad that plays nothing (a gap of the piano layout).
     static constexpr uint8_t kNoNote = 0xFF;
-    // piano: Config > Pad layout "Piano" (layout is then unused): a semitone
-    // per column, C..B left to right; per row pair the black keys in the
-    // upper row and the white keys in the lower one, the other pads gaps;
-    // two octaves from the root note's octave (bottom pair = lower octave).
+    // piano: Config > Pad layout "Piano" (layout is then unused): per row
+    // pair the white keys along the lower row (C D E F G A B C D E F G) and
+    // the black keys above them, each over the white key above it (C# over
+    // D; gaps over C and F); the upper pair an octave above the lower one, which starts at the
+    // root note's octave.
     void build(uint8_t scale, uint8_t layout, uint8_t root, bool piano = false);
     // raw: chromatic pad + 24 (spec 05 §4.1 getNote raw).
     uint8_t note(uint8_t physicalPad, bool raw = false) const;

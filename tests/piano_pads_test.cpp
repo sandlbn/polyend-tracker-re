@@ -1,6 +1,7 @@
-// [I] #42 Config > General > Pad layout "Piano" (not in stock): a semitone per
-// column, black keys in the row above the white ones, two octaves from the
-// root note's octave; gaps play nothing and the pad lights draw the keyboard.
+// [I] #42 Config > General > Pad layout "Piano" (not in stock): in each row
+// pair the white keys along the lower row and the black keys above them,
+// between their white keys; the upper pair an octave up. Gaps play nothing and
+// the pad lights draw the keyboard.
 #include "test.h"
 #include "ui_fakes.h"
 #include "nvstore_fake.h"
@@ -14,27 +15,27 @@ using namespace ot;
 namespace {
 constexpr uint8_t kChromatic = 0, kMajor = 2;   // scale indices (kScaleNames)
 // Physical pads (row 0 = top): the bottom row pair is the lower octave.
-constexpr uint8_t kLowC = 36, kLowCs = 25, kLowD = 38, kHighC = 12, kHighCs = 1;
+constexpr uint8_t kLowC = 36, kLowD = 37, kLowCs = 25, kLowGap = 24, kHighC = 12, kHighCs = 1;
 PatternScreen& pe(Harness& h) { return *static_cast<PatternScreen*>(h.app->ui.screen(kModPattern)); }
 }  // namespace
 
-TEST(piano_map_semitone_per_column) {
+TEST(piano_map_white_row_black_row) {
     PadNotes p;
     p.build(kChromatic, 0, 24, true);   // root C3: the bottom C is note 36
     CHECK(p.piano());
-    CHECK_EQ(p.note(kLowC), 36);
-    CHECK_EQ(p.note(kLowCs), 37);
-    CHECK_EQ(p.note(kLowD), 38);
-    CHECK_EQ(p.note(47), 47);       // bottom right: B
-    CHECK_EQ(p.note(kHighC), 48);   // the upper pair: an octave higher
+    // The bottom row: C D E F G A B C D E F G.
+    const int white[12] = {36, 38, 40, 41, 43, 45, 47, 48, 50, 52, 53, 55};
+    for (int c = 0; c < 12; ++c) CHECK_EQ(p.note(uint8_t(36 + c)), white[c]);
+    // Above it: each black key over the white key above it, none over C and F.
+    const int black[12] = {-1, 37, 39, -1, 42, 44, 46, -1, 49, 51, -1, 54};
+    for (int c = 0; c < 12; ++c)
+        CHECK_EQ(int(p.note(uint8_t(24 + c))), black[c] < 0 ? int(PadNotes::kNoNote) : black[c]);
+    // The upper pair: the same keyboard an octave up.
+    CHECK_EQ(p.note(kHighC), 48);
     CHECK_EQ(p.note(kHighCs), 49);
-    // Gaps: a black key's column in the white row and the other way round.
-    CHECK_EQ(p.note(37), PadNotes::kNoNote);
-    CHECK_EQ(p.note(24), PadNotes::kNoNote);
     CHECK_EQ(p.note(0), PadNotes::kNoNote);
-    CHECK_EQ(p.note(40), 40);   // E and F are both white
-    CHECK_EQ(p.note(41), 41);
-    CHECK_EQ(p.note(29), PadNotes::kNoNote);
+    CHECK_EQ(p.note(3), PadNotes::kNoNote);
+    CHECK_EQ(p.note(23), 67);
     // The root's octave, not its pitch: D3 starts on the same C.
     p.build(kChromatic, 0, 26, true);
     CHECK_EQ(p.note(kLowC), 36);
@@ -58,7 +59,7 @@ TEST(piano_key_lights) {
     CHECK_EQ(lv[kHighC], 20);
     CHECK_EQ(lv[kLowD], 10);   // white key
     CHECK_EQ(lv[kLowCs], 6);   // black key dimmer
-    CHECK_EQ(lv[37], 0);       // gaps dark
+    CHECK_EQ(lv[kLowGap], 0);  // gaps dark
     CHECK_EQ(lv[0], 0);
     // D major: D brightest, C and C# outside the scale barely lit, F# a
     // black key in the scale.
@@ -68,8 +69,8 @@ TEST(piano_key_lights) {
     CHECK_EQ(lv[kLowD], 20);
     CHECK_EQ(lv[kLowC], 2);
     CHECK_EQ(lv[kLowCs], 6);   // C# is in D major
-    CHECK_EQ(lv[30], 6);       // F#
-    CHECK_EQ(lv[41], 2);       // F
+    CHECK_EQ(lv[28], 6);       // F#
+    CHECK_EQ(lv[39], 2);       // F
     // Low pad brightness: never darker than 1, so the keyboard stays visible.
     std::memset(lv, 0, sizeof(lv));
     p.pianoLeds(lv, 3, 10);
@@ -126,11 +127,11 @@ TEST(piano_gap_records_nothing_and_lights_show) {
     CHECK(h.leds.level[kLowC] > h.leds.level[kLowD]);
     CHECK(h.leds.level[kLowD] > h.leds.level[kLowCs]);
     CHECK(h.leds.level[kLowCs] > 0);
-    CHECK_EQ(h.leds.level[37], 0);
+    CHECK_EQ(h.leds.level[kLowGap], 0);
     // Edit mode: a gap enters nothing, a key enters its note.
     h.tap(btn::Rec);
     const int s0 = pe(h).step;
-    h.pad(37);
+    h.pad(kLowGap);
     CHECK_EQ(pe(h).step, s0);
     CHECK_EQ(a.pattern().tracks[0].steps[s0].note, -1);
     h.pad(kLowCs);
