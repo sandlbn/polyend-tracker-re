@@ -8,9 +8,11 @@
 #include <memory>
 #include <new>
 
+#include "audio/export_resampler.h"
 #include "audio/ring_io.h"
 #include "audio/zero_snap.h"
 #include "formats/wav.h"
+#include "sdram_bss.h"
 
 namespace ot {
 namespace audio {
@@ -1026,59 +1028,15 @@ bool patchRate(IStorage& fs, const char* path) {
     return ok;
 }
 
-// [I] Convert device-rate audio (180 MHz * 16 / 255 / 256 = 44100 * 2500 /
-// 2499 Hz) to 44.1 kHz WAV samples without changing pitch or duration. Stock
-// writes the device-rate samples with 44117 in the header (spec 04 §6.1);
-// DAWs at 44.1 kHz then resample or play them 0.04 % slow. The position runs
-// in exact integer steps of 2500/2499 input frames per output frame; the
-// interpolation is the WAV import's (cubicS16, formats/wav.h).
-class ExportResampler {
-public:
-    static constexpr uint32_t kInputPerOutput = 2500;
-    static constexpr uint32_t kOutputPerInput = 2499;
+// [I] The 44.1 kHz conversion's history (export_resampler.h): the last
+// kTaps input frames of each stem. Main-loop data, so SDRAM on the device.
+OT_SDRAM_BSS alignas(4) ExportResampler::History gExportHistory[ExportResampler::kMaxStems];
+static_assert(ExportResampler::kMaxStems == StemBlock::kStems, "one conversion history per stem");
 
-    uint32_t push(const int16_t* in, uint32_t frames, int16_t* out) {
-        const uint32_t start = outputFrames_;
-        for (uint32_t i = 0; i < frames; ++i) {
-            for (int ch = 0; ch < 2; ++ch) history_[ch][inputFrames_ & 3u] = in[2 * i + ch];
-            ++inputFrames_;
-            while (sourceIndex_ + 2 < inputFrames_) emit(out, start);
-        }
-        return outputFrames_ - start;
-    }
-
-    uint32_t finish(int16_t* out) {
-        const uint32_t start = outputFrames_;
-        const uint32_t target = uint32_t(uint64_t(inputFrames_) * kOutputPerInput / kInputPerOutput);
-        while (outputFrames_ < target) emit(out, start);
-        return outputFrames_ - start;
-    }
-
-private:
-    int16_t sample(int channel, int64_t frame) const {
-        if (frame < 0 || uint64_t(frame) >= inputFrames_) return 0;
-        return history_[channel][uint32_t(frame) & 3u];
-    }
-
-    void emit(int16_t* out, uint32_t start) {
-        const float mu = float(phase_) / float(kOutputPerInput);
-        const uint32_t outFrame = outputFrames_ - start;
-        for (int ch = 0; ch < 2; ++ch)
-            out[2 * outFrame + ch] = cubicS16(float(sample(ch, int64_t(sourceIndex_) - 1)),
-                                              float(sample(ch, sourceIndex_)), float(sample(ch, sourceIndex_ + 1)),
-                                              float(sample(ch, sourceIndex_ + 2)), mu);
-        ++outputFrames_;
-        phase_ += kInputPerOutput;
-        sourceIndex_ += phase_ / kOutputPerInput;
-        phase_ %= kOutputPerInput;
-    }
-
-    int16_t history_[2][4] = {};
-    uint32_t inputFrames_ = 0;
-    uint32_t outputFrames_ = 0;
-    uint32_t sourceIndex_ = 0;
-    uint32_t phase_ = 0;
-};
+// ExportResampler::Sink: ctx = exportWav's writers.
+bool writeConverted(void* ctx, int stem, const int16_t* interleaved, uint32_t frames) {
+    return static_cast<WavWriter*>(ctx)[stem].write(interleaved, frames);
+}
 
 void joinPath(char* dst, size_t cap, const char* dir, const char* name) {
     size_t n = 0;
@@ -1116,30 +1074,31 @@ int32_t AudioEngine::exportWav(IStorage& fs, const char* path, bool stems, uint3
     }
     beginOffline();
     int16_t masterBuf[kBlock * 2];
-    int16_t rateBuf[kBlock * 2];
-    ExportResampler resamplers[StemBlock::kStems];
+    const int16_t* srcs[StemBlock::kStems];
+    for (int i = 0; i < nw; ++i) srcs[i] = stems ? stemBuf->data[i] : masterBuf;
+    ExportResampler rs;
+    if (resampleTo44100) rs.begin(nw, gExportHistory);
     uint32_t n = 0;
     bool ok = true;
     while (n < maxBlocks && (!running || running(ctx))) {
         renderOfflineBlock(masterBuf, stems ? stemBuf : nullptr);
-        for (int i = 0; i < nw && ok; ++i) {
-            const int16_t* src = stems ? stemBuf->data[i] : masterBuf;
-            if (!resampleTo44100) {
+        if (resampleTo44100) {
+            ok = rs.pushBlock(srcs, kBlock, writeConverted, writers);
+        } else {
+            for (int i = 0; i < nw && ok; ++i) {
+                const int16_t* src = stems ? stemBuf->data[i] : masterBuf;
                 ok = writers[i].write(src, kBlock);
-                continue;
             }
-            const uint32_t outFrames = resamplers[i].push(src, kBlock, rateBuf);
-            ok = !outFrames || writers[i].write(rateBuf, outFrames);
         }
         if (!ok) break;
         ++n;
     }
     endOffline();
+    if (resampleTo44100 && ok) {
+        std::memset(masterBuf, 0, sizeof(masterBuf));   // the silence after the end
+        ok = rs.finish(masterBuf, writeConverted, writers);
+    }
     for (int i = 0; i < nw; ++i) {
-        if (resampleTo44100) {
-            const uint32_t outFrames = resamplers[i].finish(rateBuf);
-            if (outFrames) ok = writers[i].write(rateBuf, outFrames) && ok;
-        }
         ok = writers[i].close() && ok;
         if (!resampleTo44100) ok = patchRate(fs, names[i]) && ok;
     }
