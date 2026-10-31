@@ -14,8 +14,10 @@
 //
 // A channel whose window is all zero for a chunk (a silent stem, an empty
 // side) skips the kernel: its sums would be exactly 0 (products +-0 added to
-// +0), so its output frames are set to 0. The widening loop notes the zero
-// windows on the way, without another pass over the samples.
+// +0), so its output frames are set to 0. A right channel whose window equals
+// the left one (a mono stem) skips it too and gets a copy of the left result,
+// which is what its own sums would give. The widening loop notes both on the
+// way, without another pass over the samples.
 //
 // convertBlock() holds the chunk's weights (4 KB) and windows on its stack.
 // It stays in this translation unit, so its frame stays apart from
@@ -153,31 +155,38 @@ __attribute__((noinline)) bool convertBlock(ExportResampler::History* hist, int 
         for (int s0 = 0; s0 < stems; s0 += kGroupStems) {
             const int gs = stems - s0 < kGroupStems ? stems - s0 : kGroupStems;
             // Channel c of the group is side c & 1 of stem c / 2: window win[c],
-            // output slot outs[c]. Bit c of `silent`: window c is all zero.
-            uint32_t silent = 0;
+            // output slot outs[c]. Bit c of `silent`: window c is all zero; of
+            // `same`: window c (a right channel) equals window c - 1 and is not
+            // silent.
+            uint32_t silent = 0, same = 0;
             for (int g = 0; g < gs; ++g) {
                 gather(hist[s0 + g], in[s0 + g], first, span, stage);
                 float* l = win[2 * g];
                 float* r = win[2 * g + 1];
                 const u32_alias* f = reinterpret_cast<const u32_alias*>(stage);
-                uint32_t any = 0;   // OR of the frames: L in the low half, R in the high (little-endian)
+                uint32_t any = 0;    // OR of the frames: L in the low half, R in the high (little-endian)
+                uint32_t diff = 0;   // low half: OR of L ^ R
                 for (uint32_t i = 0; i < span; ++i) {
                     const uint32_t v = f[i];
                     any |= v;
+                    diff |= v ^ (v >> 16);
                     l[i] = float(int16_t(v));
                     r[i] = float(int16_t(v >> 16));
                 }
                 if (!(any & 0xffffu)) silent |= 1u << (2 * g);
                 if (!(any >> 16)) silent |= 2u << (2 * g);
+                else if (!(diff & 0xffffu) && (any & 0xffffu)) same |= 2u << (2 * g);
             }
-            // The windows with sound move to the front (each to a row whose own
-            // window has moved already or is silent), the kernel runs on them,
-            // then each result moves to its channel's slot, top down for the
-            // same reason; silent channels get 0.
+            // The windows to compute move to the front (each to a row whose own
+            // window has moved already or is not computed), the kernel runs on
+            // them, then each result moves to its channel's slot, top down for
+            // the same reason. Silent channels get 0; a `same` channel copies
+            // the result of channel c - 1, still in slot nch - 1 at that point.
+            const uint32_t skip = silent | same;
             const int nc = 2 * gs;
             int nch = 0;
             for (int c = 0; c < nc; ++c) {
-                if (silent >> c & 1u) continue;
+                if (skip >> c & 1u) continue;
                 if (nch != c)
                     for (uint32_t i = 0; i < span; ++i) {
                         OT_NO_LIBCALL();
@@ -190,6 +199,10 @@ __attribute__((noinline)) bool convertBlock(ExportResampler::History* hist, int 
                 int16_t* o = outs[c];
                 if (silent >> c & 1u) {
                     for (uint32_t j = 0; j < cnt; ++j) o[2 * j] = 0;
+                } else if (same >> c & 1u) {
+                    // Invariant: a `same` R has a non-silent L (see the detection), so
+                    // L was computed and its result is still in slot nch - 1.
+                    for (uint32_t j = 0; j < cnt; ++j) o[2 * j] = outs[nch - 1][2 * j];
                 } else if (--nch != c) {
                     for (uint32_t j = 0; j < cnt; ++j) o[2 * j] = outs[nch][2 * j];
                 }
