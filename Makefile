@@ -125,6 +125,11 @@ CORE_C    := $(wildcard $(CORE)/*.c)
 CORE_CXX  := $(filter-out $(CORE)/main.cpp,$(wildcard $(CORE)/*.cpp))
 APP_C     := $(shell find src -name '*.c') third_party/fatfs/ff.c third_party/fatfs/ffunicode.c
 APP_CXX   := $(shell find src -name '*.cpp')
+# The display command recorder (src/core/remote) is for the simulator and
+# the host tests only. Built into the image, its copy of the inline IDisplay
+# helpers (speculatively devirtualised towards the recorder) can be the one
+# the linker keeps.
+APP_CXX   := $(filter-out src/core/remote/%,$(APP_CXX))
 OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX))
 # Profile modules (profile.mk): sources from MODULES_DIR and the generated
 # registry, found through vpath; -O2 (audio path).

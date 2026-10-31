@@ -128,6 +128,16 @@ check: $(BIN) $(JPEG_CHECK) $(HOST_STORAGE_CHECK) visual-diff keyflow-check
 	# 2.x test songs (TESTSONGS.md): each opens without errors and plays.
 	$(if $(HAVE_SYNTH_PACK),$(MAKE) testsongs-check,@echo "testsongs-check: needs the synth pack (PROFILE=full) -- SKIPPED")
 
+# FT81x emulator replay (tools/eve_emu/README.md): the display budget
+# script's frames on Bridgetek's EVE emulator under Wine; fails on a fault,
+# more than 2048 RAM_DL words or a frame that differs from the UI's count.
+eve-check: $(BIN)
+	rm -rf $(OUT)/eve $(OUT)/eve-dl $(OUT)/eve-dl.eeprom
+	mkdir -p $(OUT)/eve/budget
+	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(BIN) --sd $(OUT)/eve-dl \
+	    --script scripts/display_budget.txt --frames $(OUT)/eve/budget
+	python3 $(ROOT)/tools/eve_emu/check.py $(OUT)/eve/budget
+
 # Generates the test songs this build supports and opens / plays each one in
 # the headless sim on a card with only Projects/<name> (tools/make_testsongs).
 # Song 19's stems are 20 s here (TESTSONGS_STEMS_SECONDS) to keep the check fast.
@@ -141,4 +151,4 @@ clean:
 	rm -rf $(OUT)
 
 -include $(CORE_OBJS:.o=.d) $(MOD_OBJS:.o=.d) $(SIM_OBJS:.o=.d) $(JPEG_CHECK_OBJS:.o=.d) $(HOST_STORAGE_CHECK_OBJS:.o=.d) $(VISUAL_DIFF_OBJS:.o=.d)
-.PHONY: all clean fonts check visual-diff testsongs-check
+.PHONY: all clean fonts check visual-diff testsongs-check eve-check
