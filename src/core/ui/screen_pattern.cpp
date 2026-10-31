@@ -210,6 +210,8 @@ void PatternScreen::start(int opt) {
     colKey_ = 0;
     pickerKey_ = 0;
     for (auto& v : padVoice_) v = -1;
+    chordPads_ = 0;
+    chordStep_ = -1;
     if (step >= len()) step = len() - 1;
     statusStep_ = step;   // Ui resets the status cursor step before start()
     ui_.setStatusCursorStep(step);
@@ -1075,7 +1077,10 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         if (state != kPress) return;
         pops::FillParams& f = fill[col];
         int v = pad;
-        if (fillField >= 4 && col == 0) v = a.padNote(pad);
+        if (fillField >= 4 && col == 0) {
+            v = a.padNote(pad);
+            if (v == PadNotes::kNoNote) return;   // [I] piano layout gap
+        }
         else if (fillField >= 4 && col >= 2) v = pops::fxValueFromPad(fillFxType(), pad);
         switch (fillField) {
             case 0: f.where = int16_t(clampi(v, 0, 6)); break;
@@ -1103,8 +1108,13 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     if (state == kRelease) {
         if (padVoice_[pad] >= 0) a.previewOff(uint16_t(padVoice_[pad]));
         padVoice_[pad] = -1;
+        chordPads_ &= ~(uint64_t(1) << pad);
+        if (!chordPads_) chordStep_ = -1;   // [I] the chord ends with its last pad
         // Instr column: release only, no OFF step (manual p.95, MANUAL_AUDIT #4).
-        if (a.seq.isRecording() && col <= 1) a.seq.liveNoteOff(col == 1 ? 60 : a.padNote(pad), col == 0);
+        if (a.seq.isRecording() && col <= 1) {
+            const uint8_t n = col == 1 ? uint8_t(60) : a.padNote(pad);
+            if (n != PadNotes::kNoNote) a.seq.liveNoteOff(n, col == 0);
+        }
         return;
     }
     if (state != kPress) return;
@@ -1132,6 +1142,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     }
     if (focus >= 0) return;   // spec 06 §1.6: no note is entered while a focus is held
     const uint8_t note = a.padNote(pad);
+    if (note == PadNotes::kNoNote && col == 0) return;   // [I] a piano layout gap plays nothing
     if (a.seq.isRecording() && col <= 1) {
         // spec 16 §A.6: the Note column records notes with the current
         // instrument; the Instr column records instrument triggers: note 60
@@ -1167,11 +1178,33 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         // 60, like the Instr-column record and edit paths (spec 16 §A.6),
         // not at the pad's own note (user report: every instrument one
         // semitone higher than the previous one).
+        if (col != 1 && note == PadNotes::kNoNote) return;   // [I]
         a.previewOn(voice, a.currentInstrument(), col == 1 ? uint8_t(60) : note, 127);
         padVoice_[pad] = int8_t(pad);
         return;
     }
     const SelRect r = target();
+    if (col == 0 && r.single() && chordPads_ && chordStep_ >= 0 && chordStep_ < len()) {
+        // [I] Chord step entry: a pad pressed while another note pad is held
+        // writes on the chord's step, one track to the right (a track that
+        // would change the instrument, e.g. a MIDI track for a sample
+        // instrument, ends the chord). No undo entry of its own: one Undo
+        // removes the whole chord. Each note sounds on its own track.
+        const uint8_t ins = a.currentInstrument();
+        const int t = chordTrack_ + 1;
+        if (t >= kTrackCount || pops::mapInstrument(t, ins) != ins) return;
+        a.previewOn(voice, ins, note, 127, t);
+        padVoice_[pad] = int8_t(pad);
+        SelRect c;
+        c.s0 = c.s1 = chordStep_;
+        c.t0 = c.t1 = t;
+        pops::writeNote(a.pattern(), c, note, ins);
+        chordTrack_ = int8_t(t);
+        chordPads_ |= uint64_t(1) << pad;
+        a.markProjectDirty();
+        a.patternEdited();
+        return;
+    }
     if (col == 0) {
         // Note entry in edit mode plays on the cursor track only, after
         // releasing its note (spec 07 Q7 exception).
@@ -1183,7 +1216,12 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         a.project.setU8(pf::kLastNote, note);
         a.markProjectDirty();
         a.patternEdited();
-        if (r.single()) advance();
+        if (r.single()) {
+            chordPads_ = uint64_t(1) << pad;   // [I] the first note of a possible chord
+            chordStep_ = int16_t(r.s0);
+            chordTrack_ = int8_t(r.t0);
+            advance();
+        }
     } else if (col == 1) {
         int ins = pad;
         for (int t = r.t0; t <= r.t1; ++t)
@@ -1602,11 +1640,15 @@ void PatternScreen::padLeds(uint8_t* lv) {
             if (ci < kSampleInstrumentCount && a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)) {
                 for (int p = 0; p < a.instruments[ci].sliceCount && p < 48; ++p) lv[p] = dim;
                 if (st.note >= 24 && st.note < 72) lv[st.note - 24] = full;
-            } else if (st.note >= 0) {
-                a.refreshPadNotes();
-                uint8_t pads[48];
-                const int n = a.padNotes.padsForNote(st.note, pads, 48);
-                for (int i = 0; i < n; ++i) lv[pads[i]] = dim;
+            } else {
+                // [I] on the piano keys the step's note shows at full.
+                const uint8_t on = pianoLeds(lv) ? full : dim;
+                if (st.note >= 0) {
+                    a.refreshPadNotes();
+                    uint8_t pads[48];
+                    const int n = a.padNotes.padsForNote(st.note, pads, 48);
+                    for (int i = 0; i < n; ++i) lv[pads[i]] = on;
+                }
             }
         } else if (col == 1) {
             if (st.instrument < 48) lv[st.instrument] = full;
@@ -1629,7 +1671,9 @@ void PatternScreen::padLeds(uint8_t* lv) {
         }
         return;
     }
-    // Not editing: "Pads preview" (spec 06 §1.6 rule 7).
+    // Not editing: "Pads preview" (spec 06 §1.6 rule 7). [I] over the
+    // piano keys (outside the Instr column) the played notes show at full.
+    const uint8_t on = col != 1 && pianoLeds(lv) ? full : dim;
     if (a.cfg.padsPreview == 0) return;
     a.refreshPadNotes();
     const int t0 = a.cfg.padsPreview == 1 ? track : 0;
@@ -1641,7 +1685,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
         } else if (s.note >= 0) {
             uint8_t pads[48];
             const int n = a.padNotes.padsForNote(s.note, pads, 48);
-            for (int i = 0; i < n; ++i) lv[pads[i]] = dim;
+            for (int i = 0; i < n; ++i) lv[pads[i]] = on;
         }
     }
 }

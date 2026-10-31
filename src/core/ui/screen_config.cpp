@@ -66,6 +66,7 @@ const char* const kSends[] = {"Pre-fader", "Post-fader"};
 const char* const kRoots[] = {"C1", "C#1", "D1", "D#1", "E1", "F1", "F#1", "G1", "G#1", "A1", "A#1", "B1",
                               "C2", "C#2", "D2", "D#2", "E2", "F2", "F#2", "G2", "G#2", "A2", "A#2", "B2",
                               "C3", "C#3", "D3", "D#3", "E3", "F3", "F#3", "G3", "G#3", "A3", "A#3", "B3", "C4"};
+const char* const kPadLayouts[] = {"Stock", "Piano"};
 
 #define CF(f) uint16_t(offsetof(Config, f))
 const Opt kProject[] = {
@@ -99,6 +100,8 @@ const Opt kGeneral[] = {
     {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
     {"Stream from card", kEnum, kCfg, CF(streamMode), 0, 3, kStreamModes, 0},          // [I] 2.x
     {"Stream threshold", kEnum, kCfg, CF(streamThreshold), 0, 4, kStreamThresholds, 0},   // [I] 2.x
+    // Piano keyboard on the pads (PadNotes::buildPiano).
+    {"Pad layout", kEnum, kCfg, CF(padLayout), 0, 2, kPadLayouts, 0},
 };
 const Opt kMidi[] = {
     {"Clock in", kEnum, kCfg, CF(clockIn), 0, 3, kClockIn, 0},

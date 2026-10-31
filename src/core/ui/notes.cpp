@@ -53,11 +53,31 @@ bool isInScale(int note, int root, uint8_t scale) {
     return (scaleMask(scale) >> i) & 1;
 }
 
-void PadNotes::build(uint8_t scale, uint8_t layout, uint8_t root) {
-    if (scale == scale_ && layout == layout_ && root == root_) return;
+void PadNotes::build(uint8_t scale, uint8_t layout, uint8_t root, bool piano) {
+    if (scale == scale_ && layout == layout_ && root == root_ && piano == piano_) return;
     scale_ = scale;
     layout_ = layout;
     root_ = root;
+    piano_ = piano;
+    if (piano) {
+        // [I] logical rows 0 / 2 (bottom of each pair) the white keys in
+        // a row, C D E F G A B C D E F G; rows 1 / 3 above them the black key
+        // just below each white key (as grid controllers draw a piano: C#
+        // over D), so the gaps sit over C and F.
+        // The upper pair is the same keyboard an octave up. Root option
+        // 0..36 = C1..C4: the bottom C is the root's octave (stock starts at
+        // root + 12).
+        static const uint8_t kWhite[7] = {0, 2, 4, 5, 7, 9, 11};
+        const int base = 12 + 12 * (root / 12);
+        for (int p = 0; p < 48; ++p) {
+            const int row = p / 12, col = p % 12;
+            const int w = col % 7;
+            int n = base + 12 * (row / 2) + 12 * (col / 7) + kWhite[w];
+            if (row & 1) n = (w == 0 || w == 3) ? -1 : n - 1;   // over C, F: no black key
+            notes_[p] = n >= 0 && n <= 120 ? uint8_t(n) : kNoNote;
+        }
+        return;
+    }
     // spec 05 §4.1 algorithm (bottom-origin logical index).
     int n = root + 12;
     for (int p = 0; p < 48; ++p) {
@@ -74,6 +94,23 @@ uint8_t PadNotes::note(uint8_t physicalPad, bool raw) const {
     int lp = logicalPad(physicalPad);
     if (raw) return uint8_t(lp + 24);
     return notes_[lp];
+}
+
+bool PadNotes::pianoLeds(uint8_t* lv, uint8_t dim, uint8_t full) const {
+    if (!piano_) return false;
+    static const bool kBlack[12] = {false, true, false, true, false, false, true, false, true, false, true, false};
+    const uint8_t rootLv = uint8_t((dim + full) / 2);
+    const uint8_t blackLv = uint8_t(dim * 6 / 10 > 0 ? dim * 6 / 10 : 1);
+    const uint8_t outLv = uint8_t(dim / 4 > 0 ? dim / 4 : 1);
+    for (int lp = 0; lp < 48; ++lp) {
+        const uint8_t n = notes_[lp];
+        if (n == kNoNote) continue;
+        uint8_t v = kBlack[n % 12] ? blackLv : dim;
+        if (!isInScale(n, root_, scale_)) v = outLv;
+        else if (n % 12 == root_ % 12) v = rootLv;
+        lv[physicalPad(lp)] = v;
+    }
+    return true;
 }
 
 int PadNotes::padsForNote(int note, uint8_t* pads, int cap) const {
