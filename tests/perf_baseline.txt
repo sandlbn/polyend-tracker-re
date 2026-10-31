@@ -87,5 +87,5 @@ peak     228560
 wtfminit 9626
 wtfmworst 30214
 mixwtfm  299814
-exportm  90896
-exports  466930
+exportm  91307
+exports  471717

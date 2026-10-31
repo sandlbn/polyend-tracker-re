@@ -73,7 +73,8 @@
 //             (28 channels), noisy full-scale channels, all distinct, no-op sink;
 //             exports.s5 (informational, not in the baseline) = a song-5-like mix:
 //             7 of 28 channels silent (25 %), 10 of the other 21 with L == R (stems
-//             4-8). Today it costs the same as exports.
+//             4-8). The silent-channel skip makes it cheaper than exports
+//             (bit-identical output).
 //   *.max     the per-engine limits: every component line that prints
 //             "limit N" is gated by make perf-gate (tools/telemetry_check.py)
 #include <algorithm>

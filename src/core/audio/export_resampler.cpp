@@ -12,6 +12,11 @@
 // accumulator, so its result does not depend on the other channels in the
 // kernel.
 //
+// A channel whose window is all zero for a chunk (a silent stem, an empty
+// side) skips the kernel: its sums would be exactly 0 (products +-0 added to
+// +0), so its output frames are set to 0. The widening loop notes the zero
+// windows on the way, without another pass over the samples.
+//
 // convertBlock() holds the chunk's weights (4 KB) and windows on its stack.
 // It stays in this translation unit, so its frame stays apart from
 // exportWav's (make perf-gate checks every frame against the stack guard).
@@ -68,7 +73,8 @@ void gather(const int16_t* hist, const int16_t* block, uint32_t first, uint32_t 
 // The dot products of one chunk for NCH (1..4) channels:
 // out[c][2 * j] = round(sum_k w[j][k] * x[c][base[j] + k]), j < frames.
 // One accumulator per channel and the taps in ascending order: a channel's
-// result is the same for every NCH and every channel next to it.
+// result is the same for every NCH and every channel next to it, so the
+// kernel can run on whichever channels are not silent.
 // A split-Q15 kernel (each weight as hi + lo * 2^-15, SMLAD / SMLALD on int16
 // sample pairs) could replace this kernel and the float widening in
 // convertBlock(); nothing else depends on the float windows.
@@ -122,6 +128,9 @@ __attribute__((noinline)) bool convertBlock(ExportResampler::History* hist, int 
     alignas(4) int16_t stage[2 * kSpan];           // one stem's input span, then the group's output
     uint8_t base[kChunk];                          // first window frame of each output frame
     static_assert(sizeof(stage) >= kGroupStems * 2 * kChunk * sizeof(int16_t), "output fits the stage");
+    // Kernel row c: window win[c]; output: stem c / 2 of the group, side c & 1.
+    const float* const xs[2 * kGroupStems] = {win[0], win[1], win[2], win[3]};
+    int16_t* const outs[2 * kGroupStems] = {stage, stage + 1, stage + 2 * kChunk, stage + 2 * kChunk + 1};
 
     const uint32_t i1 = i0 + frames;   // input frames [i0 - kHistFrames, i1) are at hand
     uint32_t m = next;
@@ -143,24 +152,48 @@ __attribute__((noinline)) bool convertBlock(ExportResampler::History* hist, int 
         const uint32_t span = base[cnt - 1] + uint32_t(kTaps);
         for (int s0 = 0; s0 < stems; s0 += kGroupStems) {
             const int gs = stems - s0 < kGroupStems ? stems - s0 : kGroupStems;
-            const float* x[2 * kGroupStems];
-            int16_t* out[2 * kGroupStems];
+            // Channel c of the group is side c & 1 of stem c / 2: window win[c],
+            // output slot outs[c]. Bit c of `silent`: window c is all zero.
+            uint32_t silent = 0;
             for (int g = 0; g < gs; ++g) {
                 gather(hist[s0 + g], in[s0 + g], first, span, stage);
                 float* l = win[2 * g];
                 float* r = win[2 * g + 1];
+                const u32_alias* f = reinterpret_cast<const u32_alias*>(stage);
+                uint32_t any = 0;   // OR of the frames: L in the low half, R in the high (little-endian)
                 for (uint32_t i = 0; i < span; ++i) {
-                    l[i] = float(stage[2 * i]);
-                    r[i] = float(stage[2 * i + 1]);
+                    const uint32_t v = f[i];
+                    any |= v;
+                    l[i] = float(int16_t(v));
+                    r[i] = float(int16_t(v >> 16));
                 }
-                x[2 * g] = l;
-                x[2 * g + 1] = r;
+                if (!(any & 0xffffu)) silent |= 1u << (2 * g);
+                if (!(any >> 16)) silent |= 2u << (2 * g);
             }
-            for (int g = 0; g < gs; ++g) {
-                out[2 * g] = stage + g * 2 * int(kChunk);
-                out[2 * g + 1] = out[2 * g] + 1;
+            // The windows with sound move to the front (each to a row whose own
+            // window has moved already or is silent), the kernel runs on them,
+            // then each result moves to its channel's slot, top down for the
+            // same reason; silent channels get 0.
+            const int nc = 2 * gs;
+            int nch = 0;
+            for (int c = 0; c < nc; ++c) {
+                if (silent >> c & 1u) continue;
+                if (nch != c)
+                    for (uint32_t i = 0; i < span; ++i) {
+                        OT_NO_LIBCALL();
+                        win[nch][i] = win[c][i];
+                    }
+                ++nch;
             }
-            dotChunk(2 * gs, w, base, cnt, x, out);
+            if (nch) dotChunk(nch, w, base, cnt, xs, outs);
+            for (int c = nc - 1; c >= 0; --c) {
+                int16_t* o = outs[c];
+                if (silent >> c & 1u) {
+                    for (uint32_t j = 0; j < cnt; ++j) o[2 * j] = 0;
+                } else if (--nch != c) {
+                    for (uint32_t j = 0; j < cnt; ++j) o[2 * j] = outs[nch][2 * j];
+                }
+            }
             for (int g = 0; g < gs; ++g)
                 if (!sink(ctx, s0 + g, stage + g * 2 * int(kChunk), cnt)) return false;
         }
