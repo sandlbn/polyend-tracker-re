@@ -1,125 +1,130 @@
+// HostStorage on std::filesystem (portable: Linux, macOS, mingw-w64). Card
+// paths are UTF-8 with '/' separators; host paths are built per component.
 #include "host_storage.h"
-
-#include <dirent.h>
-#include <fcntl.h>
-#include <cerrno>
-#include <strings.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 #include <algorithm>
 #include <cstdio>
+#include <filesystem>
+#include <system_error>
 #include <vector>
+
+namespace fs = std::filesystem;
 
 namespace sim {
 
 namespace {
-bool isDir(const std::string& p) {
-    struct stat st;
-    return ::stat(p.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+// UTF-8 <-> host path (narrow on POSIX, wide on Windows).
+fs::path fromUtf8(const std::string& s) {
+#ifdef _WIN32
+    return fs::u8path(s);
+#else
+    return fs::path(s);
+#endif
 }
-bool mkdirs(const std::string& p) {
-    if (p.empty() || isDir(p)) return true;
-    const size_t slash = p.find_last_of('/');
-    if (slash != std::string::npos && slash > 0 && !mkdirs(p.substr(0, slash))) return false;
-    return ::mkdir(p.c_str(), 0755) == 0 || isDir(p);
+std::string toUtf8(const fs::path& p) {
+#ifdef _WIN32
+    return p.u8string();
+#else
+    return p.string();
+#endif
+}
+// strcasecmp in the C locale: ASCII letters fold, other bytes match exactly.
+bool iequals(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        unsigned char x = uint8_t(a[i]), y = uint8_t(b[i]);
+        if (x >= 'A' && x <= 'Z') x = uint8_t(x - 'A' + 'a');
+        if (y >= 'A' && y <= 'Z') y = uint8_t(y - 'A' + 'a');
+        if (x != y) return false;
+    }
+    return true;
+}
+bool isDir(const fs::path& p) {
+    std::error_code ec;
+    return fs::is_directory(p, ec);
+}
+bool pathExists(const fs::path& p) {
+    std::error_code ec;
+    return fs::exists(p, ec);
+}
+std::FILE* openFile(const fs::path& p, const char* mode) {
+#ifdef _WIN32
+    wchar_t wmode[8] = {};
+    for (int i = 0; mode[i] && i < 7; ++i) wmode[i] = wchar_t(mode[i]);
+    return ::_wfopen(p.c_str(), wmode);
+#else
+    return std::fopen(p.c_str(), mode);
+#endif
 }
 }  // namespace
 
-HostStorage::~HostStorage() {
-    for (auto* f : files_) if (f) std::fclose(f);
-    if (rootFd_ >= 0) ::close(rootFd_);
-}
-
 bool HostStorage::init(const std::string& root) {
-    if (rootFd_ >= 0) return false;
     root_ = root;
-    while (root_.size() > 1 && root_.back() == '/') root_.pop_back();
-    if (!mkdirs(root_)) return false;
-    rootFd_ = ::open(root_.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    return rootFd_ >= 0;
+    while (root_.size() > 1 && (root_.back() == '/' || root_.back() == '\\')) root_.pop_back();
+    const fs::path p = fromUtf8(root_);
+    std::error_code ec;
+    if (!isDir(p)) fs::create_directories(p, ec);
+    return isDir(p);
 }
 
-int HostStorage::resolve(const char* path, std::string& leaf, bool* existsOut) const {
-    std::vector<std::string> parts;
-    std::string p(path ? path : "");
-    for (size_t i = 0; i < p.size();) {
-        if (p[i] == '/') { ++i; continue; }
+bool HostStorage::resolve(const char* path, std::string& out, bool* existsOut) const {
+    fs::path cur = fromUtf8(root_);
+    bool exists = true;
+    const std::string p(path ? path : "");
+    size_t i = 0;
+    while (i < p.size()) {
+        while (i < p.size() && p[i] == '/') ++i;
+        if (i >= p.size()) break;
         size_t j = p.find('/', i);
         if (j == std::string::npos) j = p.size();
-        const auto comp = p.substr(i, j - i);
+        const std::string comp = p.substr(i, j - i);
         i = j;
-        if (comp == "..") return -1;
-        if (comp != ".") parts.push_back(comp);
-    }
-    int fd = ::openat(rootFd_, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-    if (fd < 0) return -1;
-    leaf = ".";
-    if (existsOut) *existsOut = true;
-    for (size_t i = 0; i < parts.size(); ++i) {
-        leaf = parts[i];
-        struct stat st;
-        bool exists = ::fstatat(fd, leaf.c_str(), &st, AT_SYMLINK_NOFOLLOW) == 0;
-        if (!exists) {
-            if (errno != ENOENT) { ::close(fd); return -1; }
-            // A separate descriptor keeps directory scan offsets independent.
-            int scan = ::openat(fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-            DIR* d = scan >= 0 ? ::fdopendir(scan) : nullptr;
-            if (!d) {
-                if (scan >= 0) ::close(scan);
-                ::close(fd);
-                return -1;
-            }
-            while (dirent* e = ::readdir(d)) {
-                if (::strcasecmp(e->d_name, leaf.c_str()) == 0) {
-                    leaf = e->d_name;
-                    exists = ::fstatat(fd, leaf.c_str(), &st, AT_SYMLINK_NOFOLLOW) == 0;
-                    break;
-                }
-            }
-            ::closedir(d);
+        if (comp == ".") continue;
+        if (comp == "..") return false;   // not on a FAT card root
+        if (!exists) return false;        // missing intermediate directory
+        const fs::path cand = cur / fromUtf8(comp);
+        if (pathExists(cand)) {
+            cur = cand;
+            continue;
         }
-        if (exists && S_ISLNK(st.st_mode)) { ::close(fd); return -1; }
-        if (i + 1 == parts.size()) {
-            if (existsOut) *existsOut = exists;
-            return fd;
+        // FAT semantics: case-insensitive match.
+        bool found = false;
+        std::error_code ec;
+        for (fs::directory_iterator it(cur, ec), end; !ec && it != end; it.increment(ec)) {
+            const fs::path name = it->path().filename();
+            if (iequals(toUtf8(name), comp)) {
+                cur /= name;
+                found = true;
+                break;
+            }
         }
-        const int next = ::openat(fd, leaf.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-        ::close(fd);
-        if (next < 0) return -1;
-        fd = next;
+        if (!found) {
+            cur = cand;
+            exists = false;
+        }
     }
-    return fd;
+    out = toUtf8(cur);
+    if (existsOut) *existsOut = exists;
+    return true;
 }
 
 ot::IStorage::Handle HostStorage::open(const char* path, OpenMode mode) {
     if (refuse()) return -1;
+    std::string hs;
+    bool ex = false;
+    if (!resolve(path, hs, &ex)) return -1;
+    const fs::path hp = fromUtf8(hs);
+    if (ex && isDir(hp)) return -1;
     int slot = -1;
     for (int i = 0; i < kMaxOpen; ++i)
         if (!files_[i]) { slot = i; break; }
     if (slot < 0) return -1;
-    std::string leaf;
-    int parent = resolve(path, leaf);
-    if (parent < 0) return -1;
-    int flags = O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK;
-    const char* fm = "rb";
+    std::FILE* f = nullptr;
     switch (mode) {
-        case kRead: flags |= O_RDONLY; break;
-        case kWrite: flags |= O_WRONLY | O_CREAT; fm = "wb"; break;
-        case kReadWrite: flags |= O_RDWR | O_CREAT; fm = "r+b"; break;
+        case kRead: f = ex ? openFile(hp, "rb") : nullptr; break;
+        case kWrite: f = openFile(hp, "wb"); break;
+        case kReadWrite: f = openFile(hp, ex ? "r+b" : "w+b"); break;
     }
-    int fd = ::openat(parent, leaf.c_str(), flags, 0666);
-    ::close(parent);
-    if (fd < 0) return -1;
-    struct stat st;
-    // Validate before truncating: only regular files belong on the emulated card.
-    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) ||
-        (mode == kWrite && ::ftruncate(fd, 0) != 0)) {
-        ::close(fd);
-        return -1;
-    }
-    std::FILE* f = ::fdopen(fd, fm);
-    if (!f) ::close(fd);
     if (!f) return -1;
     files_[slot] = f;
     return slot;
@@ -156,9 +161,11 @@ int32_t HostStorage::size(Handle h) {
     std::FILE* f = get(h);
     if (!f) return -1;
     std::fflush(f);
-    struct stat st;
-    if (::fstat(::fileno(f), &st) != 0) return -1;
-    return int32_t(st.st_size);
+    const long pos = std::ftell(f);
+    if (pos < 0 || std::fseek(f, 0, SEEK_END) != 0) return -1;
+    const long end = std::ftell(f);
+    std::fseek(f, pos, SEEK_SET);
+    return end < 0 ? -1 : int32_t(end);
 }
 
 void HostStorage::close(Handle h) {
@@ -171,82 +178,71 @@ void HostStorage::close(Handle h) {
 
 bool HostStorage::exists(const char* path) {
     if (refuse()) return false;
-    std::string leaf;
+    std::string hp;
     bool ex = false;
-    int fd = resolve(path, leaf, &ex);
-    if (fd < 0) return false;
-    ::close(fd);
-    return ex;
+    return resolve(path, hp, &ex) && ex;
 }
 
 bool HostStorage::mkdir(const char* path) {
     if (refuse()) return false;
-    std::string leaf;
-    int fd = resolve(path, leaf);
-    if (fd < 0) return false;
-    struct stat st;
-    bool ok = ::mkdirat(fd, leaf.c_str(), 0755) == 0 ||
-        (::fstatat(fd, leaf.c_str(), &st, AT_SYMLINK_NOFOLLOW) == 0 && S_ISDIR(st.st_mode));
-    ::close(fd);
-    return ok;
+    std::string hs;
+    bool ex = false;
+    if (!resolve(path, hs, &ex)) return false;
+    const fs::path hp = fromUtf8(hs);
+    if (ex) return isDir(hp);
+    std::error_code ec;
+    return fs::create_directory(hp, ec) || isDir(hp);
 }
 
 bool HostStorage::remove(const char* path) {
     if (refuse()) return false;
-    std::string leaf;
-    int fd = resolve(path, leaf);
-    if (fd < 0) return false;
-    struct stat st;
-    bool ok = leaf != "." && ::fstatat(fd, leaf.c_str(), &st, AT_SYMLINK_NOFOLLOW) == 0 &&
-        ::unlinkat(fd, leaf.c_str(), S_ISDIR(st.st_mode) ? AT_REMOVEDIR : 0) == 0;
-    ::close(fd);
-    return ok;
+    std::string hs;
+    bool ex = false;
+    if (!resolve(path, hs, &ex) || !ex || hs == root_) return false;
+    // fs::remove refuses a non-empty directory (rmdir semantics).
+    std::error_code ec;
+    return fs::remove(fromUtf8(hs), ec) && !ec;
 }
 
 bool HostStorage::rename(const char* from, const char* to) {
     if (refuse()) return false;
     std::string a, b;
     bool exA = false, exB = false;
-    int fa = resolve(from, a, &exA);
-    int fb = resolve(to, b, &exB);
-    struct stat sa, sb;
-    const bool same = fa >= 0 && fb >= 0 && a == b &&
-        ::fstat(fa, &sa) == 0 && ::fstat(fb, &sb) == 0 &&
-        sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino;
-    // FatFs does not replace existing destinations; a self-rename is a no-op.
-    bool ok = fa >= 0 && fb >= 0 && exA && (!exB || same) && a != "." && b != "." &&
-        ::renameat(fa, a.c_str(), fb, b.c_str()) == 0;
-    if (fa >= 0) ::close(fa);
-    if (fb >= 0) ::close(fb);
-    return ok;
+    if (!resolve(from, a, &exA) || !exA || !resolve(to, b, &exB)) return false;
+    if (exB && a != b) return false;   // FatFs f_rename fails if the target exists
+    std::error_code ec;
+    fs::rename(fromUtf8(a), fromUtf8(b), ec);
+    return !ec;
 }
 
 int32_t HostStorage::listDir(const char* path, DirFn fn, void* ctx) {
     if (refuse()) return -1;
-    std::string leaf;
-    int parent = resolve(path, leaf);
-    if (parent < 0) return -1;
-    int fd = ::openat(parent, leaf.c_str(), O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
-    ::close(parent);
-    if (fd < 0) return -1;
+    std::string hs;
+    bool ex = false;
+    if (!resolve(path, hs, &ex) || !ex) return -1;
+    const fs::path hp = fromUtf8(hs);
+    if (!isDir(hp)) return -1;
     struct Ent {
         std::string name;
         bool dir;
         uint32_t size;
     };
     std::vector<Ent> ents;
-    if (DIR* d = ::fdopendir(fd)) {
-        while (dirent* e = ::readdir(d)) {
-            const std::string n = e->d_name;
-            if (n == "." || n == "..") continue;
-            struct stat st;
-            if (::fstatat(::dirfd(d), n.c_str(), &st, AT_SYMLINK_NOFOLLOW) != 0 || S_ISLNK(st.st_mode)) continue;
-            ents.push_back({n, S_ISDIR(st.st_mode), S_ISDIR(st.st_mode) ? 0u : uint32_t(st.st_size)});
+    std::error_code ec;
+    fs::directory_iterator it(hp, ec);
+    if (ec) return -1;
+    for (fs::directory_iterator end; it != end; it.increment(ec)) {
+        if (ec) break;
+        std::error_code e2;
+        const fs::file_status st = it->status(e2);   // follows symlinks, like stat()
+        if (e2 || !fs::exists(st)) continue;
+        const bool dir = fs::is_directory(st);
+        uint32_t size = 0;
+        if (!dir) {
+            const auto sz = fs::file_size(it->path(), e2);
+            size = e2 ? 0u : uint32_t(sz);
         }
-        ::closedir(d);
-    } else {
-        ::close(fd);
-        return -1;
+        ents.push_back({toUtf8(it->path().filename()), dir, size});
     }
     std::sort(ents.begin(), ents.end(), [](const Ent& x, const Ent& y) { return x.name < y.name; });
     int32_t n = 0;

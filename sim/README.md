@@ -38,9 +38,7 @@ Options:
 | `--wav OUT.wav` | headless: record the rendered audio |
 | `--instant-display` | show every frame at once (also `OT_SIM_BUSY=0`). Default: FT81x frame pacing -- a frame is uploaded, then shown at the next 54 Hz vsync, `frameReady()` false meanwhile |
 
-The workspace is autosaved to the SD folder when the window closes. Symlinks
-inside that folder are refused and omitted from file listings, so card paths
-cannot follow them into other host directories.
+The workspace is autosaved to the SD folder when the window closes.
 
 ## Front panel and key map
 
@@ -129,6 +127,7 @@ expect-usbstorage on|off    fail unless the mode, its page and the card lock all
                             the app touched the locked card
 expect-usbwarn on|off       fail unless the eject reminder is (not) shown
 theme N / font N            config Display theme 0..2 / Display font 0..1 (no Config key flow)
+theme NAME                  config Display theme from the card's Themes/NAME.txt (2.x theme files)
 echo TEXT                   print to stderr
 budget-reset                start a display-budget window
 budget NAME WORDS           fail if a frame since the reset uploaded > WORDS

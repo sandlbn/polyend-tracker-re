@@ -1,10 +1,11 @@
 # OpenTracker desktop simulator: src/core (unchanged) + host HAL in sim/src.
-#   make -C sim          -> build/sim/opentracker-sim
+#   make -C sim          -> build/<profile>/sim/opentracker-sim (PROFILE, MODULES_DIR: ../profile.mk)
 #   make -C sim fonts    -> regenerate third_party/rom_fonts.inc (needs python3 + Pillow;
 #                           `make fonts` in reimpl/ also regenerates the UI fonts)
 CXX      ?= g++
 ROOT     := ..
-OUT      := $(ROOT)/build/sim
+include $(ROOT)/profile.mk
+OUT      := $(ROOT)/build/$(PROFILE)/sim
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2)
 SDL_LIBS   := $(shell pkg-config --libs sdl2)
 HAVE_ALSA  := $(shell pkg-config --exists alsa && echo 1)
@@ -12,12 +13,15 @@ ifeq ($(HAVE_ALSA),1)
 ALSA_CFLAGS := -DOT_SIM_ALSA $(shell pkg-config --cflags alsa)
 ALSA_LIBS   := $(shell pkg-config --libs alsa)
 endif
-CXXFLAGS := -std=c++17 -O2 -g -Wall -Wextra -Wno-format-truncation -MMD -I$(ROOT)/src/core -I$(ROOT)/src -Isrc \
-            $(SDL_CFLAGS) $(ALSA_CFLAGS)
+# Config "Current version" and the boot splash show the firmware VERSION (reimpl/Makefile).
+VERSION  := $(shell sed -n 's/^VERSION *?= *//p' $(ROOT)/Makefile)
+CXXFLAGS := -std=c++17 -O2 -g -Wall -Wextra -Wno-format-truncation -MMD -I$(ROOT)/src/core -I$(ROOT)/src -Isrc $(MOD_INCS) $(MOD_DEFS) \
+            -DOT_VERSION=\"$(VERSION)\" $(SDL_CFLAGS) $(ALSA_CFLAGS)
 LDLIBS   := $(SDL_LIBS) $(ALSA_LIBS) -lpthread
 
 CORE_SRCS := $(shell find $(ROOT)/src/core -name '*.cpp')
 CORE_OBJS := $(patsubst $(ROOT)/src/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS))
+MOD_OBJS  := $(patsubst %.cpp,$(OUT)/obj/mod/%.o,$(MOD_SRCS))
 SIM_SRCS  := $(wildcard src/*.cpp)
 SIM_OBJS  := $(patsubst src/%.cpp,$(OUT)/obj/sim/%.o,$(SIM_SRCS))
 BIN       := $(OUT)/opentracker-sim
@@ -25,6 +29,9 @@ BIN       := $(OUT)/opentracker-sim
 JPEG_CHECK      := $(OUT)/jpeg-check
 JPEG_CHECK_OBJS := $(OUT)/obj/sim/check/jpeg_check.o $(addprefix $(OUT)/obj/sim/,sw_display.o canvas.o jpeg_decode.o host_storage.o png.o) \
                    $(OUT)/obj/core/ui/fonts/fonts.o
+# HostStorage check (desktop plan D2): FAT-like semantics of the host-folder card.
+HOST_STORAGE_CHECK      := $(OUT)/host-storage-check
+HOST_STORAGE_CHECK_OBJS := $(OUT)/obj/sim/check/host_storage_check.o $(OUT)/obj/sim/host_storage.o
 # Visual-diff gate (docs/VISUAL_DIFF_1.9.4.md): replays visual/*.scene in the
 # headless sim on a scratch copy of $(SD) and checks pixels against $(STOCK).
 #   make visual-diff [DEVICE=dir] [ALLOW_FAIL=1] [SCENES=s01_pattern,s04_config]
@@ -48,6 +55,10 @@ $(OUT)/obj/%.o: $(ROOT)/src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+$(OUT)/obj/mod/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
 $(OUT)/obj/sim/%.o: src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
@@ -59,10 +70,13 @@ $(OUT)/obj/sim/check/%.o: check/%.cpp
 $(JPEG_CHECK): $(JPEG_CHECK_OBJS)
 	$(CXX) $^ -o $@
 
+$(HOST_STORAGE_CHECK): $(HOST_STORAGE_CHECK_OBJS)
+	$(CXX) $^ -o $@
+
 $(VISUAL_DIFF): $(VISUAL_DIFF_OBJS)
 	$(CXX) $^ -o $@
 
-$(BIN): $(CORE_OBJS) $(SIM_OBJS)
+$(BIN): $(CORE_OBJS) $(MOD_OBJS) $(SIM_OBJS)
 	$(CXX) $^ $(LDLIBS) -o $@
 
 fonts:
@@ -78,6 +92,7 @@ visual-diff: $(BIN) $(VISUAL_DIFF)
 # Key-flow scripts (2.0.1 user report): Performance entry from every screen,
 # Master pages and sub-pages (scripts/keyflow.txt).
 keyflow-check: $(BIN)
+	@mkdir -p $(ROOT)/build/sim   # the scripts' screenshot paths (../build/sim/*.png)
 	rm -rf $(OUT)/check-keys $(OUT)/check-keys.eeprom
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(BIN) --sd $(OUT)/check-keys \
 	    --script scripts/keyflow.txt
@@ -94,8 +109,10 @@ keyflow-check: $(BIN)
 # then the visual-diff gate (report-only until the 1.9.5 screens land: remove
 # the ALLOW_FAIL line below to make visual failures fail 'check').
 check: ALLOW_FAIL ?= 1
-check: $(BIN) $(JPEG_CHECK) visual-diff keyflow-check
+check: $(BIN) $(JPEG_CHECK) $(HOST_STORAGE_CHECK) visual-diff keyflow-check
 	$(JPEG_CHECK) fixtures $(OUT)/jpeg-check.png
+	rm -rf $(OUT)/check-storage
+	$(HOST_STORAGE_CHECK) $(OUT)/check-storage
 	rm -rf $(OUT)/check-sd $(OUT)/check-sd.eeprom
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(BIN) --sd $(OUT)/check-sd \
 	    --script scripts/smoke.txt --screenshot $(OUT)/smoke.png
@@ -108,7 +125,7 @@ check: $(BIN) $(JPEG_CHECK) visual-diff keyflow-check
 	SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy $(BIN) --sd $(OUT)/check-usb \
 	    --script scripts/usb_storage.txt
 	# 2.x test songs (TESTSONGS.md): each opens without errors and plays.
-	$(MAKE) testsongs-check
+	$(if $(HAVE_SYNTH_PACK),$(MAKE) testsongs-check,@echo "testsongs-check: needs the synth pack (PROFILE=full) -- SKIPPED")
 
 # Generates the test songs this build supports and opens / plays each one in
 # the headless sim on a card with only Projects/<name> (tools/make_testsongs).
@@ -122,5 +139,5 @@ testsongs-check: $(BIN)
 clean:
 	rm -rf $(OUT)
 
--include $(CORE_OBJS:.o=.d) $(SIM_OBJS:.o=.d) $(JPEG_CHECK_OBJS:.o=.d) $(VISUAL_DIFF_OBJS:.o=.d)
+-include $(CORE_OBJS:.o=.d) $(MOD_OBJS:.o=.d) $(SIM_OBJS:.o=.d) $(JPEG_CHECK_OBJS:.o=.d) $(HOST_STORAGE_CHECK_OBJS:.o=.d) $(VISUAL_DIFF_OBJS:.o=.d)
 .PHONY: all clean fonts check visual-diff testsongs-check
