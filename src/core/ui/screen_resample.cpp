@@ -17,7 +17,8 @@ namespace ot {
 namespace {
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 const char* const kFrom[ResampleSettings::kSources] = {"Master",  "Track 1", "Track 2", "Track 3", "Track 4",
-                                                       "Track 5", "Track 6", "Track 7", "Track 8", "Line in"};
+                                                       "Track 5", "Track 6", "Track 7", "Track 8", "Line in",
+                                                       "USB"};
 const char* const kLength[ResampleSettings::kLengths] = {"Manual", "1 bar", "2 bars", "4 bars", "8 bars", "16 bars"};
 const char* const kSlices[ResampleSettings::kSlices] = {"Off", "Per beat", "Per step", "Beat hits", "Step hits"};
 const char* const kPlace[ResampleSettings::kPlaces] = {"Off",     "Track 1", "Track 2", "Track 3", "Track 4",

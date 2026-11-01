@@ -565,6 +565,28 @@ let me know?  http://forum.pjrc.com/forums/4-Suggestions-amp-Bug-Reports
   #define MSC_RX_SIZE		64
   #define ENDPOINT6_CONFIG	ENDPOINT_TRANSMIT_ONLY
   #define ENDPOINT7_CONFIG	ENDPOINT_RECEIVE_ONLY
+  // OPENTRACKER PATCH (see PATCHES.txt): OT_USB_AUDIO=1 (only with MSC) adds
+  // a stereo USB audio function as interfaces 4..6 (control, Tracker ->
+  // computer, computer -> Tracker), described after mass storage
+  // (OT_USB_AUDIO_LAST, usb_desc.c): iso IN endpoint 8, iso OUT endpoint 9
+  // (asynchronous) and its feedback endpoint 10. The driver is
+  // src/hal/usb_audio.cpp (Teensy's usb_audio.cpp is not built).
+  #if defined(OT_USB_AUDIO) && OT_USB_AUDIO
+  #undef  NUM_ENDPOINTS
+  #define NUM_ENDPOINTS         10
+  #undef  NUM_INTERFACE
+  #define NUM_INTERFACE		7
+  #define OT_USB_AUDIO_LAST	1
+  #define AUDIO_INTERFACE	4	// Audio (uses 3 consecutive interfaces)
+  #define AUDIO_TX_ENDPOINT     8
+  #define AUDIO_TX_SIZE         180
+  #define AUDIO_RX_ENDPOINT     9
+  #define AUDIO_RX_SIZE         180
+  #define AUDIO_SYNC_ENDPOINT	10
+  #define ENDPOINT8_CONFIG	ENDPOINT_TRANSMIT_ISOCHRONOUS
+  #define ENDPOINT9_CONFIG	ENDPOINT_RECEIVE_ISOCHRONOUS
+  #define ENDPOINT10_CONFIG	ENDPOINT_TRANSMIT_ISOCHRONOUS
+  #endif
   #endif
 
 #elif defined(USB_MIDI4_SERIAL)

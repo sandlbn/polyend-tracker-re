@@ -41,8 +41,8 @@ extern "C" {
 #endif
 extern uint16_t usb_audio_receive_buffer[];
 extern uint16_t usb_audio_transmit_buffer[];
-extern void usb_audio_receive_callback(unsigned int len);
-extern unsigned int usb_audio_transmit_callback(void);
+extern void usb_audio_receive_callback(const uint16_t *buf, unsigned int len);   // OPENTRACKER PATCH: usb_dev.h
+extern unsigned int usb_audio_transmit_callback(uint16_t *buf);   // OPENTRACKER PATCH: usb_dev.h
 int usb_audio_set_feature(void *stp, uint8_t *buf);
 int usb_audio_get_feature(void *stp, uint8_t *data, uint32_t *datalen);
 
@@ -67,7 +67,7 @@ public:
 	AudioInputUSB(void) : AudioStream(0, NULL) { begin(); }
 	virtual void update(void);
 	void begin(void);
-	friend void usb_audio_receive_callback(unsigned int len);
+	friend void usb_audio_receive_callback(const uint16_t *buf, unsigned int len);   // OPENTRACKER PATCH: usb_dev.h
 	friend int usb_audio_set_feature(void *stp, uint8_t *buf);
 	friend int usb_audio_get_feature(void *stp, uint8_t *data, uint32_t *datalen);
 	static struct usb_audio_features_struct features;
@@ -91,7 +91,7 @@ public:
 	AudioOutputUSB(void) : AudioStream(2, inputQueueArray) { begin(); }
 	virtual void update(void);
 	void begin(void);
-	friend unsigned int usb_audio_transmit_callback(void);
+	friend unsigned int usb_audio_transmit_callback(uint16_t *buf);   // OPENTRACKER PATCH: usb_dev.h
 private:
 	static bool update_responsibility;
 	static audio_block_t *left_1st;

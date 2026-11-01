@@ -423,7 +423,7 @@ public:
     static int meterBar(float meanLevel);
     int meter[8] = {};      // current bar 0..100
     int meterHold[8] = {};  // peak hold 0..100
-    int globalMeter[4][2] = {};   // Global Mixer 3/3: Delay, Reverb, Dry, Line In x L/R, 0..100
+    int globalMeter[5][2] = {};   // Global Mixer 3/3: Delay, Reverb, Dry, Line In, USB [I] x L/R, 0..100
     // Master Limiter gain-reduction meter (spec 06 §4.3): dB of reduction
     // from the engine's mean limiter gain, read every 50 ms; the bar spans
     // 0..kGrRangeDb (OpenTracker's scale).
@@ -461,7 +461,7 @@ private:
     uint32_t lastDecay_ = 0;
     uint32_t lastGr_ = 0;
     float hist_[8][10] = {};
-    float ghist_[4][2][10] = {};
+    float ghist_[5][2][10] = {};
     int histPos_ = 0;
     // Bank B activity (update()): last step seen and the dot's end time.
     int16_t actStep_[8] = {-1, -1, -1, -1, -1, -1, -1, -1};

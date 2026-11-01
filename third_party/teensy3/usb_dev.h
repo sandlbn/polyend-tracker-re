@@ -91,13 +91,14 @@ extern void usb_flightsim_flush_callback(void);
 #endif
 
 #ifdef AUDIO_INTERFACE
+// OPENTRACKER PATCH: two packets each, one per BDT (usb_dev.c).
 extern uint16_t usb_audio_receive_buffer[];
 extern uint16_t usb_audio_transmit_buffer[];
 extern uint32_t usb_audio_sync_feedback;
 extern uint8_t usb_audio_receive_setting;
 extern uint8_t usb_audio_transmit_setting;
-extern void usb_audio_receive_callback(unsigned int len);
-extern unsigned int usb_audio_transmit_callback(void);
+extern void usb_audio_receive_callback(const uint16_t *buf, unsigned int len);
+extern unsigned int usb_audio_transmit_callback(uint16_t *buf);
 extern int usb_audio_get_feature(void *stp, uint8_t *data, uint32_t *datalen);
 extern int usb_audio_set_feature(void *stp, uint8_t *buf);
 #endif

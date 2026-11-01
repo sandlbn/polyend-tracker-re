@@ -10,6 +10,14 @@
 namespace ot {
 
 bool App::selectInput(uint8_t source, uint8_t gain) {
+    if (source == Config::kRecSourceUsb) {
+        // [I] #97: always stereo, no analog gain. The codec goes back to the
+        // line input (a tuner powers down).
+        if (!hal_.usbIn) return false;
+        capture.setChannelMode(0);
+        if (hal_.selectInput) hal_.selectInput(hal_.inputCtx, 0, cfg.recGain[0]);
+        return true;
+    }
     if (source > 3) return false;
     if (source == 1 && !hal_.radio) return false;   // radio: needs a tuner driver
     capture.setChannelMode(cfg.lineInChannel);
@@ -124,8 +132,9 @@ App::ResampleAction App::resampleToggle() {
             if (free < 2u * 44100u || free > 0xFFFFFFFEu || !bank.setReserved(free)) return ResampleAction::kNoMemory;
             resampler.arm(bank.reservedArea(), uint32_t(free), kResampleBars[resampleCfg.length % ResampleSettings::kLengths],
                           resampleCfg.source);
-            // Line in is tapped in App::preBlock, from the input itself.
-            if (resampleCfg.source != audio::AudioEngine::kTapLineIn) engine.setResampleTap(&resampler, resampleCfg.source);
+            // Line in and USB in are tapped in App::preBlock, from the input itself.
+            if (resampleCfg.source != audio::AudioEngine::kTapLineIn && resampleCfg.source != audio::AudioEngine::kTapUsb)
+                engine.setResampleTap(&resampler, resampleCfg.source);
             return ResampleAction::kArmed;
         }
         case Resampler::kArmed:
@@ -235,6 +244,7 @@ void App::finishResample() {
         const uint8_t src = resampler.source();   // as armed (From may have changed)
         if (src == 0) std::snprintf(ins.name, sizeof(ins.name), "Resample Master");
         else if (src == audio::AudioEngine::kTapLineIn) std::snprintf(ins.name, sizeof(ins.name), "Resample Line in");
+        else if (src == audio::AudioEngine::kTapUsb) std::snprintf(ins.name, sizeof(ins.name), "Resample USB");
         else std::snprintf(ins.name, sizeof(ins.name), "Resample Track %d", src);
     }
     ins.lengthFrames = frames;

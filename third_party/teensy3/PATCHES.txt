@@ -40,3 +40,24 @@ UPSTREAM_COMMIT). Everything else in this directory is unmodified.
      MSC_INTERFACE block and by the host test
      reimpl/tests/usb_msc_driver_test.cpp against a simulated controller. The protocol layer is
      reimpl/src/core/usb/msc_bot.* (OpenTracker).
+
+3. USB audio (OpenTracker #97), all marked "OPENTRACKER PATCH" and active
+   only with -DOT_USB_AUDIO=1 together with OT_USB_MSC=1 (Makefile default;
+   OT_USB_AUDIO=0 or undefined compiles exactly the descriptors of item 2):
+   - usb_desc.h, USB_MIDI_SERIAL section: NUM_ENDPOINTS 10, NUM_INTERFACE 7,
+     AUDIO_INTERFACE 4 (interfaces 4..6), iso IN endpoint 8, iso OUT endpoint
+     9, feedback endpoint 10, and OT_USB_AUDIO_LAST.
+   - usb_desc.c: with OT_USB_AUDIO_LAST the upstream audio block moves after
+     the mass-storage interface (so interfaces 0..3 keep their numbers and
+     Windows its per-interface drivers), without its Feature Unit (no device
+     volume / mute; the AC header's wTotalLength 62 -> 52, the output
+     terminal's source the input terminal). The upstream position is empty.
+   - usb_dev.c, SET_CONFIGURATION: the audio endpoints' BDTs are skipped when
+     freeing packets (they point at the driver's static buffers).
+   - usb_dev.c, usb_dev.h, usb_audio.h: one buffer per audio BDT (even /
+     odd; the buffers hold two packets), both kept armed and refilled in
+     place, and the callbacks take that buffer. Upstream armed one IN packet
+     at a time from one buffer (and both OUT BDTs on one buffer), so a USB
+     interrupt held off over 1 ms by the audio block lost a frame.
+   - usb_audio.cpp (upstream, AudioStream based) is not built (Makefile);
+     the hooks usb_dev.c calls are reimpl/src/hal/usb_audio.cpp (OpenTracker).

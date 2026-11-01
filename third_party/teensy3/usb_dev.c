@@ -208,6 +208,12 @@ static void usb_setup(void)
 			// OPENTRACKER PATCH: MSC BDTs point into caller buffers, not usb_malloc() packets.
 			if ((i >> 2) == MSC_TX_ENDPOINT || (i >> 2) == MSC_RX_ENDPOINT) continue;
 #endif
+#ifdef OT_USB_AUDIO_LAST
+			// OPENTRACKER PATCH: the audio BDTs point at the driver's static
+			// buffers (upstream would hand them to usb_free()).
+			if ((i >> 2) == AUDIO_TX_ENDPOINT || (i >> 2) == AUDIO_RX_ENDPOINT ||
+			    (i >> 2) == AUDIO_SYNC_ENDPOINT) continue;
+#endif
 			if (table[i].desc & BDT_OWN) {
 				usb_free((usb_packet_t *)((uint8_t *)(table[i].addr) - 8));
 			}
@@ -252,9 +258,10 @@ static void usb_setup(void)
 			reg += 4;
 #ifdef AUDIO_INTERFACE
 			if (i == AUDIO_RX_ENDPOINT) {
+				// OPENTRACKER PATCH: one buffer per BDT (see the token handler).
 				table[index(i, RX, EVEN)].addr = usb_audio_receive_buffer;
 				table[index(i, RX, EVEN)].desc = (AUDIO_RX_SIZE<<16) | BDT_OWN;
-				table[index(i, RX, ODD)].addr = usb_audio_receive_buffer;
+				table[index(i, RX, ODD)].addr = usb_audio_receive_buffer + AUDIO_RX_SIZE/2;
 				table[index(i, RX, ODD)].desc = (AUDIO_RX_SIZE<<16) | BDT_OWN;
 			} else
 #endif
@@ -449,14 +456,16 @@ static void usb_setup(void)
 		if (setup.wIndex == AUDIO_INTERFACE+1) {
 			usb_audio_transmit_setting = setup.wValue;
 			if (usb_audio_transmit_setting > 0) {
-				bdt_t *b = &table[index(AUDIO_TX_ENDPOINT, TX, EVEN)];
-				uint8_t state = tx_state[AUDIO_TX_ENDPOINT-1];
-				if (state) b++;
-				if (!(b->desc & BDT_OWN)) {
-					memset(usb_audio_transmit_buffer, 0, 176);
-					b->addr = usb_audio_transmit_buffer;
-					b->desc = (176 << 16) | BDT_OWN;
-					tx_state[AUDIO_TX_ENDPOINT-1] = state ^ 1;
+				// OPENTRACKER PATCH: prime both BDTs with silence, one
+				// buffer each (see the token handler).
+				for (int odd = 0; odd < 2; odd++) {
+					bdt_t *b = &table[index(AUDIO_TX_ENDPOINT, TX, odd)];
+					uint16_t *buf = usb_audio_transmit_buffer + odd * (AUDIO_TX_SIZE/2);
+					if (!(b->desc & BDT_OWN)) {
+						memset(buf, 0, 176);
+						b->addr = buf;
+						b->desc = (176 << 16) | BDT_OWN;
+					}
 				}
 			}
 		} else if (setup.wIndex == AUDIO_INTERFACE+2) {
@@ -1053,18 +1062,23 @@ void usb_isr(void)
 			endpoint--;	// endpoint is index to zero-based arrays
 
 #ifdef AUDIO_INTERFACE
+			// OPENTRACKER PATCH (#97): one buffer per BDT and both BDTs kept
+			// armed, so the hardware always has the next packet while this
+			// one is refilled in place. The audio block interrupt outranks
+			// this one and can hold it off for over 1 ms (reverb + delay):
+			// Teensy's single shared buffer then lost IN frames (the computer
+			// heard ~8% gaps) and let an OUT packet overwrite the last.
 			if ((endpoint == AUDIO_TX_ENDPOINT-1) && (stat & 0x08)) {
-				unsigned int len;
-				len = usb_audio_transmit_callback();
+				uint16_t *buf = usb_audio_transmit_buffer + (((uint32_t)b & 8) ? AUDIO_TX_SIZE/2 : 0);
+				unsigned int len = usb_audio_transmit_callback(buf);
 				if (len > 0) {
-					b = (bdt_t *)((uint32_t)b ^ 8);
-					b->addr = usb_audio_transmit_buffer;
+					b->addr = buf;
 					b->desc = (len << 16) | BDT_OWN;
-					tx_state[endpoint] ^= 1;
 				}
 			} else if ((endpoint == AUDIO_RX_ENDPOINT-1) && !(stat & 0x08)) {
-				usb_audio_receive_callback(b->desc >> 16);
-				b->addr = usb_audio_receive_buffer;
+				uint16_t *buf = usb_audio_receive_buffer + (((uint32_t)b & 8) ? AUDIO_RX_SIZE/2 : 0);
+				usb_audio_receive_callback(buf, b->desc >> 16);
+				b->addr = buf;
 				b->desc = (AUDIO_RX_SIZE << 16) | BDT_OWN;
 			} else if ((endpoint == AUDIO_SYNC_ENDPOINT-1) && (stat & 0x08)) {
 				b = (bdt_t *)((uint32_t)b ^ 8);

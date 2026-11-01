@@ -20,6 +20,21 @@ const char* kSatNames[5] = {"Hard Clip", "Soft Clip", "Saturate", "Overdrive", "
 const uint32_t kGlobalLevel[4] = {pf::kMixDelay, pf::kMixReverb, pf::kMixDry, pf::kLineInLevel};
 const uint32_t kGlobalMute[4] = {pf::kMixDelayMute, pf::kMixReverbMute, pf::kMixDryMute, pf::kLineInMute};
 const char* kGlobalNames[4] = {"Delay", "Reverb", "Dry Mix", "Line In"};
+// [I] #97 USB audio in: Global Mixer channel 4, in the page's free last
+// column (Project::usbLevel / usbMute, usb_audio.bin, not project.mt).
+constexpr int kUsbCol = 7;
+constexpr int kGlobalChannels = 5;
+int globalCol(int ch) { return ch < 4 ? ch : kUsbCol; }
+uint8_t globalLevel(const Project& p, int ch) { return ch < 4 ? p.u8(kGlobalLevel[ch]) : p.usbLevel; }
+bool globalMuted(const Project& p, int ch) { return ch < 4 ? p.u8(kGlobalMute[ch]) != 0 : p.usbMute != 0; }
+void setGlobalLevel(Project& p, int ch, uint8_t v) {
+    if (ch < 4) p.setU8(kGlobalLevel[ch], v);
+    else p.usbLevel = v;
+}
+void setGlobalMuted(Project& p, int ch, bool m) {
+    if (ch < 4) p.setU8(kGlobalMute[ch], m ? 1 : 0);
+    else p.usbMute = m ? 1 : 0;
+}
 // 2.x Global Mixer 3/3 synth columns F5..F7 (Tracker Mini manual p.220):
 // level = the slot gain (record +0x00, -96..12 dB), no mute / solo.
 constexpr int kSynthCol = 4;
@@ -289,7 +304,7 @@ void MixerScreen::start(int opt) {
         meter[t] = meterHold[t] = 0;
         for (float& v : hist_[t]) v = 0.0f;
     }
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < kGlobalChannels; ++i)
         for (int c = 0; c < 2; ++c) {
             globalMeter[i][c] = 0;
             for (float& v : ghist_[i][c]) v = 0.0f;
@@ -425,9 +440,11 @@ void MixerScreen::refreshBar() {
         }
         return;
     }
-    for (int i = 0; i < 4; ++i) {
-        levelText(p.u8(kGlobalLevel[i]), v, sizeof(v));
-        b.set(i, v, p.u8(kGlobalMute[i]) ? "Unmute" : "Mute", !p.u8(kGlobalMute[i]));
+    for (int ch = 0; ch < kGlobalChannels; ++ch) {
+        const int i = globalCol(ch);
+        const bool m = globalMuted(p, ch);
+        levelText(globalLevel(p, ch), v, sizeof(v));
+        b.set(i, v, m ? "Unmute" : "Mute", !m);
         b.highlight(i, held_[i]);
     }
     for (int s = 0; s < kSynthSlotCount; ++s) {
@@ -521,15 +538,19 @@ void MixerScreen::change(int d) {
         if (page == 1) {
             if (bank) continue;   // no bank-B levels (Tracker Mini: Track Mixer 1-8 only)
             trk::setLevel(a, i, uint8_t(clampi(trk::level(a, i) + d, 0, 100)));
-        } else if (i < 4) a.project.setU8(kGlobalLevel[i], uint8_t(clampi(a.project.u8(kGlobalLevel[i]) + d, 0, 100)));
-        else if (i < kSynthCol + kSynthSlotCount) synthGainStep(a, i - kSynthCol, float(d), false);
+        } else if (i < 4 || i == kUsbCol) {
+            const int ch = i < 4 ? i : 4;
+            setGlobalLevel(a.project, ch, uint8_t(clampi(globalLevel(a.project, ch) + d, 0, 100)));
+        } else if (i < kSynthCol + kSynthSlotCount) {
+            synthGainStep(a, i - kSynthCol, float(d), false);
+        }
     }
     if (any && !(page == 1 && bank)) a.markProjectDirty();
 }
 
 void MixerScreen::mixerKey(int i, uint8_t state) {
     App& a = app_;
-    if (page == 2 && i >= kSynthCol + kSynthSlotCount) return;
+    if (page == 2 && i >= kSynthCol + kSynthSlotCount && i != kUsbCol) return;
     if (state == kPress) {
         if (rename && page == 1) {
             // Tracks 9-16 too: 7 characters (2x-01 §1.1, stock 02 §3.3).
@@ -552,7 +573,7 @@ void MixerScreen::mixerKey(int i, uint8_t state) {
     if (state != kRelease || !held_[i]) return;
     held_[i] = false;
     if (changed_[i]) return;
-    if (page == 2 && i >= kSynthCol) return;   // synth columns: level only (no mute / solo)
+    if (page == 2 && i >= kSynthCol && i != kUsbCol) return;   // synth columns: level only (no mute / solo)
     // spec 06 §4.4 release without change: mute / solo.
     if (page == 1) {
         // 2.x: solo mutes the 15 other tracks of both banks; unsolo unmutes
@@ -571,13 +592,14 @@ void MixerScreen::mixerKey(int i, uint8_t state) {
         }
     } else {
         Project& p = a.project;
+        const int ch = i < 4 ? i : 4;   // [I] USB in solos / mutes with the four
         if (ui_.shift()) {
             // Same solo rule as §4.4: the same key again unsolos all.
             const bool unsolo = globalSolo_ == i;
             globalSolo_ = unsolo ? -1 : i;
-            for (int k = 0; k < 4; ++k) p.setU8(kGlobalMute[k], !unsolo && k != i);
+            for (int k = 0; k < kGlobalChannels; ++k) setGlobalMuted(p, k, !unsolo && k != ch);
         } else {
-            p.setU8(kGlobalMute[i], !p.u8(kGlobalMute[i]));
+            setGlobalMuted(p, ch, !globalMuted(p, ch));
         }
         a.markProjectDirty();
     }
@@ -696,8 +718,8 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 for (int i = 0; i < 8; ++i)
                     if (held_[i]) trk::setLevel(app_, i, 86);
             if (page == 2) {
-                for (int i = 0; i < 4; ++i)
-                    if (held_[i]) app_.project.setU8(kGlobalLevel[i], 86);
+                for (int ch = 0; ch < kGlobalChannels; ++ch)
+                    if (held_[globalCol(ch)]) setGlobalLevel(app_.project, ch, 86);
                 for (int s = 0; s < kSynthSlotCount; ++s)
                     if (held_[kSynthCol + s]) synthGainStep(app_, s, 0.0f, true);   // 0 dB like the faders
             }
@@ -808,7 +830,7 @@ void MixerScreen::update(uint32_t now) {
             if (bar != synthMeter[s]) changed = true;
             synthMeter[s] = bar;
         }
-        for (int ch = 0; ch < 4; ++ch)
+        for (int ch = 0; ch < kGlobalChannels; ++ch)
             for (int sd = 0; sd < 2; ++sd) {
                 ghist_[ch][sd][histPos_] = app_.engine.busPeak(ch, sd) * 0.70710678f;
                 float sum = 0;
@@ -972,17 +994,17 @@ void MixerScreen::draw(Gfx& g) {
     // two 32-px meters on one panel; the rest one empty panel. The engine
     // meters show each channel's level, L and R (AudioEngine::busPeak) [I].
     ui_.drawTitle(g, "Global Mixer 3/3");
-    Head hd[4 + kSynthSlotCount];
-    Body bd[4 + 2 * kSynthSlotCount];
-    wg::ValueBarItem br[12 + 2 * kSynthSlotCount];
+    Head hd[kGlobalChannels + kSynthSlotCount];
+    Body bd[kGlobalChannels + 2 * kSynthSlotCount];
+    wg::ValueBarItem br[3 * kGlobalChannels + 2 * kSynthSlotCount];
     int nb = 0, nr = 0;
-    for (int i = 0; i < 4; ++i) {
-        const int x = colX(i);
-        hd[i].k = i;
-        std::snprintf(hd[i].name, sizeof(hd[i].name), "%s", kGlobalNames[i]);
+    for (int i = 0; i < kGlobalChannels; ++i) {
+        const int x = colX(globalCol(i));
+        hd[i].k = globalCol(i);
+        std::snprintf(hd[i].name, sizeof(hd[i].name), "%s", i < 4 ? kGlobalNames[i] : "USB");
         bd[nb++] = Body{x, 96};
-        const bool muted = p.u8(kGlobalMute[i]) != 0;
-        br[nr++] = wg::ValueBarItem{x, 64, 32, 359, p.u8(kGlobalLevel[i]) / 100.0f, muted ? off : wg::kThemeColour};
+        const bool muted = globalMuted(p, i);
+        br[nr++] = wg::ValueBarItem{x, 64, 32, 359, globalLevel(p, i) / 100.0f, muted ? off : wg::kThemeColour};
         // A muted channel's meters rest in the muted colour too [S round 3,
         // snap 010 Line In].
         br[nr++] = wg::ValueBarItem{x + 32, 64, 32, 359, globalMeter[i][0] / 100.0f, muted ? off : green};
@@ -993,17 +1015,16 @@ void MixerScreen::draw(Gfx& g) {
     // the rest one empty panel.
     for (int s = 0; s < kSynthSlotCount; ++s) {
         const int k = kSynthCol + s, x = colX(k);
-        hd[4 + s].k = k;
-        std::snprintf(hd[4 + s].name, sizeof(hd[4 + s].name), "%s", kSynthNames[s]);
+        hd[kGlobalChannels + s].k = k;
+        std::snprintf(hd[kGlobalChannels + s].name, sizeof(hd[kGlobalChannels + s].name), "%s", kSynthNames[s]);
         bd[nb++] = Body{x, 47};
         bd[nb++] = Body{x + 50, 47};
         br[nr++] = wg::ValueBarItem{x, 64, 47, 359, synthBar(a.synthSlot(s).gainDb)};
         br[nr++] = wg::ValueBarItem{x + 50, 64, 47, 359, float(synthMeter[s]) / 100.0f, green};
     }
-    headers(g, th, hd, 4 + kSynthSlotCount);
+    headers(g, th, hd, kGlobalChannels + kSynthSlotCount);
     bodies(g, th, ui_, bd, nb);
     bars(g, th, br, nr);
-    wg::panel(g, th, colX(7), 30, 96, wg::kPanelH - 1);
 }
 
 }  // namespace ot

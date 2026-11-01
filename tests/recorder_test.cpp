@@ -239,6 +239,13 @@ TEST(recorder_sources_gain_monitor_meter) {
     CHECK_EQ(a.cfg.recSource, 2);
     h.tap(btn::F1);
     h.tap(btn::F1);
+    // [I] USB (#97): available with a USB audio hook, no analog gain.
+    CHECK_EQ(a.cfg.recSource, 4);
+    CHECK(r.sourceOk);
+    CHECK_STR(a.ui.bar.label[0].bottom, "USB");
+    CHECK_STR(a.ui.bar.label[5].bottom, "-");
+    CHECK(a.capture.stereo());
+    h.tap(btn::F1);
     CHECK_EQ(a.cfg.recSource, 0);   // wraps
     CHECK(r.sourceOk);
     // Gain (b5) +10.

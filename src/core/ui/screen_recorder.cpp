@@ -25,7 +25,10 @@ namespace ot {
 
 namespace {
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
-const char* const kSources[4] = {"Line in", "Radio", "Mic LG", "Mic HG"};
+// [I] #97: USB audio in after the stock four (Config::kRecSourceUsb).
+const char* const kSources[5] = {"Line in", "Radio", "Mic LG", "Mic HG", "USB"};
+constexpr int kSourceCount = 5;
+constexpr int kSourceUsb = Config::kRecSourceUsb;
 // spec 05 appendix C §2.8 region table: band minimum and step (max 108 MHz).
 const float kRadioMin[4] = {87.5f, 87.5f, 87.5f, 76.0f};
 const float kRadioStep[4] = {0.1f, 0.2f, 0.2f, 0.1f};
@@ -91,12 +94,13 @@ const int16_t* RecorderScreen::dataR() const {
 }
 
 bool RecorderScreen::stereoInput() const {
-    return app_.cfg.recSource == kSourceLineIn && app_.cfg.lineInChannel == kLineInStereo;
+    const int src = app_.cfg.recSource;
+    return src == kSourceUsb || (src == kSourceLineIn && app_.cfg.lineInChannel == kLineInStereo);
 }
 
 const char* RecorderScreen::sourceName(int src) const {
     if (src == kSourceLineIn) return kLineInNames[app_.cfg.lineInChannel > 2 ? 0 : app_.cfg.lineInChannel];
-    return kSources[clampi(src, 0, 3)];
+    return kSources[clampi(src, 0, kSourceCount - 1)];
 }
 
 void RecorderScreen::start(int opt) {
@@ -174,19 +178,20 @@ void RecorderScreen::stop() {
 
 void RecorderScreen::setSource(int s) {
     App& a = app_;
-    s = clampi(s, 0, 3);
+    s = clampi(s, 0, kSourceCount - 1);
     if (s != a.cfg.recSource) {
         a.cfg.recSource = uint8_t(s);
         a.markConfigDirty();
     }
-    sourceOk = a.selectInput(uint8_t(s), a.cfg.recGain[s]);
+    sourceOk = a.selectInput(uint8_t(s), s == kSourceUsb ? 0 : a.cfg.recGain[s]);
     a.capture.setStereo(stereoInput());   // setup-page meters (2.x)
     if (s == 1 && a.radio()) {
         const int r = a.cfg.radioRegion & 3;
         a.radio()->setBand(kRadioMin[r], kRadioMax, kRadioStep[r]);
         a.radio()->tune(float(a.cfg.radioFreq10) / 10.0f);
     }
-    if (!sourceOk) ui_.notify(s == 1 ? "Radio not available" : "Input not available");
+    if (!sourceOk)
+        ui_.notify(s == 1 ? "Radio not available" : s == kSourceUsb ? "USB audio not available" : "Input not available");
 }
 
 void RecorderScreen::selection(uint32_t* s0, uint32_t* s1) const {
@@ -220,8 +225,12 @@ void RecorderScreen::refreshBar() {
             b.set(3, "Metronome", "Config");   // spec 05 appC §2.3, manual p.195 (MANUAL_AUDIT #29)
         }
         b.set(4, "Level");
-        std::snprintf(v, sizeof(v), "%d", a.cfg.recGain[src]);
-        b.set(5, "Gain", v);
+        if (src == kSourceUsb) {
+            b.set(5, "Gain", "-", false);   // [I] digital input: no analog gain
+        } else {
+            std::snprintf(v, sizeof(v), "%d", a.cfg.recGain[src]);
+            b.set(5, "Gain", v);
+        }
         b.set(6, "Monitor", a.cfg.recMonitor ? "On" : "Off");
         b.set(7, "Record", nullptr, sourceOk);
         // Record keeps the solid red box; the selected parameter is marked by
@@ -442,7 +451,7 @@ void RecorderScreen::change(int d) {
     if (state == 0) {
         const int src = a.cfg.recSource;
         switch (sel) {
-            case 0: setSource(clampi(src + d, 0, 3)); break;   // encoder: clamp, no wrap
+            case 0: setSource(clampi(src + d, 0, kSourceCount - 1)); break;   // encoder: clamp, no wrap
             case 1:
                 if (src == 1 && sourceOk) {
                     const int r = a.cfg.radioRegion & 3;
@@ -453,6 +462,7 @@ void RecorderScreen::change(int d) {
                 }
                 break;
             case 5:
+                if (src == kSourceUsb) break;
                 a.cfg.recGain[src] = uint8_t(clampi(a.cfg.recGain[src] + d, 0, 100));
                 a.selectInput(uint8_t(src), a.cfg.recGain[src]);
                 a.markConfigDirty();
@@ -592,7 +602,7 @@ void RecorderScreen::onButton(uint8_t id, uint8_t st) {
         const int src = a.cfg.recSource;
         switch (id) {
             case btn::F1:
-                if (sel == 0) setSource((src + 1) % 4);   // already selected: next source, wrapping
+                if (sel == 0) setSource((src + 1) % kSourceCount);   // already selected: next source, wrapping
                 sel = 0;
                 break;
             case btn::F2:
@@ -798,8 +808,8 @@ void RecorderScreen::draw(Gfx& g) {
     }
     if (state == 0) {
         const int src = a.cfg.recSource;
-        const char* names[4] = {sourceName(0), kSources[1], kSources[2], kSources[3]};
-        list(g, th, 0, names, 4, src);
+        const char* names[kSourceCount] = {sourceName(0), kSources[1], kSources[2], kSources[3], kSources[4]};
+        list(g, th, 0, names, kSourceCount, src);
         if (src == 1 && sourceOk) {
             // Radio frequency as a bar (needle position 0..100, appendix C §2.8).
             const int r = a.cfg.radioRegion & 3;
@@ -841,7 +851,8 @@ void RecorderScreen::draw(Gfx& g) {
             wg::valueBar(g, th, x + w / 2 - 1, wg::kPanelY, w / 2 + 1, wg::kPanelH,
                          unitsR < 1 ? kMinBar : float(unitsR) / 100.0f, vs);
         }
-        bar(g, th, 5, float(a.cfg.recGain[src]) / 100.0f);
+        if (src == kSourceUsb) wg::panel(g, th, kColX0 + 500);   // [I] no gain for USB
+        else bar(g, th, 5, float(a.cfg.recGain[src]) / 100.0f);
         list(g, th, 6, kMonitor, 2, a.cfg.recMonitor ? 0 : 1);
         wg::panel(g, th, kColX0 + 700);
         if (sel == 0 || sel == 1 || sel == 4 || sel == 5 || sel == 6) wg::panelFocus(g, th, wg::columnX(sel), wg::columnW());

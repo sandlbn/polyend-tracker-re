@@ -21,6 +21,24 @@ engines, stereo samples, Mini-compatible project files and USB Storage mode. The
 the whole 2.x line (2.0 to 2.2.3); the full list is in the release notes of the
 [2.2.3 download](https://github.com/sandlbn/polyend-tracker-re/releases).
 
+## New since 2.2.3
+
+- **USB audio in** (Linux and Windows; contributed by syamajala): the Tracker shows up on
+  the computer as a USB sound card, **OpenTracker**, next to its USB MIDI and storage. Pick
+  it as the computer's output and whatever the computer plays (a browser, a DAW, a soft
+  synth) can be heard and sampled on the Tracker, without a driver.
+  - **Hear it:** Global Mixer (Master, three presses), unmute **USB** (F8), the last column.
+    It works like the other columns (hold F8 + encoder for the level). It goes straight to
+    the master mix, not to the delay and reverb sends.
+  - **Sample it:** Sample Recorder Source **USB** (after Mic HG, always stereo), or
+    Resample From **USB**.
+  - USB starts muted at its default level; the level, mute and the Recorder's USB source
+    aren't saved (project.mt keeps its stock layout).
+  - Latency is about 5 ms plus the computer's buffer: fine for sampling and listening
+    along. USB audio drops out while USB Storage mode copies files.
+  - **macOS** sees the device but can't follow the Tracker's clock yet (expect a click
+    every half-minute or so).
+
 ## New in 2.2.2 to 2.2.3
 
 - **Stream long samples from the card** (optional, Off by default): Config > General >

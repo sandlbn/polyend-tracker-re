@@ -136,7 +136,7 @@ void Config::sanitize() {
     clampField<uint8_t>(masterVolume, 100, 81);
     clampField<uint8_t>(previewVolume, 100, 86);
     if (sliceCount < 1 || sliceCount > 48) sliceCount = 8;
-    clampField<uint8_t>(recSource, 3, 0);
+    clampField<uint8_t>(recSource, kRecSourceUsb, 0);
     for (auto& g : recGain) clampField<uint8_t>(g, 100, 50);
     clampField<uint8_t>(recMonitor, 1, 1);
     if (radioFreq10 < 760 || radioFreq10 > 1080) radioFreq10 = 875;

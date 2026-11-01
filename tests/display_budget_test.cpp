@@ -226,7 +226,8 @@ TEST(mixer_frame_budget) {
     words = r.m.maxWords;
     std::printf("global mixer (playing): max %u DL words\n", unsigned(words));
     r.m.printTally();
-    CHECK(words <= 1400);
+    // [I] #97 the USB audio column adds ~70 words (1419); RAM_DL is 2048.
+    CHECK(words <= 1450);
     r.h.tap(btn::Play);
 }
 

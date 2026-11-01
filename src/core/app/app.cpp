@@ -168,16 +168,24 @@ void App::preBlock(float seconds) {
         engine.noteSeqWork(audio::kSeqEngineApply);
     }
     const int16_t* in = hal_.lineIn && !rendering_ ? hal_.lineIn(hal_.lineInCtx) : nullptr;
+    // [I] USB audio in (#97): taken every block (that also steers the USB
+    // feedback), even when nothing listens.
+    const int16_t* usb = hal_.usbIn && !rendering_ ? hal_.usbIn(hal_.usbInCtx) : nullptr;
+    const bool recUsb = cfg.recSource == Config::kRecSourceUsb;
     // Recorder input tap (spec 05 appendix C §2): meter / count-in / record.
     if (!rendering_) {
-        capture.process(in, audio::kBlock, &engine);
+        capture.process(recUsb ? usb : in, audio::kBlock, &engine);
         if (capture.recording()) engine.noteSeqWork(audio::kSeqRecorder);
     }
     // Monitor off (appendix C §2.7) keeps the input out of the mix. Monitor
     // On in the Recorder mixes it at unity, not at the Global Mixer line
-    // level / mute (spec 22 §5).
-    if (in && !inputMonitorMuted) engine.setLineInput(in);
-    engine.setLineMonitor(capture.metering() && !inputMonitorMuted && !rendering_);
+    // level / mute (spec 22 §5). [I] Both apply to the Recorder's source:
+    // with USB selected, the line keeps its Global Mixer level, and back.
+    const bool monitor = capture.metering() && !inputMonitorMuted && !rendering_;
+    if (in && !(inputMonitorMuted && !recUsb)) engine.setLineInput(in);
+    if (usb && !(inputMonitorMuted && recUsb)) engine.setUsbInput(usb);
+    engine.setLineMonitor(monitor && !recUsb);
+    engine.setUsbMonitor(monitor && recUsb);
     // spec 05 §1.3 / spec 04 §1.1 step 1: the audio block drives the sequencer
     // clock (live 128/44122.65 s, offline kRenderBlockSeconds).
     seq.processElapsed(seconds);
@@ -211,6 +219,8 @@ void App::preBlock(float seconds) {
             // monitor (Monitor Off keeps it out of the engine's mix).
             if (resampler.source() == audio::AudioEngine::kTapLineIn)
                 resampler.tapLine(in, engine.settings().lineInChannel, audio::kBlock);
+            else if (resampler.source() == audio::AudioEngine::kTapUsb)   // [I] #97, always stereo
+                resampler.tapLine(usb, 0, audio::kBlock);
         }
     }
 }
@@ -228,7 +238,7 @@ void App::applyEngineSettings() {
     // to the line input, both the Global-mixer pass-through and the recorder.
     const uint8_t lineCh = cfg.lineInChannel > 2 ? 2 : cfg.lineInChannel;
     m.lineInChannel = lineCh;
-    capture.setChannelMode(lineCh);
+    capture.setChannelMode(cfg.recSource == Config::kRecSourceUsb ? 0 : lineCh);   // [I] USB: stereo
     // 2.x synth slots: the project records (spec 21 §3.3) and the voice
     // budget from Config (OPTIMIZATION_2X item 10 / OP-8).
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().setSlotRecord(s, project.synthSlot(s));
@@ -1126,7 +1136,11 @@ void App::syncRecorderSettings() {
     uint8_t* p = &project.values[pf::kRecSource - mt::kValuesOff];
     constexpr int kN = int(sizeof(recShadow_));   // 0x134..0x13F (incl. the f32 at 0x13C)
     auto toProject = [&]() {
-        p[0] = cfg.recSource;
+        // [I] USB (#97) isn't a stock source: project.mt reads Line in,
+        // usb_audio.bin says USB.
+        const bool usbSrc = cfg.recSource == Config::kRecSourceUsb;
+        p[0] = usbSrc ? 0 : cfg.recSource;
+        project.recUsb = usbSrc ? 1 : 0;
         p[1] = cfg.recGain[0];   // line
         p[2] = cfg.recGain[2];   // mic low gain
         p[3] = cfg.recGain[3];   // mic high gain
@@ -1136,18 +1150,18 @@ void App::syncRecorderSettings() {
         p[5] = cfg.recMonitor ? 0 : 1;
         project.setF32(pf::kRadioFreq, float(cfg.radioFreq10) / 10.0f);
     };
-    if (!recShadowValid_ || std::memcmp(p, recShadow_, kN) != 0) {
+    if (!recShadowValid_ || std::memcmp(p, recShadow_, kN) != 0 || project.recUsb != recUsbShadow_) {
         // Project loaded / created: project -> working copies. An all-zero
         // block with the 87.5 MHz default is a project that never stored
         // recorder settings: it takes OpenTracker's defaults (README).
-        bool unset = p[1] == 0 && p[2] == 0 && p[3] == 0 && p[4] == 0 && p[5] == 0 && p[0] == 0;
+        bool unset = p[1] == 0 && p[2] == 0 && p[3] == 0 && p[4] == 0 && p[5] == 0 && p[0] == 0 && !project.recUsb;
         if (unset) {
             Config d;
             cfg.recSource = d.recSource;
             std::memcpy(cfg.recGain, d.recGain, sizeof(cfg.recGain));
             cfg.recMonitor = d.recMonitor;
         } else {
-            cfg.recSource = p[0] > 3 ? 0 : p[0];
+            cfg.recSource = project.recUsb ? Config::kRecSourceUsb : p[0] > 3 ? 0 : p[0];
             cfg.recGain[0] = p[1];
             cfg.recGain[2] = p[2];
             cfg.recGain[3] = p[3];
@@ -1159,15 +1173,18 @@ void App::syncRecorderSettings() {
         cfg.sanitize();
         if (unset) toProject();
         std::memcpy(recShadow_, p, kN);
+        recUsbShadow_ = project.recUsb;
         recShadowValid_ = true;
         return;
     }
     // Working copies edited (recorder screen): -> project, project changed.
     uint8_t want[kN];
     std::memcpy(want, p, kN);
+    const uint8_t wantUsb = project.recUsb;
     toProject();
-    if (std::memcmp(want, p, kN) != 0) {
+    if (std::memcmp(want, p, kN) != 0 || wantUsb != project.recUsb) {
         std::memcpy(recShadow_, p, kN);
+        recUsbShadow_ = project.recUsb;
         projectDirty_ = unsaved_ = true;
     }
 }

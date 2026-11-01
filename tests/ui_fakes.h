@@ -583,6 +583,10 @@ struct Harness {
     std::function<void(int16_t* block, uint64_t blockIndex)> lineGen;
     int16_t lineBlock[256] = {};
     uint64_t lineBlocks = 0;
+    // [I] USB audio in (#97), the same way: usbGen set = the computer streams.
+    std::function<void(int16_t* block, uint64_t blockIndex)> usbGen;
+    int16_t usbBlock[256] = {};
+    uint64_t usbBlocks = 0;
     int routedInput = -1;   // the last App::selectInput source (-1: none)
 
     explicit Harness(bool bootNow = true, uint32_t bankSamples = 4 * 1024 * 1024) {
@@ -622,6 +626,13 @@ struct Harness {
             return self->lineBlock;
         };
         h.lineInCtx = this;
+        h.usbIn = [](void* c) -> const int16_t* {
+            Harness* self = static_cast<Harness*>(c);
+            if (!self->usbGen) return nullptr;
+            self->usbGen(self->usbBlock, self->usbBlocks++);
+            return self->usbBlock;
+        };
+        h.usbInCtx = this;
         h.selectInput = [](void* c, uint8_t source, uint8_t) {
             static_cast<Harness*>(c)->routedInput = source;
             return true;

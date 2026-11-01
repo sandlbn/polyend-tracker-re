@@ -176,6 +176,7 @@ size_t formatResampleReport(char* out, size_t cap, const ResampleReport& r, uint
     char src[12];
     if (r.source == 0) std::snprintf(src, sizeof(src), "master");
     else if (r.source == audio::AudioEngine::kTapLineIn) std::snprintf(src, sizeof(src), "line-in");
+    else if (r.source == audio::AudioEngine::kTapUsb) std::snprintf(src, sizeof(src), "usb");
     else std::snprintf(src, sizeof(src), "track%u", unsigned(r.source));
     static const char* const kEnds[] = {"none", "bars", "stopped", "transport", "full"};
     const char* end = r.end < 5 ? kEnds[r.end] : "?";

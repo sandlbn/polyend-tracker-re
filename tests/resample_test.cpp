@@ -192,6 +192,18 @@ TEST(resample_track_and_line_sources) {
     CHECK(a.instrPresent[3]);
     CHECK_EQ(peakOf(a, 3), 0);
     CHECK_STR(a.instruments[3].name, "Resample Line in");
+    // [I] #97 From USB: the computer's stream, whatever the Global Mixer
+    // USB mute (muted in a new project).
+    h.usbGen = [](int16_t* b, uint64_t) {
+        for (int i = 0; i < 256; ++i) b[i] = int16_t(i % 4 < 2 ? 4000 : -4000);
+    };
+    a.resampleCfg.source = audio::AudioEngine::kTapUsb;
+    CHECK(a.resampleToggle() == App::ResampleAction::kArmed);
+    h.audio.pump(blocksFor(4.3));
+    h.run(5);
+    CHECK(a.instrPresent[4]);
+    CHECK(peakOf(a, 4) > 1000);
+    CHECK_STR(a.instruments[4].name, "Resample USB");
 }
 
 // A synth on a track (2.x: Synth 1..3 play on shared slots, not the

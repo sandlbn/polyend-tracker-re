@@ -16,6 +16,7 @@ float Project::f32(uint32_t off) const { return rdF32(&values[off - mt::kValuesO
 void Project::setF32(uint32_t off, float v) { wrF32(&values[off - mt::kValuesOff], v); }
 
 void Project::setDefault() {
+    resetUsbAudio();
     // New Project (spec 07 Q2, Q3, Q6; FW:0x234DC): the load pre-fill, then
     // the values the firmware's New Project writes.
     setLoadPrefill();

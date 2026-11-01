@@ -131,6 +131,20 @@ struct Project {
     char name[mt::kNameMax + 1] = {};
     char folder[mt::kFolderMax + 1] = {};
 
+    // [I] USB audio in (#97): its Global Mixer level (TRK index) and mute,
+    // off in a new project like Line in; recUsb: the Sample Recorder records
+    // USB (project.mt's source byte reads Line in). Not saved: project.mt
+    // keeps its stock layout.
+    static constexpr uint8_t kUsbLevelDefault = 86;
+    uint8_t usbLevel = kUsbLevelDefault;
+    uint8_t usbMute = 1;
+    uint8_t recUsb = 0;
+    void resetUsbAudio() {
+        usbLevel = kUsbLevelDefault;
+        usbMute = 1;
+        recUsb = 0;
+    }
+
     Project() { setDefault(); }
 
     // New Project values (spec 07 Q6 table; FW:0x234DC), plus the Tracker

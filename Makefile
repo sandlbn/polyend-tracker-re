@@ -9,7 +9,8 @@
 # OT_SDRAM_CACHE=0 -> image without the LMEM system cache for the SDRAM (build dir build/nocache)
 # OT_FASTRUN=0    -> image with all audio code in flash (no .fastrun in SRAM_L; build dir build/nofastrun)
 # OT_USB_MSC=0    -> image without the USB mass-storage interface (old MIDI + Serial descriptors;
-#                    build dir build/nomsc)
+#                    build dir build/nomsc; no USB audio either)
+# OT_USB_AUDIO=0  -> image without the USB audio function (#97; build dir build/noaudio)
 # make testsongs  -> build/testsongs/Projects/<name>/ (2.x hardware-test projects, TESTSONGS.md)
 # make patches    -> build/patches/Patches/<MODEL>/ (synth preset pack, tools/make_patches/PRESETS.md)
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
@@ -66,6 +67,15 @@ OT_USB_MSC ?= 1
 ifeq ($(OT_USB_MSC),0)
 BUILD     := $(BUILD)/nomsc
 endif
+# [I] USB audio (#97, src/hal/usb_audio.cpp): 1 = a stereo audio function as
+# interfaces 4..6 after mass storage (needs OT_USB_MSC=1: the nomsc image keeps
+# the old descriptors exactly); 0 = without it.
+OT_USB_AUDIO ?= 1
+ifeq ($(OT_USB_MSC),0)
+override OT_USB_AUDIO := 0
+else ifeq ($(OT_USB_AUDIO),0)
+BUILD     := $(BUILD)/noaudio
+endif
 PTF       := $(BUILD)/$(PTF_NAME)
 ifneq ($(shell printf '%s' '$(PTF_NAME)' | wc -c | tr -d ' '),24)
 $(error image name '$(PTF_NAME)' must be exactly 24 characters (update bootloader limit, docs/HARDWARE_TESTING.md))
@@ -87,7 +97,7 @@ CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
-             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_STACK_GUARD_TEST=$(OT_STACK_GUARD_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
+             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_GAMES=$(OT_GAMES) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_USB_AUDIO=$(OT_USB_AUDIO) -DOT_STACK_GUARD_TEST=$(OT_STACK_GUARD_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs
 COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD -fstack-usage
 CFLAGS    := $(COMMON) -std=gnu11
@@ -99,7 +109,8 @@ LDFLAGS   := $(CPUFLAGS) -O2 -Wl,--gc-sections,--defsym=__rtc_localtime=0,--no-w
 LIBS      := -lm -lstdc++
 
 CORE_C    := $(wildcard $(CORE)/*.c)
-CORE_CXX  := $(filter-out $(CORE)/main.cpp,$(wildcard $(CORE)/*.cpp))
+# usb_audio.cpp: Teensy's USB audio driver (AudioStream); ours is src/hal/usb_audio.cpp.
+CORE_CXX  := $(filter-out $(CORE)/main.cpp $(CORE)/usb_audio.cpp,$(wildcard $(CORE)/*.cpp))
 APP_C     := $(shell find src -name '*.c') third_party/fatfs/ff.c third_party/fatfs/ffunicode.c
 APP_CXX   := $(shell find src -name '*.cpp')
 ifeq ($(OT_GAMES),0)
@@ -126,7 +137,7 @@ OS_DIRS   := src/core/ui/% src/core/app/% src/hal/% src/core/games/% src/core/fo
 O2_KEEP   := src/core/app/app.cpp src/core/app/capture.cpp src/core/app/render.cpp \
              src/core/games/session.cpp \
              src/hal/ft81x.cpp src/hal/sdhc.cpp src/hal/sdram_cache.cpp src/hal/audio_sgtl5000.cpp \
-             src/hal/diag.cpp src/hal/board.cpp src/hal/usb_storage.cpp
+             src/hal/diag.cpp src/hal/board.cpp src/hal/usb_storage.cpp src/hal/usb_audio.cpp
 OS_SRCS   := $(filter-out $(O2_KEEP),$(filter $(OS_DIRS),$(APP_C) $(APP_CXX)))
 $(patsubst %,$(BUILD)/%.o,$(OS_SRCS)): OPT := -Os
 # Float libm only (OP-4): the files that used the double libm warn on any

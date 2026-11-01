@@ -9,7 +9,8 @@ LDFLAGS  := -fsanitize=address,undefined
 CORE_SRCS := $(shell find $(SRC)/core -name '*.cpp')
 CORE_OBJS := $(patsubst $(SRC)/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS))
 TEST_SRCS := $(filter-out usb_desc_test.cpp,$(wildcard *_test.cpp))
-TEST_BINS := $(patsubst %.cpp,$(OUT)/%,$(TEST_SRCS)) $(OUT)/usb_desc_test_msc $(OUT)/usb_desc_test_nomsc
+TEST_BINS := $(patsubst %.cpp,$(OUT)/%,$(TEST_SRCS)) $(OUT)/usb_desc_test_msc $(OUT)/usb_desc_test_nomsc \
+             $(OUT)/usb_desc_test_audio
 
 all: run
 
@@ -46,6 +47,12 @@ $(OUT)/obj/usb_desc_msc.o: $(USB_DESC_DEPS)
 $(OUT)/obj/usb_desc_nomsc.o: $(USB_DESC_DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(USB_DESC_CFLAGS) -DOT_USB_MSC=0 -c usb_desc_host.c -o $@
+$(OUT)/obj/usb_desc_audio.o: $(USB_DESC_DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(USB_DESC_CFLAGS) -DOT_USB_MSC=1 -DOT_USB_AUDIO=1 -c usb_desc_host.c -o $@
+$(OUT)/usb_desc_test_audio: usb_desc_test.cpp $(OUT)/obj/usb_desc_audio.o
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -DOT_USB_MSC=1 -DOT_USB_AUDIO=1 $< $(OUT)/obj/usb_desc_audio.o $(LDFLAGS) -o $@
 $(OUT)/usb_desc_test_msc: usb_desc_test.cpp $(OUT)/obj/usb_desc_msc.o
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -DOT_USB_MSC=1 $< $(OUT)/obj/usb_desc_msc.o $(LDFLAGS) -o $@

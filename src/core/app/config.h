@@ -58,7 +58,9 @@ struct Config {
     // spec 05 appendix C §2.1): these are the working copies the recorder
     // screen edits; App::syncRecorderSettings() keeps them and the project
     // bytes in step. They are not part of the config image.
-    uint8_t recSource = 0;         // 0 line in, 1 radio, 2 mic low gain, 3 mic high gain
+    uint8_t recSource = 0;         // 0 line in, 1 radio, 2 mic low gain, 3 mic high gain, 4 USB [I]
+    // [I] #97 USB audio in: no analog gain (recGain covers sources 0..3 only).
+    static constexpr uint8_t kRecSourceUsb = 4;
     uint8_t recGain[4] = {50, 50, 50, 50};   // per source 0..100 (line, radio, mic LG, mic HG)
     uint8_t recMonitor = 1;        // 0 off, 1 on
     uint16_t radioFreq10 = 875;    // MHz x 10, default 87.5 (appendix C §2.8)

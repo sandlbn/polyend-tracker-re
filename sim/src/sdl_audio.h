@@ -5,7 +5,10 @@
 // 0.04 %. Blocks of 128 stereo int16 frames are pulled from the app callback
 // on the SDL audio thread. Optional line-in (--line-in) captures the default
 // recording device; captured blocks are exposed via lineIn(), which the app
-// hands to the audio engine (HalRefs::lineIn).
+// hands to the audio engine (HalRefs::lineIn). [I] Optional USB audio in
+// (--usb-in, #97) captures a second device the same way (usbIn(),
+// HalRefs::usbIn): e.g. a PipeWire / PulseAudio "Monitor of ..." source,
+// so the computer's own audio plays into the Tracker as over USB.
 #pragma once
 
 #include <SDL.h>
@@ -13,6 +16,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "hal_api.h"
@@ -46,27 +50,43 @@ public:
         masterDsp.set(eq, bassBoost, space);
     }
     MasterDspRecord masterDsp;
-    void enableLineIn(bool on) { lineInWanted_ = on; }
+    void enableLineIn(bool on) { line_.wanted = on; }
+    // [I] #97: capture device `name` as USB audio in ("default": the default
+    // capture device; empty: off).
+    void enableUsbIn(const std::string& name) {
+        usb_.wanted = !name.empty();
+        usb_.name = name == "default" ? "" : name;
+    }
     // Latest captured block (128 interleaved frames) or nullptr; audio thread only.
-    const int16_t* lineIn() const { return lineInValid_ ? lineInBlock_ : nullptr; }
+    const int16_t* lineIn() const { return line_.valid ? line_.block : nullptr; }
+    const int16_t* usbIn() const { return usb_.valid ? usb_.block : nullptr; }
+    // Prints the capture device names (--usb-in list).
+    static void listCaptureDevices();
 
 private:
+    // One capture device and its ring (SPSC: SDL capture thread -> output callback).
+    struct Capture {
+        bool wanted = false;
+        std::string name;   // empty: the default device
+        SDL_AudioDeviceID dev = 0;
+        static constexpr uint32_t kRing = 1u << 14;   // frames
+        std::vector<int16_t> ring = std::vector<int16_t>(kRing * 2);
+        std::atomic<uint32_t> wr{0}, rd{0};
+        int16_t block[kBlockFrames * kChannels] = {};
+        bool valid = false;
+        void open(const SDL_AudioSpec& want, const char* what);
+        void next();   // the next block into `block`, if captured
+    };
     static void sdlCallback(void* ud, Uint8* stream, int len);
     static void captureCallback(void* ud, Uint8* stream, int len);
     void fill(int16_t* out, int frames);
 
     FillFn fn_ = nullptr;
     void* ctx_ = nullptr;
-    SDL_AudioDeviceID dev_ = 0, cap_ = 0;
-    bool lineInWanted_ = false;
+    SDL_AudioDeviceID dev_ = 0;
     int16_t block_[kBlockFrames * kChannels] = {};
     uint32_t blockPos_ = kBlockFrames;
-    // capture ring (SPSC)
-    static constexpr uint32_t kRing = 1u << 14;   // frames
-    std::vector<int16_t> ring_ = std::vector<int16_t>(kRing * 2);
-    std::atomic<uint32_t> wr_{0}, rd_{0};
-    int16_t lineInBlock_[kBlockFrames * kChannels] = {};
-    bool lineInValid_ = false;
+    Capture line_, usb_;
 };
 
 // Headless: the script runner calls pull() for every 128 frames of virtual

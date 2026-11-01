@@ -21,6 +21,7 @@
 #include "hal/stack_guard.h"
 #include "hal/stack_watch.h"
 #include "hal/usb_storage.h"
+#include "hal/usb_audio.h"
 
 extern "C" uint8_t _ssdram_bss[], _esdram_bss[];   // src/hal/opentracker.ld
 
@@ -415,6 +416,9 @@ void otAppMain(ot::hal::HalSet& hal) {
     refs.requestFirmwareUpdate = &hal::requestFirmwareUpdate;
     refs.lineIn = &hal::lineIn;            // I2S RX (spec 01 §5.3)
     refs.lineInCtx = nullptr;
+    // [I] USB audio in (#97); null in an image without the USB audio function.
+    refs.usbIn = hal::usbAudioAvailable() ? &hal::usbAudioIn : nullptr;
+    refs.usbInCtx = nullptr;
     refs.selectInput = &selectInputThunk;  // codec input mux + tuner (spec 01 §5.4-§5.6)
     refs.inputCtx = nullptr;
     refs.radio = &hal::radio();

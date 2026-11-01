@@ -7,9 +7,25 @@ namespace sim {
 
 SdlAudio::~SdlAudio() { stop(); }
 
+// [I] USB in (#97) usually wants a "Monitor of ..." source (the computer's
+// own output). SDL lists those only through its PulseAudio backend (PipeWire
+// serves it too) and with the monitors hint; without PulseAudio, the default
+// backend.
+static bool initAudioWithMonitors() {
+    if (SDL_WasInit(SDL_INIT_AUDIO)) return true;
+    SDL_SetHint("SDL_AUDIO_INCLUDE_MONITORS", "1");
+    if (!SDL_getenv("SDL_AUDIODRIVER") && SDL_AudioInit("pulseaudio") == 0) {
+        SDL_AudioQuit();
+        SDL_SetHint("SDL_AUDIODRIVER", "pulseaudio");
+    }
+    return SDL_InitSubSystem(SDL_INIT_AUDIO) == 0;
+}
+
 bool SdlAudio::start() {
     if (dev_) return true;
-    if (!SDL_WasInit(SDL_INIT_AUDIO) && SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+    const bool ok = usb_.wanted ? initAudioWithMonitors()
+                                : SDL_WasInit(SDL_INIT_AUDIO) || SDL_InitSubSystem(SDL_INIT_AUDIO) == 0;
+    if (!ok) {
         std::fprintf(stderr, "sim audio: SDL audio init failed: %s\n", SDL_GetError());
         return false;
     }
@@ -25,34 +41,67 @@ bool SdlAudio::start() {
         std::fprintf(stderr, "sim audio: cannot open output: %s\n", SDL_GetError());
         return false;
     }
-    if (lineInWanted_) {
-        SDL_AudioSpec cw = want, ch{};
-        cw.callback = &SdlAudio::captureCallback;
-        cap_ = SDL_OpenAudioDevice(nullptr, 1, &cw, &ch, 0);
-        if (!cap_) std::fprintf(stderr, "sim audio: no capture device: %s\n", SDL_GetError());
-        else SDL_PauseAudioDevice(cap_, 0);
-    }
+    if (line_.wanted) line_.open(want, "line in");
+    if (usb_.wanted) usb_.open(want, "USB in");
     SDL_PauseAudioDevice(dev_, 0);
     return true;
 }
 
 void SdlAudio::stop() {
-    if (cap_) SDL_CloseAudioDevice(cap_);
+    for (Capture* c : {&line_, &usb_}) {
+        if (c->dev) SDL_CloseAudioDevice(c->dev);
+        c->dev = 0;
+    }
     if (dev_) SDL_CloseAudioDevice(dev_);
-    cap_ = dev_ = 0;
+    dev_ = 0;
+}
+
+void SdlAudio::listCaptureDevices() {
+    if (!initAudioWithMonitors()) {
+        std::fprintf(stderr, "sim audio: SDL audio init failed: %s\n", SDL_GetError());
+        return;
+    }
+    const int n = SDL_GetNumAudioDevices(1);
+    for (int i = 0; i < n; ++i) std::printf("%s\n", SDL_GetAudioDeviceName(i, 1));
+}
+
+void SdlAudio::Capture::open(const SDL_AudioSpec& want, const char* what) {
+    SDL_AudioSpec cw = want, ch{};
+    cw.callback = &SdlAudio::captureCallback;
+    cw.userdata = this;
+    dev = SDL_OpenAudioDevice(name.empty() ? nullptr : name.c_str(), 1, &cw, &ch, 0);
+    if (!dev) {
+        std::fprintf(stderr, "sim audio: no capture device for %s (%s): %s\n", what,
+                     name.empty() ? "default" : name.c_str(), SDL_GetError());
+        return;
+    }
+    SDL_PauseAudioDevice(dev, 0);
+}
+
+void SdlAudio::Capture::next() {
+    valid = false;
+    if (!dev) return;
+    uint32_t r = rd.load(std::memory_order_relaxed);
+    if (wr.load(std::memory_order_acquire) - r < kBlockFrames) return;
+    for (uint32_t i = 0; i < kBlockFrames; ++i, ++r) {
+        block[i * 2] = ring[(r % kRing) * 2];
+        block[i * 2 + 1] = ring[(r % kRing) * 2 + 1];
+    }
+    rd.store(r, std::memory_order_release);
+    valid = true;
 }
 
 void SdlAudio::captureCallback(void* ud, Uint8* stream, int len) {
-    auto* self = static_cast<SdlAudio*>(ud);
+    auto* self = static_cast<Capture*>(ud);
     const auto* in = reinterpret_cast<const int16_t*>(stream);
     const uint32_t frames = uint32_t(len) / 4;
-    uint32_t w = self->wr_.load(std::memory_order_relaxed);
+    uint32_t w = self->wr.load(std::memory_order_relaxed);
     for (uint32_t i = 0; i < frames; ++i, ++w) {
-        if (w - self->rd_.load(std::memory_order_acquire) >= kRing) break;   // full: drop
-        self->ring_[(w % kRing) * 2] = in[i * 2];
-        self->ring_[(w % kRing) * 2 + 1] = in[i * 2 + 1];
+        if (w - self->rd.load(std::memory_order_acquire) >= Capture::kRing) break;   // full: drop
+        self->ring[(w % Capture::kRing) * 2] = in[i * 2];
+        self->ring[(w % Capture::kRing) * 2 + 1] = in[i * 2 + 1];
     }
-    self->wr_.store(w, std::memory_order_release);
+    self->wr.store(w, std::memory_order_release);
 }
 
 void SdlAudio::sdlCallback(void* ud, Uint8* stream, int len) {
@@ -62,21 +111,11 @@ void SdlAudio::sdlCallback(void* ud, Uint8* stream, int len) {
 void SdlAudio::fill(int16_t* out, int frames) {
     while (frames > 0) {
         if (blockPos_ >= kBlockFrames) {
-            // Next line-in block, if enough has been captured.
-            lineInValid_ = false;
-            if (cap_) {
-                uint32_t r = rd_.load(std::memory_order_relaxed);
-                if (wr_.load(std::memory_order_acquire) - r >= kBlockFrames) {
-                    for (uint32_t i = 0; i < kBlockFrames; ++i, ++r) {
-                        lineInBlock_[i * 2] = ring_[(r % kRing) * 2];
-                        lineInBlock_[i * 2 + 1] = ring_[(r % kRing) * 2 + 1];
-                    }
-                    rd_.store(r, std::memory_order_release);
-                    lineInValid_ = true;
-                }
-            }
-            // The app reads lineIn() from inside the callback and mixes it
-            // through the engine (level, sends, mute).
+            // Next line-in / USB-in block, if enough has been captured.
+            line_.next();
+            usb_.next();
+            // The app reads lineIn() / usbIn() from inside the callback and
+            // mixes them through the engine (level, sends, mute).
             if (fn_) fn_(block_, kBlockFrames, ctx_);
             else std::memset(block_, 0, sizeof(block_));
             blockPos_ = 0;

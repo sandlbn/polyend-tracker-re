@@ -21,7 +21,8 @@
 namespace ot {
 
 struct ResampleSettings {
-    // 0 master, 1..8 sample track, 9 line input (AudioEngine::kTapLineIn).
+    // 0 master, 1..8 sample track, 9 line input (AudioEngine::kTapLineIn),
+    // 10 USB audio in (kTapUsb, #97).
     uint8_t source = 0;
     uint8_t length = 3;   // index into kResampleBars: Manual, 1, 2, 4, 8, 16 bars
     uint8_t place = 0;    // 0 off, 1..8: put the result on that track
@@ -32,7 +33,7 @@ struct ResampleSettings {
     // the same length (App::kResampleFitFrames) overwrites it in place, its
     // settings kept; else it goes to a new instrument (App::finishResample).
     uint8_t into = 0;
-    static constexpr int kSources = 10;
+    static constexpr int kSources = 11;
     static constexpr int kLengths = 6;
     static constexpr int kPlaces = 9;
     static constexpr int kSlices = 5;

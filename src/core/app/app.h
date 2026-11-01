@@ -44,6 +44,12 @@ struct HalRefs {
     // called from the audio-block context. Null when the board has no capture.
     const int16_t* (*lineIn)(void* ctx) = nullptr;
     void* lineInCtx = nullptr;
+    // [I] USB audio in (#97): the computer's stream for the next audio block,
+    // the same format, or nullptr (not streaming). Called once per block from
+    // the audio-block context whatever the routing (it also drives the USB
+    // feedback). Null when the build has no USB audio (simulator, OT_USB_AUDIO=0).
+    const int16_t* (*usbIn)(void* ctx) = nullptr;
+    void* usbInCtx = nullptr;
     // Recorder input routing (spec 05 appendix C §2.4/§2.5): source 0 line
     // in, 1 radio, 2 mic low gain, 3 mic high gain; gain 0..100. Returns
     // false when the source is not available. Null: only line in (no
@@ -748,6 +754,7 @@ private:
     bool projectDirty_ = false, namesDirty_ = false, configDirty_ = false, configForce_ = false;
     uint8_t recShadow_[12] = {};                  // project bytes 0x134..0x13F last synced
     bool recShadowValid_ = false;
+    uint8_t recUsbShadow_ = 0;                    // [I] Project::recUsb last synced
     bool instrHeaderDirty_[kSampleInstrumentCount] = {};
     bool instrSampleDirty_[kSampleInstrumentCount] = {};
     bool unsaved_ = false, neverSaved_ = true;

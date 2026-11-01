@@ -142,6 +142,11 @@ struct MixerSettings {
     bool lineInMute = false;
     uint8_t lineInDelaySend = 0;      // TRK index; 0.5*TRK, 0 below 0.01
     uint8_t lineInReverbSend = 0;
+    // [I] USB audio in (#97): the computer's stereo stream straight into the
+    // master sum at its Global Mixer level (TRK index), no sends. Stored in
+    // usb_audio.bin; off in a new project, like Line in.
+    uint8_t usbLevel = 86;
+    bool usbMute = true;
     // Settings (config, not project): metronome volume 0..100 through the
     // SEND law (spec 07 Q10, default 50 = -20 dB) and the loader
     // file-preview level (TRK index).
@@ -213,12 +218,15 @@ public:
     void setCallbackDisabled(bool d) { callbackDisabled_ = d; }
     // Line input for the next block: 128 interleaved int16 frames, or nullptr (silence).
     void setLineInput(const int16_t* interleaved) { lineIn_ = interleaved; }
+    // [I] USB audio in for the next block (#97), the same format; nullptr = silence.
+    void setUsbInput(const int16_t* interleaved) { usbIn_ = interleaved; }
     // [I] Live resampling: source 0 = master (limiter output, before master
     // volume, metronome and file preview), 1..8 = sample track t-1 (post
     // pan, as its stem). kTapLineIn (the line input) is tapped by the app
     // from the input itself (App::preBlock), not here. Null tap = off. Live
     // blocks only.
     static constexpr uint8_t kTapLineIn = 9;
+    static constexpr uint8_t kTapUsb = 10;   // [I] #97 USB audio in, also tapped by the app
     void setResampleTap(IResampleTap* tap, uint8_t source) {
         tapSource_ = source;
         tap_ = tap;
@@ -230,6 +238,8 @@ public:
     // Global Mixer level applies. Set per block before renderBlock.
     void setLineMonitor(bool unity) { lineMonitor_ = unity; }
     bool lineMonitor() const { return lineMonitor_; }
+    // [I] The same for USB in (#97) while the Recorder's source is USB.
+    void setUsbMonitor(bool unity) { usbMonitor_ = unity; }
     // Peak |sample| (Q15) of the line input as mixed into the master while
     // the Recorder monitors, since the last call (diag).
     int takeLineMonitorPeak() {
@@ -271,8 +281,8 @@ public:
     // Peak |post-pan| level of track t (0..1) since the previous call (UI meters).
     float trackPeak(int t);
     // Global Mixer 3/3 meters: peak of channel ch (0 Delay return, 1 Reverb
-    // return, 2 Dry mix, 3 Line in after its level), side 0 L / 1 R, since the
-    // last call (read and reset; main loop).
+    // return, 2 Dry mix, 3 Line in after its level, 4 USB in after its level
+    // [I]), side 0 L / 1 R, since the last call (read and reset; main loop).
     float busPeak(int ch, int side);
 
     // Play position (sample frame) of track t's voice as of the last rendered
@@ -360,8 +370,8 @@ private:
     void updateParams();
     void controlBlock(float blockUs);
     template <int kMode>
-    void masterSum(float l0, float li);
-    void masterSumClean(float l0, float li);   // masterSum<0>
+    void masterSum(const float* inL, const float* inR, float l0, float li);
+    void masterSumClean(const float* inL, const float* inR, float l0, float li);   // masterSum<0>
 
     SampleBank bank_;
     StreamRing* rings_ = nullptr;
@@ -383,6 +393,7 @@ private:
     LineDynamics dynL_, dynR_;   // DYN0/DYN1, line-in send path (spec 04 §5.6)
     bool dynActive_ = false;     // dynamics state not yet settled
     Ramp lineLvl_, master_, lineSendD_, lineSendR_, click_;
+    Ramp usbLvl_;   // [I] USB in level (#97)
 
     // cached parameter state
     uint32_t cDelayT_ = 0;
@@ -394,6 +405,7 @@ private:
     float dsend_[kBlock], rsend_[kBlock];
     float dL_[kBlock], dR_[kBlock], rL_[kBlock], rR_[kBlock];
     float lineL_[kBlock], lineR_[kBlock];
+    float usbL_[kBlock], usbR_[kBlock];   // [I] USB in (#97), then line + USB at their levels
     float mL_[kBlock], mR_[kBlock];
 
     struct RawPreview {
@@ -405,7 +417,7 @@ private:
         volatile uint32_t avail = 0;   // frames decoded so far (streamed preview)
     } raw_;
     volatile float peak_[kVoices] = {};
-    volatile float busPeak_[4][2] = {};
+    volatile float busPeak_[5][2] = {};
     volatile int32_t head_[kVoices] = {};   // voicePlayhead() snapshot (init() sets -1)
 
     // metronome click instruments (normal / accent finetune, spec 07 Q10)
@@ -419,10 +431,12 @@ private:
     void* hookCtx_ = nullptr;
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;
+    const int16_t* usbIn_ = nullptr;
     IResampleTap* volatile tap_ = nullptr;
     volatile uint8_t tapSource_ = 0;
     int8_t tapLast_ = -1;   // track tapped in the last block (audio context)
     bool lineMonitor_ = false;
+    bool usbMonitor_ = false;   // [I] the Recorder monitors USB in at unity
     volatile float lineMonPeak_ = 0.0f;
     float tempo_ = 130.0f;
     uint64_t blocks_ = 0;
