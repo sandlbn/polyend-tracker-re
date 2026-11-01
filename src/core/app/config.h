@@ -86,6 +86,11 @@ struct Config {
     // Extension record byte 5: an option of later 2.x builds this one does
     // not know yet; read and written back unchanged (its default).
     uint8_t extKeep[1] = {0};
+    // Config > General "Pad layout": 0 Stock (the project's Notes layout),
+    // 1 Piano (two keyboards an octave apart: white keys along a row, black
+    // keys in the row above; the pad lights draw the keys). Extension record
+    // byte 32.
+    uint8_t padLayout = 0;
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -106,8 +111,9 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 5;
-    // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21]
-    static constexpr uint32_t kExtPayload = 6 + 21;
+    // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21],
+    // padLayout
+    static constexpr uint32_t kExtPayload = 6 + 21 + 1;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

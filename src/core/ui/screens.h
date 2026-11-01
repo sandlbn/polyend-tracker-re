@@ -175,6 +175,13 @@ private:
     uint32_t countInUntil_ = 0;     // "Counting in" popup end (ms), 0 = none
     bool countInDrawn_ = false;
     int8_t padVoice_[48];
+    // [I] Pad chord entry (padChordEntry): pads held together fill the
+    // target's tracks left to right on its first step.
+    bool padChordEntry(uint8_t pad, uint8_t note);
+    uint64_t chordPads_ = 0;        // held note pads of the chord (bit = pad), 0 = none
+    int8_t chordTrack_ = -1;        // the last track the chord wrote
+    uint8_t chordIns_ = 0;          // the instrument as mapped on the chord's first track
+    uint8_t chordPattern_ = 0;      // the pattern the chord writes
     Picker pop_;                    // column-key popup state (drawn by this screen)
     int noteWin_ = 36;              // Notes popup: lowest shown note (C3)
     int popTop_ = 0;                // list popup: first visible row
@@ -299,6 +306,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] pads only type here
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;
@@ -530,6 +538,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] pads only feed the test code
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;

@@ -80,8 +80,14 @@ public:
 #endif
     // True if this screen gives its own module key a local meaning (spec 06 §0.3).
     virtual bool ownsModuleKey(uint8_t id) const { (void)id; return false; }
-    // Base pad LED layer, levels 0..31.
-    virtual void padLeds(uint8_t* levels) { (void)levels; }
+    // Base pad LED layer, levels 0..31. Default: the piano layout's keys
+    // where the pads play notes [I].
+    virtual void padLeds(uint8_t* levels) {
+        if (padsPlayNotes()) pianoLeds(levels);
+    }
+    // [I] false on screens whose pads do something other than play the
+    // current instrument (Config, Sample Loader), so no key lights show.
+    virtual bool padsPlayNotes() const { return true; }
     // True while the screen draws the whole 800 x 480 frame itself (Games,
     // spec 14 §3.2): the bottom bar is not drawn over it.
     virtual bool fullScreen() const { return false; }
@@ -94,6 +100,9 @@ public:
     }
 
 protected:
+    // [I] draws the piano layout's key lights into `levels`; false when
+    // Pad layout is Stock or the current instrument is Beat Slice.
+    bool pianoLeds(uint8_t* levels);
     Ui& ui_;
     App& app_;
 };

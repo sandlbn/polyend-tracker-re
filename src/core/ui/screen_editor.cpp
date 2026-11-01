@@ -315,7 +315,8 @@ void EditorScreen::onPad(uint8_t pad, uint8_t state) {
     // after the job finished (user report) [I]. 2.x: at the pad's note
     // (App::padNote, note 60 = own pitch), as the recorder pads play.
     if (state == kPress) {
-        if (preview(app_.padNote(pad), true)) padPreview_ = pad;
+        const uint8_t n = app_.padNote(pad);
+        if (n != PadNotes::kNoNote && preview(n, true)) padPreview_ = pad;   // piano layout gaps play nothing
     } else if (state == kRelease && previewPlaying && padPreview_ == int(pad)) {
         padPreview_ = -1;
         stopPreview();

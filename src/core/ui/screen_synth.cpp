@@ -902,8 +902,10 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
     if (pad >= kPadCount) return;
     if (state == kPress) {
         if (view == View::Browser && !previewHighlighted()) return;
+        const uint8_t n = app_.padNote(pad);
+        if (n == PadNotes::kNoNote) return;   // [I] a piano layout gap
         padsHeld_ |= uint64_t(1) << pad;
-        app_.previewOn(pad, uint8_t(kFirstSynthInstrument + slot), app_.padNote(pad), 127);
+        app_.previewOn(pad, uint8_t(kFirstSynthInstrument + slot), n, 127);
     } else if (state == kRelease) {
         // Also a pad pressed on another page (its note is released here).
         padsHeld_ &= ~(uint64_t(1) << pad);
@@ -912,7 +914,10 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
 }
 
 void SynthScreen::padLeds(uint8_t* lv) {
-    if (view != View::Edit) return;
+    if (view != View::Edit) {
+        pianoLeds(lv);   // [I] the pads play the slot
+        return;
+    }
     const synthui::Section* sec = nullptr;
     const int n = synthui::sections(engine(), &sec);
     for (int i = 0; i < n; ++i) lv[(i / 4) * kPadCols + i % 4] = i == section ? app_.cfg.padFull() : app_.cfg.padDim();
