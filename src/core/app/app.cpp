@@ -280,6 +280,8 @@ uint8_t App::liveVolume(uint8_t instrument, uint8_t vel) const {
     return uint8_t((vel > 127 ? 127 : vel) * iv / 127);
 }
 
+static_assert(App::kAuditionPads == kPadCount, "pad audition ids");
+
 int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t velocity, int forceTrack,
                    int startTrack) {
     // e.g. a running 0x60 loader preview is released first. MIDI input keys
@@ -288,16 +290,18 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     if (voiceId < kAuditionMidiIn || voiceId >= kAuditionMidiIn + 128) previewOff(voiceId);
     const bool midi = isMidiInstrument(instrument);
     if (isSynthInstrument(instrument)) {
-        if (voiceId >= kAuditionMidiIn && voiceId < kAuditionMidiIn + 128) {
-            // MIDI input: one live track per held note (polyphonic, up to the
-            // slot polyphony and the voice cap); all held: the tracks are
-            // reused in turn.
+        // MIDI input notes and held pads (voiceId = pad number): one live
+        // track per held note (polyphonic, up to the slot polyphony and the
+        // voice cap); all held: the tracks are reused in turn. (Pads on the
+        // one audition track played only the last pad held: tester report,
+        // 3.0.0, also in 2.x.)
+        if ((voiceId >= kAuditionMidiIn && voiceId < kAuditionMidiIn + 128) || voiceId < kAuditionPads) {
             // Velocity as for samples (spec 17 §1.4 step 1: 127 unless
             // Recording options = velocity).
             static_assert(sizeof(synthLive_) / sizeof(synthLive_[0]) == audio::kSynthLiveTracks, "live tracks");
             int k = -1;
             for (int i = 0; i < audio::kSynthLiveTracks && k < 0; ++i)
-                if (!synthLive_[i]) k = i;
+                if (synthLive_[i] == kAuditionNone) k = i;
             if (k < 0) k = synthLiveNext_;
             synthLiveNext_ = uint8_t((k + 1) % audio::kSynthLiveTracks);
             synthLive_[k] = voiceId;
@@ -306,7 +310,8 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
                                   vel >= 127 ? int8_t(-1) : int8_t((vel * 100 + 63) / 127));
             return -1;
         }
-        // 2.x synth slots: the framework's audition track (one note at a time).
+        // 2.x synth slots: the framework's audition track (one note at a time:
+        // the Instrument / Loader previews, the note encoder).
         engine.synth().auditionOn(synthSlotOf(instrument), uint8_t(note & 127));
         synthAudVoice_ = voiceId;
         return -1;
@@ -377,11 +382,11 @@ void App::previewOff(uint16_t voiceId, int startTrack) {
         engine.synth().auditionOff();
         synthAudVoice_ = kNoSynthAudition;
     }
-    // A MIDI input note on a synth live track: one note-off releases one.
+    // A MIDI input note or pad on a synth live track: one note-off releases one.
     for (int k = 0; k < audio::kSynthLiveTracks; ++k)
-        if (synthLive_[k] && synthLive_[k] == voiceId) {
+        if (synthLive_[k] == voiceId) {
             engine.synth().liveOff(k);
-            synthLive_[k] = 0;
+            synthLive_[k] = kAuditionNone;
             return;
         }
     const int t = auditionTrack(voiceId, startTrack);
@@ -393,9 +398,9 @@ void App::previewAllOff() {
     if (synthAudVoice_ != kNoSynthAudition) engine.synth().auditionOff();
     synthAudVoice_ = kNoSynthAudition;
     for (int k = 0; k < audio::kSynthLiveTracks; ++k)
-        if (synthLive_[k]) {
+        if (synthLive_[k] != kAuditionNone) {
             engine.synth().liveOff(k);
-            synthLive_[k] = 0;
+            synthLive_[k] = kAuditionNone;
         }
     engine.previewStop();   // SD file preview
 }
@@ -600,7 +605,8 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
         if (t < 0 && isSynthInstrument(currentInstrument())) {
             int held = 0;
             for (int k = 0; k < audio::kSynthLiveTracks; ++k)
-                if (synthLive_[k] && synthLive_[k] != voice) ++held;
+                if (synthLive_[k] >= kAuditionMidiIn && synthLive_[k] < kAuditionMidiIn + 128 && synthLive_[k] != voice)
+                    ++held;
             t = rect.t0 + held;
         }
         // Step 8: edit-mode chord entry across the selected tracks.

@@ -632,11 +632,12 @@ TEST(pads_audition_the_slot) {
     openSlot(h, 1);
     h.push(InputEvent::kPadDown, 5);
     h.audio.pump(4);
-    CHECK(a.engine.synth().voiceOfTrack(audio::kSynthAuditionTrack) != nullptr);
+    // A held pad takes a synth live track (pads play chords: synth_pad_chord_test).
+    CHECK(a.engine.synth().voiceOfTrack(audio::kSynthLiveTrack0) != nullptr);
     CHECK(a.engine.synth().voicesOf(1) == 1);
     h.push(InputEvent::kPadUp, 5);
     h.audio.pump(4);
-    const audio::SynthVoice* v = a.engine.synth().voiceOfTrack(audio::kSynthAuditionTrack);
+    const audio::SynthVoice* v = a.engine.synth().voiceOfTrack(audio::kSynthLiveTrack0);
     CHECK(v == nullptr || !v->gate);
 }
 

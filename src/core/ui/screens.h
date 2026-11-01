@@ -1120,8 +1120,11 @@ private:
     void drawEdit(Gfx& g);
     void drawBrowser(Gfx& g);
     void title(Gfx& g, const char* text);
+    // on: the slot's audition note (Enc push, Load Patch F5 / F6); off: that
+    // note and every held pad.
     void audition(bool on, uint8_t note);
-    int padNote_ = -1;      // pad holding the audition, -1 none
+    void padsOff();
+    uint64_t padsHeld_ = 0;   // pads held on this page (each on a synth live track)
     int previewSel_ = -1;   // Load Patch: browser entry playing in the slot, -1 none
     int previewKey_ = -1;   // Load Patch: F5 / F6 holding the Preview note
     int browserTop_ = 0;

@@ -167,6 +167,7 @@ public:
     static constexpr uint16_t kAuditionSampleEditor = 0x63;  // sample editor preview
     static constexpr uint16_t kAuditionMidiIn = 0x100;       // + MIDI note number
     static constexpr uint16_t kAuditionNone = 0xFFFF;
+    static constexpr uint16_t kAuditionPads = 48;            // ids 0..47: the pads (kPadCount)
     // Tracks the audition search scans (stock 12; 2.x: all 16, so note entry
     // on tracks 13..16 sounds like on 9..12, 2x-01 §2.6).
     static constexpr int kAuditionTracks = kTrackCount;
@@ -735,9 +736,11 @@ private:
     // previewOn voice holding the synth audition track (kNoSynthAudition: none).
     static constexpr uint16_t kNoSynthAudition = 0xFFFF;
     uint16_t synthAudVoice_ = kNoSynthAudition;
-    // MIDI input notes held on the synth live tracks (audio::kSynthLiveTracks;
-    // 0 = free) and the next one to take when all are held.
-    uint16_t synthLive_[4] = {};
+    // MIDI input notes and pads held on the synth live tracks
+    // (audio::kSynthLiveTracks; kAuditionNone = free) and the next one to take
+    // when all are held.
+    uint16_t synthLive_[8] = {kAuditionNone, kAuditionNone, kAuditionNone, kAuditionNone,
+                             kAuditionNone, kAuditionNone, kAuditionNone, kAuditionNone};
     uint8_t synthLiveNext_ = 0;
     float liveBend_ = 0.0f;         // last MIDI input pitch bend (semitones)
     char loadNotice_[64] = {};      // first problem of the last load (one notice)

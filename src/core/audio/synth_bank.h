@@ -73,11 +73,11 @@ namespace ot {
 namespace audio {
 
 constexpr int kSynthTracks = 16;                  // sequencer tracks
-constexpr int kSynthAuditionTrack = kSynthTracks; // UI pads / preview (WP-G)
-// MIDI input notes on a synth instrument (spec 17 §1.4 for synths [OT]): one
-// track per held note, so external notes play polyphonically up to the
-// slot's polyphony and the voice cap.
-constexpr int kSynthLiveTracks = 4;
+constexpr int kSynthAuditionTrack = kSynthTracks; // UI previews (WP-G); pads: live tracks
+// MIDI input notes and held pads on a synth instrument (spec 17 §1.4 for
+// synths [OT]): one track per held note, so they play polyphonically up to
+// the slot's polyphony (max 8) and the voice cap.
+constexpr int kSynthLiveTracks = 8;
 constexpr int kSynthLiveTrack0 = kSynthAuditionTrack + 1;
 constexpr int kSynthAllTracks = kSynthLiveTrack0 + kSynthLiveTracks;
 
@@ -145,10 +145,11 @@ public:
     const SynthSlotRecord& slotRecord(int s) const { return slots_[clampSlot(s)].rec; }
     SynthSlotView slotView(int s) const;
     bool slotAvailable(int s) const;
-    // Pads / preview (WP-G): play slot s on the audition track.
+    // Previews (WP-G: Enc push, Load Patch F5 / F6, Instrument / Loader):
+    // play slot s on the audition track, one note at a time.
     void auditionOn(int s, uint8_t note, int8_t volume = -1);
     void auditionOff();
-    // MIDI input note k (0..kSynthLiveTracks-1) on slot s; volume -1 = full
+    // Live note k (MIDI input or pad, 0..kSynthLiveTracks-1) on slot s; volume -1 = full
     // velocity, else 0..100. Main loop; the audio block starts it.
     void liveOn(int k, int s, uint8_t note, int8_t volume);
     void liveOff(int k);
