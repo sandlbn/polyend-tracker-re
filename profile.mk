@@ -22,7 +22,7 @@ SYNTH_PACK_IDS  := ACD1 FAT1 VAP1 PRC1 WTF1
 HAVE_SYNTH_PACK := $(if $(filter-out $(MOD_IDS),$(SYNTH_PACK_IDS)),,1)
 # The synth modules with presets (tools/make_patches/presets.cpp): the preset tool and
 # tests/patches_test.cpp run when the profile has any of them.
-PRESET_MODS     := ACD1 FAT1 VAP1 PRC1 WTF1 JU6S DTY1 CST1 ATY1 TTY1
+PRESET_MODS     := ACD1 FAT1 VAP1 PRC1 WTF1 JU6S DTY1 CST1 ATY1 TTY1 8TY1 HND1 BTY1 ARC1
 HAVE_PRESET_MOD := $(if $(filter $(PRESET_MODS),$(MOD_IDS)),1,)
 MOD_DEFS        := $(foreach i,$(MOD_IDS),-DOT_MOD_$(i)=1)
 vpath %.cpp $(MOD_SRC_DIRS) $(GEN) $(MOD_TEST_DIRS)

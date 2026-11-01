@@ -55,8 +55,9 @@ run: $(BIN)
 
 # PRESETS.md covers every model: PROFILE=full plus the sections of the other profiles
 # that full does not have (nofm: JU6, D-Type; classic: CS-Type, A-Type; techno: T-Type;
+# retro: 8-Type, Hand-Type, B-Type, Arc-Type;
 # splice_md.py).
-MD_PROFILES := nofm classic idm mini techno
+MD_PROFILES := nofm classic idm mini techno retro
 markdown: $(BIN)
 	$(BIN) --markdown > $(OUT)/presets_full.md
 	set -e; for p in $(MD_PROFILES); do \

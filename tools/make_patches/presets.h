@@ -1,5 +1,5 @@
 // OpenTracker synth preset pack (tools/make_patches, PRESETS.md): our own
-// ACD / FAT / VAP / WTFM / PERC patches and (3.x) JU6, D-Type, CS-Type, A-Type and T-Type module engine patches, each built from the engine's built-in Init patch
+// ACD / FAT / VAP / WTFM / PERC patches and (3.x) JU6, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand-Type, B-Type and Arc-Type module engine patches, each built from the engine's built-in Init patch
 // through the App (no factory patch, no file from the card is read) and
 // written with the App's own Save As path (App::saveSynthLibraryPatch), so
 // the files are byte for byte what the firmware writes:
@@ -41,6 +41,14 @@ constexpr int32_t kCstypeEngine = 0x83;
 constexpr int32_t kAtypeEngine = 0x84;
 // The T-Type drum module engine (modules/ttype, module TTY1, Patches/TTYPE/): one patch = one kit.
 constexpr int32_t kTtypeEngine = 0x85;
+// The retro chip-style module engines (docs/PLAN_RETRO.md): 8-Type (modules/eight, module 8TY1,
+// Patches/8TYPE/), Hand-Type (modules/hand, HND1, Patches/HANDTYPE/: a channel per patch, or a
+// drum kit by note: "OT Kit " names), B-Type (modules/btype, BTY1, Patches/BTYPE/) and Arc-Type
+// (modules/arc, ARC1, Patches/ARCTYPE/).
+constexpr int32_t kEightEngine = 0x86;
+constexpr int32_t kHandEngine = 0x87;
+constexpr int32_t kBtypeEngine = 0x88;
+constexpr int32_t kArcEngine = 0x89;
 
 struct Preset {
     ot::SynthModel model;   // the Mini model (a module engine: the slot record's fallback)
@@ -53,7 +61,8 @@ struct Preset {
     std::vector<Target> velocity = {};   // more M7 (Velocity) targets after Init's Volume (synth_params.h law)
 };
 
-// Every preset of the pack, ACD first, then FAT, VAP, WTFM, PERC, JU6, D-Type, CS-Type, A-Type, T-Type:
+// Every preset of the pack, ACD first, then FAT, VAP, WTFM, PERC, JU6, D-Type, CS-Type, A-Type, T-Type,
+// 8-Type, Hand-Type, B-Type, Arc-Type:
 // the models whose modules are in the build profile.
 const std::vector<Preset>& all();
 

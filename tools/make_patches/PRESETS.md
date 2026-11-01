@@ -4,7 +4,7 @@ Our own synth patches for the ACD, FAT, VAP, WTFM and PERC engines of OpenTracke
 D-Type, CS-Type, A-Type and T-Type module engines of OpenTracker 3.x, written by
 `reimpl/tools/make_patches` (`make -C reimpl patches`) through the firmware's own Save As path.
 Every patch starts from the engine's built-in Init patch; no factory patch is used.
-The JU6, D-Type and T-Type sections come from `PROFILE=nofm`, the CS-Type and A-Type sections from `PROFILE=classic` (not in profile `full`).
+The JU6, D-Type and T-Type sections come from `PROFILE=nofm`, the CS-Type and A-Type sections from `PROFILE=classic`, the 8-Type, Hand-Type, B-Type and Arc-Type sections from `PROFILE=retro` (not in profile `full`).
 
 Files: `Patches/<MODEL>/<name>.patch`. Copy the `Patches` folder to the root of the SD card,
 then use Load Patch on a synth page.
@@ -257,4 +257,107 @@ the envelope amount with the velocity (M7).
 | OT Sync Scream | Synced VCO 2 an octave up, its pitch wobbled by the LFO, a resonant 4-pole above a high-pass: a screaming lead. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Vibrato, Scream (+-) |
 | OT Duo Organ | Duo: two square waves (16' and 8') on an AR, the 2-pole open: a two-voice organ from two tracks; M6 VCO 2's level. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Vibrato, VCO2 Level (+-) |
 
-Total: 142 patches.
+## 8-Type (12)
+
+8-Type is a module engine (3.x, module 8TY1, folder `Patches/8TYPE/`): a 3-voice 8-bit home computer
+style voice. Three oscillators (Tri, Saw, Pulse with PWM, Noise, the combined waves where the pulse
+gates the other wave); Ring and Sync take the oscillator before (oscillator 1's is oscillator 3);
+Filt sends an oscillator through the one 12 dB multimode filter of the voice (any mix of low,
+band and high-pass; Curve Bright / Dark; 16 resonance steps that never self-oscillate), Clean
+keeps it out of Grit (the DAC character of the mix). Leads at Poly 1, chords at Poly 3. The CHIP
+section plays an arp at a fixed tick or a tempo division without retriggering the note, a stepped
+vibrato and a slide. M1 Cutoff, M2 Resonance, M3 PW (or Grit / Dirt / Key Track where no pulse
+plays), M4 Decay + Release on every patch.
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Chip Lead | A 25 % pulse with slow PWM through a bright low-pass, a delayed stepped vibrato; M5 the vibrato. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Vib Depth, Grit |
+| OT PWM Bass | Two pulses an octave apart, both swept by the PWM LFO, a short filter envelope: the classic computer bass. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Env Amt (+-), Sub (+-) |
+| OT Arp Major | One note plays a major chord: the arp at 60 Hz (0 4 7) on a 50 % pulse; M5 the rate. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Arp Rate (+-), Arp Mode (+-) |
+| OT Arp Minor | A minor chord from one note (0 3 7) at 1/64 of the tempo on a thin pulse with a little Grit. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Arp Rate (+-), Grit |
+| OT Ring Chime | Oscillator 1's triangle ringed by oscillator 3 an octave and a fifth up (silent): metallic sum and difference tones; M6 the tune. | 1 | Cutoff (+-), Resonance (+-), Grit, Decay (+-), Env Amt (+-), Ring Tune (+-) |
+| OT Sync Buzz | Oscillator 2's saw synced to oscillator 1 (silent) a ninth up, the filter envelope sweeping it: a tearing lead. | 1 | Cutoff (+-), Resonance (+-), Dirt, Decay (+-), Env Amt (+-), Sync Tune (+-) |
+| OT Filter Bass | A saw into the resonant low-pass, the filter envelope plucking it (Dark curve); M6 Dirt. | 1 | Cutoff (+-), Resonance (+-), Key Track (+-), Decay (+-), Env Amt (+-), Dirt |
+| OT Tri Flute | A triangle with a slow attack and the stepped vibrato, the filter open: a soft chip flute. | 1 | Cutoff (+-), Resonance (+-), Grit, Decay (+-), Vib Depth, Breath |
+| OT Saw Buzz | Saw+Pulse (the pulse gating the saw) and a detuned saw: a thin, buzzy lead; M6 the pulse width. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Env Amt (+-), Width (+-) |
+| OT Octave Arp | The octave arp at 120 Hz on a pulse with a band-pass: the chirping chip lead; M5 the rate. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Arp Rate (+-), Grit |
+| OT Chord Voice | Three oscillators at 0 / +4 / +7: a major chord from one voice (Poly 1), a slow filter swell. | 1 | Cutoff (+-), Resonance (+-), PW (+-), Decay (+-), Env Amt (+-), Third (+-) |
+| OT Noise Drums | Noise with a fast slide down from +12 and a short decay: kicks low, snares and hats high (Poly 3). | 3 | Cutoff (+-), Resonance (+-), Grit, Decay (+-), Slide (+-), Tone (+-) |
+
+## Hand-Type (12)
+
+Hand-Type is a module engine (3.x, module HND1, folder `Patches/HANDTYPE/`): a 4-channel handheld
+console style voice. One patch is one channel: Pulse (duty, a frequency sweep that can end the
+note, a second pulse), Wave (32 steps of 4 bits) or Noise (a 15- or 7-bit register), at Poly 1;
+or Drums, a kit by note at Poly 6 (60 kick, 61 blip, 62 snare, 63 / 71 clap, 64-67 hats closed
+to open, a hat cuts the one before, 68 bell, 69 crash, 70 ride, 48-59 toms). The CHIP section
+plays an arp (Arp Mode / Rate: a chord from one note at a fixed tick or a tempo division, the
+note is not retriggered), a stepped vibrato and a slide at the note start. Channel patches:
+M1 Env Step, M2 Duty / Wave / Noise Shift, M3 the channel's own (Pulse 2, the 4-level volume,
+7-bit noise), M4 Bits (to a clean DAC).
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Pulse Lead | A 25 % pulse held at full level (Env Up), Release Fade, a short vibrato after 0.3 s; M6 a slide into the note. | 1 | Env Step (+-), Duty (+-), Pulse 2, Bits, Vib Depth, Slide (+-) |
+| OT Twin Pulse | Two pulses 12 cents apart (50 % and 25 %): the thick handheld lead; M6 the detune. | 1 | Env Step (+-), Duty (+-), Pulse 2, Bits, Vib Depth, Detune (+-) |
+| OT Wave Bass | The Bass wave with a slow 4-bit decay: a round, stepped low end; M2 steps the wave, M6 cuts the release. | 1 | Env Step (+-), Wave (+-), Levels 4, Bits, Vib Depth, Release Cut |
+| OT Wave Organ | The Organ wave held (Env Up), Release Fade: a reedy chip organ; M3 the 4-level volume, M6 cuts the release. | 1 | Env Step (+-), Wave (+-), Levels 4, Bits, Vib Depth, Release Cut |
+| OT Drop Kick | A pulse swept down fast (Sweep Shift 2), cut at the bottom: the handheld kick on any note; M3 the drop. | 1 | Env Step (+-), Duty (+-), Sweep Shift (+-), Bits, Vib Depth, Slide (+-) |
+| OT Noise Snare | 15-bit noise at a high clock, a fast 4-bit decay: the noise channel snare; M2 the noise pitch, M6 a length. | 1 | Env Step (+-), Noise Shift (+-), 7-bit, Bits, Divider (+-), Length |
+| OT Noise Hat | 7-bit (metallic) noise at the highest clock, the shortest decay: a hat on every note; M6 the length. | 1 | Env Step (+-), Noise Shift (+-), 15-bit, Bits, Divider (+-), Length (+-) |
+| OT Arp Chord Pulse | One note plays a major chord: the arp at 60 Hz (0 4 7) on a 12.5 % pulse; M5 the arp rate. | 1 | Env Step (+-), Duty (+-), Pulse 2, Bits, Arp Rate (+-), Arp Mode (+-) |
+| OT Vib Lead | A 50 % pulse with the stepped vibrato (0.5 st at 6 Hz after 0.15 s) and a slide in from below; M5 the depth. | 1 | Env Step (+-), Duty (+-), Pulse 2, Bits, Vib Depth, Slide (+-) |
+| OT Wave Bell | The Hollow wave with a quick start and a slow 4-bit fall, an octave arp: a chime; M6 the arp's chord. | 1 | Env Step (+-), Wave (+-), Levels 4, Bits, Arp Rate (+-), Arp Mode (+-) |
+| OT Blip Arp | Short 12.5 % blips (Length 1) through a Min7 arp at 1/64 of the tempo; M5 the rate. | 1 | Env Step (+-), Duty (+-), Pulse 2, Bits, Arp Rate (+-), Length (+-) |
+| OT Kit Handheld | Drums by note (Poly 6): 60 kick, 61 blip, 62 snare, 63 clap, 64-67 hats (a hat cuts the last), 68 bell, 69 crash, 70 ride, 48-59 toms. | 6 | Kick Decay (+-), Hat Decay (+-), Kick Sweep (+-), Hat Shift (+-), Snare Decay (+-), Kick Tune (+-) |
+
+## B-Type (12)
+
+B-Type is a module engine (3.x, module BTY1, folder `Patches/BTYPE/`): a 4-channel 8-bit home computer
+style voice with polynomial counters. Clock 15.6 kHz / 64 kHz / 1.79 MHz; Tuning Free (in tune),
+Coarse (the nearest 8-bit divider: out of tune up high, on purpose) or Fine (a 16-bit divider);
+the Distortions (Pure, Poly4 .. Poly5x9) take the counters' bits at each divider event: the buzz.
+Hi-Pass takes the output less itself 1 / HP Freq earlier (thin, whistling tones); channel 2 sits a
+few divider steps away. Play at Poly 1. M1 Distortion, M2 Hi-Pass, M3 Decay, M4 Channel 2.
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Pure Square | A pure square in tune (Free), a 4-bit sustain: the plain channel; M1 steps through the distortions. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Bits |
+| OT Buzz Bass | Poly5 at the 64 kHz clock: the low buzzing bass of the counters (it repeats every 31 events). | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Clock (+-) |
+| OT Poly5 Lead | Poly5 with a second Poly5 channel a divider step away, the stepped vibrato: a nasal lead. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Detune (+-), Vib Depth, Ch 2 Level (+-) |
+| OT Grainy Lead | Poly9: a grainy, noisy tone that still has a pitch; a slow attack in frames. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Attack (+-) |
+| OT Hiss Wash | Poly17 (the long counter): noise that the note colours, a long release; M2 brings in the Hi-Pass. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Release (+-) |
+| OT HiPass Whistle | A pure square less itself at HP Freq near the note: thin, whistling pulses; M2 moves the comb. | 1 | Distortion (+-), HP Freq (+-), Decay (+-), Channel 2, Vib Depth, Glide |
+| OT Joined Bass | Tuning Fine (the 16-bit divider at 1.79 MHz: in tune everywhere), a short pluck in frames. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Smooth Env |
+| OT Detuned Pair | Two pure squares two divider steps apart (Coarse): the beating two-channel lead. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Detune (+-), Vib Depth, Ch 2 Level (+-) |
+| OT Engine Rumble | Poly5 at the 15.6 kHz clock low down: the rumbling motor of the counters; M6 the clock. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Clock (+-) |
+| OT Arp Buzz | Poly4 through a Min7 arp at 60 Hz: a buzzing chord from one note; M5 the rate. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Arp Rate (+-), Arp Mode (+-) |
+| OT Coarse Lead | Tuning Coarse at 64 kHz: the 8-bit divider's detuned top octave is the sound; a slide in from below. | 1 | Distortion (+-), Hi-Pass, Decay (+-), Channel 2, Vib Depth, Clock (+-) |
+| OT Thin Blip | A short pure blip, Sustain 0, decaying in 1/60 s frames, through Hi-Pass: a thin, clicky blip. | 1 | Distortion (+-), HP Freq (+-), Decay (+-), Channel 2, Vib Depth, Tune (+-) |
+
+## Arc-Type (12)
+
+Arc-Type is a module engine (3.x, module ARC1, folder `Patches/ARCTYPE/`): a home-console 4-operator FM
+style voice. Eight algorithms, feedback, per operator MUL / DT / Level / RS and a 5-rate envelope
+(AR, D1R to D1L, D2R, RR) whose Loop mode repeats, mirrors or inverts it at -48 dB (the buzzing
+envelopes), an LFO (PMS vibrato, AMS per operator), a 9-bit DAC (Ladder: a gap around zero and
+uneven steps), and the Aux square or noise voice. Chords at Poly 4, basses and leads at Poly 1.
+M1 Brightness (the modulators' Level), M2 Feedback, M3 Release (on the plucks and hits: decays),
+M4 Vibrato.
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT FM Bass Slap | 1 > 2 > 3 > 4 with a fast-decaying modulator and feedback: the slap of a console FM bass; velocity to brightness. | 1 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Decay (+-) |
+| OT Arc E-Piano | Two pairs (1 > 2, 3 > 4): a bright tine on one, a soft body on the other; a slow decay. | 4 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Tine (+-) |
+| OT Arc Brass | (1 + 2) > 3 > 4 with a slow attack on the modulators: the brass swell; M4 vibrato. | 4 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Swell (+-) |
+| OT Square Lead FM | (1 + 2 > 3) > 4: operator 1 with feedback 6 and operator 3 at MUL 2 into the carrier: a hollow, square-ish lead (Poly 1). | 1 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Glide |
+| OT Tine Bell | 1 > (2, 3, 4) at MUL 7 / 1 / 2 / 3: a ringing bell with a long decay. | 4 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Ring (+-) |
+| OT Arc Organ | Four carriers (1, 2, 3, 4) at MUL 0.5 / 1 / 2 / 4 held: drawbar-style registers; M6 the top one. | 4 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Top (+-) |
+| OT Arc Strings | 1 > 2, 3, 4 with slow attacks and the LFO's vibrato: a console string pad. | 4 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Attack (+-) |
+| OT Loop Buzz Pad | The modulator's envelope looping (Repeat) at -48 dB: the chip-tracker buzz under a pad; M6 the loop's speed. | 4 | Brightness (+-), Feedback (+-), Release (+-), Vibrato, DAC (+-), Loop Speed (+-) |
+| OT Wood Pluck | A modulator at MUL 3 decaying fast into a short carrier: a dry, woody pluck. | 4 | Brightness (+-), Mod Decay (+-), Body (+-), Vibrato, DAC (+-), Knock (+-) |
+| OT FM Kick | A sine sliding down two octaves in 60 ms (Slide Start +24) with a short modulator click (Poly 1). | 1 | Brightness (+-), Click (+-), Length (+-), Vibrato, DAC (+-), Slide (+-) |
+| OT Twin Square | A soft FM tone with the Aux square an octave down under it: the console's two chips together (Poly 1). | 1 | Brightness (+-), Aux Decay, Release (+-), Vibrato, Aux Level (+-), Octave (+-) |
+| OT Noise Burst | A short FM hit with the Aux noise decaying in frames: snares and zaps (Poly 2). | 2 | Brightness (+-), Feedback (+-), Length (+-), Vibrato, Aux Level (+-), Decay (+-) |
+
+Total: 190 patches.

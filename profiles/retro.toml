@@ -1,0 +1,26 @@
+# Build profile (docs/PLAN_RETRO.md §1): the retro flavour, chip-style synths. The acid bass
+# (ACD1) and FAT (FAT1, Tracker Mini models: Mini projects keep their acid and pads), then the
+# four chip-style engines 8-Type (8TY1: a 3-voice 8-bit home computer style voice), Hand-Type
+# (HND1: a 4-channel handheld console style), B-Type (BTY1: an 8-bit computer with polynomial
+# counters) and Arc-Type (ARC1: a home-console 4-operator FM style), then the master chain
+# LOFI (a chip DAC / speaker) -> ECHO (the tempo-synced echo, its line in the SDRAM) -> TAPE.
+# No VAP, WTFM or PERC (Mini projects with those slots show "not available" here), no DIRT.
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "retro"
+variant = "r"                 # image PolyendTrackerOTr<ver>.ptf (24 characters)
+display_name = "Retro"        # shown with the version: boot splash, Config, diag log
+flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+sdram_modules_max = 55296      # the modules' SDRAM block (ECHO's 48 KB line) in .sdram_bss (as techno)
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "8TY1", path = "modules/eight" },  # module engine 0x86 (8-Type, 3-voice 8-bit computer style)
+    { id = "HND1", path = "modules/hand" },   # module engine 0x87 (Hand-Type, 4-channel handheld style)
+    { id = "BTY1", path = "modules/btype" },  # module engine 0x88 (B-Type, polynomial-counter computer style)
+    { id = "ARC1", path = "modules/arc" },    # module engine 0x89 (Arc-Type, home-console 4-operator FM style)
+    # Effects (opentracker-fx, next to opentracker-synths): the master chain.
+    { id = "LOFI", path = "../opentracker-fx/modules/lofi" },   # the chip DAC / speaker (tag 0x4007)
+    { id = "ECHO", path = "../opentracker-fx/modules/echo" },
+    { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+]
