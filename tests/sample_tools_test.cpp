@@ -841,7 +841,7 @@ TEST(loader_shows_non_ascii_names_within_the_font) {
         h.run(20);
         bool listed = false;
         for (const std::string& line : h.disp.last) {
-            if (line.rfind("TEXT ", 0) == 0) {
+            if (RecordingDisplay::isText(line)) {   // CMD_TEXT or a glyph run (custom fonts)
                 for (unsigned char c : line) CHECK(c < 0x7F);
                 if (line.find("Piu forte et?") != std::string::npos) listed = true;
             }
@@ -861,7 +861,7 @@ TEST(loader_shows_non_ascii_names_within_the_font) {
         CHECK(a.bank.data(0) != nullptr && a.bank.data(0)[100] == 1500);
         h.run(20);
         for (const std::string& line : h.disp.last)
-            if (line.rfind("TEXT ", 0) == 0)
+            if (RecordingDisplay::isText(line))
                 for (unsigned char c : line) CHECK(c < 0x7F);
     }
 }
