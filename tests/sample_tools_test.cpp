@@ -627,7 +627,12 @@ TEST(loader_sd_preview_plays_pti) {
         CHECK(a.engine.previewBufferActive());
         CHECK(a.engine.previewBufferAvail() > 0 && a.engine.previewBufferAvail() < n);   // streaming
         CHECK(h.audio.pump(4) > 1000);
-        h.run(300);
+        // The decode keeps a fixed time ahead of the player (issue #128):
+        // it completes as the preview plays.
+        for (int i = 0; i < 400 && a.engine.previewBufferAvail() < n; ++i) {
+            h.audio.pump(20);
+            h.run(10);
+        }
         CHECK(a.engine.previewBufferAvail() == n);
         bool same = true;
         for (uint32_t i = 0; same && i < n; ++i) same = tail[i] == l[i] && (!stereo || tail[n + i] == r[i]);
@@ -657,6 +662,208 @@ TEST(loader_sd_preview_follows_the_cursor) {
     CHECK(h.audio.pump(8) > 5000);   // the loud file plays now
     h.up(btn::F3);
     CHECK(!a.engine.previewBufferActive());
+}
+
+// Issue #128: the SD preview of 24-bit / 32-bit float stereo files dropped
+// out every ~5,000 frames. The decode ahead was a fixed 32 KB per screen
+// update (0.12 s of 24-bit stereo), so at a slow update rate the player
+// caught up with the decoded end and waited in silence. The decode now stays
+// a fixed time ahead of the play position.
+namespace {
+// A stereo WAV: format 1 (PCM, `bits` 24) or 3 (float, 32 bits) at `rate`.
+std::vector<uint8_t> wavStereo(uint16_t format, uint16_t bits, uint32_t rate, uint32_t frames) {
+    const uint32_t bps = bits / 8u, align = 2 * bps, data = frames * align;
+    std::vector<uint8_t> f(44 + data);
+    auto u32 = [&f](size_t at, uint32_t v) {
+        for (int i = 0; i < 4; ++i) f[at + i] = uint8_t(v >> (8 * i));
+    };
+    auto u16 = [&f](size_t at, uint16_t v) {
+        f[at] = uint8_t(v);
+        f[at + 1] = uint8_t(v >> 8);
+    };
+    std::memcpy(&f[0], "RIFF", 4);
+    u32(4, 36 + data);
+    std::memcpy(&f[8], "WAVEfmt ", 8);
+    u32(16, 16);
+    u16(20, format);
+    u16(22, 2);
+    u32(24, rate);
+    u32(28, rate * align);
+    u16(32, uint16_t(align));
+    u16(34, bits);
+    std::memcpy(&f[36], "data", 4);
+    u32(40, data);
+    for (uint32_t i = 0; i < frames; ++i) {
+        for (int c = 0; c < 2; ++c) {
+            // Never near zero: a dropout would be visible in the output too.
+            const float v = (c ? -0.5f : 0.5f) + 0.3f * std::sin(float(i) * (c ? 0.011f : 0.007f));
+            uint8_t* p = &f[44 + i * align + c * bps];
+            if (format == 3) {
+                std::memcpy(p, &v, 4);
+            } else {
+                const int32_t s = int32_t(v * 8388607.0f);
+                for (uint32_t b = 0; b < bps; ++b) p[b] = uint8_t(uint32_t(s) >> (8 * b));
+            }
+        }
+    }
+    return f;
+}
+
+struct PreviewRun {
+    uint32_t total = 0;      // output frames of the preview
+    uint32_t starved = 0;    // blocks that reached the decoded end before the file was decoded
+    uint32_t silent = 0;     // output samples at exactly 0 while the preview played
+    bool same = false;       // the decoded buffer equals the file decoded in one go
+};
+
+// Holds Preview on `name` and plays it to the end with `ups` screen updates
+// per second (one App::loop per update, the audio in between).
+PreviewRun previewAtRate(const char* name, const std::vector<uint8_t>& file, int ups) {
+    PreviewRun r;
+    Harness h(true, 4 * 1024 * 1024);
+    App& a = *h.app;
+    h.fs.files[name] = file;
+    h.tap(btn::SampleLoader);
+    if (selectSd(h, name) < 0) return r;
+    const int16_t* tail = a.bank.tail();
+    ot::InputEvent e;
+    e.type = ot::InputEvent::kButtonDown;
+    e.id = btn::F3;
+    e.timeMs = h.clock.ms;
+    h.input.q.push_back(e);
+    h.app->loop();   // Preview down: the stream starts (and this loop's update pumps once)
+    if (!a.engine.previewBufferActive()) return r;
+    std::vector<int16_t> ref(2 * 4 * 1024 * 1024 / 2);
+    WavImportOptions opt;
+    opt.stereo = true;
+    WavImportResult res;
+    if (wavImportMemory(file.data(), file.size(), opt, ref.data(), ref.size(), res) != FmtStatus::Ok) return r;
+    r.total = res.frames;
+    const int blocksPerUpdate = int(44100 / ups / 128);
+    int16_t buf[256];
+    for (int guard = 0; guard < 100000 && a.engine.previewBufferActive(); ++guard) {
+        for (int b = 0; b < blocksPerUpdate && a.engine.previewBufferActive(); ++b) {
+            const uint32_t pos = uint32_t(a.engine.previewBufferPos()), avail = a.engine.previewBufferAvail();
+            if (avail < r.total && pos + 128 > avail) ++r.starved;
+            h.audio.fn(buf, 128, h.audio.ctx);
+            if (pos + 128 <= r.total)
+                for (int k = 0; k < 256; ++k) r.silent += buf[k] == 0;
+        }
+        h.clock.ms += uint32_t(1000 / ups);
+        h.app->loop();
+    }
+    r.same = a.engine.previewBufferAvail() == r.total;
+    for (uint32_t i = 0; r.same && i < 2 * r.total; ++i) r.same = tail[i] == ref[i];
+    return r;
+}
+}  // namespace
+
+TEST(loader_sd_preview_keeps_ahead_of_24bit_and_float_stereo) {
+    struct Case {
+        const char* name;
+        uint16_t format, bits;
+        uint32_t rate;
+    };
+    const Case cases[] = {
+        {"s24.wav", 1, 24, 44100},    // the report: 6 bytes per frame
+        {"f32.wav", 3, 32, 44100},    // 8 bytes per frame
+        {"s24_48k.wav", 1, 24, 48000},   // through the resampler
+    };
+    for (const Case& c : cases) {
+        const std::vector<uint8_t> file = wavStereo(c.format, c.bits, c.rate, c.rate * 4);   // 4 s
+        for (const int ups : {6, 8, 20}) {
+            const PreviewRun r = previewAtRate(c.name, file, ups);
+            std::printf("  %s @ %d updates/s: %u frames, %u starved blocks, %u silent samples\n", c.name, ups,
+                        unsigned(r.total), unsigned(r.starved), unsigned(r.silent));
+            CHECK(r.total > 44100u * 3);
+            CHECK_EQ(r.starved, 0u);
+            CHECK_EQ(r.silent, 0u);
+            CHECK(r.same);
+        }
+    }
+}
+
+// The same for a stereo .pti (4 bytes per frame, its own read path).
+TEST(loader_sd_preview_keeps_ahead_of_stereo_pti) {
+    const uint32_t n = 44100 * 4;
+    std::vector<int16_t> l(n), rr(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        l[i] = int16_t(12000 + (i % 100) * 20);
+        rr[i] = int16_t(-12000 - int(i % 70) * 25);
+    }
+    Instrument ins;
+    ins.lengthFrames = n;
+    ins.stereo = true;
+    std::vector<uint8_t> f(ptiFileSize(n, true));
+    f.resize(encodePti(ins, l.data(), rr.data(), f.data(), f.size()));
+    for (const int ups : {6, 20}) {
+        Harness h(true, 4 * 1024 * 1024);
+        App& a = *h.app;
+        h.fs.files["inst.pti"] = f;
+        h.tap(btn::SampleLoader);
+        CHECK(selectSd(h, "inst.pti") >= 0);
+        ot::InputEvent e;
+        e.type = ot::InputEvent::kButtonDown;
+        e.id = btn::F3;
+        e.timeMs = h.clock.ms;
+        h.input.q.push_back(e);
+        h.app->loop();
+        CHECK(a.engine.previewBufferActive());
+        uint32_t starved = 0;
+        const int blocksPerUpdate = int(44100 / ups / 128);
+        for (int guard = 0; guard < 100000 && a.engine.previewBufferActive(); ++guard) {
+            for (int b = 0; b < blocksPerUpdate && a.engine.previewBufferActive(); ++b) {
+                const uint32_t pos = uint32_t(a.engine.previewBufferPos()), avail = a.engine.previewBufferAvail();
+                if (avail < n && pos + 128 > avail) ++starved;
+                h.audio.pump(1);
+            }
+            h.clock.ms += uint32_t(1000 / ups);
+            h.app->loop();
+        }
+        std::printf("  inst.pti @ %d updates/s: %u starved blocks\n", ups, unsigned(starved));
+        CHECK_EQ(starved, 0u);
+    }
+}
+
+// Issue #128: names with CP437 bytes (FatFs code page 437: "ù" = 0x97) drew
+// garbage glyphs in the SD list. The list shows the base letter; the file
+// still loads by its real name.
+TEST(loader_shows_non_ascii_names_within_the_font) {
+    for (const bool custom : {false, true}) {
+        Harness h(false);
+        h.disp.customFonts = custom;
+        h.app->boot();
+        App& a = *h.app;
+        const char name[] = "Pi\x97 forte \x82t\xE9.wav";   // "Più forte étΘ.wav" in CP437
+        putWavCh(h, name, std::vector<int16_t>(20000, 1500), 1);
+        h.tap(btn::SampleLoader);
+        CHECK(selectSd(h, name) >= 0);
+        h.run(20);
+        bool listed = false;
+        for (const std::string& line : h.disp.last) {
+            if (line.rfind("TEXT ", 0) == 0) {
+                for (unsigned char c : line) CHECK(c < 0x7F);
+                if (line.find("Piu forte et?") != std::string::npos) listed = true;
+            }
+            unsigned x, y, hnd, ch;
+            if (std::sscanf(line.c_str(), "VERTEX2II %u %u %u %u", &x, &y, &hnd, &ch) == 4 &&
+                hnd != IDisplay::kIconHandle)
+                CHECK(ch <= 126);
+        }
+        CHECK(listed);
+        // Import by the real name.
+        h.tap(btn::F5);
+        CHECK(ld(h).trim);
+        h.tap(btn::F8);
+        CHECK(!ld(h).trim);
+        CHECK(a.instrPresent[0]);
+        CHECK_EQ(a.instruments[0].lengthFrames, 20000u);
+        CHECK(a.bank.data(0) != nullptr && a.bank.data(0)[100] == 1500);
+        h.run(20);
+        for (const std::string& line : h.disp.last)
+            if (line.rfind("TEXT ", 0) == 0)
+                for (unsigned char c : line) CHECK(c < 0x7F);
+    }
 }
 
 // User report (stock behaviour per the Polyend forum): loading a sample into

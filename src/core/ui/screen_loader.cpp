@@ -39,8 +39,28 @@ void previewStreamStop(App& a) {
     p.on = false;
 }
 
-// Reads and decodes up to `budget` data bytes, then tells the player how far
-// it may go.
+// Decode ahead by time, not bytes (issue #128): a fixed 32 KB per screen
+// update was 0.19 s of 16-bit stereo but only 0.12 s of 24-bit and 0.09 s of
+// 32-bit stereo, so at a slow update rate the player reached the decoded end
+// and waited in silence. Each pass now decodes until the decoded end is
+// kPreviewLead output frames (0.5 s) ahead of the play position, or until
+// kPreviewPassBytes were read. The cap bounds one pass (about 25 ms of card
+// reads at ~4 MB/s, under the 50 ms main-loop limit) and still covers well
+// over one update of the widest source: 96 KB is 0.28 s of 32-bit stereo at
+// 44.1 kHz, more than the 0.17 s a 6-per-second update rate plays.
+constexpr uint32_t kPreviewLead = 44100 / 2;
+constexpr uint32_t kPreviewPassBytes = 96 * 1024;
+
+// Output frames decoded ahead of the play position (the audio interrupt
+// advances it; read once per check, a 32-bit read).
+uint32_t previewLead(App& a, uint32_t decoded) {
+    const int32_t pos = a.engine.previewBufferPos();
+    return pos < 0 || uint32_t(pos) >= decoded ? 0 : decoded - uint32_t(pos);
+}
+
+// Reads and decodes data until the decoded end is kPreviewLead frames ahead
+// of the player (at most `budget` bytes), then tells the player how far it
+// may go.
 void previewStreamPump(App& a, uint32_t budget) {
     PreviewStream& p = previewStream();
     if (!p.on) return;
@@ -50,7 +70,7 @@ void previewStreamPump(App& a, uint32_t budget) {
             return;
         }
         int16_t* dst = const_cast<int16_t*>(p.data);
-        while (p.done < p.total && budget) {
+        while (p.done < p.total && budget && previewLead(a, p.done) < kPreviewLead) {
             uint32_t n = p.total - p.done;
             const uint32_t maxN = budget / (p.stereo ? 4u : 2u);
             if (n > 1024) n = 1024;
@@ -79,7 +99,7 @@ void previewStreamPump(App& a, uint32_t budget) {
         return;
     }
     uint8_t buf[2048];
-    while (p.left && budget) {
+    while (p.left && budget && !p.imp.complete() && previewLead(a, p.imp.availableFrames()) < kPreviewLead) {
         uint32_t want = p.left < sizeof(buf) ? p.left : uint32_t(sizeof(buf));
         if (want > budget) want = budget;
         const int32_t got = a.fs().read(p.h, buf, want);
@@ -91,7 +111,7 @@ void previewStreamPump(App& a, uint32_t budget) {
         p.left -= uint32_t(got);
         budget -= uint32_t(got);
     }
-    if (!p.left) {
+    if (!p.left || p.imp.complete()) {   // complete: the rest of a longer file is not played
         p.imp.finish();
         a.engine.previewAvail(p.imp.plan().outFrames);
         previewStreamStop(a);
@@ -132,7 +152,7 @@ bool previewPtiStart(App& a, const char* path) {
     p.on = true;
     p.data = a.bank.tail();
     a.engine.previewBuffer(p.data, p.total, p.stereo, 0);
-    previewStreamPump(a, 16 * 1024);
+    previewStreamPump(a, kPreviewPassBytes);   // prebuffer: up to one pass
     return true;
 }
 
@@ -174,7 +194,7 @@ bool previewStreamStart(App& a, const char* path) {
     // memory); the first chunk follows at once.
     p.data = a.bank.tail();
     a.engine.previewBuffer(p.data, p.imp.plan().outFrames, p.imp.plan().outChannels == 2, 0);
-    previewStreamPump(a, 16 * 1024);
+    previewStreamPump(a, kPreviewPassBytes);   // prebuffer: up to one pass
     return true;
 }
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -1083,9 +1103,9 @@ void LoaderScreen::onEncoder(int d) {
 }
 
 void LoaderScreen::update(uint32_t now) {
-    // SD preview: decode ahead of the player (32 KB per pass, about 0.2 s
-    // of stereo audio; the player waits if it ever catches up).
-    previewStreamPump(app_, 32 * 1024);
+    // SD preview: keep the decode 0.5 s ahead of the player (at most 96 KB
+    // per pass; the player waits if it ever catches up).
+    previewStreamPump(app_, kPreviewPassBytes);
     if (trim && trimPlaying_ && now - trimPlayAt_ >= trimElapsed_ + 11) {
         // §5.5: the playhead advances every >= 11 ms; playback stops at End.
         trimElapsed_ = now - trimPlayAt_;
