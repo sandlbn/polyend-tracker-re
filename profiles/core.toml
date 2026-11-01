@@ -1,0 +1,7 @@
+# Build profile (docs/PLAN_3X.md §7.3): the core alone, no modules. Synth
+# slots load and save their patches but show "not available" and stay silent.
+name = "core"
+variant = "c"                 # image PolyendTrackerOTc<ver>.ptf (24 characters)
+display_name = "Core"         # shown with the version: boot splash, Config, diag log
+
+modules = []

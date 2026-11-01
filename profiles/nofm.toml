@@ -1,0 +1,20 @@
+# Build profile (docs/PLAN_3X.md §7.3): full without the FM synths (WTF1, FM4S), with the
+# Juno-style poly JU6S, the three-oscillator mono D-Type (DTY1) and the T-Type drums (TTY1). JU6S has its chorus built in (per slot), so the master chain is
+# TAPE alone (no CHOR, no JUNO: they stay in profile full).
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "nofm"
+variant = "n"                 # image PolyendTrackerOTn<ver>.ptf (24 characters)
+display_name = "No-FM"        # shown with the version: boot splash, Config, diag log
+flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "VAP1", path = "modules/vap" },
+    { id = "PRC1", path = "modules/perc" },
+    { id = "JU6S", path = "modules/ju6" },    # module engine 0x81 (Juno-style poly)
+    { id = "DTY1", path = "modules/dtype" },  # module engine 0x82 (D-Type, three-oscillator mono)
+    { id = "TTY1", path = "modules/ttype" },  # module engine 0x85 (T-Type drums; PERC stays)
+    # Effects (opentracker-fx, next to opentracker-synths): the master insert.
+    { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+]

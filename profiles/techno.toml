@@ -1,0 +1,25 @@
+# Build profile (docs/PLAN_TECHNO.md §1): the techno flavour. The acid bass (ACD1), FAT
+# (FAT1, a Tracker Mini model), the poly JU6S, the three-oscillator mono D-Type (DTY1),
+# the T-Type drums (TTY1), then the master chain DIRT (drive / bitcrush) -> ECHO (the
+# tempo-synced dub echo, its line in the SDRAM) -> TAPE. No PERC (PRC1; left out by the
+# owner), no VAP (its .fastrun would leave too little stack headroom), no FM synths
+# (WTF1, FM4S), no CS-Type / A-Type, no CHOR / JUNO. Mini projects with a VAP, PERC or
+# WTFM slot show "not available" here.
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "techno"
+variant = "t"                 # image PolyendTrackerOTt<ver>.ptf (24 characters)
+display_name = "Techno"       # shown with the version: boot splash, Config, diag log
+flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+sdram_modules_max = 55296      # the modules' SDRAM block (ECHO's 48 KB line) in .sdram_bss: 55,536 B free (owner 2026-10-31)
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "JU6S", path = "modules/ju6" },    # module engine 0x81 (Juno-style poly)
+    { id = "DTY1", path = "modules/dtype" },  # module engine 0x82 (D-Type, three-oscillator mono)
+    { id = "TTY1", path = "modules/ttype" },  # module engine 0x85 (T-Type drums)
+    # Effects (opentracker-fx, next to opentracker-synths): the master chain.
+    { id = "DIRT", path = "../opentracker-fx/modules/dirt" },
+    { id = "ECHO", path = "../opentracker-fx/modules/echo" },
+    { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+]

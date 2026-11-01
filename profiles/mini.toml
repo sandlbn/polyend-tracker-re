@@ -1,0 +1,18 @@
+# Build profile: the Tracker Mini flavour. Exactly the five Tracker Mini synth models
+# (ACD, FAT, VAP, WTFM, PERC), so every Tracker Mini project plays with all its synths,
+# and TAPE as the master insert. No module engines of our own.
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "mini"
+variant = "m"                 # image PolyendTrackerOTm<ver>.ptf (24 characters)
+display_name = "Mini"         # shown with the version: boot splash, Config, diag log
+flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "VAP1", path = "modules/vap" },
+    { id = "WTF1", path = "modules/wtfm" },
+    { id = "PRC1", path = "modules/perc" },
+    # Effects (opentracker-fx, next to opentracker-synths): the master insert.
+    { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+]

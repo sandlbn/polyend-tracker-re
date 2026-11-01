@@ -1,0 +1,22 @@
+# Build profile (docs/PLAN_CLASSIC.md §1): the analog-style image. The Tracker Mini
+# models ACD, FAT and VAP, the Juno-style poly JU6S, the three-oscillator mono D-Type
+# (DTY1), the two-layer poly CS-Type (CST1), the duophonic A-Type (ATY1), and TAPE as the master insert. No FM synths (WTF1, FM4S), no PERC (PRC1: with
+# it the image comes too close to the flash gate), no CHOR / JUNO (JU6 has its chorus
+# built in). Mini projects with a PERC or WTFM slot show "not available" here.
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "classic"
+variant = "a"                 # image PolyendTrackerOTa<ver>.ptf (24 characters)
+display_name = "Classic"      # shown with the version: boot splash, Config, diag log
+flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "VAP1", path = "modules/vap" },
+    { id = "JU6S", path = "modules/ju6" },    # module engine 0x81 (Juno-style poly)
+    { id = "DTY1", path = "modules/dtype" },  # module engine 0x82 (D-Type, three-oscillator mono)
+    { id = "CST1", path = "modules/cstype" }, # module engine 0x83 (CS-Type, two-layer poly)
+    { id = "ATY1", path = "modules/atype" },  # module engine 0x84 (A-Type, duophonic)
+    # Effects (opentracker-fx, next to opentracker-synths): the master insert.
+    { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+]
