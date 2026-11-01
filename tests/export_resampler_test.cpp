@@ -1,7 +1,7 @@
-// ExportResampler tests: 32-tap windowed-sinc conversion of the WAV export
+// ExportResampler tests: 32-tap least-squares fractional-delay conversion of the WAV export
 // from the device rate (44100 * 2500 / 2499 Hz) to 44100 Hz (spec 04 §6.1).
 // The reference math (least-squares fractional-delay design, SNR and flutter
-// measurements) is a port of notes/tools/resampler_lab; the double precision
+// measurements) follows the author's offline design notes; the double precision
 // design here is independent of the generated table in the firmware.
 #include "test.h"
 
@@ -298,7 +298,7 @@ TEST(export_resampler_table_matches_the_exact_design) {
                 maxDiff, unsigned(worstPhase), worstSum, unsigned(worstSumPhase), worstSumVsDesign);
     CHECK(maxDiff < 1e-4);
     CHECK(worstSumVsDesign < 1e-6);
-    CHECK(worstSum < 2e-5);   // the least-squares design itself sums to 1 - 1.1e-5 at mu ~ 0.5
+    CHECK(worstSum < 1.5e-5);   // the least-squares design itself sums to 1 - 1.1e-5 at mu ~ 0.5
 
     // The design itself sums to 1 (sanity check of the port).
     double ex[kTaps];

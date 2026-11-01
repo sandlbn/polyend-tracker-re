@@ -6,7 +6,7 @@
 // Output frame m reads the input at t = m * 2500 / 2499 = n + mu with
 // n = m + m / 2499 and mu = (m % 2499) / 2499 (2500 = 1 mod 2499), so there
 // are exactly 2499 phases and no running phase error. Each output sample is a
-// 32-tap windowed-sinc sum over x[n - 15 .. n + 16] (least-squares design,
+// 32-tap fractional-delay FIR sum over x[n - 15 .. n + 16] (least-squares design,
 // band edge 0.82 of Nyquist = 18.1 kHz); x is 0 before frame 0 and after the
 // last input frame. The weights of a frame come from a mirrored polyphase
 // table (export_sinc_table.inc, tools/gen_export_sinc.py) and are shared by

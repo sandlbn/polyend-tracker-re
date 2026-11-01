@@ -52,7 +52,7 @@ def cos_int(a, b, d):
 
 
 def ls_fd_exact(n, band, eps, mu):
-    """The weights of one fractional delay mu (notes/tools/resampler_lab lsFdExact)."""
+    """The weights of one fractional delay mu (least-squares fractional delay)."""
     c = n // 2 - 1
     wp = band * math.pi
     delay = c + mu

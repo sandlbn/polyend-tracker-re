@@ -298,7 +298,7 @@ public:
     // Stops after maxBlocks or when running(ctx) returns false.
     // resampleTo44100=false: device-rate samples with 44117 in the header, as
     // stock (spec 04 §6.1). [I] resampleTo44100=true: the WAVs are converted to
-    // 44.1 kHz with a 32-tap windowed sinc (audio/export_resampler.h) and say
+    // 44.1 kHz with a 32-tap fractional-delay FIR (audio/export_resampler.h) and say
     // 44100. Returns blocks rendered, <0 on I/O error.
     int32_t exportWav(IStorage& fs, const char* path, bool stems, uint32_t maxBlocks, bool (*running)(void*),
                       void* ctx, bool resampleTo44100);
