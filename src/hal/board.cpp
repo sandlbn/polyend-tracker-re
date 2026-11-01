@@ -20,6 +20,8 @@
 #include "sdhc.h"
 #include "telemetry.h"
 #include "app/project_io.h"
+#include "ot_profile.h"
+#include "ot_version.h"
 #include "audio/cpu_meter.h"
 
 static_assert(F_CPU == ot::board::kCoreHz && F_BUS == ot::board::kBusHz, "spec 01 §1 clocks");
@@ -331,6 +333,10 @@ const BootReport& boardInit() {
         diagLogf("fastrun: off (OT_FASTRUN=0), %lu B in SRAM_L", static_cast<unsigned long>(n));
 #endif
     }
+    // Build profile and its modules (docs/PLAN_3X.md §7.4). The flavour name is pasted into the
+    // format (no stack for an extra argument); tools/profile.py keeps '%' out of it.
+    diagLogf("profile: %s (" OT_PROFILE_DISPLAY_NAME ") modules: %s rev %s", OT_PROFILE_NAME, OT_PROFILE_MODULES,
+             OT_MODULES_REV);
 
     // 2.x performance workstream: system cache for the SDRAM (write-through,
     // coherency self-test, sdram_cache.h), then ADMA2 straight into SDRAM behind
@@ -390,10 +396,6 @@ const BootReport& boardInit() {
     // MIDI (spec 01 §8).
     diagStage("MIDI init");
     gMidi.init();
-    // MIDI clock out to the DIN jack at every audio block end, not only when
-    // the main loop gets round to it (user report: clock to a Mother-32 /
-    // DFAM wobbled on screen changes and pad auditions).
-    gAudio.setBlockEndHook([] { gMidi.pumpDin(); });
     r.stage = 16;
     diagStage("step 14: boardInit done");
     // step 14: status LED (UNVERIFIED [I] that PTC19 is an LED): off = boot done.

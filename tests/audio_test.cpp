@@ -5,13 +5,16 @@
 
 #include "audio/dsp.h"
 #include "audio/engine.h"
-#include "audio/engines/acd.h"
 #include "audio/synth_engine.h"
 #include "formats/patch_pb.h"
 #include "formats/wav.h"
 #include "mem_storage.h"
 #include "sequencer/sequencer.h"
 #include "test.h"
+#include "ot_profile.h"
+#ifdef OT_MOD_ACD1
+#include "acd.h"   // opentracker-synths modules/acd
+#endif
 
 using namespace ot;
 using namespace ot::audio;
@@ -1082,6 +1085,7 @@ TEST(export_stems_wav_device_rate) {
     CHECK_EQ(uint32_t(m[28] | m[29] << 8 | m[30] << 16 | m[31] << 24), 176468u);
 }
 
+#ifdef OT_MOD_ACD1   // a real ACD patch (opentracker-synths module)
 namespace {
 // Export a held ACD sine and check the WAV, then the instrument that the
 // Render & Load import (wavImport with stereo on) makes from it.
@@ -1202,6 +1206,7 @@ TEST(export_synth_sine_pitch_duration_and_signal_quality) {
 TEST(export_synth_sine_device_rate_pitch_and_duration) {
     checkSynthExport(/*resampleTo44100=*/false);
 }
+#endif  // OT_MOD_ACD1
 
 namespace {
 struct SeqHook {

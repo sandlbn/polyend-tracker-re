@@ -7,6 +7,9 @@
 #include "audio/cpu_meter.h"
 #include "fastrun.h"
 #include "formats/patch_pb.h"
+#include "modules/module.h"
+#include "modules/synth_descriptor.h"
+#include "modules/synth_models.h"
 
 namespace ot {
 namespace audio {
@@ -33,9 +36,12 @@ void SynthBank::reset() {
     for (int t = 0; t < kSynthAllTracks; ++t) {
         trackVoice_[t] = -1;
         trackPitch_[t] = -1.0f;
+        heldSeq_[t] = 0;
     }
+    heldNext_ = 0;
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
+        sl.p.held = SynthHeld{};
         for (auto& o : sl.ovr) o = -1;
         sl.macroDirty = true;
         sl.ntouched = 0;
@@ -44,6 +50,7 @@ void SynthBank::reset() {
         recApplied_[s] = false;
     }
     activeVoices_ = 0;
+    tails_ = 0;
     aud_.req = 0;
     for (int k = 0; k < kSynthLiveTracks; ++k) liveSeen_[k] = uint8_t(live_[k]);
 }
@@ -66,15 +73,27 @@ void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
     recDirty_[s] = true;
 }
 
+void SynthBank::setSlotEngine(int s, int32_t engineId) {
+    if (s < 0 || s >= kSynthSlots) return;
+    const int32_t v = engineId >= 0x80 ? engineId : 0;
+    if (engineOf_[s] == v) return;
+    engineOf_[s] = v;
+    rebind_[s] = true;
+}
+
+int32_t SynthBank::engineFor(int s, const SynthSlotRecord& r) const {
+    if (const int32_t e = engineOf_[clampSlot(s)]) return e;
+    return r.model < uint32_t(kSynthModelCount) ? synthEngineId(SynthModel(r.model)) : 0;
+}
+
 void SynthBank::releaseMacro(int s, int m) {
     if (s < 0 || s >= kSynthSlots || m < 0 || m >= kSynthSeqMacros) return;
     ovrRelease_[s][m] = true;
 }
 
 bool SynthBank::slotAvailable(int s) const {
-    const SynthSlotRecord& r = slotRecord(s);
-    if (r.model >= uint32_t(kSynthModelCount)) return false;
-    return synthEngineFor(synthEngineId(SynthModel(r.model))) != nullptr;
+    const int32_t id = engineFor(s, slotRecord(s));
+    return id != 0 && synthEngineFor(id) != nullptr;
 }
 
 SynthSlotView SynthBank::slotView(int s) const {
@@ -82,10 +101,9 @@ SynthSlotView SynthBank::slotView(int s) const {
     const Slot& sl = slots_[s];
     SynthSlotView v;
     const SynthSlotRecord& r = recDirty_[s] ? pendRec_[s] : sl.rec;
-    const bool okModel = r.model < uint32_t(kSynthModelCount);
-    v.engine = okModel ? synthEngineId(SynthModel(r.model)) : 0;
-    v.model = okModel ? synthModelName(SynthModel(r.model)) : "";
-    v.available = okModel && synthEngineFor(v.engine) != nullptr;
+    v.engine = engineFor(s, r);
+    v.model = v.engine && patchEngineName(v.engine) ? synthEngineDisplayName(v.engine) : "";
+    v.available = v.engine != 0 && synthEngineFor(v.engine) != nullptr;
     v.patchBound = sl.patch != nullptr;
     v.patchMismatch = !sl.patch || sl.patch->engine != v.engine;
     v.polyphony = int(r.polyphony > 8 ? 8 : r.polyphony);
@@ -247,9 +265,8 @@ void SynthBank::sync() {
 
 void SynthBank::bindEngine(int s) {
     Slot& sl = slots_[s];
-    const bool okModel = sl.rec.model < uint32_t(kSynthModelCount);
-    const int32_t id = okModel ? synthEngineId(SynthModel(sl.rec.model)) : 0;
-    ISynthEngine* e = synthEngineFor(id);
+    const int32_t id = engineFor(s, sl.rec);
+    ISynthEngine* e = id ? synthEngineFor(id) : nullptr;
     if (e && override_) e = override_;
     sl.mismatch = !sl.patch || sl.patch->engine != id;
     if (sl.mismatch) e = nullptr;
@@ -264,6 +281,7 @@ void SynthBank::bindEngine(int s) {
         // state (PERC keeps its seed across slotReset and read leftovers).
         for (uint8_t& b : sl.scratch.bytes) b = 0;
         if (e) e->slotReset(sl.scratch);
+        tails_ = uint8_t(tails_ & ~(1u << s));
     }
     reloadParams(s, restart);
 }
@@ -278,6 +296,11 @@ void SynthBank::reloadParams(int s, bool jump) {
     sl.ntgt = sl.ntgt7 = 0;
     sl.volK = 0.0f;
     sl.volIdx = -1;
+    // [3.x] C1: Poly 1 note priority when the engine asks for it.
+    const mod::SynthDescriptor* d = mod::ModuleHost::instance().synthDescriptor(sl.engineId);
+    sl.prio = d && (d->flags & mod::kSynthFlagNotePriority);
+    sl.prioIdx = sl.prio ? d->priorityParam : int8_t(-1);
+    sl.kit = d && (d->flags & mod::kSynthFlagKitState);
     if (!sl.patch || sl.mismatch) {
         p.count = 0;
         p.moving = false;
@@ -462,9 +485,10 @@ void SynthBank::fade(int r, bool steal) {
     if (v.state != kOn) return;
     if (prof_) BlockProfile::inc(prof_->nSteal);
     // A steal victim that has not rendered yet (started in this block) ends
-    // at once: no fade blip, no wasted render. Not PERC: its kit outlives
-    // the voice and is released in the voice's last render.
-    if (steal && v.fresh && v.pending < 0 && slots_[v.v.slot].engineId != kSynthEnginePerc) {
+    // at once: no fade blip, no wasted render. Not a kit engine (PERC,
+    // T-Type: kSynthFlagKitState): its kit outlives the voice and is released
+    // in the voice's last render.
+    if (steal && v.fresh && v.pending < 0 && !slots_[v.v.slot].kit) {
         if (v.track >= 0 && trackVoice_[v.track] == r) trackVoice_[v.track] = -1;
         v.track = -1;
         v.state = kFree;
@@ -525,10 +549,110 @@ void SynthBank::releaseTrack(int track) {
     if (V.state != kOn) return;
     V.track = -1;
     if (V.v.gate) {
+        if (slots_[V.v.slot].prio && returnToHeld(r)) return;   // [3.x] C1
         V.v.gate = false;
         const Slot& sl = slots_[V.v.slot];
         if (sl.eng) sl.eng->noteOff(V.v, sl.p);
     }
+}
+
+// --- [3.x] C1: held notes, note priority, return-to-held -------------------------
+
+void SynthBank::holdSet(int track, int s, uint8_t note, float velocity) {
+    const int was = heldSeq_[track] ? int(heldSlot_[track]) : -1;
+    if (heldNext_ == 255) {   // renumber 1..n in key order before the order wraps
+        uint8_t rank[kSynthAllTracks];
+        heldNext_ = 0;
+        for (int t = 0; t < kSynthAllTracks; ++t) {
+            rank[t] = 0;
+            if (!heldSeq_[t]) continue;
+            ++heldNext_;
+            for (int q = 0; q < kSynthAllTracks; ++q) rank[t] = uint8_t(rank[t] + (heldSeq_[q] && heldSeq_[q] <= heldSeq_[t]));
+        }
+        for (int t = 0; t < kSynthAllTracks; ++t) heldSeq_[t] = rank[t];
+    }
+    heldNote_[track] = note;
+    heldVel_[track] = uint8_t(clampf(velocity, 0.0f, 1.0f) * 255.0f + 0.5f);
+    heldSlot_[track] = uint8_t(s);
+    heldSeq_[track] = ++heldNext_;
+    heldUpdate(s);
+    if (was >= 0 && was != s) heldUpdate(was);
+}
+
+void SynthBank::holdClear(int track) {
+    if (!heldSeq_[track]) return;
+    heldSeq_[track] = 0;
+    heldUpdate(heldSlot_[track]);
+}
+
+void SynthBank::heldUpdate(int s) {
+    SynthHeld h;
+    for (int t = 0; t < kSynthAllTracks; ++t) {
+        if (!heldSeq_[t] || heldSlot_[t] != s) continue;
+        const uint8_t n = heldNote_[t];
+        if (!h.count || n < h.low) h.low = n;
+        if (!h.count || n > h.high) h.high = n;
+        ++h.count;
+    }
+    h.mono = playable(s) == 1;
+    slots_[s].p.held = h;
+}
+
+// Last: the most recent key; Low / High: the lowest / highest note, ties to
+// the most recent.
+int SynthBank::heldWinner(int s) const {
+    const Slot& sl = slots_[s];
+    const int mode = sl.prioIdx >= 0 && sl.prioIdx < sl.p.count ? int(clampf(sl.p.end[sl.prioIdx], 0.0f, 2.0f) + 0.5f) : 0;
+    int w = -1;
+    for (int t = 0; t < kSynthAllTracks; ++t) {
+        if (!heldSeq_[t] || heldSlot_[t] != s) continue;
+        if (w < 0) {
+            w = t;
+            continue;
+        }
+        const int d = mode == 1 ? int(heldNote_[w]) - int(heldNote_[t]) : (mode == 2 ? int(heldNote_[t]) - int(heldNote_[w]) : 0);
+        if (d > 0 || (d == 0 && heldSeq_[t] > heldSeq_[w])) w = t;
+    }
+    return w;
+}
+
+bool SynthBank::returnToHeld(int r) {
+    const int s = voices_[r].v.slot;
+    const Slot& sl = slots_[s];
+    if (!sl.prio || !sl.eng || playable(s) != 1) return false;
+    const int w = heldWinner(s);
+    if (w < 0) return false;
+    handTo(r, w);
+    return true;
+}
+
+void SynthBank::handTo(int r, int track) {
+    Voice& V = voices_[r];
+    Slot& sl = slots_[V.v.slot];
+    if (trackVoice_[track] >= 0 && trackVoice_[track] != r) releaseTrack(track);
+    if (V.track >= 0 && trackVoice_[V.track] == r) trackVoice_[V.track] = -1;
+    SynthNote note;
+    note.note = heldNote_[track];
+    note.pitch = float(note.note);
+    note.velocity = float(heldVel_[track]) * (1.0f / 255.0f);
+    note.overlap = true;
+    note.reused = true;
+    // The held track's Tune / Micro-tune (its pitch FX offset) as the bend.
+    const float bend = trackPitch_[track] >= 0.0f ? trackPitch_[track] - note.pitch : 0.0f;
+    V.v.note = note.note;
+    V.v.gate = true;
+    V.v.bend = V.v.bendStart = bend;
+    V.bendTarget = bend;
+    V.bendStep = 0.0f;
+    V.live = track >= kSynthLiveTrack0 && track < kSynthAllTracks;
+    V.liveBend = 0.0f;
+    V.vel = note.velocity;
+    V.age = ++serial_;
+    V.track = int8_t(track);
+    owner_[r] = int8_t(track);
+    trackVoice_[track] = int8_t(r);
+    if (prof_) BlockProfile::inc(prof_->nSynOn[V.v.slot]);
+    sl.eng->noteOn(V.v, sl.p, note);
 }
 
 // Pitch FX of a note step (spec 03 §3.6 as for samples): Tune (40, -24..+24
@@ -625,6 +749,7 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
     }
     const int P = playable(s);
     if (P == 0) {   // slot off, unavailable model or no patch: silent
+        holdClear(track);
         releaseTrack(track);
         return;
     }
@@ -651,11 +776,23 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
     // patch glide would start there too and the two would add up.
     note.fxGlide = hasPrev && ((n.fxA.type == kFxGlideId && n.fxA.value) || (n.fxB.type == kFxGlideId && n.fxB.value));
     trackPitch_[track] = note.pitch + target;
+    holdSet(track, s, note.note, note.velocity);
 
     if (P == 1) {   // mono: reuse the slot's voice (legato / glide in the engine)
         int r = -1;
         for (int q = 0; q < kSynthMaxVoices; ++q)
             if (voices_[q].state == kOn && voices_[q].v.slot == s && (r < 0 || voices_[q].age > voices_[r].age)) r = q;
+        // [3.x] C1: a note that does not win is held silently (also with no
+        // voice sounding); a sounding voice plays the winner (it may be
+        // another held note now).
+        if (sl.prio) {
+            const int w = heldWinner(s);
+            if (w != track) {
+                if (trackVoice_[track] >= 0 && trackVoice_[track] != r) releaseTrack(track);
+                if (r >= 0 && voices_[r].v.gate && voices_[r].track != w) handTo(r, w);
+                return;
+            }
+        }
         if (r >= 0) {
             Voice& V = voices_[r];
             if (trackVoice_[track] >= 0 && trackVoice_[track] != r) releaseTrack(track);
@@ -731,6 +868,7 @@ void SynthBank::noteOff(int track, NoteOffMode mode) {
     // A note waiting for a record is dropped.
     for (auto& pe : pend_)
         if (pe.record >= 0 && pe.track == track) pe.track = -1;
+    holdClear(track);   // [3.x] C1 (Cut: no return to a held note)
     if (mode == NoteOffMode::Cut) {
         const int r = trackVoice_[track];
         if (r >= 0) fade(r);
@@ -800,6 +938,8 @@ void SynthBank::macroFx(int slot, int macro, uint8_t value) {
 }
 
 void SynthBank::transportStop() {
+    // The sequencer's notes are no longer held (no return to them later).
+    for (int t = 0; t < kSynthTracks; ++t) holdClear(t);
     for (auto& sl : slots_) {
         for (auto& o : sl.ovr) {
             if (o >= 0) sl.macroDirty = true;
@@ -825,9 +965,17 @@ void SynthBank::stopAll() {
     for (auto& d : defer_) d = Deferred{};
     nDefer_ = 0;
     flushDue_ = false;
-    for (int t = 0; t < kSynthAllTracks; ++t) trackVoice_[t] = -1;
+    for (int t = 0; t < kSynthAllTracks; ++t) {
+        trackVoice_[t] = -1;
+        heldSeq_[t] = 0;
+    }
+    heldNext_ = 0;
+    for (auto& sl : slots_) sl.p.held = SynthHeld{};
     for (auto& o : owner_) o = -1;
     activeVoices_ = 0;
+    // (Also reached from the main loop: a render racing this store keeps or
+    // drops one slot's tail for one block; its scratch is zeroed either way.)
+    tails_ = 0;
 }
 
 // --- render ----------------------------------------------------------------------------
@@ -870,7 +1018,9 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         const bool taps = sl.eng && sl.eng->setSendTap(s, nullptr, nullptr, 0.0f, 0.0f);
         const float sd = taps ? 0.0f : sl.mixD * in.delayLevel, sr = taps ? 0.0f : sl.mixE * in.reverbLevel;
         int16_t* stem = stems ? stems[s] : nullptr;
-        if (!busy[s]) {
+        // A slot without voices renders on while its engine's slot effect
+        // rings (slotPost on the silent bus).
+        if (!busy[s] && !(sl.eng && (tails_ & (1u << s)))) {
             sl.gl.jump(gl);
             sl.gr.jump(gr);
             sl.sd.jump(sd);
@@ -878,6 +1028,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             if (stem) std::memset(stem, 0, kBlock * 2 * sizeof(int16_t));
             continue;
         }
+        p.held.mono = playable(s) == 1;   // [3.x] the cap or the polyphony may have moved since the last note
         sl.gl.set(gl);
         sl.gr.set(gr);
         // busL_ / busR_ are zero here (cleared by the previous mixSlot).
@@ -1027,6 +1178,13 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             }
         }
         if (tapped) sl.eng->setSendTap(s, nullptr, nullptr, 0.0f, 0.0f);
+        // The engine's slot effect on the voices' sum (counted as engine time).
+        if (sl.eng) {
+            const uint32_t c0 = prof ? CpuMeter::stampCycles() : 0u;
+            const bool tail = sl.eng->slotPost(s, sl.scratch, p, busL_, busR_);
+            tails_ = uint8_t(tail ? tails_ | (1u << s) : tails_ & ~(1u << s));
+            if (prof) engCyc += CpuMeter::stampCycles() - c0;
+        }
         if (prof) prof_->slot[s] += engCyc;
         widen(sl);
         const float pk = mixSlot(sl, mL, mR, dsend, rsend, stem);

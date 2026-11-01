@@ -14,7 +14,7 @@
 #include <string>
 #include <vector>
 
-#include "audio/engines/perc.h"
+#include "perc.h"
 #include <cstdlib>
 #include <cstdio>
 #include "test.h"
@@ -881,6 +881,91 @@ TEST(track_mixer_fader_scales_synth_tracks) {
 // blocks of every available test song render bit for bit as on 2.2.1; every
 // streaming step keeps this passing with the option Off. OT_UPDATE_GOLDEN=1
 // rewrites tests/testsongs_render_hashes.txt.
+// Songs 20-22 (perfsong.inc, PERFORMANCE_CHECK.md): the Performance
+// screen checks, to be played on stock 1.9.2 and on OpenTracker. Sample
+// instruments on tracks 1-8 only (stock plays tracks 1-8 of a Mini
+// project), and the 12 Performance columns the checklist names, stored as
+// the project's presets (Config > Performance presets: Per Project).
+TEST(testsongs_performance_check_songs) {
+    const ts::SongId ids[3] = {ts::SongId::PerfTracks, ts::SongId::PerfFilters, ts::SongId::PerfSongLength};
+    for (ts::SongId id : ids) {
+        const ts::SongInfo* info = ts::findSong(id);
+        CHECK(info && info->available);
+        if (!info) continue;
+        std::unique_ptr<Harness> hp = deviceHarness();
+        Harness& h = *hp;
+        ts::GenOptions opt;
+        std::string err;
+        CHECK(ts::generateSong(*h.app, h.fs, id, opt, err));
+        CHECK(h.app->newProject());
+        CHECK(h.app->openProject(ot::kProjectsDir, info->name));
+        App& a = *h.app;
+        // The checklist's columns (1-based in the document).
+        const perf::Source src = perf::projectSource(a.project);
+        const uint8_t types[12] = {perf::kVolume,     perf::kRepeater, perf::kPlayMode,  perf::kPatternLength,
+                                   perf::kLowPass,    perf::kHighPass, perf::kBandPass,  perf::kTune,
+                                   perf::kPanning,    perf::kDirection, perf::kBitDepth, perf::kReverbSend};
+        for (int c = 0; c < 12; ++c) CHECK_EQ(int(src.type(c)), int(types[c]));
+        CHECK_EQ(src.value(0, 1), -100);   // Volume row 2 silences the tracks the FX reaches
+        CHECK_EQ(src.value(1, 1), 11);     // Step Repeater "1/4"
+        CHECK_EQ(src.value(2, 1), 1);      // Pattern play mode "Back"
+        CHECK_EQ(src.value(3, 1), 3);      // Pattern length 4
+        CHECK_EQ(src.value(3, 2), 4);      // Pattern length 8
+        CHECK_EQ(src.value(5, 1), 30);     // High-pass +30
+        for (int c = 0; c < 12; ++c) CHECK_EQ(int(src.row(c)), 0);
+        int maxTrack = -1;
+        for (int pn = 1; pn <= 3; ++pn) {
+            if (!a.patternPresent(pn)) continue;
+            a.selectPattern(pn);
+            const Pattern& p = a.pattern();
+            for (int t = 0; t < kTrackCount; ++t)
+                for (const Step& st : p.tracks[t].steps)
+                    if (st.note != kNoteEmpty) {
+                        maxTrack = std::max(maxTrack, t);
+                        if (st.note >= 0) CHECK(st.instrument < 48);
+                    }
+        }
+        CHECK(maxTrack >= 0 && maxTrack < 8);
+        if (id == ts::SongId::PerfTracks) {
+            // Pattern 1: an 8-note run, note k on track k (step 2k), rising.
+            a.selectPattern(1);
+            const Pattern& p = a.pattern();
+            int last = -1;
+            for (int t = 0; t < 8; ++t) {
+                for (int s = 0; s < 16; ++s) CHECK_EQ(p.tracks[t].steps[s].note != kNoteEmpty, s == 2 * t);
+                CHECK(p.tracks[t].steps[2 * t].note > last);
+                last = p.tracks[t].steps[2 * t].note;
+            }
+            // Pattern 2: every track plays every step.
+            a.selectPattern(2);
+            for (int t = 0; t < 8; ++t)
+                for (int s = 0; s < 16; ++s) CHECK(a.pattern().tracks[t].steps[s].note >= 0);
+        } else if (id == ts::SongId::PerfFilters) {
+            // Tracks 1-5 play the same saw in turn; the instrument filters differ.
+            CHECK(!a.instruments[0].filterEnabled);
+            CHECK(a.instruments[1].filterEnabled && a.instruments[1].filterType == uint8_t(FilterType::LowPass));
+            CHECK(a.instruments[2].filterEnabled && a.instruments[2].filterType == uint8_t(FilterType::HighPass));
+            CHECK(!a.instruments[4].filterEnabled);
+            CHECK(a.instruments[4].cutoff < 0.3f);
+        } else {
+            // Three 16-step patterns in the song; track 2 plays p hits at
+            // the start of pattern p.
+            CHECK_EQ(int(a.project.playlist[0]), 1);
+            CHECK_EQ(int(a.project.playlist[1]), 2);
+            CHECK_EQ(int(a.project.playlist[2]), 3);
+            for (int pn = 1; pn <= 3; ++pn) {
+                a.selectPattern(pn);
+                const Pattern& p = a.pattern();
+                CHECK_EQ(int(p.tracks[0].lastStep), 15);
+                for (int s = 0; s < 16; ++s) {
+                    CHECK(p.tracks[0].steps[s].note >= 0);   // the step counter
+                    CHECK_EQ(p.tracks[1].steps[s].note >= 0, s < pn);
+                }
+            }
+        }
+    }
+}
+
 TEST(testsongs_render_hash_matches_golden) {
     const char* path = "testsongs_render_hashes.txt";
     std::map<int, std::string> golden;

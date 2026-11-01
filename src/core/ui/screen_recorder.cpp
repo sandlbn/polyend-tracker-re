@@ -35,6 +35,7 @@ const char* const kMonitor[2] = {"On", "Off"};
 // Left, 2 Mono Right (screen_config.cpp kLineIn). No named constants exist
 // for either, so the values are spelled here once.
 constexpr uint8_t kSourceLineIn = 0;
+constexpr uint8_t kSourceRadio = 1;
 constexpr uint8_t kLineInStereo = 0;
 const char* const kLineInNames[3] = {"Line in ST", "Line in L", "Line in R"};
 
@@ -91,11 +92,13 @@ const int16_t* RecorderScreen::dataR() const {
 }
 
 bool RecorderScreen::stereoInput() const {
-    return app_.cfg.recSource == kSourceLineIn && app_.cfg.lineInChannel == kLineInStereo;
+    return (app_.cfg.recSource == kSourceLineIn && app_.cfg.lineInChannel == kLineInStereo) ||
+           (app_.cfg.recSource == kSourceRadio && app_.cfg.radioStereo);
 }
 
 const char* RecorderScreen::sourceName(int src) const {
     if (src == kSourceLineIn) return kLineInNames[app_.cfg.lineInChannel > 2 ? 0 : app_.cfg.lineInChannel];
+    if (src == kSourceRadio && app_.cfg.radioStereo) return "Radio ST";
     return kSources[clampi(src, 0, 3)];
 }
 
@@ -179,6 +182,7 @@ void RecorderScreen::setSource(int s) {
         a.cfg.recSource = uint8_t(s);
         a.markConfigDirty();
     }
+    if (s == kSourceRadio && a.radio()) a.radio()->setStereo(a.cfg.radioStereo != 0);   // 2.x, before power-up
     sourceOk = a.selectInput(uint8_t(s), a.cfg.recGain[s]);
     a.capture.setStereo(stereoInput());   // setup-page meters (2.x)
     if (s == 1 && a.radio()) {
@@ -798,7 +802,7 @@ void RecorderScreen::draw(Gfx& g) {
     }
     if (state == 0) {
         const int src = a.cfg.recSource;
-        const char* names[4] = {sourceName(0), kSources[1], kSources[2], kSources[3]};
+        const char* names[4] = {sourceName(0), sourceName(1), kSources[2], kSources[3]};
         list(g, th, 0, names, 4, src);
         if (src == 1 && sourceOk) {
             // Radio frequency as a bar (needle position 0..100, appendix C §2.8).

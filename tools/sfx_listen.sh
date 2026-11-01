@@ -4,7 +4,7 @@
 # code (or that they sound the same). The answers are checked against key.txt
 # at the end, so nothing is revealed while you listen.
 #
-#   make -C tests sfx-render                 # writes build/bench/sfx_listen
+#   make -C tests sfx-render                 # writes build/<profile>/bench/sfx_listen
 #   tools/sfx_listen.sh [FILTER]             # e.g. tools/sfx_listen.sh loop__eq
 #   GAP=2 tools/sfx_listen.sh                # seconds of silence between clips (1.5)
 #   MIN=5 tools/sfx_listen.sh                # short clips repeat to last MIN s (3)
@@ -17,7 +17,7 @@
 # Keys per case: a / b = that one is the new code, s = same / can't tell,
 # r = replay, o = original again, n = skip, q = quit (the score so far).
 set -u
-dir=$(cd "$(dirname "$0")/.." && pwd)/build/bench/sfx_listen
+dir=$(cd "$(dirname "$0")/.." && pwd)/build/${PROFILE:-full}/bench/sfx_listen
 filter=${1:-}
 gap=${GAP:-1.5}
 min=${MIN:-3}

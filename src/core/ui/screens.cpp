@@ -2,7 +2,6 @@
 
 #include "app/app.h"
 #include "sdram_bss.h"
-#include "ui/screen_games.h"
 
 namespace ot {
 
@@ -12,9 +11,6 @@ struct ScreenSet {
     ScreenSet(Ui& u, App& a)
         : file(u, a), loader(u, a), pattern(u, a), playback(u, a), song(u, a), instrument(u, a), editor(u, a),
           config(u, a), recorder(u, a), resample(u, a), performance(u, a), mixer(u, a),
-#if OT_GAMES
-          games(u, a),
-#endif
           synth(u, a) {}
     FileScreen file;
     LoaderScreen loader;
@@ -28,15 +24,12 @@ struct ScreenSet {
     ResampleScreen resample;   // [I]
     PerformanceScreen performance;
     MixerScreen mixer;
-#if OT_GAMES
-    GamesScreen games;
-#endif
     SynthScreen synth;
 };
 }  // namespace
 
 // The browsers' shared name lists (screens.h browserListMem()).
-OT_SDRAM_BSS alignas(8) unsigned char g_browserLists[kBrowserListBytes];
+OT_SDRAM_BSS alignas(kBrowserListAlign) unsigned char g_browserLists[kBrowserListBytes];
 
 namespace {
 // The device's one Ui keeps its screens (~7.5 KB) in the SDRAM instead of on
@@ -63,9 +56,6 @@ void* createScreens(Ui& ui, App& app, Screen** out) {
     out[kModResample] = &s->resample;
     out[kModPerformance] = &s->performance;
     out[kModMaster] = &s->mixer;
-#if OT_GAMES
-    out[kModGames] = &s->games;
-#endif
     out[kModSynth] = &s->synth;
     return s;
 }

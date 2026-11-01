@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "model/fx.h"
+#include "sdram_bss.h"
 
 namespace ot {
 
@@ -86,7 +87,7 @@ const char* const kDescription[kFxCount] = {
 const char* fxDescription(uint8_t type) { return type < kFxCount ? kDescription[type] : kDescription[0]; }
 
 const char* fxHelpText(uint8_t type) {
-    static char buf[256];
+    OT_SDRAM_BSS static char buf[256];   // SDRAM on the device (OP-5)
     const char* d = fxDescription(type);
     const FxId id = static_cast<FxId>(type);
     if (type >= kFxCount || id == FxId::None || id == FxId::Off || id == FxId::BreakPattern ||

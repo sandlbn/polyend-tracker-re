@@ -13,7 +13,7 @@
 #include <cstdio>
 #include <vector>
 
-#include "audio/engines/perc.h"
+#include "perc.h"
 #include "audio/synth_bank.h"
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"

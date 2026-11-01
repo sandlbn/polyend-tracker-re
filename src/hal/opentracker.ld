@@ -44,7 +44,7 @@ MEMORY
 	FLASH (rx) : ORIGIN = 0x00000000, LENGTH = 1024K
 	RAM  (rwx) : ORIGIN = 0x1FFF0000, LENGTH = 256K
 	/* board::kSdramBssBase / kSdramBssSize (src/hal/board.h): SDRAM, NOLOAD. */
-	SDRAM_BSS (rw) : ORIGIN = 0x70FD9000, LENGTH = 156K
+	SDRAM_BSS (rw) : ORIGIN = 0x70FD8400, LENGTH = 159K
 }
 
 ENTRY(_VectorsFlash)
@@ -100,7 +100,8 @@ SECTIONS
 		. = ALIGN(4);
 		_sdata = .; 
 		/* OT_FASTRUN_FN code (src/core/fastrun.h): runs from SRAM_L. Grouped
-		 * by area for the boot log line (src/hal/board.cpp "fastrun:"). */
+		 * by area for the boot log line (src/hal/board.cpp "fastrun:"); the synth
+		 * engine modules (build/<profile>/mod/) match by file name. */
 		__fastrun_start = .;
 		__fastrun_smp = .;
 		*/audio/voice.cpp.o(.fastrun*) */audio/voice_stereo.cpp.o(.fastrun*)
@@ -109,13 +110,13 @@ SECTIONS
 		__fastrun_mix = .;
 		*/audio/engine.cpp.o(.fastrun*) */audio/synth_bank.cpp.o(.fastrun*)
 		__fastrun_vap = .;
-		*/engines/vap.cpp.o(.fastrun*)
+		*/vap.cpp.o(.fastrun*)
 		__fastrun_acd = .;
-		*/engines/acd.cpp.o(.fastrun*)
+		*/acd.cpp.o(.fastrun*)
 		__fastrun_perc = .;
-		*/engines/perc.cpp.o(.fastrun*)
+		*/perc.cpp.o(.fastrun*)
 		__fastrun_fat = .;
-		*/engines/fat.cpp.o(.fastrun*)
+		*/fat.cpp.o(.fastrun*)
 		__fastrun_other = .;
 		*(.fastrun*)
 		__fastrun_end = .;

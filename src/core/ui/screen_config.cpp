@@ -9,12 +9,11 @@
 #include "ui/config_help.h"
 #include "ui/notes.h"
 #include "ui/screens.h"
+#include "ot_profile.h"
+#include "ot_version.h"
 #include "ui/theme_file.h"
 #include "sdram_bss.h"
 
-#ifndef OT_VERSION
-#define OT_VERSION "dev"
-#endif
 #ifndef OT_BUILD
 #define OT_BUILD __DATE__
 #endif
@@ -97,6 +96,7 @@ const Opt kGeneral[] = {
     // [I] 2.x: the synth voice budget (governor budget B, OPTIMIZATION_2X item 10 / OP-8).
     {"Synth voices", kNum, kCfg, CF(synthVoices), 1, Config::kMaxSynthVoices, nullptr, 0},
     {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
+    {"Radio stereo", kEnum, kCfg, CF(radioStereo), 0, 2, kOffOn, 0},   // [I] 2.x
     {"Stream from card", kEnum, kCfg, CF(streamMode), 0, 3, kStreamModes, 0},          // [I] 2.x
     {"Stream threshold", kEnum, kCfg, CF(streamThreshold), 0, 4, kStreamThresholds, 0},   // [I] 2.x
 };
@@ -211,8 +211,9 @@ void applyBacklight(App& a) {
 // open-source components it uses.
 bool gLicMode = false;
 const char* const kLicenseLines[] = {
-    ("OpenTracker " OT_VERSION),
+    OT_VERSION_LINE,
     "Open-source firmware for this sampler/sequencer hardware.",
+    "Profile " OT_PROFILE_NAME ": " OT_PROFILE_MODULES,
     "",
     "Third-party components:",
     "- Teensy 3.x core library (c) PJRC.COM, LLC",
@@ -282,7 +283,7 @@ static void optValueText(App& a, const Opt& o, int index, char* out, int cap) {
             break;
         case 3: std::snprintf(out, size_t(cap), "%lu", static_cast<unsigned long>(gov.cuts())); break;
         case 4: std::snprintf(out, size_t(cap), "%d/%d", gov.cap(), gov.budget()); break;
-        default: std::snprintf(out, size_t(cap), "%s", o.off == 0 ? "OpenTracker " OT_VERSION : OT_BUILD);
+        default: std::snprintf(out, size_t(cap), "%s", o.off == 0 ? OT_VERSION_LINE : OT_BUILD);
         }
         return;
     }

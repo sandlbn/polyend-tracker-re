@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (!std::strcmp(argv[i], "--list")) {
             for (const presets::Preset& p : presets::all())
-                std::printf("%-5s %-22s %s\n", ot::synthModelName(p.model), p.name, p.desc);
+                std::printf("%-5s %-22s %s\n", presets::folderOf(p), p.name, p.desc);
             return 0;
         }
         if (!std::strcmp(argv[i], "--markdown")) {
@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
             continue;
         }
         ++made;
-        std::printf("ok    Patches/%s/%s.patch\n", ot::synthModelName(p.model), p.name);
+        std::printf("ok    Patches/%s/%s.patch\n", presets::folderOf(p), p.name);
     }
     std::printf("make_patches: %d patch(es) in %s/Patches\n", made, root);
     return failures ? 1 : 0;

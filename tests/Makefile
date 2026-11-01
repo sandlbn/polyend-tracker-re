@@ -1,14 +1,29 @@
-# Host unit tests: builds every *_test.cpp against src/core and runs it.
+# Host unit tests: builds every *_test.cpp against src/core and runs it, plus
+# the profile modules' tests (profile.mk: MOD_TEST_SRCS from MODULES_DIR).
 CXX      ?= g++
 SRC      := ../src
-OUT      := ../build/host-tests
+ROOT     := ..
+include ../profile.mk
+OUT      := ../build/$(PROFILE)/host-tests
 CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -g -O1 -fsanitize=address,undefined \
-            -fno-sanitize-recover=undefined -ffp-contract=off -I$(SRC)/core -I$(SRC) -I. -MMD
+            -fno-sanitize-recover=undefined -ffp-contract=off -I$(SRC)/core -I$(SRC) -I. $(MOD_INCS) $(MOD_DEFS) -MMD
 LDFLAGS  := -fsanitize=address,undefined
 
 CORE_SRCS := $(shell find $(SRC)/core -name '*.cpp')
 CORE_OBJS := $(patsubst $(SRC)/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS))
-TEST_SRCS := $(filter-out usb_desc_test.cpp,$(wildcard *_test.cpp))
+MOD_OBJS  := $(patsubst %.cpp,$(OUT)/obj/mod/%.o,$(MOD_SRCS))
+TEST_SRCS := $(filter-out usb_desc_test.cpp,$(wildcard *_test.cpp)) $(MOD_TEST_SRCS)
+# Tests that need the synth pack (presets, test songs, engine levels, the synth
+# framework and screens, the stereo extension parameters) with available
+# engines; the full profile runs them.
+# patches_test runs whenever the profile has a module with presets (profile.mk PRESET_MODS).
+ifneq ($(HAVE_SYNTH_PACK),1)
+TEST_SRCS := $(filter-out testsongs_test.cpp synth_levels_test.cpp synth_framework_test.cpp \
+                         synth_screens_test.cpp patch_ext_test.cpp synth_width_test.cpp,$(TEST_SRCS))
+ifneq ($(HAVE_PRESET_MOD),1)
+TEST_SRCS := $(filter-out patches_test.cpp,$(TEST_SRCS))
+endif
+endif
 TEST_BINS := $(patsubst %.cpp,$(OUT)/%,$(TEST_SRCS)) $(OUT)/usb_desc_test_msc $(OUT)/usb_desc_test_nomsc
 
 all: run
@@ -17,18 +32,17 @@ $(OUT)/obj/%.o: $(SRC)/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-$(OUT)/libcore.a: $(CORE_OBJS)
+$(OUT)/obj/mod/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(OUT)/libcore.a: $(CORE_OBJS) $(MOD_OBJS)
 	@rm -f $@
 	ar rcs $@ $^
 
 $(OUT)/%_test: %_test.cpp $(OUT)/libcore.a
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $< $(OUT)/libcore.a $(LDFLAGS) -o $@
-
-# Simulator storage boundary checks without SDL or the core library.
-$(OUT)/host_storage_test: host_storage_test.cpp ../sim/src/host_storage.cpp ../sim/src/host_storage.h
-	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $< ../sim/src/host_storage.cpp $(LDFLAGS) -o $@
 
 # The Sample Editor effects against their pre-speed-work copy (sample_fx_ref.cpp).
 $(OUT)/sample_fx_speed_test: sample_fx_speed_test.cpp sample_fx_ref.cpp sample_fx_ref.h $(OUT)/libcore.a
@@ -70,27 +84,32 @@ build: $(TEST_BINS)
 OT_VENDOR_FIXTURES ?= $(abspath $(CURDIR)/../../fixtures/vendor)
 
 run: $(TEST_BINS)
-	@set -e; for t in $(TEST_BINS); do OT_FIXTURES=$(CURDIR)/fixtures OT_VENDOR_FIXTURES=$(OT_VENDOR_FIXTURES) $$t; done
+	@mkdir -p $(OUT)/snapshots; set -e; for t in $(TEST_BINS); do OT_SNAPSHOT_DIR=$(abspath $(OUT))/snapshots OT_FIXTURES=$(CURDIR)/fixtures OT_VENDOR_FIXTURES=$(OT_VENDOR_FIXTURES) $$t; done
 
 # Audio render benchmark (tests/audio_bench.cpp): -O2, no sanitizers.
-BENCH_OUT := ../build/bench
+BENCH_OUT := ../build/$(PROFILE)/bench
 # Headers of the benched code (the bench binaries are one compile each).
-M4_HDRS := $(wildcard $(SRC)/core/audio/*.h) $(wildcard $(SRC)/core/audio/engines/*.h) $(wildcard $(SRC)/core/model/*.h) \
+M4_HDRS := $(wildcard $(SRC)/core/modules/*.h) $(wildcard $(SRC)/core/audio/*.h) $(wildcard $(MOD_HDRS)) $(wildcard $(SRC)/core/model/*.h) \
            $(wildcard $(SRC)/core/sequencer/*.h)
-BENCH_FLAGS := -std=c++17 -O2 -g -DOT_AUDIO_SDRAM_STATS -I$(SRC)/core -I$(SRC) -I.
-BENCH_SRCS := $(CORE_SRCS)
-$(BENCH_OUT)/audio_bench: audio_bench.cpp peak_trace.h $(CORE_SRCS) $(M4_HDRS)
+BENCH_TRACE_DEF := -DOT_BENCH_TRACE='"$(BENCH_OUT)/song5.trace"'
+BENCH_FLAGS := -std=c++17 -O2 -g -DOT_AUDIO_SDRAM_STATS $(BENCH_TRACE_DEF) -I$(SRC)/core -I$(SRC) -I. $(MOD_INCS) $(MOD_DEFS)
+BENCH_SRCS := $(CORE_SRCS) $(MOD_SRC_PATHS) $(MOD_BENCH_PATHS)
+$(BENCH_OUT)/audio_bench: audio_bench.cpp peak_trace.h $(BENCH_SRCS) $(M4_HDRS)
 	@mkdir -p $(dir $@)
 	$(CXX) $(BENCH_FLAGS) audio_bench.cpp $(BENCH_SRCS) -o $@
 
 # Song 5 peak trace (peak_trace.cpp): the whole App plays TESTSONGS song 5 on
 # the host and records the engine's input; the "peak" bench scenario replays it.
+# Needs the synth pack (song 5 plays all four engines); without it the peak
+# scenario reports "no trace -- SKIPPED".
+ifeq ($(HAVE_SYNTH_PACK),1)
 PEAK_TRACE := $(BENCH_OUT)/song5.trace
+endif
 $(OUT)/peak_trace: peak_trace.cpp peak_trace.h ui_fakes.h $(OUT)/libcore.a $(wildcard ../tools/make_testsongs/*.cpp) \
                    $(wildcard ../tools/make_testsongs/*.h)
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) $< $(OUT)/libcore.a $(LDFLAGS) -o $@
-$(PEAK_TRACE): $(OUT)/peak_trace
+$(BENCH_OUT)/song5.trace: $(OUT)/peak_trace
 	@mkdir -p $(dir $@)
 	$(OUT)/peak_trace $@
 peak-trace: $(PEAK_TRACE)
@@ -107,7 +126,7 @@ CROSS ?= $(if $(ARM_GCC),$(patsubst %gcc,%,$(ARM_GCC)),arm-none-eabi-)
 M4_CXX := $(CROSS)g++
 M4_CC := $(CROSS)gcc
 M4_FLAGS := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -O2 -ffunction-sections -fdata-sections
-M4_SRCS := audio_bench.cpp $(wildcard $(SRC)/core/audio/*.cpp) $(wildcard $(SRC)/core/audio/engines/*.cpp) \
+M4_SRCS := audio_bench.cpp $(wildcard $(SRC)/core/modules/*.cpp) $(wildcard $(SRC)/core/audio/*.cpp) $(MOD_SRC_PATHS) $(MOD_BENCH_PATHS) \
            $(SRC)/core/formats/wav.cpp $(SRC)/core/formats/patch_pb.cpp \
            $(SRC)/core/formats/format_common.cpp $(SRC)/core/model/project.cpp $(SRC)/core/model/fx.cpp \
            $(wildcard $(SRC)/core/sequencer/*.cpp)
@@ -116,7 +135,7 @@ $(BENCH_OUT)/audio_bench_m4.elf: $(M4_SRCS) $(M4_HDRS) peak_trace.h bench_m4/sta
 	@mkdir -p $(dir $@)
 	$(M4_CC) $(M4_FLAGS) -c bench_m4/startup.c -o $(BENCH_OUT)/startup_m4.o
 	$(M4_CC) $(M4_FLAGS) -std=gnu11 -c $(SRC)/hal/fast_mem.c -o $(BENCH_OUT)/fast_mem_m4.o
-	$(M4_CXX) $(M4_FLAGS) -std=gnu++17 -fno-exceptions -fno-rtti -DOT_BENCH_M4 -DOT_AUDIO_SDRAM_STATS -I$(SRC)/core -I$(SRC) -I. \
+	$(M4_CXX) $(M4_FLAGS) -std=gnu++17 -fno-exceptions -fno-rtti -DOT_BENCH_M4 -DOT_AUDIO_SDRAM_STATS -I$(SRC)/core -I$(SRC) -I. $(MOD_INCS) $(MOD_DEFS) $(BENCH_TRACE_DEF) \
 	    $(M4_SRCS) $(BENCH_OUT)/startup_m4.o $(BENCH_OUT)/fast_mem_m4.o -T bench_m4/mps2.ld -nostartfiles --specs=nano.specs --specs=rdimon.specs -u _printf_float \
 	    -Wl,--gc-sections -lm -o $@
 
@@ -179,7 +198,7 @@ $(BENCH_OUT)/audio_bench_m4_peak.elf: $(M4_SRCS) $(M4_HDRS) peak_trace.h bench_m
 	$(M4_CC) $(M4_FLAGS) -c bench_m4/startup.c -o $(BENCH_OUT)/startup_m4.o
 	$(M4_CC) $(M4_FLAGS) -std=gnu11 -c $(SRC)/hal/fast_mem.c -o $(BENCH_OUT)/fast_mem_m4.o
 	$(M4_CXX) $(M4_FLAGS) -std=gnu++17 -fno-exceptions -fno-rtti -DOT_BENCH_M4 -DOT_BENCH_PEAK_ONLY -DOT_AUDIO_SDRAM_STATS \
-	    -I$(SRC)/core -I$(SRC) -I. $(M4_SRCS) $(BENCH_OUT)/startup_m4.o $(BENCH_OUT)/fast_mem_m4.o -T bench_m4/mps2.ld \
+	    -I$(SRC)/core -I$(SRC) -I. $(MOD_INCS) $(MOD_DEFS) $(BENCH_TRACE_DEF) $(M4_SRCS) $(BENCH_OUT)/startup_m4.o $(BENCH_OUT)/fast_mem_m4.o -T bench_m4/mps2.ld \
 	    -nostartfiles --specs=nano.specs --specs=rdimon.specs -u _printf_float -Wl,--gc-sections -lm -o $@
 bench-m4-hot: $(BENCH_OUT)/audio_bench_m4_peak.elf $(BENCH_OUT)/hot_plugin.so $(PEAK_TRACE)
 	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
@@ -189,7 +208,7 @@ bench-m4-hot: $(BENCH_OUT)/audio_bench_m4_peak.elf $(BENCH_OUT)/hot_plugin.so $(
 clean:
 	rm -rf $(OUT) $(BENCH_OUT)
 
--include $(CORE_OBJS:.o=.d) $(TEST_BINS:=.d)
+-include $(CORE_OBJS:.o=.d) $(MOD_OBJS:.o=.d) $(TEST_BINS:=.d)
 .PHONY: all build run clean bench bench-m4 audio-tables peak-trace bench-m4-hot
 
 # USB mass-storage endpoint driver (usb_msc_driver_test.cpp): the device's

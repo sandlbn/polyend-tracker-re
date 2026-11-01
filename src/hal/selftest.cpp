@@ -10,6 +10,7 @@
 #include "audio_sgtl5000.h"
 #include "diag.h"
 #include "fw_update.h"
+#include "ot_version.h"
 #include "board.h"
 #include "ft81x.h"
 #include "hal.h"
@@ -63,7 +64,7 @@ void serialReport(const BootReport& br, bool sdramFull, uint32_t sdramErr, bool 
     char b[224];
     auto ok = [](bool v) { return v ? "OK" : "FAIL"; };
     snprintf(b, sizeof b, "--- OpenTracker selftest %s  t=%lus  boot stage %u  blink mask 0x%02lX",
-             OT_VERSION, static_cast<unsigned long>(millis() / 1000), unsigned(br.stage),
+             OT_VERSION_TEXT, static_cast<unsigned long>(millis() / 1000), unsigned(br.stage),
              static_cast<unsigned long>(failMask));
     serialLine(b);
     snprintf(b, sizeof b, "image: flash 0x00000000..0x%08lX (%lu bytes), built %s %s",

@@ -164,12 +164,15 @@ constexpr uint32_t kSdramSdScratch    = kSdramBase + 0x00060000;   // SD direct 
 // region SDRAM_BSS of src/hal/opentracker.ld. The app's SDRAM layout
 // (app_main.cpp) ends below it. 2.0.1: 80 KB (was 64 KB) for the FatFs file
 // objects; 2.0.7: 92 KB (the synth patches and the 200-entry file lists).
-// 156 KB: same base, now ending at the SDRAM's top. Its top 64 KB overlap
+// 156 KB: ending at the SDRAM's top; 3.x: 159 KB (below). Its top 64 KB overlap
 // the selftest's SD benchmark buffer (selftest.cpp), which is safe because
 // the selftest only runs when the app never started or has returned
 // (main.cpp), never alongside it.
-constexpr uint32_t kSdramBssBase      = kSdramBase + 0x00FD9000;
-constexpr uint32_t kSdramBssSize      = 0x00027000;
+// 3.x (docs/PLAN_TECHNO.md, owner 2026-10-31): the base moved down into the
+// layout's unused gap (3,248 B; 176 B kept), 3 KB more for the modules'
+// SDRAM block (ECHO's 48 KB line).
+constexpr uint32_t kSdramBssBase      = kSdramBase + 0x00FD8400;
+constexpr uint32_t kSdramBssSize      = 0x00027C00;
 static_assert(kSdramBssBase + kSdramBssSize <= kSdramBase + kSdramSize, ".sdram_bss past the SDRAM's top");
 
 // ---- input (spec 01 §7) ---------------------------------------------------------

@@ -13,6 +13,8 @@
 #include "formats/bytes.h"
 #include "formats/crc32.h"
 #include "formats/file_io.h"
+#include "formats/ot3.h"
+#include "modules/synth_models.h"
 #include "formats/pattern_mtp.h"
 #include "formats/patterns_metadata.h"
 #include "formats/instrument_pti.h"
@@ -307,6 +309,8 @@ bool writeAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_t len
     return f.rename(tmp, path);
 }
 
+void sidecarPath(char* out, size_t cap, const char* dir) { std::snprintf(out, cap, "%s/project.ot3x", dir); }
+
 void patchPath(char* out, size_t cap, const char* dir, int s, const char* suffix = "") {
     std::snprintf(out, cap, "%s/%d.patch%s", dir, s, suffix);
 }
@@ -554,6 +558,7 @@ bool App::newProject() {
     resetPatternStore();
     std::memset(extKeep_, 0, sizeof(extKeep_));
     loadNotice_[0] = 0;
+    resetSidecar();
     setPresent(1, true);
     assemblePattern(1, pattern());
     attachSequencer();
@@ -613,6 +618,7 @@ enum Stage : uint8_t {
     kABegin, kAPatterns, kANames, kAInstr, kAProject, kAFinish,
     kSDirs, kSPatterns, kSNames, kSCleanList, kSClean, kSInstr, kSFinish,
     kLPatch, kAPatch, kSPatch,   // Tracker Mini synth slot patches (spec 21 §7)
+    kLSidecar, kASidecar, kSSidecar,   // 3.x project.ot3x (app/project_ot3.cpp)
 };
 // Patterns of a Workspace load that were not in the 16-track layout: the
 // autosave rewrites them as 0x3030 (not "unsaved": the content is the same).
@@ -1624,8 +1630,7 @@ bool App::savePatternUnit(int num) {
 bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
     engine.synth().patchChanged(s);   // the audio side re-reads the patch next block
     const SynthSlotRecord r = project.synthSlot(s);
-    const SynthModel model = SynthModel(r.model < uint32_t(kSynthModelCount) ? r.model : 0);
-    const int32_t engine = synthEngineId(model);
+    const int32_t engine = slotEngineId(s);
     auto* tmp = reinterpret_cast<SynthPatch*>(mem_.scratch + kPatchOff);
     patchDirty_[s] = false;
     if (haveFile) {
@@ -1641,7 +1646,7 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
     }
     if (r.patchName[0]) {
         char path[96];
-        std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthModelName(model), r.patchName);
+        std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(engine), r.patchName);
         uint32_t got = 0;
         if (readWholeFile(fs(), path, mem_.scratch, kPatchMaxFileSize + 1, &got) == FmtStatus::Ok && got <= kPatchMaxFileSize &&
             decodePatch(mem_.scratch, got, tmp) == PatchStatus::kOk && tmp->engine == engine) {
@@ -1772,6 +1777,7 @@ bool App::jobUnit(uint32_t& cost) {
             std::memset(extKeep_, 0, sizeof(extKeep_));
             std::memset(g_upgrade, 0, sizeof(g_upgrade));
             loadNotice_[0] = 0;
+            resetSidecar();
             for (int s = 0; s < kSynthSlotCount; ++s) {
                 patchDirty_[s] = false;
                 patchSrc_[s] = PatchSource::None;
@@ -1829,9 +1835,27 @@ bool App::jobUnit(uint32_t& cost) {
                 names.clear();   // missing file (spec 02 §5)
             }
             cost += kJobSmallCost;
+            pj_.stage = kLSidecar;
+            pj_.idx = 0;
+            return true;
+        case kLSidecar: {
+            // 3.x sidecar, before the patches: it names the slots' module
+            // engines. Open copies "<project>/project.ot3x" to the Workspace.
+            sidecarPath(dst, sizeof(dst), kWorkspace);
+            if (pj_.fromProject) {
+                sidecarPath(src, sizeof(src), pj_.dir);
+                if (f.exists(dst)) f.remove(dst);
+                uint32_t size = 0;
+                if (f.exists(src) && mem_.scratch &&
+                    !copySmallFile(f, src, dst, mem_.scratch, mem_.scratchBytes, ot3::kMaxFile, size, cost))
+                    ++pj_.loadErrors;
+            }
+            loadSidecarFile(dst);
+            cost += kJobSmallCost;
             pj_.stage = kLPatch;
             pj_.idx = 0;
             return true;
+        }
         case kLPatch:
             // Synth slot patches (spec 21 §7.2), after project.mt (records).
             if (pj_.idx < kSynthSlotCount) {
@@ -2097,6 +2121,15 @@ bool App::jobUnit(uint32_t& cost) {
                 }
                 cost += kJobSmallCost;
             }
+            pj_.stage = kASidecar;
+            return true;
+        }
+        case kASidecar: {
+            if (sidecarDirty()) {
+                sidecarPath(dst, sizeof(dst), kWorkspace);
+                if (!saveSidecarFile(dst)) ++pj_.loadErrors;
+                cost += kJobSmallCost;
+            }
             pj_.stage = kAPatch;
             pj_.idx = 0;
             return true;
@@ -2275,8 +2308,23 @@ bool App::jobUnit(uint32_t& cost) {
                 cost += kJobSmallCost + kPatchMaxFileSize / 4;
                 return true;
             }
+            pj_.stage = kSSidecar;
+            return true;
+        case kSSidecar: {
+            // The Workspace sidecar (or none) goes with the project.
+            sidecarPath(src, sizeof(src), kWorkspace);
+            sidecarPath(dst, sizeof(dst), pj_.dir);
+            uint32_t size = 0;
+            if (f.exists(src)) {
+                if (!mem_.scratch || !copySmallFile(f, src, dst, mem_.scratch, mem_.scratchBytes, ot3::kMaxFile, size, cost))
+                    ++pj_.loadErrors;
+            } else if (f.exists(dst)) {
+                f.remove(dst);
+            }
+            cost += kJobSmallCost;
             pj_.stage = kSFinish;
             return true;
+        }
         case kSFinish:
             if (pj_.loadErrors) {
                 jobFail();
@@ -2412,6 +2460,7 @@ bool App::startAutosave() {
     lastAutosave_ = millis();
     bool any = projectDirty_ || namesDirty_;
     for (int s = 0; s < kSynthSlotCount && !any; ++s) any = patchDirty_[s];
+    any = any || sidecarDirty();
     for (int i = 0; i < 32 && !any; ++i) any = patDirty_[i] != 0;
     for (int i = 0; i < kSampleInstrumentCount && !any; ++i) any = instrHeaderDirty_[i] || instrSampleDirty_[i];
     // The edited pattern may differ from the store without a dirty mark yet.

@@ -25,6 +25,12 @@
 #include "formats/file_io.h"
 #include "formats/patch_pb.h"
 #include "formats/pattern_mtp.h"
+#include "ot_profile.h"
+#if defined(OT_MOD_ACD1) && defined(OT_MOD_FAT1) && defined(OT_MOD_VAP1) && defined(OT_MOD_PRC1) && defined(OT_MOD_WTF1)
+#define OT_SYNTH_PACK 1
+#else
+#define OT_SYNTH_PACK 0
+#endif
 
 using namespace ot;
 namespace sfs = std::filesystem;
@@ -545,7 +551,7 @@ int8_t fileNote(FakeStorage& fs, const char* path, int t, int s) {
     if (it == fs.files.end() || it->second.size() != mtp::kMiniFileSize) return -100;
     return int8_t(it->second[mtp::kTracksOff + size_t(t) * mtp::kTrackSize + 1 + size_t(s) * mtp::kStepSize]);
 }
-std::vector<uint8_t> encoded(const SynthPatch& p) {
+[[maybe_unused]] std::vector<uint8_t> encoded(const SynthPatch& p) {
     std::vector<uint8_t> b(kPatchMaxFileSize);
     size_t n = 0;
     CHECK(encodePatch(p, b.data(), b.size(), &n) == PatchStatus::kOk);
@@ -577,6 +583,7 @@ std::vector<uint8_t> vendorPatch(const char* engine, const char* name) {
 }
 }  // namespace
 
+#if OT_SYNTH_PACK   // the synth engines (modules) build the Init patches
 TEST(mini_new_project_patterns_and_patches) {
     Harness h;
     App& a = *h.app;
@@ -600,6 +607,7 @@ TEST(mini_new_project_patterns_and_patches) {
     CHECK(!anyUnder(h.fs, "Projects/Plain/ot2"));
     for (const auto& kv : h.fs.files) CHECK(kv.first.find(".tmp") == std::string::npos);
 }
+#endif
 
 TEST(mini_track13_lives_in_the_pattern_file) {
     Harness h;
@@ -650,6 +658,7 @@ TEST(mini_workspace_1_9_2_pattern_upgraded_by_autosave) {
     CHECK_EQ(fileNote(h.fs, kPat1, 11, 5), 70);
 }
 
+#if OT_SYNTH_PACK   // the synth engines (modules) build the Init patches
 TEST(mini_patch_open_copies_file_library_and_init_fallbacks) {
     Harness h;
     App& a = *h.app;
@@ -674,7 +683,11 @@ TEST(mini_patch_open_copies_file_library_and_init_fallbacks) {
     h.fs.files.erase("Workspace/1.patch");
     CHECK(a.loadWorkspace());
     CHECK(a.synthPatchSource(1) == App::PatchSource::Init);
+#ifdef OT_MOD_ACD1
     CHECK(noticeText(h).empty());
+#else   // a profile without the ACD module: the slot is reported, nothing else
+    CHECK(noticeText(h) == "Synth 1 (ACD) not available");
+#endif
     // A patch of another engine is refused (silently): a VAP patch on the
     // ACD slot 0.
     h.fs.files["Workspace/0.patch"] = encoded(a.synthPatch(2));
@@ -717,6 +730,7 @@ TEST(mini_patch_open_copies_file_library_and_init_fallbacks) {
     CHECK(a.loadWorkspace());
     CHECK(a.synthPatchSource(1) == App::PatchSource::Init);
 }
+#endif
 
 // spec 21 §3.3: a slot record that fails the load check takes the slot
 // default, and its macro values come from the bipolar flags of the patch
@@ -767,6 +781,7 @@ TEST(mini_slot_reset_at_load_takes_bipolar_macro_defaults) {
 // never overwritten by Save: the slot plays the fallback, the Workspace
 // keeps the original, Save leaves the project's file alone (notice), Save As
 // carries the original bytes. A real change of the slot's patch is saved.
+#if OT_SYNTH_PACK   // the synth engines (modules) build the Init patches
 TEST(mini_refused_project_patch_survives_save) {
     Harness h;
     App& a = *h.app;
@@ -814,7 +829,9 @@ TEST(mini_refused_project_patch_survives_save) {
     CHECK(h.fs.files["Projects/Fresh/2.patch"] == encoded(a.synthPatch(2)));
     CHECK(g_note.empty());
 }
+#endif
 
+#if OT_SYNTH_PACK   // the synth engines (modules) build the Init patches
 TEST(mini_dirty_patch_rewritten_by_autosave_only) {
     Harness h;
     App& a = *h.app;
@@ -830,6 +847,7 @@ TEST(mini_dirty_patch_rewritten_by_autosave_only) {
     CHECK(h.fs.files["Workspace/2.patch"] == encoded(a.synthPatch(2)));
     CHECK(h.fs.files["Workspace/2.patch"] != before);
 }
+#endif
 
 TEST(mini_pool_full_at_load_keeps_tracks_in_the_file) {
     // Pool of 2 usable blocks; a pattern file with 4 ext tracks (written by
@@ -931,7 +949,7 @@ struct CrashStorage : FakeStorage {
 const uint32_t kV1 = 0x3E800000u, kV2 = 0x3F000000u;   // 0.25f, 0.5f
 
 // Boot on `cs`, write v1 (track 13 note 40, slot 2 param 0 = 0.25), edit to v2.
-void crashSetup(Harness& h, CrashStorage& cs) {
+[[maybe_unused]] void crashSetup(Harness& h, CrashStorage& cs) {
     HalRefs hr = h.app->hal();
     hr.storage = &cs;
     CHECK(h.app->init(hr, h.app->mem()));
@@ -947,6 +965,7 @@ void crashSetup(Harness& h, CrashStorage& cs) {
 }
 }  // namespace
 
+#if OT_SYNTH_PACK   // the synth engines (modules) build the Init patches
 TEST(mini_power_loss_mid_write_keeps_old_or_new) {
     int total = 0;
     {
@@ -999,12 +1018,14 @@ TEST(mini_power_loss_mid_write_keeps_old_or_new) {
     CHECK(oldPatch > 0 && newPatch > 0);
     CHECK(stockLost <= 3);
 }
+#endif
 
 // A new N.patch (no old file) whose unknown fields 10 / 11 follow Extra, as
 // in 32 factory patches: the power fails at every write operation. The
 // boot restores the orphan .tmp only when it is whole; a file cut right
 // after Extra (fields 10 / 11 lost) must never load (writePatchAtomic
 // writes Extra last; completePatch wants the full re-encoded size).
+#if OT_SYNTH_PACK   // the synth engines (modules) build the Init patches
 TEST(mini_power_loss_new_patch_with_fields_after_extra) {
     const uint8_t tail[] = {0x52, 0x02, 'x', 'y', 0x52, 0x01, 'z', 0x5A, 0x03, 'a', 'b', 'c'};   // 10, 10, 11
     auto setup = [&](Harness& h, CrashStorage& cs) {
@@ -1115,6 +1136,7 @@ TEST(mini_power_loss_new_patch_with_fields_after_extra) {
         CHECK(!h.fs.files.count("Workspace/1.patch.tmp"));
     }
 }
+#endif
 
 // The mixer's mute of track 13 is project.mt 0x742[4]: the sequencer reads
 // it and it survives the autosave and a reload.

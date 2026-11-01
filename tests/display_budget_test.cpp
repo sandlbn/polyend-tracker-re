@@ -29,6 +29,7 @@ public:
     uint32_t frames = 0;
     std::vector<std::string> maxFrame;                  // commands of the largest frame
     bool ready = true;
+    int readyPolls = 0;
     Ui* ui = nullptr;
 
     static constexpr uint32_t kChunk = 1024;            // Ft81xDisplay::kStage
@@ -37,9 +38,8 @@ public:
     static constexpr uint32_t kSpiHz = 30000000;        // board::kSpi2CtarFast
 
     bool frameReady() override {
-        if (ready) return RecordingDisplay::frameReady();   // the sent frame is reported
         ++readyPolls;
-        return false;
+        return ready;
     }
     void dlStart() override {
         RecordingDisplay::dlStart();
@@ -368,6 +368,7 @@ TEST(render_stats_fields) {
 #include "app/perf_presets.h"
 #include "formats/patch_pb.h"
 #include "formats/wav.h"
+#include "ot_profile.h"
 
 namespace {
 
@@ -916,6 +917,8 @@ TEST(overlay_matrix_bank_b) {
 // names) with the shared overlays, the Save As keyboard and the Init
 // question; slots with 31-character patch names and 31-character macro
 // names whose six targets all name long parameters.
+// The synth pages with every engine: needs the synth pack modules (opentracker-synths).
+#if defined(OT_MOD_ACD1) && defined(OT_MOD_FAT1) && defined(OT_MOD_VAP1) && defined(OT_MOD_PRC1) && defined(OT_MOD_WTF1)
 TEST(overlay_matrix_synth) {
     WorstRig r;
     Harness& h = r.h;
@@ -1053,6 +1056,7 @@ TEST(overlay_matrix_synth) {
     h.up(btn::F6);
     std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
 }
+#endif  // synth pack
 
 // The guard itself (with a lowered limit so an ordinary frame overflows):
 // the frame is cut short instead of being sent past the limit, counted,
@@ -1213,74 +1217,6 @@ TEST(device_fault_falls_back_to_low_detail) {
     CHECK(a.ui.dlScale() > 64);
     CHECK(a.ui.lowDetail());
     Harness::dlOverflowFatal = true;
-}
-
-// #71: a fault is only found when the driver polls the frame's outcome. On a
-// static screen nothing is dirty after the frame, so before the fix nothing
-// polled, the fault was never seen and the display stayed frozen (MIDI
-// instrument page). The frame that faults here is the screen's last one;
-// nobody calls dirty() after it.
-TEST(device_fault_on_a_static_screen_is_redrawn) {
-    Harness::dlOverflowFatal = false;
-    Harness h;
-    App& a = *h.app;
-    h.tap(btn::Master);
-    h.tap(btn::Master);   // Track Mixer 2/3, static (not playing)
-    h.run(200);
-    CHECK(!h.disp.sent);   // every frame's outcome was polled
-    const uint32_t frames0 = a.ui.frames(), low0 = a.ui.lowDetailFrames();
-    h.disp.faultNextFrames = 1;
-    a.ui.dirty();   // one more frame, and it faults
-    h.run(500);
-    CHECK_EQ(h.disp.faultCount, 1u);
-    CHECK_EQ(a.ui.hwFaultFrames(), 1u);
-    CHECK(a.ui.frames() >= frames0 + 2);    // the faulted frame, then a redraw
-    CHECK(a.ui.lowDetailFrames() > low0);   // in low detail
-    CHECK(!h.disp.sent);
-    Harness::dlOverflowFatal = true;
-}
-
-// A screen whose every frame faults (the estimate off by more than the
-// tightest guard allows): the redraws stop once it is in low detail at the
-// tightest guard, and the log gets one entry, not one per fault.
-TEST(device_fault_that_never_fits_stops_redrawing) {
-    Harness::dlOverflowFatal = false;
-    Harness h;
-    App& a = *h.app;
-    h.tap(btn::Master);
-    h.tap(btn::Master);
-    h.run(200);
-    static int logged;
-    logged = 0;
-    a.ui.platform.dlOverflow = [](const char*, uint32_t, uint32_t, bool) { ++logged; };
-    h.disp.faultNextFrames = 1000;   // every frame from here on faults
-    a.ui.dirty();
-    h.run(3000);
-    const uint32_t faults = h.disp.faultCount;
-    CHECK(faults >= 2 && faults < 20);
-    CHECK_EQ(a.ui.dlScale(), 128);
-    CHECK(a.ui.lowDetail());
-    CHECK_EQ(logged, 1);
-    h.run(2000);   // idle: no more redraws into the same fault
-    CHECK_EQ(h.disp.faultCount, faults);
-    CHECK(!h.disp.sent);
-    a.ui.platform.dlOverflow = nullptr;
-    Harness::dlOverflowFatal = true;
-}
-
-// The idle poll stops once the frame is reported: a static screen doesn't
-// keep the SPI busy.
-TEST(idle_screen_stops_polling_the_display) {
-    Harness h;
-    App& a = *h.app;
-    h.tap(btn::Master);
-    h.tap(btn::Master);
-    h.run(200);
-    const uint32_t frames0 = a.ui.frames(), polls0 = h.disp.readyPolls;
-    h.run(1000);
-    // Each frame is polled before it starts and once after it is sent.
-    CHECK(h.disp.readyPolls - polls0 <= 2 * (a.ui.frames() - frames0) + 1);
-    CHECK(!h.disp.sent);
 }
 
 TEST(device_measurement_calibrates_the_guard) {

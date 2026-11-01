@@ -6,15 +6,20 @@
 #   STEMS_SECONDS=180                          -> song 19's stems 180 s long (default 30)
 CXX      ?= g++
 ROOT     := ../..
-OUT      := $(ROOT)/build/make_testsongs
+include $(ROOT)/profile.mk
+ifneq ($(HAVE_SYNTH_PACK),1)
+$(error make_testsongs needs the synth pack (PROFILE=full))
+endif
+OUT      := $(ROOT)/build/$(PROFILE)/make_testsongs
 SD       ?= $(ROOT)/build/testsongs
 SONGS    ?=
 STEMS_SECONDS ?=
 CXXFLAGS := -std=c++17 -O2 -g -Wall -Wextra -Wno-format-truncation -MMD \
-            -I$(ROOT)/src/core -I$(ROOT)/src -I$(ROOT)/sim/src
+            -I$(ROOT)/src/core -I$(ROOT)/src -I$(ROOT)/sim/src $(MOD_INCS) $(MOD_DEFS)
 
 CORE_SRCS := $(shell find $(ROOT)/src/core -name '*.cpp')
-CORE_OBJS := $(patsubst $(ROOT)/src/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS))
+CORE_OBJS := $(patsubst $(ROOT)/src/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS)) \
+             $(patsubst %.cpp,$(OUT)/obj/mod/%.o,$(MOD_SRCS))
 TOOL_OBJS := $(OUT)/obj/tool/main.o $(OUT)/obj/tool/testsongs.o $(OUT)/obj/tool/stock_check.o \
              $(OUT)/obj/host_storage.o
 BIN       := $(OUT)/make_testsongs
@@ -22,6 +27,10 @@ BIN       := $(OUT)/make_testsongs
 all: $(BIN)
 
 $(OUT)/obj/%.o: $(ROOT)/src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(OUT)/obj/mod/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 

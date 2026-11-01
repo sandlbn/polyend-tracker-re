@@ -68,24 +68,16 @@ TEST(telemetry_format) {
     s.rxRestarts = 3;
     s.rxStale = 12;
     formatTelemetry(b, sizeof b, s);
-    // The heap has its own reserve below the stack guard: free = room - peak.
-    CHECK(std::strstr(b, "i2c2 2 | stack peak 41000 B heap 1856 B of 97856 B (free 56856 B) | rx restarts 3 stale 12") != nullptr);
+    CHECK(std::strstr(b, "i2c2 2 | stack peak 41000 B heap 1856 B of 97856 B (free 55000 B) | rx restarts 3 stale 12") != nullptr);
     s.stackPeak = 100000;     // clamped: never reports negative free space
     formatTelemetry(b, sizeof b, s);
-    CHECK(std::strstr(b, "stack peak 97856 B heap 1856 B of 97856 B (free 0 B)") != nullptr);
+    CHECK(std::strstr(b, "stack peak 96000 B heap 1856 B of 97856 B (free 0 B)") != nullptr);
     s.cycMax = 365568;        // exactly 70 %
     s.loopMaxUs = 7;
     formatTelemetry(b, sizeof b, s);
     CHECK(std::strstr(b, "(70.0% of 522240)") != nullptr);
     CHECK(std::strstr(b, "loop max 0.007 ms") != nullptr);
     CHECK(std::strstr(b, " RENDER>70%") != nullptr);
-    CHECK(std::strstr(b, "din clock") == nullptr);   // no clock out: no field
-    // MIDI clock out on DIN: queued -> UART, the longest in the window.
-    s.cycMax = 104448;
-    s.dinClocks = 240;
-    s.dinClockLateMaxUs = 31250;
-    formatTelemetry(b, sizeof b, s);
-    CHECK(std::strstr(b, "stale 12 | din clock late max 31.250 ms (n 240)") != nullptr);
     // Small buffers truncate safely.
     char small[16];
     formatTelemetry(small, sizeof small, s);

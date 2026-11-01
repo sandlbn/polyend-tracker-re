@@ -1,6 +1,6 @@
 // Display-list snapshot tool: renders every screen with some content and
 // dumps the recorded FT81x command list as text for review, one file per
-// screen, into $OT_SNAPSHOT_DIR (default ../build/host-tests/snapshots).
+// screen, into $OT_SNAPSHOT_DIR (the Makefile sets build/<profile>/host-tests/snapshots).
 // Also checks each frame stays inside the 2048-word RAM_DL budget.
 #include <sys/stat.h>
 
@@ -16,7 +16,7 @@ using namespace ot;
 
 static std::string outDir() {
     const char* e = std::getenv("OT_SNAPSHOT_DIR");
-    std::string d = e && *e ? e : "../build/host-tests/snapshots";
+    std::string d = e && *e ? e : "../build/full/host-tests/snapshots";
     ::mkdir(d.c_str(), 0755);
     return d;
 }

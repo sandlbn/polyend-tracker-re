@@ -2,7 +2,8 @@
 //
 // Every sound here is our own design, built on the engine's built-in Init
 // patch (patchInit) with the parameter semantics of our engines
-// (audio/engines/{acd,fat,vap,wtfm,perc}.*). Macro amounts follow the macro law of
+// (opentracker-synths modules/{acd,fat,vap,wtfm,perc,ju6,dtype,cstype,atype,ttype}). 3.x: a model's
+// presets are in the pack when its module is in the build profile (OT_MOD_<id>). Macro amounts follow the macro law of
 // audio/synth_params.h: amount x stored range per unit of the macro, so a
 // bipolar macro at 63 (and a unipolar one at 0) plays the patch as saved.
 //
@@ -16,12 +17,38 @@
 #include <cstdio>
 #include <cstring>
 
-#include "audio/engines/acd.h"
-#include "audio/engines/fat.h"
-#include "audio/engines/perc.h"
-#include "audio/engines/vap.h"
-#include "audio/engines/wtfm.h"
+#if defined(OT_MOD_ACD1)
+#include "acd.h"
+#endif
+#if defined(OT_MOD_FAT1)
+#include "fat.h"
+#endif
+#if defined(OT_MOD_PRC1)
+#include "perc.h"
+#endif
+#if defined(OT_MOD_VAP1)
+#include "vap.h"
+#endif
+#if defined(OT_MOD_WTF1)
+#include "wtfm.h"
+#endif
+#if defined(OT_MOD_JU6S)
+#include "ju6.h"
+#endif
+#if defined(OT_MOD_DTY1)
+#include "dtype.h"
+#endif
+#if defined(OT_MOD_CST1)
+#include "cstype.h"
+#endif
+#if defined(OT_MOD_ATY1)
+#include "atype.h"
+#endif
+#if defined(OT_MOD_TTY1)
+#include "ttype.h"
+#endif
 #include "audio/synth_params.h"
+#include "modules/synth_models.h"
 #include "formats/patch_pb.h"
 
 namespace presets {
@@ -33,6 +60,7 @@ namespace {
 // Cutoff macro amount for +-hz (VAP / ACD cutoff range 20..20000 Hz).
 constexpr float cut(float hz) { return hz / 19980.0f; }
 
+#if defined(OT_MOD_ACD1)
 // ---------------------------------------------------------------------------
 // ACD: one oscillator (saw + pulse + sub + noise), LP SVF 12 / SVF 24 / RD3.
 
@@ -168,7 +196,9 @@ std::vector<Preset> acdPresets() {
           {"Glide", false, {{kGlideTime, 0.1f}}}}},
     };
 }
+#endif  // OT_MOD_ACD1
 
+#if defined(OT_MOD_FAT1)
 // ---------------------------------------------------------------------------
 // FAT: a unison stack of up to 7 saws (Fatness), saw -> pulse (Timbre),
 // Brightness and noise into LP MG 24 / LP OB 24 / LP OB 12, Amp Env, Filter
@@ -262,7 +292,9 @@ std::vector<Preset> fatPresets() {
           {"Release", true, {{kAmpR, 0.04f}}}}},
     };
 }
+#endif  // OT_MOD_FAT1
 
+#if defined(OT_MOD_WTF1)
 // ---------------------------------------------------------------------------
 // WTFM: two operators (operator 2 modulates the carrier), Character rows
 // along Shape, Feedback 1 / 2 / 2>1, Ratio 0.25..12, 15 filter types; the
@@ -490,7 +522,9 @@ std::vector<Preset> wtfmPresets() {
          wt::leadMacros()},
     };
 }
+#endif  // OT_MOD_WTF1
 
+#if defined(OT_MOD_VAP1)
 // ---------------------------------------------------------------------------
 // VAP: two morphing oscillators, 15 filter types, 3 envelopes, 2 LFOs and a
 // 6-slot mod matrix. Filter types: 0 LP MG 24, 1 LP OB 24, 2 LP OB 12,
@@ -697,8 +731,9 @@ std::vector<Preset> vapPresets() {
     };
 }
 #undef MOD
+#endif  // OT_MOD_VAP1
 
-
+#if defined(OT_MOD_PRC1)
 // ---------------------------------------------------------------------------
 // PERC kits. Notes: kick 60, snare 62, hats 64..67 (closed .. open), cymbal
 // 69, perc 71, every other note the tom at that pitch. Body Wave index =
@@ -1003,7 +1038,7 @@ std::vector<Preset> synthwaveKits() {
          {swTomSweep(), {"Tom Decay", true, {{kTomDecay, 0.05f}}}, {"Tom Stick", true, {{kTomTrLevel, 0.4f},
           {kTomTrTimbre, 0.3f}}}, swSnareTone(), swDrive(), swRoom()}},
 
-        {P, "OT Kit SW Electro", "Electro 808-style kit: long boomy kick, snappy snare, ticking hats, roomy clap.", 1,
+        {P, "OT Kit SW Electro", "Electro kit in the classic analog drum machine style: long boomy kick, snappy snare, ticking hats, roomy clap.", 1,
          {{lvl(kKick, 0), 1.00f}, {lvl(kTom, 0), 0.62f}, {lvl(kSnare, 0), 0.72f},
           {lvl(kHat, 0), 0.70f}, {lvl(kCymbal, 0), 0.75f}, {lvl(kPerc, 0), 0.90f},
           {lvl(kKick, 1), 0.0f}, {lvl(kTom, 1), -0.2f}, {lvl(kSnare, 1), 0.05f}, {lvl(kHat, 1), 0.3f},
@@ -1070,6 +1105,501 @@ std::vector<Preset> synthwaveKits() {
          {swKickDecay(0.03f), swSnareTone(), swHatDecay(), swPitch(), swDrive(), swRoom()}},
     };
 }
+#endif  // OT_MOD_PRC1
+
+#if defined(OT_MOD_JU6S)
+// ---------------------------------------------------------------------------
+// JU6 (module JU6S, engine 0x81): one DCO (saw, pulse with manual or LFO
+// width, sub square, noise), HPF 0-3 (0 = bass boost, 1 = flat), resonant
+// 24 dB VCF with Env (bipolar), LFO, Key follow and Velocity, one ADSR for
+// VCF and VCA (VCA Env or Gate), one triangle LFO with Delay, the built-in
+// chorus (Off / I / II) the instrument always had: pads and strings on II,
+// brass, keys, plucks and leads on I, the bass dry.
+
+namespace ju = ot::audio::ju6;
+static_assert(kJu6Engine == ju::kEngineId, "presets.h kJu6Engine");
+
+// Macro helpers (amount x stored range per unit: Cutoff 20..20000 Hz,
+// times 0..10 s, Env -1..1, levels 0..1).
+Macro juCutoff(float hz) { return {"Cutoff", true, {{ju::kCutoff, cut(hz)}}}; }
+Macro juReso(float a = 0.15f) { return {"Resonance", true, {{ju::kResonance, a}}}; }
+Macro juEnv(float a = 0.1f) { return {"Env Amt", true, {{ju::kEnvAmt, a}}}; }
+Macro juAttack(float s) { return {"Attack", true, {{ju::kAttack, s / 10.0f}}}; }
+Macro juDecay(float s) { return {"Decay", true, {{ju::kDecay, s / 10.0f}}}; }
+Macro juRelease(float s) { return {"Release", true, {{ju::kRelease, s / 10.0f}}}; }
+Macro juPwm(float a = 0.3f) { return {"PWM", true, {{ju::kPw, a}}}; }
+Macro juSub(float a = 0.4f) { return {"Sub", false, {{ju::kSub, a}}}; }
+Macro juVibrato(float a = 0.15f) { return {"Vibrato", false, {{ju::kVibrato, a}}}; }
+Macro juLfoFilter(float a = 0.2f) { return {"LFO > VCF", false, {{ju::kVcfLfo, a}}}; }
+Macro juLfoRate(float hz, bool bipolar = true) { return {"LFO Rate", bipolar, {{ju::kLfoRate, hz / 19.9f}}}; }
+Macro juPw(float a) { return {"PW", false, {{ju::kPw, a}}}; }
+// Chorus 0..2: a unipolar macro up one mode per 0.5 (Off -> I -> II).
+Macro juChorus(float modes = 1.0f) { return {"Chorus", false, {{ju::kChorus, 0.5f * modes}}}; }
+constexpr float kChoI = float(ju::kChorusI), kChoII = float(ju::kChorusII);
+
+std::vector<Preset> ju6Presets() {
+    const SynthModel F = SynthModel::VAP;   // the Mini fallback model of the slot record
+    const int32_t J = kJu6Engine;
+    return {
+        {F, "OT Ensemble Strings", "Saw + slow PWM ensemble pad, gentle attack and long release; Chorus II.", 4,
+         {{ju::kChorus, kChoII}, {ju::kPulse, 1.0f}, {ju::kPw, 0.5f}, {ju::kPwMode, float(ju::kPwLfo)}, {ju::kSub, 0.0f}, {ju::kCutoff, 3200.0f}, {ju::kResonance, 0.1f},
+          {ju::kEnvAmt, 0.12f}, {ju::kKeyFollow, 0.5f}, {ju::kAttack, 0.35f}, {ju::kDecay, 2.0f}, {ju::kSustain, 0.85f}, {ju::kRelease, 1.2f},
+          {ju::kLfoRate, 0.7f}, {ju::kLfoDelay, 0.0f}, {ju::kVolume, 0.8f}},
+         {juCutoff(2500), juAttack(0.3f), juRelease(0.8f), juPwm(), juEnv(0.15f), juVibrato(0.2f)}, J},
+        {F, "OT Poly Brass", "Saw brass: the filter envelope opens on every chord, velocity to the VCF; Chorus I.", 4,
+         {{ju::kChorus, kChoI}, {ju::kSub, 0.2f}, {ju::kCutoff, 600.0f}, {ju::kResonance, 0.2f}, {ju::kEnvAmt, 0.55f}, {ju::kKeyFollow, 0.6f}, {ju::kVelVcf, 0.5f},
+          {ju::kAttack, 0.08f}, {ju::kDecay, 0.6f}, {ju::kSustain, 0.55f}, {ju::kRelease, 0.3f}},
+         {juCutoff(500), juEnv(0.15f), juAttack(0.1f), juDecay(0.4f), juReso(), juChorus()}, J},
+        {F, "OT PWM Pad", "Pulse only, deep slow PWM, sub underneath: the classic moving pad; Chorus II.", 4,
+         {{ju::kChorus, kChoII}, {ju::kSaw, 0.0f}, {ju::kPulse, 1.0f}, {ju::kPw, 0.75f}, {ju::kPwMode, float(ju::kPwLfo)}, {ju::kSub, 0.3f}, {ju::kCutoff, 2200.0f},
+          {ju::kResonance, 0.1f}, {ju::kEnvAmt, 0.1f}, {ju::kAttack, 0.6f}, {ju::kDecay, 3.0f}, {ju::kSustain, 0.9f}, {ju::kRelease, 1.5f},
+          {ju::kVolume, 0.7f}, {ju::kLfoRate, 0.5f}, {ju::kLfoDelay, 0.0f}},
+         {juCutoff(2000), juPwm(0.25f), juLfoRate(3.0f, false), juAttack(0.5f), juRelease(1.0f), juReso()}, J},
+        {F, "OT Sub Bass", "Square + full sub through the bass-boost HPF, short filter thump; dry (Chorus Off).", 1,
+         {{ju::kSaw, 0.0f}, {ju::kPulse, 1.0f}, {ju::kPw, 0.0f}, {ju::kPwMode, float(ju::kPwManual)}, {ju::kSub, 0.8f}, {ju::kHpf, 0.0f},
+          {ju::kCutoff, 320.0f}, {ju::kResonance, 0.25f}, {ju::kEnvAmt, 0.25f}, {ju::kKeyFollow, 0.3f}, {ju::kAttack, 0.0f},
+          {ju::kVolume, 0.7f}, {ju::kDecay, 0.35f}, {ju::kSustain, 0.6f}, {ju::kRelease, 0.12f}},
+         {juCutoff(250), juReso(), juEnv(0.15f), juDecay(0.3f), juRelease(0.2f), juChorus(2.0f)}, J},
+        {F, "OT Square Pluck", "Saw + square pluck: fast filter decay, no sustain; Chorus I.", 4,
+         {{ju::kChorus, kChoI}, {ju::kPulse, 1.0f}, {ju::kPw, 0.2f}, {ju::kPwMode, float(ju::kPwManual)}, {ju::kSub, 0.0f}, {ju::kCutoff, 400.0f},
+          {ju::kResonance, 0.35f}, {ju::kEnvAmt, 0.6f}, {ju::kKeyFollow, 0.7f}, {ju::kVelVcf, 0.3f}, {ju::kAttack, 0.0f},
+          {ju::kDecay, 0.35f}, {ju::kSustain, 0.0f}, {ju::kRelease, 0.3f}},
+         {juCutoff(350), juReso(), juEnv(0.15f), juDecay(0.3f), juRelease(0.3f), juPwm(0.2f)}, J},
+        {F, "OT Arp Seq", "Short resonant saw blip for arpeggios and sequences; HPF 2 keeps it out of the bass; Chorus I.", 4,
+         {{ju::kChorus, kChoI}, {ju::kSub, 0.3f}, {ju::kHpf, 2.0f}, {ju::kCutoff, 700.0f}, {ju::kResonance, 0.55f}, {ju::kEnvAmt, 0.5f}, {ju::kKeyFollow, 0.5f},
+          {ju::kVelVcf, 0.5f}, {ju::kAttack, 0.0f}, {ju::kDecay, 0.15f}, {ju::kSustain, 0.0f}, {ju::kRelease, 0.12f}},
+         {juCutoff(800), juReso(0.2f), juEnv(0.2f), juDecay(0.2f), juRelease(0.15f), juSub()}, J},
+        {F, "OT Gate Organ", "Square + sub on the Gate VCA, open filter, delayed vibrato: organ-ish keys; Chorus I.", 4,
+         {{ju::kChorus, kChoI}, {ju::kSaw, 0.0f}, {ju::kPulse, 1.0f}, {ju::kPw, 0.0f}, {ju::kPwMode, float(ju::kPwManual)}, {ju::kSub, 0.6f}, {ju::kHpf, 2.0f},
+          {ju::kCutoff, 3500.0f}, {ju::kResonance, 0.0f}, {ju::kEnvAmt, 0.0f}, {ju::kKeyFollow, 0.5f}, {ju::kVcaMode, float(ju::kVcaGate)},
+          {ju::kVolume, 0.7f}, {ju::kSustain, 1.0f}, {ju::kVibrato, 0.08f}, {ju::kLfoRate, 6.0f}, {ju::kLfoDelay, 0.3f}},
+         {juCutoff(2500), juSub(0.4f), juPw(0.4f), juVibrato(0.15f), juLfoRate(3.0f), juReso(0.2f)}, J},
+        {F, "OT Hoover Whoop", "Saw + deep fast PWM + sub with a slow resonant filter whoop; Chorus II.", 4,
+         {{ju::kChorus, kChoII}, {ju::kPulse, 1.0f}, {ju::kPw, 0.9f}, {ju::kPwMode, float(ju::kPwLfo)}, {ju::kSub, 0.6f}, {ju::kVibrato, 0.06f}, {ju::kCutoff, 250.0f},
+          {ju::kResonance, 0.6f}, {ju::kEnvAmt, 0.7f}, {ju::kKeyFollow, 0.5f}, {ju::kAttack, 0.25f}, {ju::kDecay, 0.8f},
+          {ju::kSustain, 0.3f}, {ju::kRelease, 0.4f}, {ju::kLfoRate, 4.5f}, {ju::kLfoDelay, 0.0f}, {ju::kVolume, 0.8f}},
+         {juCutoff(240), juEnv(0.15f), juReso(0.15f), juAttack(0.2f), juLfoRate(3.0f), juVibrato(0.2f)}, J},
+        {F, "OT Poly Lead", "Saw + narrow pulse lead with delayed vibrato and key-tracked filter; Chorus I.", 4,
+         {{ju::kChorus, kChoI}, {ju::kPulse, 1.0f}, {ju::kPw, 0.3f}, {ju::kPwMode, float(ju::kPwManual)}, {ju::kSub, 0.2f}, {ju::kVibrato, 0.12f},
+          {ju::kCutoff, 1800.0f}, {ju::kResonance, 0.3f}, {ju::kEnvAmt, 0.35f}, {ju::kKeyFollow, 0.7f}, {ju::kVelVcf, 0.3f},
+          {ju::kAttack, 0.01f}, {ju::kDecay, 0.4f}, {ju::kSustain, 0.7f}, {ju::kRelease, 0.25f}, {ju::kLfoRate, 5.5f},
+          {ju::kLfoDelay, 0.6f}, {ju::kVolume, 0.85f}},
+         {juCutoff(1500), juReso(), juEnv(0.15f), juVibrato(0.2f), juRelease(0.3f), juPwm(0.3f)}, J},
+        {F, "OT Glass Ring", "Narrow pulse through a ringing, fully key-tracked filter: bell and glass; Chorus II.", 4,
+         {{ju::kChorus, kChoII}, {ju::kSaw, 0.0f}, {ju::kPulse, 1.0f}, {ju::kPw, 0.85f}, {ju::kPwMode, float(ju::kPwManual)}, {ju::kSub, 0.0f}, {ju::kHpf, 3.0f},
+          {ju::kCutoff, 1200.0f}, {ju::kResonance, 0.85f}, {ju::kEnvAmt, 0.45f}, {ju::kKeyFollow, 1.0f}, {ju::kAttack, 0.0f},
+          {ju::kDecay, 1.6f}, {ju::kSustain, 0.0f}, {ju::kRelease, 1.4f}, {ju::kVolume, 0.8f}},
+         {juCutoff(1000), juReso(0.1f), juEnv(0.15f), juDecay(1.0f), juRelease(1.0f), juPwm(0.1f)}, J},
+        {F, "OT Noise Sweep", "Noise through a slow resonant filter sweep with LFO wobble: wind and risers; Chorus II.", 4,
+         {{ju::kChorus, kChoII}, {ju::kSaw, 0.0f}, {ju::kSub, 0.0f}, {ju::kNoise, 1.0f}, {ju::kHpf, 2.0f}, {ju::kCutoff, 150.0f}, {ju::kResonance, 0.8f},
+          {ju::kEnvAmt, 0.8f}, {ju::kVcfLfo, 0.15f}, {ju::kKeyFollow, 0.0f}, {ju::kAttack, 1.5f}, {ju::kDecay, 2.5f}, {ju::kSustain, 0.2f},
+          {ju::kRelease, 2.0f}, {ju::kLfoRate, 0.3f}, {ju::kLfoDelay, 0.0f}},
+         {juCutoff(150), juReso(0.1f), juEnv(0.15f), juAttack(1.0f), juLfoFilter(), juLfoRate(4.0f, false)}, J},
+        {F, "OT Warm Keys", "Saw + sub e-piano-like keys: velocity to the VCF, decaying tone, bass boost; Chorus I.", 4,
+         {{ju::kChorus, kChoI}, {ju::kSub, 0.4f}, {ju::kHpf, 0.0f}, {ju::kCutoff, 900.0f}, {ju::kResonance, 0.1f}, {ju::kEnvAmt, 0.3f}, {ju::kKeyFollow, 0.6f},
+          {ju::kVelVcf, 0.6f}, {ju::kVolume, 0.85f}, {ju::kAttack, 0.005f}, {ju::kDecay, 1.8f}, {ju::kSustain, 0.25f}, {ju::kRelease, 0.5f}},
+         {juCutoff(800), juEnv(0.15f), juDecay(1.0f), juRelease(0.4f), juSub(), juChorus()}, J},
+    };
+}
+#endif  // OT_MOD_JU6S
+
+#if defined(OT_MOD_DTY1)
+// ---------------------------------------------------------------------------
+// D-Type (module DTY1, engine 0x82, Patches/DTYPE/): three VCOs (6 waves,
+// Lo..2', VCO 3 off the keyboard as an LFO), white / pink noise, mixer with
+// feedback, the 4-pole ladder (Cutoff, Emphasis to self-oscillation,
+// Contour, Key Track), two ADS contours with the Decay switch, glide, Mod
+// Mix (VCO 3 .. noise) into the VCOs and the filter through the Wheel. Mono:
+// every patch plays Poly 1. M1-M4 are the same on every patch (Cutoff,
+// Emphasis, Contour, Decay of both contours); M5 glide or wheel, M6 the
+// patch's own; leads and brass add Velocity -> Contour to M7.
+
+namespace dt = ot::audio::dtype;
+static_assert(kDtypeEngine == dt::kEngineId, "presets.h kDtypeEngine");
+
+// Macro helpers (amount x stored range per unit: Cutoff 20..20000 Hz,
+// times 0..10 s, Glide Time 0..3 s, Tune -24..24 st, Fine -100..100 ct, levels 0..1).
+Macro dtCutoff(float hz) { return {"Cutoff", true, {{dt::kCutoff, cut(hz)}}}; }
+Macro dtEmph(float a = 0.2f) { return {"Emphasis", true, {{dt::kEmphasis, a}}}; }
+Macro dtContour(float a = 0.25f) { return {"Contour", true, {{dt::kContour, a}}}; }
+Macro dtDecay(float s) { return {"Decay", true, {{dt::kFDecay, s / 10.0f}, {dt::kLDecay, s / 10.0f}}}; }
+Macro dtGlide(float s) { return {"Glide", false, {{dt::kGlideTime, s / 3.0f}}}; }
+Macro dtWheel(float a, bool bipolar = false) { return {"Wheel", bipolar, {{dt::kWheel, a}}}; }
+Macro dtVibrato(float a) { return {"Vibrato", false, {{dt::kWheel, a}}}; }
+Macro dtNoise(float a) { return {"Noise", false, {{dt::kNoiseLevel, a}}}; }
+Macro dtDetune(float ct) { return {"Detune", true, {{dt::kVco2Fine, ct / 200.0f}}}; }
+// Velocity (M7) -> Contour: the contour scales with the velocity (amount a).
+const std::vector<Target> kDtVelContour = {{dt::kContour, 0.5f}};
+constexpr float k32 = float(dt::k32), k16 = float(dt::k16), k8 = float(dt::k8), k4 = float(dt::k4);
+
+std::vector<Preset> dtypePresets() {
+    const SynthModel F = SynthModel::ACD;   // the Mini fallback model of the slot record (mono)
+    const int32_t D = kDtypeEngine;
+    return {
+        {F, "OT Model Bass", "Two saws at 16', half-open ladder with a short contour, legato glide 50 ms; M6 adds a 32' square.", 1,
+         {{dt::kVco1Range, k16}, {dt::kVco2Range, k16}, {dt::kVco2Fine, 5.0f}, {dt::kVco3Range, k32}, {dt::kVco3Wave, float(dt::kSquare)},
+          {dt::kVco3Kb, 1.0f}, {dt::kCutoff, 500.0f}, {dt::kEmphasis, 0.35f}, {dt::kContour, 0.45f}, {dt::kFDecay, 0.35f},
+          {dt::kFSustain, 0.2f}, {dt::kLDecay, 0.4f}, {dt::kLSustain, 0.85f}, {dt::kOscMod, 0.0f}, {dt::kGlideTime, 0.05f}, {dt::kVolume, 1.3f}},
+         {dtCutoff(400), dtEmph(), dtContour(), dtDecay(0.3f), dtGlide(0.3f), {"Sub", false, {{dt::kVco3Level, 0.6f}}}}, D},
+        {F, "OT Fat Lead", "Three saws at 8', detuned, cutoff 2.5 kHz, legato (tied notes glide 100 ms, no re-attack); velocity to the contour.", 1,
+         {{dt::kVco2Fine, 8.0f}, {dt::kVco3Range, k8}, {dt::kVco3Wave, float(dt::kSaw)}, {dt::kVco3Kb, 1.0f}, {dt::kVco3Fine, -9.0f},
+          {dt::kVco3Level, 0.5f}, {dt::kVco1Level, 0.7f}, {dt::kVco2Level, 0.6f}, {dt::kCutoff, 2500.0f}, {dt::kEmphasis, 0.25f},
+          {dt::kContour, 0.3f}, {dt::kFDecay, 0.8f}, {dt::kFSustain, 0.5f}, {dt::kLDecay, 1.0f}, {dt::kLSustain, 0.9f},
+          {dt::kOscMod, 0.0f}, {dt::kGlideMode, float(dt::kLegato)}, {dt::kGlideTime, 0.1f}, {dt::kVolume, 1.2f}},
+         {dtCutoff(2000), dtEmph(), dtContour(), dtDecay(0.6f), dtGlide(0.4f), dtDetune(30.0f)}, D, kDtVelContour},
+        {F, "OT Brass Section", "Saw at 8' + square at 16', a slow filter attack (80 ms), vibrato from VCO 3 on the wheel (M5).", 1,
+         {{dt::kVco2Range, k16}, {dt::kVco2Wave, float(dt::kSquare)}, {dt::kVco2Level, 0.5f}, {dt::kVco2Fine, 0.0f},
+          {dt::kVco3Tune, 16.0f}, {dt::kCutoff, 700.0f}, {dt::kEmphasis, 0.15f}, {dt::kContour, 0.5f}, {dt::kFAttack, 0.08f},
+          {dt::kFDecay, 0.6f}, {dt::kFSustain, 0.5f}, {dt::kLAttack, 0.03f}, {dt::kLDecay, 0.8f}, {dt::kLSustain, 0.85f},
+          {dt::kOscMod, 0.2f}, {dt::kVolume, 1.35f}},
+         {dtCutoff(600), dtEmph(), dtContour(), dtDecay(0.5f), dtVibrato(0.8f), {"Attack", true, {{dt::kFAttack, 0.01f}, {dt::kLAttack, 0.005f}}}},
+         D, kDtVelContour},
+        {F, "OT Sync Bite", "Saw lead with VCO 3 on the keyboard as audio-rate FM and high emphasis: a hard, bright edge; M5 more FM.", 1,
+         {{dt::kVco2Level, 0.3f}, {dt::kVco2Fine, 4.0f}, {dt::kVco3Range, k8}, {dt::kVco3Wave, float(dt::kTri)}, {dt::kVco3Kb, 1.0f},
+          {dt::kOscMod, 0.9f}, {dt::kWheel, 0.8f}, {dt::kCutoff, 900.0f}, {dt::kEmphasis, 0.65f}, {dt::kContour, 0.5f},
+          {dt::kFDecay, 0.25f}, {dt::kFSustain, 0.15f}, {dt::kLDecay, 0.5f}, {dt::kLSustain, 0.8f}, {dt::kVolume, 1.1f}},
+         {dtCutoff(700), dtEmph(0.15f), dtContour(), dtDecay(0.3f), dtWheel(0.2f, true), {"FM Tune", true, {{dt::kVco3Tune, 0.25f}}}},
+         D, kDtVelContour},
+        {F, "OT Pluck Perc", "Square + saw pluck: Decay switch Off (short release), no sustain, a fast contour.", 1,
+         {{dt::kVco1Wave, float(dt::kSquare)}, {dt::kVco2Range, k4}, {dt::kVco2Level, 0.3f}, {dt::kCutoff, 400.0f},
+          {dt::kEmphasis, 0.4f}, {dt::kContour, 0.6f}, {dt::kFAttack, 0.0f}, {dt::kFDecay, 0.12f}, {dt::kFSustain, 0.0f},
+          {dt::kLAttack, 0.0f}, {dt::kLDecay, 0.25f}, {dt::kLSustain, 0.0f}, {dt::kDecaySw, 0.0f}, {dt::kOscMod, 0.0f}, {dt::kVolume, 1.4f}},
+         {dtCutoff(400), dtEmph(), dtContour(), dtDecay(0.2f), dtGlide(0.2f), dtNoise(0.4f)}, D},
+        {F, "OT Tom Thump", "Triangle at 32' + noise into a ladder near self-oscillation, Key Track Full: a pitched drum.", 1,
+         {{dt::kVco1Range, k32}, {dt::kVco1Wave, float(dt::kTri)}, {dt::kVco2Level, 0.0f}, {dt::kNoiseLevel, 0.15f},
+          {dt::kCutoff, 150.0f}, {dt::kEmphasis, 0.72f}, {dt::kContour, 0.6f}, {dt::kKeyTrack, float(dt::kKeyFull)},
+          {dt::kFAttack, 0.0f}, {dt::kFDecay, 0.18f}, {dt::kFSustain, 0.0f}, {dt::kLAttack, 0.0f}, {dt::kLDecay, 0.35f},
+          {dt::kLSustain, 0.0f}, {dt::kOscMod, 0.0f}, {dt::kVolume, 1.8f}},
+         {dtCutoff(120), dtEmph(0.15f), dtContour(), dtDecay(0.3f), dtGlide(0.2f), dtNoise(0.4f)}, D},
+        {F, "OT Whistle Sine", "No VCO: Emphasis 100 % makes the ladder the oscillator, in tune from C4 (Key Track Full).", 1,
+         {{dt::kVco1Level, 0.0f}, {dt::kVco2Level, 0.0f}, {dt::kCutoff, 261.63f}, {dt::kEmphasis, 1.0f}, {dt::kContour, 0.0f},
+          {dt::kKeyTrack, float(dt::kKeyFull)}, {dt::kVco3Tune, 16.0f}, {dt::kOscMod, 0.0f}, {dt::kFilterMod, 0.1f},
+          {dt::kLAttack, 0.02f}, {dt::kLDecay, 0.3f}, {dt::kLSustain, 1.0f}, {dt::kGlideMode, float(dt::kLegato)}, {dt::kGlideTime, 0.08f}, {dt::kVolume, 1.2f}},
+         {dtCutoff(60), dtEmph(0.15f), dtContour(0.1f), dtDecay(0.5f), dtVibrato(0.7f), {"Breath", false, {{dt::kNoiseLevel, 0.3f}}}},
+         D},
+        {F, "OT Hollow Square", "Squares at 8' and 16', Key Track 2/3, a gentle contour: a hollow, woody voice.", 1,
+         {{dt::kVco1Wave, float(dt::kSquare)}, {dt::kVco1Level, 0.6f}, {dt::kVco2Range, k16}, {dt::kVco2Wave, float(dt::kSquare)},
+          {dt::kVco2Level, 0.5f}, {dt::kVco2Fine, 4.0f}, {dt::kCutoff, 1500.0f}, {dt::kEmphasis, 0.2f}, {dt::kContour, 0.25f},
+          {dt::kFDecay, 0.7f}, {dt::kFSustain, 0.6f}, {dt::kLDecay, 0.8f}, {dt::kLSustain, 0.9f}, {dt::kOscMod, 0.0f},
+          {dt::kGlideTime, 0.04f}, {dt::kVolume, 1.4f}},
+         {dtCutoff(1200), dtEmph(), dtContour(), dtDecay(0.5f), dtGlide(0.3f), dtDetune(20.0f)}, D},
+        {F, "OT Growl Bass", "Saws at 32' and 16' with the output fed back into the mixer (Feedback 80 %), cutoff 300 Hz.", 1,
+         {{dt::kVco1Range, k32}, {dt::kVco2Range, k16}, {dt::kVco2Fine, 3.0f}, {dt::kFeedback, 0.8f}, {dt::kCutoff, 300.0f},
+          {dt::kEmphasis, 0.25f}, {dt::kContour, 0.35f}, {dt::kFDecay, 0.3f}, {dt::kFSustain, 0.3f}, {dt::kLDecay, 0.4f},
+          {dt::kLSustain, 0.85f}, {dt::kOscMod, 0.0f}, {dt::kVolume, 1.0f}},
+         {dtCutoff(250), dtEmph(), dtContour(), dtDecay(0.3f), dtGlide(0.3f), {"Feedback", true, {{dt::kFeedback, 0.2f}}}}, D},
+        {F, "OT Noise Hit", "Noise alone through a resonant ladder with a full, fast contour: snares, claps, zaps.", 1,
+         {{dt::kVco1Level, 0.0f}, {dt::kVco2Level, 0.0f}, {dt::kNoiseLevel, 0.8f}, {dt::kCutoff, 300.0f}, {dt::kEmphasis, 0.7f},
+          {dt::kContour, 1.0f}, {dt::kKeyTrack, float(dt::kKeyFull)}, {dt::kFAttack, 0.0f}, {dt::kFDecay, 0.15f},
+          {dt::kFSustain, 0.0f}, {dt::kLAttack, 0.0f}, {dt::kLDecay, 0.3f}, {dt::kLSustain, 0.0f}, {dt::kOscMod, 0.0f}, {dt::kVolume, 1.3f}},
+         {dtCutoff(250), dtEmph(0.15f), dtContour(0.2f), dtDecay(0.2f), dtGlide(0.2f), {"Pink", false, {{dt::kNoiseColour, 1.0f}}}}, D},
+        {F, "OT Wind Drone", "Pink noise + triangle at 32', slow contours, a slow VCO 3 moving the filter on the wheel.", 1,
+         {{dt::kVco1Range, k32}, {dt::kVco1Wave, float(dt::kTri)}, {dt::kVco1Level, 0.4f}, {dt::kVco2Level, 0.0f},
+          {dt::kNoiseLevel, 0.7f}, {dt::kNoiseColour, float(dt::kPink)}, {dt::kVco3Tune, -24.0f}, {dt::kCutoff, 600.0f},
+          {dt::kEmphasis, 0.6f}, {dt::kContour, 0.3f}, {dt::kFAttack, 1.5f}, {dt::kFDecay, 3.0f}, {dt::kFSustain, 0.6f},
+          {dt::kLAttack, 1.2f}, {dt::kLDecay, 3.0f}, {dt::kLSustain, 1.0f}, {dt::kOscMod, 0.0f}, {dt::kFilterMod, 0.35f},
+          {dt::kWheel, 0.6f}, {dt::kVolume, 1.3f}},
+         {dtCutoff(500), dtEmph(), dtContour(), dtDecay(2.0f), dtWheel(0.4f, true), {"Rate", true, {{dt::kVco3Tune, 0.25f}}}}, D},
+        {F, "OT Lab Sweep", "Saw + wide pulse, VCO 3 at 16' as audio-rate FM, Emphasis 90 %, a 2 s filter contour sweep.", 1,
+         {{dt::kVco2Wave, float(dt::kWide)}, {dt::kVco2Level, 0.4f}, {dt::kVco3Range, k16}, {dt::kVco3Wave, float(dt::kTri)},
+          {dt::kVco3Kb, 1.0f}, {dt::kVco3Level, 0.2f}, {dt::kOscMod, 0.8f}, {dt::kWheel, 0.8f}, {dt::kCutoff, 200.0f},
+          {dt::kEmphasis, 0.9f}, {dt::kContour, 0.8f}, {dt::kFAttack, 2.0f}, {dt::kFDecay, 2.0f}, {dt::kFSustain, 0.2f},
+          {dt::kLAttack, 0.01f}, {dt::kLDecay, 2.0f}, {dt::kLSustain, 0.9f}, {dt::kVolume, 0.95f}},
+         {dtCutoff(200), dtEmph(0.1f), dtContour(0.2f), dtDecay(1.5f), dtWheel(0.2f, true), {"Mod Mix", false, {{dt::kModMix, 1.0f}}}},
+         D},
+    };
+}
+#endif  // OT_MOD_DTY1
+
+#if defined(OT_MOD_CST1)
+// ---------------------------------------------------------------------------
+// CS-Type (module CST1, engine 0x83, Patches/CSTYPE/): two layers per note
+// (I at 0.., II at 22..), each a saw / pulse / sine / noise VCO into a
+// resonant high-pass and low-pass (IL / AL contour) and its own ADSR VCA;
+// the ring modulator, the sub-osc LFO, Touch and the Ribbon. Poly 4 (chords)
+// except the Poly 1 lead. M1 Brilliance, M2 Resonance, M3 Touch, M4 Release,
+// M5 Ribbon on every patch; M6 the patch's own.
+
+namespace cs = ot::audio::cstype;
+static_assert(kCstypeEngine == cs::kEngineId, "presets.h kCstypeEngine");
+constexpr int kII = cs::kLayer2;
+
+// Macro helpers (Brilliance / Resonance / Ribbon -1..1, times 0..10 s, levels 0..1).
+Macro csBril(float a = 0.25f) { return {"Brilliance", true, {{cs::kBrilliance, a}}}; }
+Macro csRes(float a = 0.15f) { return {"Resonance", true, {{cs::kResonance, a}}}; }
+Macro csTouch() { return {"Touch", false, {{cs::kTouch, 1.0f}}}; }
+Macro csRelease(float s) { return {"Release", true, {{cs::kRelease, s / 10.0f}, {kII + cs::kRelease, s / 10.0f}}}; }
+Macro csRibbon(float a = 0.5f) { return {"Ribbon", true, {{cs::kRibbon, a}}}; }
+// One layer's edit (layer 0 = I, 1 = II).
+Edit L(int layer, int param, float v) { return {(layer ? kII : 0) + param, v}; }
+
+std::vector<Preset> cstypePresets() {
+    const SynthModel F = SynthModel::VAP;   // the Mini fallback model of the slot record (poly)
+    const int32_t C = kCstypeEngine;
+    const float k16 = float(cs::k16), k4 = float(cs::k4);
+    return {
+        {F, "OT Two Layer Brass", "Layer I a saw, layer II saw + pulse at 16', both low-passes opened by their contours; velocity to the attack levels, Touch opens them.", 4,
+         {L(0, cs::kLpfCutoff, 1300), L(0, cs::kLpfRes, 0.25f), L(0, cs::kAttackLevel, 0.6f), L(0, cs::kFAttack, 0.08f), L(0, cs::kFDecay, 0.7f),
+          L(1, cs::kFeet, k16), L(1, cs::kPulse, 1.0f), L(1, cs::kPw, 0.2f), L(1, cs::kLpfCutoff, 900), L(1, cs::kAttackLevel, 0.5f),
+          L(1, cs::kFAttack, 0.12f), L(1, cs::kAttack, 0.05f), L(1, cs::kLevel, 0.5f), {cs::kInitBril, 0.5f}, {cs::kAfterVcf, 0.4f}, {cs::kVolume, 0.6f}},
+         {csBril(), csRes(), csTouch(), csRelease(0.6f), csRibbon(), {"Layer II", true, {{kII + cs::kLevel, 0.4f}}}}, C},
+        {F, "OT Glass Strings", "Two pulse layers (8' and 4') swept by their own slow PWM, a high-pass taking the body out, slow attack and long release.", 4,
+         {L(0, cs::kSaw, 0.0f), L(0, cs::kPulse, 1.0f), L(0, cs::kPw, 0.3f), L(0, cs::kPwm, 0.5f), L(0, cs::kPwmSpeed, 0.6f),
+          L(0, cs::kHpfCutoff, 250), L(0, cs::kLpfCutoff, 3500), L(0, cs::kAttackLevel, 0.1f), L(0, cs::kAttack, 0.4f), L(0, cs::kRelease, 1.2f),
+          L(1, cs::kFeet, k4), L(1, cs::kSaw, 0.0f), L(1, cs::kPulse, 1.0f), L(1, cs::kPw, 0.4f), L(1, cs::kPwm, 0.6f), L(1, cs::kPwmSpeed, 0.9f),
+          L(1, cs::kHpfCutoff, 400), L(1, cs::kLpfCutoff, 4000), L(1, cs::kAttackLevel, 0.1f), L(1, cs::kAttack, 0.6f), L(1, cs::kRelease, 1.4f),
+          L(1, cs::kLevel, 0.45f), {cs::kVolume, 0.7f}},
+         {csBril(), csRes(), csTouch(), csRelease(1.0f), csRibbon(), {"PWM", true, {{cs::kPwm, 0.3f}, {kII + cs::kPwm, 0.3f}}}}, C},
+        {F, "OT Ring Mod Bells", "Two sines an octave apart through the ring modulator, its rate swept down at the start, a decaying bell envelope.", 4,
+         {L(0, cs::kSaw, 0.0f), L(0, cs::kSine, 1.0f), L(0, cs::kLpfCutoff, 8000), L(0, cs::kAttackLevel, 0.0f), L(0, cs::kDecay, 1.6f),
+          L(0, cs::kSustain, 0.0f), L(0, cs::kRelease, 1.4f), L(1, cs::kFeet, k4), L(1, cs::kSaw, 0.0f), L(1, cs::kSine, 1.0f),
+          L(1, cs::kLpfCutoff, 8000), L(1, cs::kAttackLevel, 0.0f), L(1, cs::kAttack, 0.0f), L(1, cs::kDecay, 0.9f), L(1, cs::kSustain, 0.0f),
+          L(1, cs::kRelease, 0.9f), L(1, cs::kLevel, 0.5f), {cs::kRmDepth, 0.75f}, {cs::kRmSpeed, 270}, {cs::kRmSweep, 0.4f},
+          {cs::kRmDecay, 0.6f}, {cs::kInitBril, 0.0f}, {cs::kVolume, 0.95f}},
+         {csBril(), csRes(), csTouch(), csRelease(1.0f), csRibbon(), {"RM Depth", true, {{cs::kRmDepth, 0.25f}}}}, C},
+        {F, "OT Pressure Lead", "Poly 1 lead: saw + pulse and a detuned saw; Touch (M3, FX CC c) brings in vibrato, opens the filter and pushes the level.", 1,
+         {L(0, cs::kPulse, 1.0f), L(0, cs::kPw, 0.25f), L(0, cs::kLpfCutoff, 1200), L(0, cs::kLpfRes, 0.45f), L(0, cs::kAttackLevel, 0.4f),
+          L(0, cs::kFDecay, 0.8f), L(0, cs::kSustain, 0.9f), L(0, cs::kRelease, 0.3f), L(1, cs::kLpfCutoff, 1500), L(1, cs::kLpfRes, 0.3f),
+          L(1, cs::kAttack, 0.02f), L(1, cs::kRelease, 0.3f), L(1, cs::kLevel, 0.5f), {cs::kDetune, 12.0f}, {cs::kAfterVco, 0.6f},
+          {cs::kAfterVcf, 0.5f}, {cs::kAfterVca, 0.3f}, {cs::kGlideTime, 0.05f}, {cs::kVolume, 1.0f}},
+         {csBril(), csRes(), csTouch(), csRelease(0.3f), csRibbon(), {"Glide", false, {{cs::kGlideTime, 0.1f}}}}, C},
+        {F, "OT Noise Wash", "Noise in both layers through resonant filters, layer II high-passed, the cutoffs moved by a slow sub-osc sine: surf and wind.", 4,
+         {L(0, cs::kSaw, 0.0f), L(0, cs::kNoise, 1.0f), L(0, cs::kLpfCutoff, 900), L(0, cs::kLpfRes, 0.6f), L(0, cs::kAttackLevel, 0.2f),
+          L(0, cs::kAttack, 1.5f), L(0, cs::kRelease, 2.0f), L(1, cs::kSaw, 0.0f), L(1, cs::kNoise, 1.0f), L(1, cs::kHpfCutoff, 1500),
+          L(1, cs::kHpfRes, 0.4f), L(1, cs::kLpfCutoff, 6000), L(1, cs::kAttack, 2.0f), L(1, cs::kRelease, 2.5f), L(1, cs::kLevel, 0.4f),
+          {cs::kSpeed, 0.5f}, {cs::kToVcf, 0.5f}, {cs::kInitBril, 0.0f}, {cs::kVolume, 1.2f}},
+         {csBril(), csRes(0.1f), csTouch(), csRelease(1.5f), csRibbon(), {"Wave Speed", true, {{cs::kSpeed, 0.02f}}}}, C},
+        {F, "OT Soft Keys", "A dark saw + sine layer with a piano-like decay and a 4' sine layer for the attack; velocity to brightness and level.", 4,
+         {L(0, cs::kSine, 0.5f), L(0, cs::kLpfCutoff, 1600), L(0, cs::kLpfRes, 0.1f), L(0, cs::kAttackLevel, 0.4f), L(0, cs::kFDecay, 0.9f),
+          L(0, cs::kDecay, 1.4f), L(0, cs::kSustain, 0.3f), L(0, cs::kRelease, 0.5f), L(1, cs::kFeet, k4), L(1, cs::kSaw, 0.0f),
+          L(1, cs::kSine, 1.0f), L(1, cs::kAttack, 0.0f), L(1, cs::kDecay, 0.5f), L(1, cs::kSustain, 0.0f), L(1, cs::kRelease, 0.3f),
+          L(1, cs::kLevel, 0.35f), {cs::kInitBril, 0.6f}, {cs::kInitLevelVel, 0.4f}, {cs::kVolume, 0.75f}},
+         {csBril(), csRes(), csTouch(), csRelease(0.5f), csRibbon(), {"Tine", true, {{kII + cs::kLevel, 0.3f}}}}, C},
+        {F, "OT Film Pad", "A saw at 8' and a PWM pulse at 16', slow attacks, a long release, a gentle sub-osc drift on the pitch.", 4,
+         {L(0, cs::kLpfCutoff, 1600), L(0, cs::kAttackLevel, 0.3f), L(0, cs::kFAttack, 1.0f), L(0, cs::kAttack, 0.8f), L(0, cs::kRelease, 2.0f),
+          L(1, cs::kFeet, k16), L(1, cs::kSaw, 0.0f), L(1, cs::kPulse, 1.0f), L(1, cs::kPw, 0.3f), L(1, cs::kPwm, 0.4f), L(1, cs::kLpfCutoff, 1000),
+          L(1, cs::kAttack, 1.2f), L(1, cs::kRelease, 2.4f), L(1, cs::kLevel, 0.5f), {cs::kSpeed, 0.2f}, {cs::kToVco, 0.15f},
+          {cs::kVolume, 0.7f}},
+         {csBril(), csRes(), csTouch(), csRelease(1.5f), csRibbon(), {"Drift", false, {{cs::kToVco, 0.3f}}}}, C},
+        {F, "OT Reso Sweep", "One saw layer into a low-pass at 85 % resonance swept up by a slow contour from below (IL negative).", 4,
+         {L(0, cs::kLpfCutoff, 350), L(0, cs::kLpfRes, 0.85f), L(0, cs::kInitLevel, -0.2f), L(0, cs::kAttackLevel, 0.7f),
+          L(0, cs::kFAttack, 1.2f), L(0, cs::kFDecay, 1.5f), L(0, cs::kRelease, 0.6f), L(1, cs::kLevel, 0.0f), {cs::kInitBril, 0.0f},
+          {cs::kVolume, 0.65f}},
+         {csBril(), csRes(0.08f), csTouch(), csRelease(0.6f), csRibbon(), {"Sweep", true, {{cs::kFAttack, 0.08f}, {cs::kFDecay, 0.08f}}}}, C},
+        {F, "OT Hard Touch", "A pulse and a 16' saw: the velocity sets the brightness and the level strongly; play it with Volume FX.", 4,
+         {L(0, cs::kSaw, 0.0f), L(0, cs::kPulse, 1.0f), L(0, cs::kPw, 0.15f), L(0, cs::kLpfCutoff, 700), L(0, cs::kLpfRes, 0.3f),
+          L(0, cs::kAttackLevel, 0.7f), L(0, cs::kFDecay, 0.4f), L(1, cs::kFeet, k16), L(1, cs::kLpfCutoff, 900), L(1, cs::kAttackLevel, 0.5f),
+          L(1, cs::kLevel, 0.4f), {cs::kInitBril, 1.0f}, {cs::kInitLevelVel, 0.5f}, {cs::kVolume, 0.75f}},
+         {csBril(), csRes(), csTouch(), csRelease(0.4f), csRibbon(), {"Width", false, {{cs::kPw, 0.6f}}}}, C},
+        {F, "OT Whistle Duet", "No waves: both low-passes sing (resonance at the top), layer II a fifth above, following the keys by half.", 4,
+         {L(0, cs::kSaw, 0.0f), L(0, cs::kLpfCutoff, 880), L(0, cs::kLpfRes, 1.0f), L(0, cs::kAttackLevel, 0.0f), L(0, cs::kAttack, 0.08f),
+          L(0, cs::kRelease, 0.5f), L(0, cs::kLevel, 0.4f), L(1, cs::kSaw, 0.0f), L(1, cs::kLpfCutoff, 1318), L(1, cs::kLpfRes, 1.0f),
+          L(1, cs::kAttackLevel, 0.0f), L(1, cs::kAttack, 0.12f), L(1, cs::kRelease, 0.5f), L(1, cs::kLevel, 0.3f), {cs::kInitBril, 0.0f},
+          {cs::kVolume, 0.7f}},
+         {csBril(0.1f), csRes(0.05f), csTouch(), csRelease(0.5f), csRibbon(), {"Interval", true, {{kII + cs::kLpfCutoff, 0.02f}}}}, C},
+        {F, "OT Dual Filter Growl", "A 16' saw between a resonant high-pass and low-pass, a 16' pulse layer, the low-passes wobbled by the sub-osc.", 4,
+         {L(0, cs::kFeet, k16), L(0, cs::kHpfCutoff, 180), L(0, cs::kHpfRes, 0.7f), L(0, cs::kLpfCutoff, 550), L(0, cs::kLpfRes, 0.7f),
+          L(0, cs::kAttackLevel, 0.3f), L(1, cs::kFeet, k16), L(1, cs::kSaw, 0.0f), L(1, cs::kPulse, 1.0f), L(1, cs::kLpfCutoff, 700),
+          L(1, cs::kLevel, 0.4f), {cs::kSpeed, 5.0f}, {cs::kToVcf, 0.25f}, {cs::kVolume, 0.55f}},
+         {csBril(), csRes(0.1f), csTouch(), csRelease(0.3f), csRibbon(), {"Growl", false, {{cs::kToVcf, 0.5f}}}}, C},
+        {F, "OT Choir Vox", "A breathy pulse and a saw each between resonant band-limiting filters: vowel-like formants; a slow vibrato from the sub-osc.", 4,
+         {L(0, cs::kSaw, 0.0f), L(0, cs::kPulse, 1.0f), L(0, cs::kPw, 0.6f), L(0, cs::kPwm, 0.3f), L(0, cs::kNoise, 0.05f),
+          L(0, cs::kHpfCutoff, 350), L(0, cs::kHpfRes, 0.5f), L(0, cs::kLpfCutoff, 1800), L(0, cs::kLpfRes, 0.5f), L(0, cs::kAttack, 0.3f),
+          L(0, cs::kRelease, 1.0f), L(1, cs::kHpfCutoff, 700), L(1, cs::kHpfRes, 0.6f), L(1, cs::kLpfCutoff, 2500), L(1, cs::kLpfRes, 0.4f),
+          L(1, cs::kAttack, 0.4f), L(1, cs::kRelease, 1.2f), L(1, cs::kLevel, 0.5f), {cs::kSpeed, 5.0f}, {cs::kToVco, 0.05f},
+          {cs::kVolume, 0.65f}},
+         {csBril(), csRes(), csTouch(), csRelease(0.8f), csRibbon(), {"Vowel", true, {{cs::kLpfCutoff, 0.03f}, {kII + cs::kLpfCutoff, 0.03f}}}}, C},
+    };
+}
+#endif  // OT_MOD_CST1
+
+#if defined(OT_MOD_ATY1)
+// ---------------------------------------------------------------------------
+// A-Type (module ATY1, engine 0x84, Patches/ATYPE/): two VCOs (saw / pulse
+// with PWM, 32'..4', VCO 2 tune and hard sync), noise or the ring modulator,
+// the sample & hold, HPF, 4-pole or 2-pole low-pass, ADSR and AR, one LFO,
+// Keyboard Mono / Duo, Priority Last / Low / High. Every patch plays Poly 1
+// (Duo needs it: VCO 1 takes the lowest held note, VCO 2 the highest; two
+// tracks on the slot or two MIDI keys). M1-M4 are the same on every patch
+// (Cutoff, Resonance, Env Amt, Decay + Release); M5 the vibrato or the S&H
+// rate, M6 the patch's own; leads add Velocity -> Env Amt to M7.
+
+namespace at = ot::audio::atype;
+static_assert(kAtypeEngine == at::kEngineId, "presets.h kAtypeEngine");
+
+// Macro helpers (amount x stored range per unit: Cutoff 20..20000 Hz,
+// Env Amt -1..1, times 0..10 s, S&H Rate 0.1..50 Hz, Tune -24..24 st, levels 0..1).
+Macro atCutoff(float hz) { return {"Cutoff", true, {{at::kCutoff, cut(hz)}}}; }
+Macro atRes(float a = 0.2f) { return {"Resonance", true, {{at::kResonance, a}}}; }
+Macro atEnv(float a = 0.15f) { return {"Env Amt", true, {{at::kEnvAmt, a}}}; }
+Macro atDecay(float s) { return {"Decay", true, {{at::kDecay, s / 10.0f}, {at::kRelease, s / 10.0f}, {at::kArRelease, s / 10.0f}}}; }
+Macro atVibrato(float a) { return {"Vibrato", false, {{at::kVco1LfoMod, a}, {at::kVco2Mod, a}}}; }
+Macro atShRate(float hz) { return {"S&H Rate", true, {{at::kShRate, hz / 49.9f}}}; }
+Macro atTune(const char* name, float st) { return {name, true, {{at::kVco2Tune, st / 48.0f}}}; }
+// Velocity (M7) -> Env Amt.
+const std::vector<Target> kAtVelEnv = {{at::kEnvAmt, 0.5f}};
+constexpr float kA32 = float(at::k32), kA16 = float(at::k16);
+constexpr float kPulseW = float(at::kPulse), kDuoK = float(at::kDuo), kArE = float(at::kAr), k2P = float(at::k2Pole);
+
+std::vector<Preset> atypePresets() {
+    const SynthModel F = SynthModel::ACD;   // the Mini fallback model of the slot record (mono)
+    const int32_t A = kAtypeEngine;
+    return {
+        {F, "OT Duo Fifths", "Duo: two notes held (two tracks or two keys) split, VCO 1 the low one, VCO 2 the high one; two saws, a bright 4-pole.", 1,
+         {{at::kKeyboard, kDuoK}, {at::kVco2Fine, 3.0f}, {at::kVco1Level, 0.7f}, {at::kVco2Level, 0.7f}, {at::kCutoff, 1800.0f},
+          {at::kResonance, 0.25f}, {at::kEnvAmt, 0.3f}, {at::kDecay, 0.5f}, {at::kSustain, 0.7f}, {at::kRelease, 0.25f}, {at::kVolume, 1.1f}},
+         {atCutoff(1500), atRes(), atEnv(), atDecay(0.4f), atVibrato(0.3f), {"Detune", true, {{at::kVco2Fine, 0.15f}}}}, A},
+        {F, "OT Sync Tear", "VCO 2 synced to VCO 1, swept by the ADSR: the classic tearing lead; M6 moves the sync tune.", 1,
+         {{at::kSync, 1.0f}, {at::kVco2Tune, 7.0f}, {at::kVco2Fine, 0.0f}, {at::kVco1Level, 0.3f}, {at::kVco2Level, 0.8f},
+          {at::kVco2Mod, 0.55f}, {at::kVco2ModSrc, float(at::kModAdsr)}, {at::kCutoff, 3000.0f}, {at::kResonance, 0.3f},
+          {at::kEnvAmt, 0.25f}, {at::kDecay, 0.6f}, {at::kSustain, 0.6f}, {at::kRelease, 0.3f}, {at::kGlideTime, 0.03f}, {at::kVolume, 0.9f}},
+         {atCutoff(2500), atRes(), atEnv(), atDecay(0.5f), {"Vibrato", false, {{at::kVco1LfoMod, 0.3f}}}, atTune("Sync Tune", 12.0f)},
+         A, kAtVelEnv},
+        {F, "OT Sample Hold Zap", "A pulse through a resonant 4-pole stepped by the S&H on noise at 10 Hz; M5 the rate, M6 the lag.", 1,
+         {{at::kVco1Wave, kPulseW}, {at::kVco1Pw, 0.3f}, {at::kVco2Level, 0.4f}, {at::kCutoff, 900.0f}, {at::kResonance, 0.7f},
+          {at::kEnvAmt, 0.2f}, {at::kShAmt, 0.55f}, {at::kShRate, 10.0f}, {at::kSustain, 0.8f}, {at::kRelease, 0.4f}, {at::kVolume, 1.0f}},
+         {atCutoff(700), atRes(0.15f), atEnv(), atDecay(0.4f), atShRate(8.0f), {"Lag", false, {{at::kShLag, 0.15f}}}}, A},
+        {F, "OT Odd Bass", "A 32' saw and a 16' pulse a fifth up through a dark 4-pole with a short envelope; M6 the pulse width.", 1,
+         {{at::kVco1Range, kA32}, {at::kVco2Range, kA16}, {at::kVco2Wave, kPulseW}, {at::kVco2Pw, 0.6f}, {at::kVco2Tune, -5.0f},
+          {at::kVco2Fine, 0.0f}, {at::kVco1Level, 0.8f}, {at::kVco2Level, 0.5f}, {at::kCutoff, 350.0f}, {at::kResonance, 0.45f},
+          {at::kEnvAmt, 0.45f}, {at::kDecay, 0.25f}, {at::kSustain, 0.25f}, {at::kRelease, 0.15f}, {at::kKeyTrack, 0.5f}, {at::kVolume, 1.4f}},
+         {atCutoff(300), atRes(), atEnv(), atDecay(0.2f), atVibrato(0.2f), {"PW", true, {{at::kVco2Pw, 0.35f}}}}, A},
+        {F, "OT Ring Bell", "The ring modulator of two VCOs a tritone apart, an AR with a long release: a metallic bell; M6 the ring's tune.", 1,
+         {{at::kVco2Tune, 6.0f}, {at::kVco2Fine, 13.0f}, {at::kVco1Level, 0.1f}, {at::kVco2Level, 0.0f}, {at::kSource, float(at::kRing)},
+          {at::kSourceLevel, 0.9f}, {at::kCutoff, 6000.0f}, {at::kResonance, 0.1f}, {at::kEnvAmt, 0.0f}, {at::kVcaEnv, kArE},
+          {at::kArAttack, 0.0f}, {at::kArRelease, 1.6f}, {at::kKeyTrack, 1.0f}, {at::kVolume, 1.3f}},
+         {atCutoff(4000), atRes(), atEnv(), atDecay(1.0f), atVibrato(0.2f), atTune("Ring Tune", 7.0f)}, A},
+        {F, "OT PWM Strings", "Duo: two pulse waves swept by a slow LFO into the 2-pole, slow attack and release; play two tracks for two voices.", 1,
+         {{at::kKeyboard, kDuoK}, {at::kVco1Wave, kPulseW}, {at::kVco2Wave, kPulseW}, {at::kVco1Pw, 0.2f}, {at::kVco2Pw, 0.3f},
+          {at::kVco1Pwm, 0.6f}, {at::kVco2Pwm, 0.5f}, {at::kLfoRate, 0.7f}, {at::kLfoShape, float(at::kTri)}, {at::kFilterMode, k2P},
+          {at::kCutoff, 2400.0f}, {at::kResonance, 0.15f}, {at::kEnvAmt, 0.1f}, {at::kAttack, 0.35f}, {at::kDecay, 1.0f},
+          {at::kSustain, 0.9f}, {at::kRelease, 0.9f}, {at::kVolume, 1.2f}},
+         {atCutoff(2000), atRes(), atEnv(), atDecay(0.8f), atVibrato(0.25f), {"PWM", true, {{at::kVco1Pwm, 0.3f}, {at::kVco2Pwm, 0.3f}}}}, A},
+        {F, "OT Random Arp", "The S&H on noise steps VCO 2 at 8 Hz over a held note: random melodies; M6 the step range.", 1,
+         {{at::kVco1Level, 0.25f}, {at::kVco2Level, 0.7f}, {at::kVco2Wave, kPulseW}, {at::kVco2Pw, 0.4f}, {at::kVco2Mod, 0.6f},
+          {at::kVco2ModSrc, float(at::kModSh)}, {at::kShRate, 8.0f}, {at::kCutoff, 1600.0f}, {at::kResonance, 0.35f},
+          {at::kEnvAmt, 0.15f}, {at::kShAmt, 0.15f}, {at::kSustain, 0.8f}, {at::kRelease, 0.5f}, {at::kVolume, 1.0f}},
+         {atCutoff(1200), atRes(), atEnv(), atDecay(0.4f), atShRate(8.0f), {"Steps", true, {{at::kVco2Mod, 0.3f}}}}, A},
+        {F, "OT Noise Drum", "Noise through the resonant 2-pole with a fast decay; Priority Low: on a slot two tracks share, the lower held note wins; M6 the snap.", 1,
+         {{at::kVco1Level, 0.0f}, {at::kVco2Level, 0.0f}, {at::kSourceLevel, 1.0f}, {at::kFilterMode, k2P}, {at::kCutoff, 1200.0f},
+          {at::kResonance, 0.6f}, {at::kKeyTrack, 1.0f}, {at::kEnvAmt, 0.35f}, {at::kHpf, 120.0f}, {at::kAttack, 0.0f},
+          {at::kDecay, 0.18f}, {at::kSustain, 0.0f}, {at::kRelease, 0.12f}, {at::kPriority, float(at::kLow)}, {at::kVolume, 1.5f}},
+         {atCutoff(1000), atRes(), atEnv(), atDecay(0.15f), atVibrato(0.2f), {"Snap", true, {{at::kEnvAmt, 0.2f}, {at::kDecay, -0.008f}}}}, A},
+        {F, "OT Lead 2-Osc", "Saw and pulse slightly apart, a singing 4-pole, legato glide 60 ms; velocity to the envelope; M5 vibrato.", 1,
+         {{at::kVco2Wave, kPulseW}, {at::kVco2Pw, 0.2f}, {at::kVco2Fine, 9.0f}, {at::kVco1Level, 0.6f}, {at::kVco2Level, 0.5f},
+          {at::kCutoff, 1400.0f}, {at::kResonance, 0.4f}, {at::kEnvAmt, 0.35f}, {at::kDecay, 0.7f}, {at::kSustain, 0.6f},
+          {at::kRelease, 0.3f}, {at::kGlideMode, float(at::kLegato)}, {at::kGlideTime, 0.06f}, {at::kVolume, 1.1f}},
+         {atCutoff(1200), atRes(), atEnv(), atDecay(0.5f), atVibrato(0.35f), {"Detune", true, {{at::kVco2Fine, 0.2f}}}}, A, kAtVelEnv},
+        {F, "OT Noise Wind", "Noise into the 2-pole near self-oscillation, the cutoff swept by a slow LFO, slow attack: wind; M6 the LFO rate.", 1,
+         {{at::kVco1Level, 0.0f}, {at::kVco2Level, 0.0f}, {at::kSourceLevel, 0.8f}, {at::kFilterMode, k2P}, {at::kCutoff, 700.0f},
+          {at::kResonance, 0.85f}, {at::kKeyTrack, 0.3f}, {at::kEnvAmt, 0.1f}, {at::kLfoAmt, 0.45f}, {at::kLfoRate, 0.2f},
+          {at::kAttack, 1.0f}, {at::kDecay, 2.0f}, {at::kSustain, 0.9f}, {at::kRelease, 1.5f}, {at::kVolume, 1.2f}},
+         {atCutoff(500), atRes(0.04f), atEnv(), atDecay(1.5f), atVibrato(0.2f), {"LFO Rate", true, {{at::kLfoRate, 0.02f}}}}, A},
+        {F, "OT Sync Scream", "Synced VCO 2 an octave up, its pitch wobbled by the LFO, a resonant 4-pole above a high-pass: a screaming lead.", 1,
+         {{at::kSync, 1.0f}, {at::kVco2Tune, 12.0f}, {at::kVco2Fine, 0.0f}, {at::kVco1Level, 0.2f}, {at::kVco2Level, 0.8f},
+          {at::kVco2Mod, 0.45f}, {at::kLfoRate, 5.5f}, {at::kCutoff, 2500.0f}, {at::kResonance, 0.6f}, {at::kHpf, 300.0f},
+          {at::kEnvAmt, 0.3f}, {at::kDecay, 0.8f}, {at::kSustain, 0.7f}, {at::kRelease, 0.3f}, {at::kVolume, 1.0f}},
+         {atCutoff(2000), atRes(0.15f), atEnv(), atDecay(0.5f), atVibrato(0.3f), atTune("Scream", 12.0f)}, A, kAtVelEnv},
+        {F, "OT Duo Organ", "Duo: two square waves (16' and 8') on an AR, the 2-pole open: a two-voice organ from two tracks; M6 VCO 2's level.", 1,
+         {{at::kKeyboard, kDuoK}, {at::kVco1Wave, kPulseW}, {at::kVco2Wave, kPulseW}, {at::kVco1Range, kA16}, {at::kVco2Fine, 2.0f},
+          {at::kVco1Level, 0.6f}, {at::kVco2Level, 0.6f}, {at::kFilterMode, k2P}, {at::kCutoff, 3500.0f}, {at::kResonance, 0.0f},
+          {at::kEnvAmt, 0.0f}, {at::kVcaEnv, kArE}, {at::kArAttack, 0.005f}, {at::kArRelease, 0.1f}, {at::kVolume, 1.0f}},
+         {atCutoff(2500), atRes(), atEnv(), atDecay(0.3f), atVibrato(0.2f), {"VCO2 Level", true, {{at::kVco2Level, 0.4f}}}}, A},
+    };
+}
+#endif  // OT_MOD_ATY1
+
+#if defined(OT_MOD_TTY1)
+// ---------------------------------------------------------------------------
+// T-Type (module TTY1, engine 0x85, Patches/TTYPE/): one patch is one kit of
+// ten drums (kick 60, rim 61, snare 62, clap 63 / 71, hats 64-67, cowbell 68,
+// crash 69, ride 70, toms 48-59), each with a Character, per-drum sends,
+// Accent, Drive and Width. Every kit has the same macros: M1 Kick Decay, M2
+// Hat Decay, M3 Tune (kick, snare, toms), M4 Drive, M5 Snappy (snare noise and
+// clap tail), M6 Accent. Poly 1: one voice owns the kit, the drums overlap.
+
+namespace tt = ot::audio::ttype;
+static_assert(kTtypeEngine == tt::kEngineId, "presets.h kTtypeEngine");
+
+// Macro amounts x stored range: Kick Decay 0.05..2.5 s, Hat Decays 0.01..0.5 /
+// 0.1..3 s, Tunes 30..120 / 120..400 / 40..200 / 60..300 / 80..400 Hz, levels 0..1.
+std::vector<Macro> ttMacros() {
+    return {{"Kick Decay", true, {{tt::kKickDecay, 0.15f}}},
+            {"Hat Decay", true, {{tt::kHatOpenDecay, 0.12f}, {tt::kHatClosedDecay, 0.08f}}},
+            {"Tune", true,
+             {{tt::kKickTune, 0.1f}, {tt::kSnareTune, 0.08f}, {tt::kTomLoTune, 0.08f}, {tt::kTomMidTune, 0.08f},
+              {tt::kTomHiTune, 0.08f}}},
+            {"Drive", false, {{tt::kDrive, 0.6f}, {tt::kKickDrive, 0.4f}}},
+            {"Snappy", true, {{tt::kSnareSnappy, 0.35f}, {tt::kClapTail, 0.35f}}},
+            {"Accent", true, {{tt::kAccent, 0.5f}}}};
+}
+constexpr int ttSend(int sound, bool reverb) { return tt::sendParam(sound, reverb); }
+
+std::vector<Preset> ttypePresets() {
+    const SynthModel F = SynthModel::PERC;   // the Mini fallback model of the slot record (a kit)
+    const int32_t T = kTtypeEngine;
+    const std::vector<Macro> M = ttMacros();
+    return {
+        {F, "OT Kit Hybrid Punch", "Punchy hybrid kick with a click, a cracking snare, noisy hats, a wide clap: the all-round techno kit.", 1,
+         {{tt::kKickDecay, 0.45f}, {tt::kKickDrive, 0.3f}, {tt::kKickAttack, 0.5f}, {tt::kSnareTone, 0.6f},
+          {tt::kHatClosedDecay, 0.05f}, {tt::kHatOpenDecay, 0.4f}},
+         M, T},
+        {F, "OT Kit Deep Boom", "A long, deep, pure kick (Boom), soft snare, round toms, metal hats and a crash: deep house and dub techno.", 1,
+         {{tt::kKickChar, 1.0f}, {tt::kKickTune, 46.0f}, {tt::kKickDecay, 1.1f}, {tt::kKickSweep, 0.4f}, {tt::kKickAttack, 0.2f},
+          {tt::kSnareChar, 1.0f}, {tt::kSnareDecay, 0.3f}, {tt::kTomChar, 1.0f}, {tt::kHatChar, 1.0f}, {tt::kAccent, 0.8f},
+          {ttSend(tt::kSSnare, true), 0.4f}},
+         M, T},
+        {F, "OT Kit Tight", "Small and tight: a knocking kick, a thin snare, short toms and hats, a two-burst clap, a low cowbell.", 1,
+         {{tt::kKickChar, 2.0f}, {tt::kKickTune, 62.0f}, {tt::kKickDecay, 0.3f}, {tt::kSnareChar, 2.0f}, {tt::kSnareDecay, 0.12f},
+          {tt::kClapChar, 2.0f}, {tt::kTomChar, 2.0f}, {tt::kBellChar, 2.0f}, {tt::kHatChar, 2.0f}, {tt::kHatClosedDecay, 0.04f},
+          {tt::kHatOpenDecay, 0.3f}, {tt::kWidth, 0.4f}},
+         M, T},
+        {F, "OT Kit Industrial", "Overdriven: the kick's drive and the kit Drive up, a bright cracking snare, metal hats, a thin cymbal, popping rim.", 1,
+         {{tt::kKickDrive, 0.8f}, {tt::kKickAttack, 0.7f}, {tt::kKickDecay, 0.5f}, {tt::kDrive, 0.45f}, {tt::kSnareTone, 0.85f},
+          {tt::kSnareSnappy, 0.75f}, {tt::kHatChar, 1.0f}, {tt::kHatTone, 0.8f}, {tt::kCymChar, 2.0f}, {tt::kRimChar, 1.0f},
+          {ttSend(tt::kSSnare, true), 0.45f}, {ttSend(tt::kSClap, true), 0.45f}},
+         M, T},
+        {F, "OT Kit Minimal Tech", "Minimal: a short punchy kick, a loud stick rim, thin closed hats with an echo, a clanging cowbell, a dry clap.", 1,
+         {{tt::kKickTune, 52.0f}, {tt::kKickDecay, 0.3f}, {tt::kRimLevel, 0.9f}, {tt::kHatChar, 2.0f}, {tt::kHatClosedDecay, 0.05f},
+          {tt::kBellChar, 0.0f}, {tt::kClapChar, 1.0f}, {tt::kWidth, 0.45f}, {ttSend(tt::kSHat, false), 0.3f},
+          {ttSend(tt::kSRim, false), 0.25f}},
+         M, T},
+        {F, "OT Kit Acid House", "A booming kick, a wide clap with a long tail, a soft snare, noisy open hats, a bright cowbell, a ride.", 1,
+         {{tt::kKickChar, 1.0f}, {tt::kKickDecay, 0.5f}, {tt::kKickAttack, 0.3f}, {tt::kClapTail, 0.75f}, {tt::kClapDecay, 0.4f},
+          {tt::kSnareChar, 1.0f}, {tt::kHatOpenDecay, 0.45f}, {tt::kBellChar, 1.0f}, {tt::kCymChar, 1.0f},
+          {ttSend(tt::kSClap, true), 0.4f}},
+         M, T},
+        {F, "OT Kit Dub", "Dub techno: deep kick, a soft snare and a popping rim into the delay and the reverb, metal hats with an echo.", 1,
+         {{tt::kKickChar, 1.0f}, {tt::kKickDecay, 0.7f}, {tt::kKickTune, 50.0f}, {tt::kSnareChar, 1.0f}, {tt::kSnareDecay, 0.35f},
+          {tt::kRimChar, 1.0f}, {tt::kHatChar, 1.0f}, {ttSend(tt::kSSnare, true), 0.6f}, {ttSend(tt::kSSnare, false), 0.4f},
+          {ttSend(tt::kSRim, false), 0.5f}, {ttSend(tt::kSHat, false), 0.4f}, {ttSend(tt::kSClap, true), 0.5f}},
+         M, T},
+        {F, "OT Kit Electro", "Electro: a knocking kick with a long sweep, thin snare, a tight clap, sweeping toms, a bright cowbell.", 1,
+         {{tt::kKickChar, 2.0f}, {tt::kKickSweep, 0.9f}, {tt::kKickDecay, 0.6f}, {tt::kSnareChar, 2.0f}, {tt::kClapChar, 2.0f},
+          {tt::kTomChar, 0.0f}, {tt::kTomLoDecay, 0.6f}, {tt::kTomMidDecay, 0.5f}, {tt::kTomHiDecay, 0.45f}, {tt::kBellChar, 1.0f},
+          {tt::kHatChar, 2.0f}},
+         M, T},
+        {F, "OT Kit Hard", "Hard techno: a driven punchy kick with a loud click, kit Drive, a snappy snare, a dry clap, bright noisy hats.", 1,
+         {{tt::kKickDrive, 1.0f}, {tt::kKickAttack, 0.8f}, {tt::kKickDecay, 0.4f}, {tt::kKickTune, 58.0f}, {tt::kDrive, 0.35f},
+          {tt::kSnareSnappy, 0.7f}, {tt::kClapChar, 1.0f}, {tt::kHatTone, 0.7f}, {tt::kHatOpenDecay, 0.35f}},
+         M, T},
+        {F, "OT Kit Dusty Tape", "Lo-fi: a dull booming kick, a dark soft snare, dark metal hats, a ringing cymbal, narrow, light accents.", 1,
+         {{tt::kKickChar, 1.0f}, {tt::kKickTune, 50.0f}, {tt::kKickAttack, 0.1f}, {tt::kSnareChar, 1.0f}, {tt::kSnareTone, 0.3f},
+          {tt::kHatChar, 1.0f}, {tt::kHatTone, 0.2f}, {tt::kCymChar, 1.0f}, {tt::kCymTone, 0.2f}, {tt::kWidth, 0.3f},
+          {tt::kAccent, 0.6f}},
+         M, T},
+        {F, "OT Kit Broken", "Broken beat: a knocking kick, a cracking snare, short toms, a ticking rim, a low cowbell, a tight clap.", 1,
+         {{tt::kKickChar, 2.0f}, {tt::kKickDecay, 0.35f}, {tt::kSnareDecay, 0.3f}, {tt::kTomChar, 2.0f}, {tt::kRimChar, 2.0f},
+          {tt::kBellChar, 2.0f}, {tt::kClapChar, 2.0f}, {tt::kHatChar, 2.0f}, {tt::kHatClosedDecay, 0.05f}},
+         M, T},
+        {F, "OT Kit Rave", "Rave: a long punchy kick with drive, a wide clap into the reverb, a cracking snare, a ringing ride, open hats.", 1,
+         {{tt::kKickSweep, 0.8f}, {tt::kKickDrive, 0.5f}, {tt::kKickDecay, 0.55f}, {tt::kClapTail, 0.8f}, {tt::kClapDecay, 0.45f},
+          {tt::kCymChar, 1.0f}, {tt::kHatOpenDecay, 0.6f}, {tt::kDrive, 0.25f}, {ttSend(tt::kSClap, true), 0.5f},
+          {ttSend(tt::kSRide, true), 0.3f}},
+         M, T},
+    };
+}
+#endif  // OT_MOD_TTY1
 
 void fill(ot::PatchMacro& m, const Macro& d) {
     std::snprintf(m.name, sizeof(m.name), "%s", d.name);
@@ -1084,27 +1614,67 @@ void fill(ot::PatchMacro& m, const Macro& d) {
     }
 }
 
-const char* modelName(SynthModel m) { return ot::synthModelName(m); }
+// The section heading of an engine: its screen name (D-Type; the folder is DTYPE).
+const char* modelName(int32_t engine) { return ot::synthEngineDisplayName(engine); }
 
 }  // namespace
 
 const std::vector<Preset>& all() {
     static const std::vector<Preset> v = [] {
-        std::vector<Preset> out = acdPresets();
-        for (Preset& p : fatPresets()) out.push_back(p);
-        for (Preset& p : vapPresets()) out.push_back(p);
-        for (Preset& p : wtfmPresets()) out.push_back(p);
-        for (Preset& p : percPresets()) out.push_back(p);
+        std::vector<Preset> out;
+        auto add = [&out](std::vector<Preset> ps) {
+            for (Preset& p : ps) out.push_back(p);
+        };
+#if defined(OT_MOD_ACD1)
+        add(acdPresets());
+#endif
+#if defined(OT_MOD_FAT1)
+        add(fatPresets());
+#endif
+#if defined(OT_MOD_VAP1)
+        add(vapPresets());
+#endif
+#if defined(OT_MOD_WTF1)
+        add(wtfmPresets());
+#endif
+#if defined(OT_MOD_PRC1)
+        add(percPresets());
+#endif
+#if defined(OT_MOD_JU6S)
+        add(ju6Presets());
+#endif
+#if defined(OT_MOD_DTY1)
+        add(dtypePresets());
+#endif
+#if defined(OT_MOD_CST1)
+        add(cstypePresets());
+#endif
+#if defined(OT_MOD_ATY1)
+        add(atypePresets());
+#endif
+#if defined(OT_MOD_TTY1)
+        add(ttypePresets());
+#endif
+        (void)add;
         return out;
     }();
     return v;
 }
 
+int32_t engineOf(const Preset& p) { return p.engine ? p.engine : ot::synthEngineId(p.model); }
+
+const char* folderOf(const Preset& p) { return ot::synthEngineFolder(engineOf(p)); }
+
 bool build(ot::App& a, int s, const Preset& pr, std::string& err) {
     a.setSynthModel(s, int(pr.model));
+    if (pr.engine) a.setSynthEngine(s, pr.engine);   // a module engine: the record keeps pr.model
     a.initSynthPatch(s);   // the built-in Init, never a library patch from the card
     ot::SynthPatch& p = a.synthPatch(s);
-    const int32_t engine = ot::synthEngineId(pr.model);
+    const int32_t engine = engineOf(pr);
+    if (a.slotEngineId(s) != engine || p.engine != engine) {
+        err = std::string(pr.name) + ": engine " + std::to_string(engine) + " not in this build";
+        return false;
+    }
     for (const Edit& e : pr.edits) {
         if (!ot::patchParamInRange(engine, e.index, e.value)) {
             err = std::string(pr.name) + ": parameter " + std::to_string(e.index) + " out of range";
@@ -1120,6 +1690,16 @@ bool build(ot::App& a, int s, const Preset& pr, std::string& err) {
         return false;
     }
     for (size_t k = 0; k < pr.macros.size(); ++k) fill(p.macros[k], pr.macros[k]);
+    ot::PatchMacro& m7 = p.macros[ot::kPatchMacroVelocity];
+    for (const Target& t : pr.velocity) {
+        if (m7.count >= ot::kPatchMacroTargets) {
+            err = std::string(pr.name) + ": too many Velocity targets";
+            return false;
+        }
+        m7.targets[m7.count].param = t.param;
+        m7.targets[m7.count].amountBits = ot::patchFloatToBits(t.amount);
+        ++m7.count;
+    }
     ot::PatchIssue issues[4];
     if (const int n = ot::validatePatch(p, issues, 4)) {
         err = std::string(pr.name) + ": " + std::to_string(n) + " validation issue(s), first kind " +
@@ -1147,7 +1727,8 @@ bool buildAndSave(ot::App& a, int s, const Preset& pr, std::string& err) {
 std::string markdown() {
     std::string o;
     o += "# OpenTracker preset pack\n\n";
-    o += "Our own synth patches for the ACD, FAT, VAP, WTFM and PERC engines of OpenTracker 2.x, written by\n";
+    o += "Our own synth patches for the ACD, FAT, VAP, WTFM and PERC engines of OpenTracker 2.x and the JU6,\n";
+    o += "D-Type, CS-Type, A-Type and T-Type module engines of OpenTracker 3.x, written by\n";
     o += "`reimpl/tools/make_patches` (`make -C reimpl patches`) through the firmware's own Save As path.\n";
     o += "Every patch starts from the engine's built-in Init patch; no factory patch is used.\n\n";
     o += "Files: `Patches/<MODEL>/<name>.patch`. Copy the `Patches` folder to the root of the SD card,\n";
@@ -1155,19 +1736,61 @@ std::string markdown() {
     o += "Macros: M1-M6 (FX CC A-F). A bipolar macro (+-) at 63 and a unipolar macro at 0 play the\n";
     o += "patch as saved. M7 is Velocity (Volume FX), as in the Init patch. Levels are voiced for the\n";
     o += "default slot gain (-9 dB); `tests/patches_test.cpp` checks that every patch is audible, stays\n";
-    o += "at least 1 dB below full scale (VAP, FAT and WTFM Poly 4: 4-voice chords; PERC: five drums at once, toms\n";
+    o += "at least 1 dB below full scale (VAP, JU6, CS-Type, FAT and WTFM Poly 4: 4-voice chords; A-Type: also a\n";
+    o += "Duo pair from two tracks; PERC: five drums at once, toms alone; T-Type: every drum alone, then eight\n";
+    o += "at once, toms\n";
     o += "alone) and does not clip with all macros at either extreme.\n\n";
     o += "Poly: the suggested slot polyphony (1 = mono, 4 = chords). It is a slot setting on the synth\n";
     o += "page, not part of the patch.\n";
-    SynthModel cur = SynthModel(255);
+    int32_t cur = -1;
     int count = 0;
     for (const Preset& p : all()) {
-        if (p.model != cur) {
-            cur = p.model;
+        if (engineOf(p) != cur) {
+            cur = engineOf(p);
             int n = 0;
-            for (const Preset& q : all()) n += q.model == cur;
+            for (const Preset& q : all()) n += engineOf(q) == cur;
             o += std::string("\n## ") + modelName(cur) + " (" + std::to_string(n) + ")\n\n";
-            if (cur == SynthModel::PERC)
+            if (cur == kJu6Engine)
+                o += "JU6 is a module engine (3.x, module JU6S): pick it after PERC in the Synth page model list.\n"
+                     "Its stereo chorus is built in, as on the instrument it is modelled on: the patch parameter\n"
+                     "Chorus (Off / I / II, Edit Patch section CHO) runs once per synth slot on the slot's voices.\n"
+                     "Pads and strings use II, brass, keys, plucks and leads I, the bass is dry; the Chorus macro\n"
+                     "(where there is one) steps it up a mode. A JU6 patch saved before the chorus loads with\n"
+                     "Chorus Off. Every JU6 patch is checked with 4-voice chords, chorus on.\n\n";
+            if (cur == kDtypeEngine)
+                o += "D-Type is a module engine (3.x, module DTY1, folder `Patches/DTYPE/`): pick it after JU6 in\n"
+                     "the Synth page model list. It is a mono synth (three oscillators, noise, a 4-pole ladder):\n"
+                     "set the slot's Poly to 1 for last-note priority, legato and glide. M1-M4 are the same on\n"
+                     "every patch (Cutoff, Emphasis, Contour, Decay of both contours); Wheel (M5 where it is the\n"
+                     "Wheel or Vibrato macro) brings in the modulation of VCO 3 or the noise. Leads and brass\n"
+                     "(Fat Lead, Brass Section, Sync Bite) also scale the Contour with the velocity (M7).\n\n";
+            if (cur == kCstypeEngine)
+                o += "CS-Type is a module engine (3.x, module CST1, folder `Patches/CSTYPE/`): pick it after D-Type\n"
+                     "in the Synth page model list. Every note plays two layers (I and II), each a VCO into a\n"
+                     "resonant high-pass and low-pass and its own VCA; Poly is the slot setting (4 for chords).\n"
+                     "M1 Brilliance, M2 Resonance, M3 Touch (after-touch: FX CC c brings it in), M4 Release,\n"
+                     "M5 Ribbon (pitch, +-), M6 the patch's own. Velocity (M7) also scales each layer's filter\n"
+                     "attack level (Init -> Bril).\n\n";
+            if (cur == kAtypeEngine)
+                o += "A-Type is a module engine (3.x, module ATY1, folder `Patches/ATYPE/`): pick it after CS-Type\n"
+                     "in the Synth page model list. Two VCOs with sync, ring modulator, sample & hold. Play it at\n"
+                     "Poly 1: Keyboard Duo splits two held notes (from two tracks on the slot, or two MIDI keys),\n"
+                     "VCO 1 the lowest, VCO 2 the highest; Priority Last / Low / High picks the note in Mono, and\n"
+                     "releasing a key returns to a note still held. M1-M4 are the same on every patch (Cutoff,\n"
+                     "Resonance, Env Amt, Decay + Release); leads (Sync Tear, Lead 2-Osc, Sync Scream) also scale\n"
+                     "the envelope amount with the velocity (M7).\n\n";
+            if (cur == kTtypeEngine)
+                o += "T-Type is a module engine (3.x, module TTY1, folder `Patches/TTYPE/`): a drum synth in the\n"
+                     "classic analog drum machine style, pick it after D-Type in the Synth page model list. One\n"
+                     "patch is one kit; play it at Poly 1 (the drums overlap in the one voice). Notes: kick 60, rim\n"
+                     "61, snare 62, clap 63 and 71, hats 64-67 (closed to open; a closed hat cuts an open one),\n"
+                     "cowbell 68, crash 69, ride 70 (one cymbal), low / mid / high tom 48-51 / 52-55 / 56-59 (a\n"
+                     "semitone up per note); notes from 72 up repeat 60-71, notes below 48 play the low tom. Every\n"
+                     "drum has a Character (punchy hybrid / deep analog / small tight). The Volume FX is the hit's\n"
+                     "velocity through Accent. Every kit has the same macros: M1 Kick Decay, M2 Hat Decay, M3 Tune\n"
+                     "(kick, snare, toms), M4 Drive, M5 Snappy (snare noise, clap tail), M6 Accent. The per-drum\n"
+                     "sends sound when the instrument's own Delay / Reverb send is up.\n\n";
+            if (cur == ot::synthEngineId(SynthModel::PERC))
                 o += "Notes (MIDI numbers): kick 60, snare 62, hi-hats 64-67 (closed to open), cymbal 69, perc 71; any other\n"
                      "note plays the tom at that pitch. The `OT Kit SW` kits are synthwave / retrowave kits\n"
                      "(gated snares, sweeping toms); their per-drum Delay / Reverb sends sound only when the\n"

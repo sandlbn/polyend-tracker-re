@@ -2,23 +2,35 @@
 # App's own Save As path (src/core, unchanged).
 #   make -C reimpl/tools/make_patches           -> build/make_patches/make_patches
 #   make -C reimpl/tools/make_patches run       -> build/patches/Patches/<MODEL>/<name>.patch
-#   make -C reimpl/tools/make_patches markdown  -> regenerates PRESETS.md
+#   make -C reimpl/tools/make_patches markdown  -> regenerates PRESETS.md (PROFILE=full plus the sections
+#                                                  of PROFILE=nofm and classic that full lacks, splice_md.py)
 #   make -C reimpl patches                      (same as run)
 CXX      ?= g++
 ROOT     := ../..
-OUT      := $(ROOT)/build/make_patches
+include $(ROOT)/profile.mk
+# The pack holds the models of the profile's modules (presets.cpp); PRESETS.md
+# comes from PROFILE=full (every model).
+ifneq ($(HAVE_PRESET_MOD),1)
+$(error make_patches needs a synth module with presets (profile.mk PRESET_MODS: $(PRESET_MODS)))
+endif
+OUT      := $(ROOT)/build/$(PROFILE)/make_patches
 SD       ?= $(ROOT)/build/patches
 CXXFLAGS := -std=c++17 -O2 -g -Wall -Wextra -Wno-format-truncation -MMD \
-            -I$(ROOT)/src/core -I$(ROOT)/src -I$(ROOT)/sim/src
+            -I$(ROOT)/src/core -I$(ROOT)/src -I$(ROOT)/sim/src $(MOD_INCS) $(MOD_DEFS)
 
 CORE_SRCS := $(shell find $(ROOT)/src/core -name '*.cpp')
-CORE_OBJS := $(patsubst $(ROOT)/src/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS))
+CORE_OBJS := $(patsubst $(ROOT)/src/%.cpp,$(OUT)/obj/%.o,$(CORE_SRCS)) \
+             $(patsubst %.cpp,$(OUT)/obj/mod/%.o,$(MOD_SRCS))
 TOOL_OBJS := $(OUT)/obj/tool/main.o $(OUT)/obj/tool/presets.o $(OUT)/obj/host_storage.o
 BIN       := $(OUT)/make_patches
 
 all: $(BIN)
 
 $(OUT)/obj/%.o: $(ROOT)/src/%.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(OUT)/obj/mod/%.o: %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
@@ -41,8 +53,17 @@ run: $(BIN)
 	$(BIN) $(SD)
 	cd $(SD) && find . -mindepth 1 -maxdepth 1 ! -name Patches -exec rm -rf {} +
 
+# PRESETS.md covers every model: PROFILE=full plus the sections of the other profiles
+# that full does not have (nofm: JU6, D-Type; classic: CS-Type, A-Type; techno: T-Type;
+# splice_md.py).
+MD_PROFILES := nofm classic idm mini techno
 markdown: $(BIN)
-	$(BIN) --markdown > PRESETS.md
+	$(BIN) --markdown > $(OUT)/presets_full.md
+	set -e; for p in $(MD_PROFILES); do \
+	    $(MAKE) PROFILE=$$p all; \
+	    $(ROOT)/build/$$p/make_patches/make_patches --markdown > $(OUT)/presets_$$p.md; \
+	done
+	python3 -I splice_md.py $(OUT)/presets_full.md $(foreach p,$(MD_PROFILES),$(p)=$(OUT)/presets_$(p).md) > PRESETS.md
 
 clean:
 	rm -rf $(OUT)

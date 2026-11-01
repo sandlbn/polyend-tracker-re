@@ -105,6 +105,7 @@ void Config::sanitize() {
     clampField<uint8_t>(radioRegion, 3, 0);
     clampField<uint8_t>(streamMode, 2, 0);
     clampField<uint8_t>(streamThreshold, 3, 1);
+    clampField<uint8_t>(radioStereo, 1, 0);
     clampField<uint8_t>(exportRate, 1, 1);
     clampField<uint8_t>(brightness, 2, 2);
     clampField<uint8_t>(theme, 2, 0);
@@ -172,7 +173,7 @@ void Config::toExt(uint8_t* out) const {
     out[6] = synthVoices;
     out[7] = streamMode;
     out[8] = streamThreshold;
-    out[9] = extKeep[0];
+    out[9] = radioStereo;
     out[10] = exportRate;
     std::memcpy(out + 11, themeFile, sizeof(themeFile));
     uint8_t sum = 0;
@@ -190,10 +191,9 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
     // Newer versions only append fields: read the ones this build knows.
     cpuMeter = in[5] <= 2 ? in[5] : 0;
     synthVoices = (n >= 2 && in[6] >= 1 && in[6] <= kMaxSynthVoices) ? in[6] : kDefaultSynthVoices;
-    const Config d;
-    streamMode = (n >= 3 && in[7] <= 2) ? in[7] : d.streamMode;
-    streamThreshold = (n >= 4 && in[8] <= 3) ? in[8] : d.streamThreshold;
-    extKeep[0] = n >= 5 ? in[9] : d.extKeep[0];
+    streamMode = (n >= 3 && in[7] <= 2) ? in[7] : 0;
+    streamThreshold = (n >= 4 && in[8] <= 3) ? in[8] : 1;
+    radioStereo = (n >= 5 && in[9] <= 1) ? in[9] : 0;
     exportRate = (n >= 6 && in[10] <= 1) ? in[10] : 1;
     std::memset(themeFile, 0, sizeof(themeFile));
     if (n >= 6 + sizeof(themeFile) && in[11 + sizeof(themeFile) - 1] == 0) {
@@ -218,9 +218,9 @@ bool Config::fromImage(const uint8_t* img) {
     c.synthVoices = synthVoices;
     c.streamMode = streamMode;
     c.streamThreshold = streamThreshold;
+    c.radioStereo = radioStereo;
     c.exportRate = exportRate;
     std::memcpy(c.themeFile, themeFile, sizeof(themeFile));
-    std::memcpy(c.extKeep, extKeep, sizeof(extKeep));
     c.sanitize();
     *this = c;
     toImage();
@@ -232,21 +232,15 @@ bool Config::load(INvStore& nv) {
     if (nv.size() < kImageSize || !nv.read(0, buf, kImageSize)) return false;
     if (!fromImage(buf)) return false;
     uint8_t ext[kExtSize];
-    const Config d;
-    cpuMeter = d.cpuMeter;
-    synthVoices = d.synthVoices;
-    streamMode = d.streamMode;
-    streamThreshold = d.streamThreshold;
-    exportRate = d.exportRate;
+    cpuMeter = 0;
+    synthVoices = kDefaultSynthVoices;
+    streamMode = 0;
+    streamThreshold = 1;
+    radioStereo = 0;
+    exportRate = 1;
     themeFile[0] = 0;
-    std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
-    // The longest record that fits the store (older records are shorter;
-    // fromExt reads the payload length from the record).
-    for (uint32_t len = kExtSize; len >= 7; --len)
-        if (nv.size() >= kExtOffset + len && nv.read(kExtOffset, ext, len)) {
-            fromExt(ext, len);
-            break;
-        }
+    if (nv.size() >= kExtOffset + kExtSize && nv.read(kExtOffset, ext, kExtSize)) fromExt(ext, kExtSize);
+    else if (nv.size() >= kExtOffset + kExtSizeV1 && nv.read(kExtOffset, ext, kExtSizeV1)) fromExt(ext, kExtSizeV1);   // v1 record
     return true;
 }
 
@@ -257,10 +251,8 @@ bool Config::save(INvStore& nv) {
     // default; a store that never had one keeps its erased bytes past 0xF4.
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
-    const Config d;
-    if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && streamMode == d.streamMode &&
-        streamThreshold == d.streamThreshold && exportRate == d.exportRate && themeFile[0] == 0 &&
-        std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0) {
+    if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && streamMode == 0 && streamThreshold == 1 &&
+        radioStereo == 0 && exportRate == 1 && themeFile[0] == 0) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
     }
@@ -282,14 +274,13 @@ bool Config::load(IStorage& fs) {
     if (buf[4] == kFileV2) {
         if (len != kImageSize || avail < kImageSize) return false;
         if (!fromImage(buf + 8)) return false;
-        const Config d;
-        cpuMeter = d.cpuMeter;
-        synthVoices = d.synthVoices;
-        streamMode = d.streamMode;
-        streamThreshold = d.streamThreshold;
-        exportRate = d.exportRate;
+        cpuMeter = 0;
+        synthVoices = kDefaultSynthVoices;
+        streamMode = 0;
+        streamThreshold = 1;
+        radioStereo = 0;
+        exportRate = 1;
         themeFile[0] = 0;
-        std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
         return true;
     }

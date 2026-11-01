@@ -11,6 +11,7 @@
 #include "app/sample_fx.h"
 #include "formats/wav.h"
 #include "ui/screens.h"
+#include "ot_profile.h"
 
 using namespace ot;
 
@@ -197,6 +198,7 @@ TEST(resample_track_and_line_sources) {
 // A synth on a track (2.x: Synth 1..3 play on shared slots, not the
 // track's voice): a Track take records the synth the track plays, dry; a
 // take of another track does not pick it up.
+#ifdef OT_MOD_ACD1   // a real ACD synth (opentracker-synths module)
 TEST(resample_track_source_synth) {
     Harness h;
     App& a = *h.app;
@@ -225,6 +227,7 @@ TEST(resample_track_source_synth) {
     CHECK(a.instrPresent[2]);
     CHECK_EQ(peakOf(a, 2), 0);
 }
+#endif  // OT_MOD_ACD1
 
 // The source is the one armed: changing From while the take runs changes
 // neither what is recorded nor the new instrument's name.
@@ -248,6 +251,7 @@ TEST(resample_source_latched_at_arm) {
 
 // A Track take records only that track's notes on a shared synth slot:
 // track 5 playing Synth 1 is not in a take of track 3 (also on Synth 1).
+#ifdef OT_MOD_ACD1   // a real ACD synth (opentracker-synths module)
 TEST(resample_track_source_shared_synth_slot) {
     Harness h;
     App& a = *h.app;
@@ -331,10 +335,12 @@ TEST(resample_track_source_shared_synth_slot) {
     CHECK(e > 0.0);
     CHECK(d < 0.01 * e);
 }
+#endif  // OT_MOD_ACD1
 
 // The Track tap accumulates in the track's own output (no ISR block
 // buffer); once the take ends, that output must not carry the synth into
 // a later stems export (the silent voice zeroes it only once).
+#ifdef OT_MOD_ACD1   // a real ACD synth (opentracker-synths module)
 TEST(resample_track_tap_leaves_no_stale_stem) {
     Harness h;
     App& a = *h.app;
@@ -366,6 +372,7 @@ TEST(resample_track_tap_leaves_no_stale_stem) {
     a.engine.endOffline();
     CHECK_EQ(pk, 0);
 }
+#endif  // OT_MOD_ACD1
 
 TEST(resample_slot_memory_cancel_and_transport) {
     Harness h;

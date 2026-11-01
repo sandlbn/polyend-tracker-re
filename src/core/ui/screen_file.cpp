@@ -10,7 +10,6 @@
 #include "formats/it_export.h"
 #include "formats/it_import.h"
 #include "formats/mod_import.h"
-#include "ui/screen_games.h"
 #include "ui/screens.h"
 #include "sdram_bss.h"
 
@@ -320,9 +319,6 @@ void FileScreen::refreshBar() {
         b.set(3, "Save");
         b.set(4, "Save As");
         b.set(5, "Export");
-#if OT_GAMES
-        b.set(6, "Games");   // spec 14 §1: File F7 opens the Games browser
-#endif
     } else if (state == 1 || state == 3) {
         // spec 05 appendix E1.2: labels greyed by selection kind (0x4742c).
         const bool sd = focus == 0;
@@ -625,11 +621,6 @@ void FileScreen::onButton(uint8_t id, uint8_t st) {
         switch (id) {
             case btn::F1: doNew(); break;
             case btn::F2: enterBrowser(*this, 1); break;
-#if OT_GAMES
-            case btn::F7:   // spec 14 §1: Games browser
-                openGames(a);
-                return;
-#endif
             case btn::F3:
                 // spec 05 appendix E1.2 / spec 11 §1.1: browser mode 2 at "Mod";
                 // Projects/ and Mod/ are created when missing (0x1f274).

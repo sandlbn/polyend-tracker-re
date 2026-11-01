@@ -10,12 +10,14 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "app/app.h"
 #include "audio/synth_engine.h"
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
 #include "sdram_bss.h"
+#include "modules/synth_models.h"
 #include "ui/screens.h"
 
 namespace ot {
@@ -24,7 +26,12 @@ namespace {
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
-const char* const kModels[kSynthModelCount] = {"ACD", "FAT", "VAP", "WTFM", "PERC"};
+// The model list (F1): the five Mini models, then module engines (modules/synth_models.h).
+int modelNames(const char** out) {
+    const int n = synthModelListCount();
+    for (int i = 0; i < n && i < kMaxSynthModels; ++i) out[i] = synthModelListName(i);
+    return n < kMaxSynthModels ? n : kMaxSynthModels;
+}
 const char* const kOffOn[2] = {"Off", "On"};
 constexpr float kMinBar = 1.0f / float(wg::kPanelH - 25);   // value 0: the 1.5-px line (screen_instrument)
 constexpr int kMacroBarH = 270;                              // Macros page: bars over the legend
@@ -62,7 +69,7 @@ void listColumn(Gfx& g, const Theme& th, int col, int span, const char* const* i
 // elsewhere can end a name in "\r", which the font draws as a stray glyph
 // (device report: "Cutoff" + a small D); the stored name keeps its bytes.
 const char* shown(const char* s) {
-    static char buf[4][kPatchNameMax + 1];
+    OT_SDRAM_BSS static char buf[4][kPatchNameMax + 1];   // SDRAM on the device (OP-5)
     static int next = 0;
     char* o = buf[next];
     next = (next + 1) & 3;
@@ -109,8 +116,10 @@ int setMacroTarget(PatchMacro& mc, int k, int np, uint32_t newAmountBits) {
     return np >= 0 ? at : -1;
 }
 
-// The engine's Init patch (Delete in Edit Patch); main loop only.
-OT_SDRAM_BSS SynthPatch g_initPatch;
+// The engine's Init patch (Delete in Edit Patch), built in the browsers' list
+// memory (screens.h): Edit Patch is never on screen with the patch browser,
+// and every browser rebuilds its list when it opens. Main loop only.
+static_assert(sizeof(SynthPatch) <= kBrowserListBytes && alignof(SynthPatch) <= kBrowserListAlign, "the Init patch fits the browser lists");
 
 bool sortName(const char* a, const char* b) {
     for (;; ++a, ++b) {
@@ -123,8 +132,7 @@ bool sortName(const char* a, const char* b) {
 }  // namespace
 
 void synthui::slotLabel(const App& a, int s, char* out, int cap) {
-    const SynthSlotRecord r = a.synthSlot(s);
-    std::snprintf(out, size_t(cap), "Synth %d (%s)", s + 1, kModels[r.model < uint32_t(kSynthModelCount) ? r.model : 0]);
+    std::snprintf(out, size_t(cap), "Synth %d (%s)", s + 1, synthEngineDisplayName(a.slotEngineId(s)));
 }
 
 // ---------------------------------------------------------------------------
@@ -148,10 +156,8 @@ int32_t SynthScreen::engine() const { return app_.synthPatch(slot).engine; }
 bool SynthScreen::available() const {
     // From the record and the patch (the framework picks a record change up
     // only at its next block).
-    const SynthSlotRecord r = app_.synthSlot(slot);
-    if (r.model >= uint32_t(kSynthModelCount)) return false;
-    const int32_t id = synthEngineId(SynthModel(r.model));
-    return audio::synthEngineFor(id) != nullptr && app_.synthPatch(slot).engine == id;
+    const int32_t id = app_.slotEngineId(slot);
+    return id != 0 && audio::synthEngineFor(id) != nullptr && app_.synthPatch(slot).engine == id;
 }
 
 int SynthScreen::rows() const {
@@ -207,7 +213,7 @@ void SynthScreen::refreshBar() {
     if (ro) param = 0;
     switch (view) {
         case View::Params: {
-            b.set(0, "Model", kModels[r.model < uint32_t(kSynthModelCount) ? r.model : 0]);
+            b.set(0, "Model", synthEngineDisplayName(app_.slotEngineId(slot)));
             const audio::SynthSlotView sv = app_.engine.synth().slotView(slot);
             if (sv.limited) std::snprintf(v, sizeof(v), "%u (%d)", unsigned(r.polyphony), sv.playable);
             else std::snprintf(v, sizeof(v), "%u", unsigned(r.polyphony));
@@ -277,9 +283,11 @@ void SynthScreen::paramsChange(int d, bool wrap) {
         // The Model key cycles through the models and wraps (manual p.147-148
         // "Press [Model] to cycle"); the list (Up / Down, encoder) stops at
         // its ends like every list.
-        const int cur = int(r.model < uint32_t(kSynthModelCount) ? r.model : 0);
-        const int m = wrap ? (cur + d + kSynthModelCount) % kSynthModelCount : clampi(cur + d, 0, kSynthModelCount - 1);
-        if (uint32_t(m) != r.model) {
+        const int n = synthModelListCount();
+        int cur = synthModelListIndex(app_.slotEngineId(slot));
+        if (cur < 0) cur = 0;
+        const int m = wrap ? (cur + d + n) % n : clampi(cur + d, 0, n - 1);
+        if (m != cur) {
             pendingModel_ = m;
             // Unsaved patch edits: ask before the new model's Init replaces them.
             if (edited_[slot]) {
@@ -349,7 +357,8 @@ void SynthScreen::resetEditRow() {
     const synthui::Section* sec = nullptr;
     const int n = synthui::sections(engine(), &sec);
     if (section < 0 || section >= n || row < 0 || row >= rows()) return;
-    if (!patchInit(engine(), &g_initPatch)) return;
+    SynthPatch& init = *new (browserListMem()) SynthPatch();
+    if (!patchInit(engine(), &init)) return;
     SynthPatch& p = app_.synthPatch(slot);
     if (sec[section].macro < 0) {
         const int idx = sec[section].params[row];
@@ -362,8 +371,8 @@ void SynthScreen::resetEditRow() {
             edited();
             return;
         }
-        if (idx >= g_initPatch.paramCount) return;
-        const PatchParam want = g_initPatch.params[idx];
+        if (idx >= init.paramCount) return;
+        const PatchParam want = init.params[idx];
         if (idx < p.paramCount && p.params[idx].present == want.present && (!want.present || p.params[idx].bits == want.bits))
             return;
         if (want.present) audio::synthParamSet(p, idx, patchBitsToFloat(want.bits));
@@ -372,7 +381,7 @@ void SynthScreen::resetEditRow() {
     } else {
         const int m = sec[section].macro;
         PatchMacro& mc = p.macros[m];
-        const PatchMacro& im = g_initPatch.macros[m];
+        const PatchMacro& im = init.macros[m];
         const int initCount = audio::synthMacroTargets(im);
         if (row == 0) {
             std::memcpy(mc.name, im.name, sizeof(mc.name));
@@ -519,7 +528,7 @@ void SynthScreen::listBrowser() {
     browserCount = 0;
     const SynthSlotRecord r = app_.synthSlot(slot);
     char dir[32];
-    std::snprintf(dir, sizeof(dir), "Patches/%s", synthModelName(SynthModel(r.model < uint32_t(kSynthModelCount) ? r.model : 0)));
+    std::snprintf(dir, sizeof(dir), "Patches/%s", synthEngineFolder(app_.slotEngineId(slot)));
     app_.fs().listDir(dir, [](const IStorage::DirEntry& e, void* ctx) {
         auto* s = static_cast<SynthScreen*>(ctx);
         if (e.isDir || s->browserCount >= kBrowserMax) return true;
@@ -551,7 +560,7 @@ void SynthScreen::listBrowser() {
 void SynthScreen::applyModel() {
     if (pendingModel_ < 0) return;
     audition(false, 0);
-    app_.setSynthModel(slot, pendingModel_);
+    app_.setSynthEngine(slot, synthModelListEngine(pendingModel_));
     pendingModel_ = -1;
     edited_[slot] = false;
     section = row = 0;
@@ -682,10 +691,9 @@ void SynthScreen::savePatchAs() {
                     }
                     for (char* q = name; *q; ++q)
                         if (*q == '/' || *q == '\\') *q = '_';
-                    const SynthSlotRecord rr = s->app_.synthSlot(s->slot);
                     char path[96];
-                    std::snprintf(path, sizeof(path), "Patches/%s/%s.patch",
-                                  synthModelName(SynthModel(rr.model < uint32_t(kSynthModelCount) ? rr.model : 0)), name);
+                    std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(s->app_.slotEngineId(s->slot)),
+                                  name);
                     if (s->app_.fs().exists(path)) {
                         s->ui_.ask("Patch exists", "Overwrite?", nullptr, "Cancel", "Overwrite",
                                    [](void* c2, int key) {
@@ -911,9 +919,9 @@ void SynthScreen::padLeds(uint8_t* lv) {
 // Drawing
 
 void SynthScreen::title(Gfx& g, const char* text) {
-    const SynthSlotRecord r = app_.synthSlot(slot);
     char right[48];
-    const char* m = kModels[r.model < uint32_t(kSynthModelCount) ? r.model : 0];
+    const int32_t id = app_.slotEngineId(slot);
+    const char* m = synthEngineDisplayName(id);
     if (available()) {
         std::snprintf(right, sizeof(right), "Synth %d (%s)", slot + 1, m);
         ui_.drawTitle(g, text, right);
@@ -921,9 +929,9 @@ void SynthScreen::title(Gfx& g, const char* text) {
         // The longer header needs the status group's room (hidden). A model
         // that has an engine but holds another engine's patch is not "not
         // available": the header names the patch's engine instead.
-        const int32_t id = synthEngineId(SynthModel(r.model < uint32_t(kSynthModelCount) ? r.model : 0));
-        const char* pe = patchEngineName(app_.synthPatch(slot).engine);
-        if (audio::synthEngineFor(id) && r.model < uint32_t(kSynthModelCount))
+        const int32_t pid = app_.synthPatch(slot).engine;
+        const char* pe = patchEngineName(pid) ? synthEngineDisplayName(pid) : nullptr;
+        if (id && audio::synthEngineFor(id))
             std::snprintf(right, sizeof(right), "Synth %d (%s) %s patch", slot + 1, m, pe ? pe : "unknown");
         else
             std::snprintf(right, sizeof(right), "Synth %d (%s) not available", slot + 1, m);
@@ -938,7 +946,10 @@ void SynthScreen::drawParams(Gfx& g) {
     title(g, "Synth Parameters 1/2");
     // Model list above F1 (manual p.147), bars above F2..F6, the patch panel
     // above F7 / F8.
-    listColumn(g, th, 0, 1, kModels, kSynthModelCount, int(r.model < uint32_t(kSynthModelCount) ? r.model : 0));
+    const char* models[kMaxSynthModels];
+    const int nModels = modelNames(models);
+    const int curModel = synthModelListIndex(app_.slotEngineId(slot));
+    listColumn(g, th, 0, 1, models, nModels, curModel < 0 ? 0 : curModel);
     barColumn(g, th, 1, float(r.polyphony) / 8.0f, false, !ro);
     barColumn(g, th, 2, (r.gainDb + 96.0f) / 108.0f, false, !ro);
     barColumn(g, th, 3, r.pan / 100.0f, true, !ro);
@@ -952,8 +963,8 @@ void SynthScreen::drawParams(Gfx& g) {
     fit(name, kFont2, wg::columnW(2) - 24);
     g.text(x, 73, kFont2, th.slot(slot::kList + 4), name, IDisplay::kOptCenterY);
     if (ro) {
-        const int32_t id = synthEngineId(SynthModel(r.model < uint32_t(kSynthModelCount) ? r.model : 0));
-        const bool foreign = r.model < uint32_t(kSynthModelCount) && audio::synthEngineFor(id);
+        const int32_t id = app_.slotEngineId(slot);
+        const bool foreign = id && audio::synthEngineFor(id);
         g.text(x, 103, kFont3, th.slot(slot::kFocusFrame), foreign ? "Patch of another model" : "Not available",
                IDisplay::kOptCenterY);
     }

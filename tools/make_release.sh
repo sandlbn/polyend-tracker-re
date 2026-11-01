@@ -35,14 +35,15 @@ if [ "$allow_dirty" = 0 ] && [ -n "$(git status --porcelain --untracked-files=no
     exit 1
 fi
 rev=$(git rev-parse --short HEAD)
+profile=${PROFILE:-full}   # 3.x: the image is build/<profile>/*.ptf
 echo "== OpenTracker $version from $rev"
 
-make clean >/dev/null
-make -j"$(nproc)"
-ptf=$(ls build/*.ptf)
+make clean PROFILE="$profile" >/dev/null
+make -j"$(nproc)" PROFILE="$profile"
+ptf=$(ls build/"$profile"/*.ptf)
 [ "$(basename "$ptf" | wc -c)" = 25 ] || { echo "image name is not 24 characters: $ptf" >&2; exit 1; }
 if [ "$skip_tests" = 0 ]; then
-    make -j"$(nproc)" host-test
+    make -j"$(nproc)" host-test PROFILE="$profile"
 fi
 make testsongs >/dev/null
 make patches >/dev/null

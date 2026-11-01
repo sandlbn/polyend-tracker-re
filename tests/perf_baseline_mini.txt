@@ -1,0 +1,28 @@
+# bench-m4 baseline of profile mini (make PROFILE=mini perf-gate picks it over
+# tests/perf_baseline.txt; same format and +5 % rule). Profile mini has the five Tracker
+# Mini synths (the synth pack), so it builds every entry of tests/perf_baseline.txt; the
+# numbers are those of tests/perf_baseline.txt unchanged (no limit moved). Module benches
+# are gated by their own "limit N" lines.
+idle     11112
+idle2    11470
+play8    145418
+worst    244349
+stereo8  174615
+stream8  182222
+synth4   66860
+synth4w  71209
+vapinit  9027
+vapworst 17150
+fatinit  9224
+fatworst 18679
+fatstereo 31078
+mix      257071
+mix5     273064
+mix6     273069
+mixfat   257346
+pswitch  145180
+peakavg  147318
+peak     228560
+wtfminit 9626
+wtfmworst 30214
+mixwtfm  299814

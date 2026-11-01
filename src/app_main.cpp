@@ -11,14 +11,12 @@
 #include "hal/fw_update.h"
 #include "hal/hal.h"
 #include "hal/i2c_bus.h"
-#include "hal/midi_ports.h"
 #include "hal/input.h"
 #include "hal/nvstore_eeprom.h"
 #include "hal/pad_leds.h"
 #include "hal/radio_si4703.h"
 #include "hal/telemetry.h"
 #include "hal/sd_storage.h"
-#include "hal/stack_guard.h"
 #include "hal/stack_watch.h"
 #include "hal/usb_storage.h"
 
@@ -274,7 +272,6 @@ void telemetryTick() {
     s.loopMaxUs = gTelemetry.loopMaxUs();
     s.loops = gTelemetry.loops();
     gTelemetry.resetWindow();
-    ot::hal::midi().takeDinClockStats(&s.dinClockLateMaxUs, &s.dinClocks);
     if (!ot::hal::diagTerminalOpen()) return;
     s.sdramFree = kSdramFree;
     s.i2c0Errors = ot::hal::i2c0().errorCount();
@@ -431,11 +428,5 @@ void otAppMain(ot::hal::HalSet& hal) {
     gApp.ui.platform.bootChecks = &bootChecks;     // factory test (spec 05 §2.12)
     gApp.ui.platform.dlOverflow = &dlOverflow;     // RAM_DL guard (Ui::render)
     if (hal::bootReport().sdMounted) gApp.boot();
-    // Stack guard: an overflow resets the Tracker; say so on screen, not
-    // only in the USB diag log, so it never looks like a random reboot. With
-    // the guard off (ot_noguard.txt) a lockup is some other double fault.
-    if (hal::lastResetWasLockup())
-        gApp.ui.notify(hal::stackGuardArmed() ? "Restarted after a crash (stack overflow)"
-                                              : "Restarted after a crash", 8000);
     gApp.run();
 }

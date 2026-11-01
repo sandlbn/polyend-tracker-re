@@ -1,0 +1,15 @@
+# bench-m4 baseline of profile techno (make PROFILE=techno perf-gate picks it over
+# tests/perf_baseline.txt; same format and +5 % rule). Profile techno has neither VAP1, WTF1
+# nor PRC1, so it builds without the synth pack (as nofm): the per-engine benches (vap* /
+# fat* / wtfm*), the mix sets, synth4w and the song-5 peak replay (peakavg / peak) are not
+# in its bench output. The entries are those of tests/perf_baseline_nofm.txt, numbers
+# unchanged (no limit moved); the module benches (ju6.unit, ju6.unit.chorus, dtype.unit,
+# ttype.unit, dirt.unit, echo.unit, tape.unit) are gated by their own "limit N" lines.
+idle     11112
+idle2    11470
+play8    145418
+worst    244349
+stereo8  174615
+stream8  182222
+synth4   66860
+pswitch  145180

@@ -6,9 +6,22 @@
 #include "app/app.h"
 #include "app/perf_presets.h"
 #include "app/project_fields.h"
+#include "modules/module.h"
+#include "modules/module_ui.h"
 #include "ui/screens.h"
+#include "ui/widgets.h"
 
 namespace ot {
+
+namespace {
+// Master key pages: Master, Track Mixer, Global Mixer (the stock cycle), then
+// one per module settings page (modules/module_ui.h), reached with Shift + Master.
+constexpr int kFixedPages = 3;
+int masterPages() { return kFixedPages + mod::ModuleHost::instance().pageCount(); }
+mod::IModulePage* modulePage(int page) {
+    return page >= kFixedPages ? mod::ModuleHost::instance().pageAt(page - kFixedPages) : nullptr;
+}
+}  // namespace
 
 namespace {
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -336,6 +349,15 @@ void MixerScreen::refreshBar() {
     Project& p = a.project;
     b.clear();
     char v[24];
+    if (mod::IModulePage* mp = modulePage(page)) {
+        for (int i = 0; i < mp->rows() && i < 8; ++i) {
+            mod::ModuleRow row{};
+            mp->row(i, row);
+            b.set(i, row.label, row.value);
+        }
+        b.highlightOnly(param);
+        return;
+    }
     if (page == 0) {
         if (sub == 0) {
             masterVolumeText(a.cfg.masterVolume, v, sizeof(v));
@@ -509,6 +531,11 @@ void MixerScreen::masterChange(int d) {
 
 void MixerScreen::change(int d) {
     App& a = app_;
+    if (mod::IModulePage* mp = modulePage(page)) {
+        if (param >= 0 && param < mp->rows()) mp->adjust(param, d);
+        ui_.dirty();
+        return;
+    }
     if (page == 0) {
         masterChange(d);
         return;
@@ -611,7 +638,17 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 ui_.switchTo(ui_.previous());
                 return;
             }
-            if (!masterHoldFired_) page = (page + 1) % 3;   // the hold already jumped
+            // Master cycles the stock pages (a module page goes back to Master);
+            // Shift + Master steps through the module pages (modules/module_ui.h).
+            const int nMod = masterPages() - kFixedPages;
+            if (!masterHoldFired_) {   // the hold already jumped
+                if (ui_.isDown(btn::Shift) && nMod > 0) {
+                    page = page >= kFixedPages ? kFixedPages + (page - kFixedPages + 1) % nMod : kFixedPages;
+                    param = 0;
+                } else {
+                    page = page >= kFixedPages ? 0 : (page + 1) % kFixedPages;
+                }
+            }
         }
         refreshBar();
         return;
@@ -619,6 +656,11 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
     if (masterPending_ && state == kPress && ui_.isDown(btn::Master)) otherKeyDuringMaster_ = true;
     if (btn::isFKey(id)) {
         const int f = id;
+        if (mod::IModulePage* mp = modulePage(page)) {   // module page: F-key = row
+            if (state == kPress && f < mp->rows()) param = f;
+            refreshBar();
+            return;
+        }
         if (page == 0) {
             if (state != kPress) return;
             if (sub == 0) {
@@ -665,7 +707,9 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
         }
         case btn::Left:
         case btn::Right:
-            if (page == 1) {
+            if (mod::IModulePage* mp = modulePage(page)) {
+                param = clampi(param + (id == btn::Right ? 1 : -1), 0, mp->rows() - 1);
+            } else if (page == 1) {
                 // 2.x Track Mixer bank: Left = tracks 1-8, Right = 9-16
                 // (unbound on the stock Track Mixer, 2x-01 §4).
                 const int nb = id == btn::Right ? 1 : 0;
@@ -853,6 +897,23 @@ void MixerScreen::update(uint32_t now) {
 void MixerScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
+    if (mod::IModulePage* mp = modulePage(page)) {
+        char title[32];
+        std::snprintf(title, sizeof(title), "Master %s", mp->title());
+        ui_.drawTitle(g, title);
+        for (int i = 0; i < mp->rows() && i < 8; ++i) {
+            mod::ModuleRow row{};
+            mp->row(i, row);
+            wg::ValueBarStyle st;
+            st.bipolar = row.bipolar;
+            float v = row.frac;
+            const float minBar = 1.0f / float(wg::kPanelH - 25);
+            if (!row.bipolar && v < minBar) v = minBar;
+            wg::valueBar(g, th, wg::columnX(i), wg::kPanelY, wg::columnW(), wg::kPanelH, v, st);
+        }
+        if (param >= 0 && param < mp->rows()) wg::panelFocus(g, th, wg::columnX(param), wg::columnW());
+        return;
+    }
     Project& p = a.project;
     static const char* kSub[5] = {"Master 1/3", "Master Reverb", "Master Delay", "Master Limiter", "Master EQ"};
     if (page == 0) {

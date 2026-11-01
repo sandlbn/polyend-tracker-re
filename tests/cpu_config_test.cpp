@@ -34,7 +34,8 @@ TEST(cpu_config_extension_record) {
     c.cpuMeter = 1;
     CHECK(c.save(nv));
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
-    // Payload: cpuMeter, synthVoices (2.x M3, OP-8), then the 8-bit sum.
+    // Payload v3: cpuMeter, synthVoices (2.x M3, OP-8), streamMode,
+    // streamThreshold (SD streaming), radioStereo, then the 8-bit sum.
     CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 1, 4, 0, 1, 0, 1, 0);   // v5: + themeFile[21]
     CHECK_EQ(nv.mem[0xF4 + 5 + 27], 7);   // sum (the empty name adds 0)
     Config r;
@@ -177,12 +178,35 @@ TEST(cpu_cell_poll_and_frame) {
     audio::CpuMeter::setCycleSource(nullptr);
 }
 
+TEST(radio_stereo_config_record) {
+    // 2.x Radio stereo: payload byte 5 (record v3); a v2 record (2.2.x)
+    // loads with it Off.
+    FakeNvStore nv;
+    Config c;
+    CHECK_EQ(c.radioStereo, 0);
+    c.radioStereo = 1;   // alone writes the record
+    CHECK(c.save(nv));
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 0, 4, 0, 1, 1, 1, 0);   // v5: + themeFile[21]
+    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 7);   // sum (the empty name adds 0)
+    Config r;
+    CHECK(r.load(nv));
+    CHECK_EQ(r.radioStereo, 1);
+    const uint8_t v2[] = {'O', 'T', 'X', 2, 4, 1, 4, 0, 1, 6};
+    for (size_t i = 0; i < sizeof(v2); ++i) nv.mem[0xF4 + i] = v2[i];
+    nv.mem[0xF4 + sizeof(v2)] = 0xFF;
+    CHECK(r.load(nv));
+    CHECK_EQ(r.cpuMeter, 1);
+    CHECK_EQ(r.radioStereo, 0);
+    c.radioStereo = 7;
+    c.sanitize();
+    CHECK_EQ(c.radioStereo, 0);
+}
+
 TEST(export_rate_config_record) {
     // Config > General "Export sample rate" (record v4, payload byte 6):
     // 1 = 44.1 kHz (converted, default), 0 = the device rate with 44117 in
-    // the header, as stock. Payload bytes 3 and 4 are the SD streaming
-    // options; byte 5 belongs to a later 2.x option: a build that doesn't
-    // know it keeps it as it is.
+    // the header, as stock. A public build keeps bytes 3..5 (our streaming
+    // and radio stereo options) unchanged; here they are real fields.
     FakeNvStore nv;
     Config c;
     CHECK_EQ(c.exportRate, 1);
@@ -193,25 +217,12 @@ TEST(export_rate_config_record) {
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.exportRate, 0);
-    // Bytes 3..5 written by another 2.x build: 3 and 4 are read, 5 survives
-    // a load and a save.
     const uint8_t other[] = {'O', 'T', 'X', 4, 6, 0, 4, 2, 3, 1, 1, 11};
     for (size_t i = 0; i < sizeof(other); ++i) nv.mem[0xF4 + i] = other[i];
     CHECK(r.load(nv));
-    CHECK_EQ(r.exportRate, 1);
     CHECK_EQ(r.streamMode, 2);
     CHECK_EQ(r.streamThreshold, 3);
-    r.cpuMeter = 1;
-    CHECK(r.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 1, 4, 2, 3, 1, 1, 0);   // v5: + themeFile[21]
-    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 12);
-    // An older record (payload 2) loads with the default 44.1 kHz.
-    const uint8_t v1[] = {'O', 'T', 'X', 1, 2, 2, 4, 6};
-    for (size_t i = 0; i < sizeof(v1); ++i) nv.mem[0xF4 + i] = v1[i];
-    for (size_t i = sizeof(v1); i < 12; ++i) nv.mem[0xF4 + i] = 0xFF;
-    r.exportRate = 0;
-    CHECK(r.load(nv));
-    CHECK_EQ(r.cpuMeter, 2);
+    CHECK_EQ(r.radioStereo, 1);
     CHECK_EQ(r.exportRate, 1);
     c.exportRate = 7;
     c.sanitize();

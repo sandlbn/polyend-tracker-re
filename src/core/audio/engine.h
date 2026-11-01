@@ -14,6 +14,7 @@
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
 #include "audio/governor.h"
+#include "audio/inserts.h"
 #include "audio/stream_source.h"
 #include "audio/synth_bank.h"
 #include "audio/voice.h"
@@ -219,6 +220,20 @@ public:
     // from the input itself (App::preBlock), not here. Null tap = off. Live
     // blocks only.
     static constexpr uint8_t kTapLineIn = 9;
+    // Master inserts of modules (audio/inserts.h), a chain in this order; main
+    // loop. n = 0 removes them.
+    static constexpr int kMaxMasterInserts = 4;
+    void setMasterInserts(IMasterInsert* const* ins, int n) {
+        nIns_ = 0;   // the audio side sees an empty chain while it changes
+        for (int i = 0; i < kMaxMasterInserts; ++i) {
+            masterIns_[i] = i < n ? ins[i] : nullptr;
+            insTail_[i] = false;
+        }
+        insTempo_ = 0.0f;   // the next block hands the chain the tempo
+        nIns_ = n < kMaxMasterInserts ? n : kMaxMasterInserts;
+    }
+    void setMasterInsert(IMasterInsert* ins) { setMasterInserts(&ins, ins ? 1 : 0); }
+    IMasterInsert* masterInsert(int i = 0) const { return i >= 0 && i < nIns_ ? masterIns_[i] : nullptr; }
     void setResampleTap(IResampleTap* tap, uint8_t source) {
         tapSource_ = source;
         tap_ = tap;
@@ -419,6 +434,10 @@ private:
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;
     IResampleTap* volatile tap_ = nullptr;
+    IMasterInsert* masterIns_[kMaxMasterInserts] = {};
+    bool insTail_[kMaxMasterInserts] = {};
+    volatile int nIns_ = 0;
+    float insTempo_ = 0.0f;   // [3.x] E0: the tempo the inserts last heard (0: none yet)
     volatile uint8_t tapSource_ = 0;
     int8_t tapLast_ = -1;   // track tapped in the last block (audio context)
     bool lineMonitor_ = false;

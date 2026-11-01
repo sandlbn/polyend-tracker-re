@@ -181,11 +181,6 @@ public:
     // frame really used. 0 where unknown (host displays).
     virtual uint32_t frameFaultCount() const { return 0; }
     virtual uint32_t measuredDlBytes() const { return 0; }
-    // A swapped frame whose outcome frameReady() has not seen yet (FT81x:
-    // drawn or faulted). The UI keeps polling frameReady() while this is
-    // true, also when nothing is dirty: a fault is only found by that poll,
-    // and a static screen would otherwise never redraw the lost frame.
-    virtual bool framePending() const { return false; }
 
     // --- cached display-list fragments (spec 05 §3.3 stock scheme) --------
     // The stock firmware keeps each control's display list in RAM_G and
@@ -444,6 +439,9 @@ public:
     virtual bool seek(bool up) = 0;          // starts a seek; poll busy()
     virtual bool busy() const = 0;
     virtual float frequency() const = 0;     // MHz
+    // [I] 2.x Config "Radio stereo": stereo reception instead of the stock
+    // forced mono. Applied at once when on, else at the next power-up.
+    virtual void setStereo(bool on) { (void)on; }
 };
 
 // ---------------------------------------------------------------------------

@@ -400,7 +400,9 @@ namespace {
 struct FakeTuner final : IRadio {
     float lo = 0, hi = 0, step = 0, freq = 87.5f;
     int tunes = 0;
+    bool stereoOn = false;
     void setBand(float a, float b, float s) override { lo = a; hi = b; step = s; }
+    void setStereo(bool on) override { stereoOn = on; }
     bool tune(float mhz) override { freq = mhz; ++tunes; return true; }
     bool seek(bool) override { return true; }
     bool busy() const override { return false; }
@@ -810,4 +812,47 @@ TEST(recorder_metronome_label_two_lines) {
         CHECK(std::string(l.top) == "Metronome");
         CHECK(std::string(l.bottom) == "Config");
     }
+}
+
+TEST(recorder_radio_stereo_records_two_lanes) {
+    // 2.x Config "Radio stereo": the tuner leaves mono and the Radio source
+    // records two lanes, like Line in ST; Off (default) stays mono as stock.
+    Harness h;
+    App& a = *h.app;
+    FakeTuner tuner;
+    FakeRouting route;
+    a.setInputRouting(&FakeRouting::fn, &route, &tuner);
+    a.cfg.lineInChannel = 1;   // Line in L: the radio ignores it
+    a.cfg.radioStereo = 1;
+    stereoBlocks(h, 5, 1u << 30);
+    h.tap(btn::SampleRecorder);
+    RecorderScreen& r = rec(h);
+    h.tap(btn::F1);   // Radio
+    CHECK_EQ(a.cfg.recSource, 1);
+    CHECK(tuner.stereoOn);
+    CHECK_STR(a.ui.bar.label[0].bottom, "Radio ST");
+    recordSome(h, 40);
+    CHECK(a.capture.stereo());
+    CHECK(a.capture.bufferR() != nullptr);
+    int diff = 0;
+    if (a.capture.bufferR())
+        for (uint32_t i = 0; i < r.len; ++i) diff += a.capture.buffer()[i] != a.capture.bufferR()[i];
+    CHECK(diff > 1000);
+}
+
+TEST(recorder_radio_mono_by_default) {
+    Harness h;
+    App& a = *h.app;
+    FakeTuner tuner;
+    tuner.stereoOn = true;
+    FakeRouting route;
+    a.setInputRouting(&FakeRouting::fn, &route, &tuner);
+    a.cfg.lineInChannel = 0;   // Line in ST
+    stereoBlocks(h, 5, 1u << 30);
+    h.tap(btn::SampleRecorder);
+    h.tap(btn::F1);   // Radio
+    CHECK(!tuner.stereoOn);
+    CHECK_STR(a.ui.bar.label[0].bottom, "Radio");
+    recordSome(h, 40);
+    CHECK(!a.capture.stereo());
 }

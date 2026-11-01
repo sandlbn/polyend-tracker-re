@@ -1,0 +1,155 @@
+// Module host (modules/module.h).
+#include "modules/module.h"
+
+#include "audio/synth_engine.h"
+#include "model/synth_patch.h"
+#include "modules/synth_descriptor.h"
+
+#include <cstring>
+
+#include "ot_profile.h"
+#include "sdram_bss.h"
+
+#ifndef OT_PROFILE_SDRAM_BYTES
+#define OT_PROFILE_SDRAM_BYTES 0
+#endif
+
+namespace ot {
+namespace mod {
+
+namespace {
+#if OT_PROFILE_SDRAM_BYTES > 0
+// [3.x] E1: the profile modules' SDRAM block (NOLOAD, zeroed by otAppMain()).
+OT_SDRAM_BSS alignas(16) uint8_t gModuleSdram[OT_PROFILE_SDRAM_BYTES];
+#endif
+ModuleHost gHost;   // constant-initialised
+}  // namespace
+
+ModuleHost::SdramArena ModuleHost::profileSdram() {
+#if OT_PROFILE_SDRAM_BYTES > 0
+    return SdramArena{gModuleSdram, uint32_t(OT_PROFILE_SDRAM_BYTES), 0};
+#else
+    return SdramArena{nullptr, 0, 0};
+#endif
+}
+
+void* ModuleHost::sdram(uint32_t bytes) {
+    if (!bytes || !sdram_.base) return nullptr;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(sdram_.base);
+    const uintptr_t at = (base + sdram_.used + 15u) & ~uintptr_t(15u);
+    const uint64_t end = uint64_t(at - base) + bytes;
+    if (end > sdram_.size) return nullptr;
+    sdram_.used = uint32_t(end);
+    return reinterpret_cast<void*>(at);
+}
+
+ModuleHost& ModuleHost::instance() { return gHost; }
+
+void ModuleHost::init() {
+    if (inited_) return;
+    inited_ = true;
+    if (!sdram_.base) sdram_ = profileSdram();
+    for (int i = 0; kModuleFactories[i]; ++i) {
+        IModule& m = kModuleFactories[i]();
+        const ModuleInfo& in = m.info();
+        bool ok = in.api == kModuleApi && n_ < kMaxModules && !find(in.id) && descriptorsOk(m) && m.attach(*this);
+        if (!ok) {
+            std::memcpy(refused_, in.id, sizeof(refused_));
+            refused_[4] = '\0';
+            continue;
+        }
+        mods_[n_++] = &m;
+        for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
+            if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
+    }
+}
+
+bool ModuleHost::descriptorsOk(const IModule& m) const {
+    int add = 0;
+    for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i) {
+        if (!d->name || !d->name[0] || d->paramCount > kPatchMaxParams || !d->params || !d->ui) return false;
+        if (d->volumeParam >= int(d->paramCount)) return false;
+        if (d->priorityParam >= int(d->paramCount)) return false;
+        if (d->extCount > kPatchExtMax || (d->extCount && !d->ext)) return false;
+        // SynthParams holds both: the Mini parameters, then the extension ones.
+        if (int(d->paramCount) + int(d->extCount) > audio::kSynthParamMax) return false;
+        for (int k = 0; k < nDesc_; ++k)
+            if (desc_[k]->engineId == d->engineId) return false;
+        ++add;
+    }
+    return nDesc_ + add <= kMaxEngines;
+}
+
+int ModuleHost::pageCount() {
+    if (!inited_) init();
+    int n = 0;
+    for (int i = 0; i < n_; ++i) n += mods_[i]->page() != nullptr;
+    return n;
+}
+
+IModulePage* ModuleHost::pageAt(int k) {
+    if (!inited_) init();
+    for (int i = 0; i < n_; ++i)
+        if (IModulePage* p = mods_[i]->page()) {
+            if (k == 0) return p;
+            --k;
+        }
+    return nullptr;
+}
+
+int ModuleHost::masterInserts(audio::IMasterInsert** out, int cap) {
+    if (!inited_) init();
+    int n = 0;
+    for (int i = 0; i < n_ && n < cap; ++i)
+        if (audio::IMasterInsert* ins = mods_[i]->masterInsert()) out[n++] = ins;
+    return n;
+}
+
+audio::IMasterInsert* ModuleHost::masterInsert() {
+    if (!inited_) init();
+    for (int i = 0; i < n_; ++i)
+        if (audio::IMasterInsert* ins = mods_[i]->masterInsert()) return ins;
+    return nullptr;
+}
+
+bool ModuleHost::addForTest(IModule& m) {
+    if (!inited_) init();
+    if (n_ >= kMaxModules || find(m.info().id) || !descriptorsOk(m) || !m.attach(*this)) return false;
+    mods_[n_++] = &m;
+    for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
+        if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
+    return true;
+}
+
+const SynthDescriptor* ModuleHost::synthDescriptor(int32_t engineId) {
+    if (!inited_) init();
+    for (int k = 0; k < nDesc_; ++k)
+        if (desc_[k]->engineId == engineId) return desc_[k];
+    return nullptr;
+}
+
+int ModuleHost::engineCount() {
+    if (!inited_) init();
+    return nDesc_;
+}
+
+const SynthDescriptor* ModuleHost::engineAt(int k) {
+    if (!inited_) init();
+    return k >= 0 && k < nDesc_ ? desc_[k] : nullptr;
+}
+
+const IModule* ModuleHost::find(const char* id) const {
+    for (int i = 0; i < n_; ++i)
+        if (std::strncmp(mods_[i]->info().id, id, 4) == 0) return mods_[i];
+    return nullptr;
+}
+
+audio::ISynthEngine* ModuleHost::synthEngine(int32_t engineId) {
+    if (!inited_) init();
+    for (int i = 0; i < n_; ++i)
+        if (audio::ISynthEngine* e = mods_[i]->synthEngine(engineId)) return e;
+    return nullptr;
+}
+
+}  // namespace mod
+}  // namespace ot

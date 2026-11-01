@@ -494,6 +494,25 @@ public:
     bool startSaveProject(JobDoneFn done = nullptr, void* ctx = nullptr);
     bool startLoadWorkspace(JobDoneFn done = nullptr, void* ctx = nullptr);
     bool startAutosave();                         // false when nothing is dirty
+    // ---- 3.x project sidecar (app/project_ot3.cpp) ----------------------
+    // Engine of synth slot s: a module engine (>= 0x80) stored in the sidecar,
+    // else the Tracker Mini record's model.
+    int32_t slotEngineId(int s) const;
+    // Record a module engine for slot s (0 = back to the Mini record's model).
+    void setSlotEngine(int s, int32_t engineId);
+    // Put slot s on any engine of the model list (modules/synth_models.h): a
+    // Mini engine = setSynthModel; a module engine keeps the record's model.
+    void setSynthEngine(int s, int32_t engineId);
+    bool sidecarDirty() const;
+    void markSidecarDirty() { sidecarDirty_ = true; }
+    // Encode into out[cap]; *len = 0 when there is nothing to save. False on overflow.
+    bool encodeSidecar(uint8_t* out, uint32_t cap, uint32_t* len);
+    // Decode a project.ot3x image; false when it is damaged (defaults kept).
+    bool decodeSidecar(const uint8_t* p, uint32_t len);
+    void resetSidecar();
+    // Workspace file I/O (used by the project job stages).
+    void loadSidecarFile(const char* path);
+    bool saveSidecarFile(const char* path);
     // Games (spec 14 §1.6, OpenTracker): true while the sample memory is lent
     // to the NES emulator; the periodic autosave is held so garbage sample
     // data is never written. The lender reloads the Workspace afterwards.
@@ -726,6 +745,12 @@ private:
     OT_APP_SDRAM_MEMBER(SynthPatches, patches_);
     PatchSource patchSrc_[kSynthSlotCount] = {};
     bool patchDirty_[kSynthSlotCount] = {};
+    // 3.x project sidecar project.ot3x (app/project_ot3.cpp,
+    // docs/specs/3x-01-ot3-format.md): module engine per synth slot (0 = the
+    // Mini record's model), module sections, foreign module chunks kept.
+    int32_t slotEngine_[kSynthSlotCount] = {};
+    bool sidecarDirty_ = false;
+    bool sidecarReadOnly_ = false;   // newer format / damaged chunk: never re-saved
     // Load Patch preview (synth_slots.cpp): slot (-1 none), its saved source
     // and dirty flag; the saved patch lives in the SDRAM (OT_SDRAM_BSS).
     int8_t previewSlot_ = -1;

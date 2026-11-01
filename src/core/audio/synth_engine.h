@@ -46,11 +46,23 @@ constexpr int kSynthSlotScratchBytes = 384;    // engine state per slot (SRAM)
 // Internal test engine id (not a Tracker Mini id, never written to a patch).
 constexpr int32_t kSynthEngineTest = 0x7E;
 
+// [3.x] The notes held on a slot (SynthBank's held-note registry, one note
+// per track: sequencer, audition and MIDI input tracks): how many, the lowest
+// and the highest (A-Type's Duo keyboard), and whether the slot plays one
+// voice (polyphony 1 at the last note event). count 0: none (low / high stale).
+struct SynthHeld {
+    uint8_t count = 0;
+    uint8_t low = 0;
+    uint8_t high = 0;
+    uint8_t mono = 0;
+};
+
 // Effective parameters of one slot for the current block.
 struct SynthParams {
     int32_t engine = 0;
     int count = 0;                    // parameters of the engine
     bool moving = false;              // some start[i] != end[i] this block
+    SynthHeld held;                   // [3.x] the slot's held notes (kept current at every note event)
     uint32_t serial = 0;              // changes whenever an end[] value changes
     float start[kSynthParamMax] = {}; // value at the block start
     float end[kSynthParamMax] = {};   // value at the block end (the target)
@@ -86,6 +98,11 @@ struct alignas(8) SynthSlotScratch {
     T& as() {
         static_assert(sizeof(T) <= kSynthSlotScratchBytes, "slot state too large");
         return *reinterpret_cast<T*>(bytes);
+    }
+    template <class T>
+    const T& as() const {
+        static_assert(sizeof(T) <= kSynthSlotScratchBytes, "slot state too large");
+        return *reinterpret_cast<const T*>(bytes);
     }
 };
 
@@ -144,6 +161,19 @@ public:
     virtual void noteOff(SynthVoice& v, const SynthParams& p) = 0;
     // Add one block into L / R (see the contract above). false = finished.
     virtual bool render(SynthVoice& v, const SynthParams& p, float g0, float gInc, float* L, float* R) = 0;
+    // [3.x] The engine's own slot effect (JU6's chorus): once per block for
+    // every slot with sounding voices, after they rendered, on slot `slot`'s
+    // bus L / R (kBlock frames: the voices' sum, before slot gain / pan /
+    // sends / Width), in place. Returns true while the effect has a tail:
+    // the slot then keeps rendering (prepare() and this call, on a silent
+    // bus) after its last voice ended, until it returns false. An engine
+    // change or stopAll() drops the tail. The resample tap of a track and a
+    // note's own Delay / Reverb send take that note's voice before this
+    // effect (dry); the slot's mix and its sends carry it. Optional.
+    virtual bool slotPost(int slot, SynthSlotScratch& sc, const SynthParams& p, float* L, float* R) {
+        (void)slot; (void)sc; (void)p; (void)L; (void)R;
+        return false;
+    }
 };
 
 // Engine registry keyed by the Tracker Mini engine id (synth_registry.cpp).

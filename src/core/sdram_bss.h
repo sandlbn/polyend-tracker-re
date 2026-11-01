@@ -9,7 +9,10 @@
 //  - zero-initialised POD only (no constructor, no initializer): nothing may
 //    touch it before otAppMain(), and static initialisation runs earlier;
 //  - main-loop data only, never the audio block or an ISR (an uncached-miss
-//    SDRAM access costs tens of cycles);
+//    SDRAM access costs tens of cycles). [3.x] One exception (docs/PLAN_TECHNO.md
+//    E1): the modules' block (ModuleHost::sdram(), modules/module_host.cpp) may
+//    be used from the audio block, as contiguous spans moved once per block
+//    with audio/ring_io.h (ringIn / ringOut), never one access per sample;
 //  - never used by the selftest or the boot code (the SDRAM may be down).
 #pragma once
 

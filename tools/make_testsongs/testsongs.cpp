@@ -18,11 +18,11 @@
 #include "app/perf_presets.h"
 #include "app/project_fields.h"
 #include "audio/audio_tables.h"
-#include "audio/engines/acd.h"
-#include "audio/engines/fat.h"
-#include "audio/engines/perc.h"
-#include "audio/engines/vap.h"
-#include "audio/engines/wtfm.h"
+#include "acd.h"
+#include "fat.h"
+#include "perc.h"
+#include "vap.h"
+#include "wtfm.h"
 #include "audio/synth_params.h"
 #include "features.h"
 #include "formats/file_io.h"
@@ -53,6 +53,9 @@ const SongInfo kSongs[kSongCount] = {
     {SongId::WtfmOnly, "OT Test 10 - WTFM", "2.2 (WTFM engine) + M1", kHasSynths && kHas16Tracks},
     {SongId::Idm, "OT Test 11 - IDM", "2.2 (all synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::Stems, "OT Test 12 - Stems", "2.x SD streaming (Stream from card on)", true},
+    {SongId::PerfTracks, "OT Perf 01 - Tracks", "stock 1.9.2 / 2.x (Performance check)", true},
+    {SongId::PerfFilters, "OT Perf 02 - Filters", "stock 1.9.2 / 2.x (Performance check)", true},
+    {SongId::PerfSongLength, "OT Perf 03 - Song Length", "stock 1.9.2 / 2.x (Performance check)", true},
     {SongId::BgTitle, "BG Title", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld1, "BG World 1", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld4, "BG World 4", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
@@ -1045,6 +1048,7 @@ bool synthSong(Gen& g) {
 #include "wtfmsong.inc"
 #include "idmsong.inc"
 #include "stemsong.inc"
+#include "perfsong.inc"
 
 }  // namespace
 
@@ -1093,6 +1097,9 @@ bool generateSong(App& app, IStorage& fs, SongId id, const GenOptions& opt, std:
         case SongId::WtfmOnly: built = wtfmonly::wtfmOnlySong(g); break;
         case SongId::Idm: built = idm::idmSong(g); break;
         case SongId::Stems: built = stems::stemSong(g, opt.stemSeconds); break;
+        case SongId::PerfTracks: built = perfcheck::tracksSong(g); break;
+        case SongId::PerfFilters: built = perfcheck::filtersSong(g); break;
+        case SongId::PerfSongLength: built = perfcheck::songLengthSong(g); break;
     }
     if (built) built = g.finish(info->name);
     if (!built) err = g.err.empty() ? "generation failed" : g.err;

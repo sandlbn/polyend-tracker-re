@@ -1,0 +1,11 @@
+# bench-m4 baseline of PROFILE=core (no synth engine modules; tools/telemetry_check.py bench).
+# The core scenarios keep the full profile's numbers (tests/perf_baseline.txt): the engines
+# are not on their paths. synth4 renders nothing without ACD1 (slot "not available") and
+# measures the framework alone; recorded 2026-10-22 (3.0.0).
+idle     11112
+idle2    11470
+play8    145418
+worst    244349
+stereo8  174615
+synth4   27866
+pswitch  145180

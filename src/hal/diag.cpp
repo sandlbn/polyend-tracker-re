@@ -7,6 +7,7 @@
 #include "board.h"
 #include "diag_log.h"
 #include "k66.h"
+#include "ot_version.h"
 #include "sdhc.h"
 #include "usb_dev.h"
 #include "usb_mem.h"
@@ -169,16 +170,6 @@ extern "C" __attribute__((used, noreturn)) void diagFaultC(uint32_t* frame, uint
     diag::Fmt lf(l, sizeof l);
     lf.str("FAULT ").str(diag::exceptionName(f.ipsr)).str(" PC ").hex(f.pc).str(" CFSR ").hex(f.cfsr)
         .str(" BFAR ").hex(f.bfar).str(" at stage ").dec(f.stage);
-    // [I] A SYSMPU denial (e.g. the stack guard, stack_guard.h): CESR SPERR
-    // bit 31 - n flags slave port n; its error address / detail registers
-    // sit at 0x4000D010 + 8 n.
-    const uint32_t cesr = MPU_CESR;
-    for (int port = 0; port < 5; ++port)
-        if (cesr & (1u << (31 - port))) {
-            const volatile uint32_t* er = reinterpret_cast<volatile uint32_t*>(0x4000D010u + 8u * uint32_t(port));
-            lf.str(" MPU port ").dec(uint32_t(port)).str(" EAR ").hex(er[0]).str(" EDR ").hex(er[1]);
-            break;
-        }
     diag::line(gLog, f.ms, l);
     gFaultText = reinterpret_cast<char*>(sdhc::takeBounceForFault(&gFaultCap));
     if (gFaultCap > 4096) gFaultCap = 4096;
@@ -237,7 +228,7 @@ void diagInit() {
     __enable_irq();
     NVIC_SET_PRIORITY(IRQ_SOFTWARE, kDrainPriority);
     NVIC_ENABLE_IRQ(IRQ_SOFTWARE);
-    diagLogf("OpenTracker diag log %s, built %s %s. Send any byte to replay the boot log.", OT_VERSION,
+    diagLogf("OpenTracker diag log %s, built %s %s. Send any byte to replay the boot log.", OT_VERSION_TEXT,
              __DATE__, __TIME__);
     diagLogf("RCM_SRS0 0x%02X RCM_SRS1 0x%02X SIM_CLKDIV1 0x%08lX SCB_SHCSR 0x%08lX", unsigned(RCM_SRS0),
              unsigned(RCM_SRS1), static_cast<unsigned long>(SIM_CLKDIV1),

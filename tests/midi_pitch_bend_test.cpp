@@ -10,6 +10,7 @@
 
 #include "audio/synth_bank.h"
 #include "formats/wav.h"
+#include "ot_profile.h"
 
 using namespace ot;
 
@@ -114,6 +115,7 @@ TEST(pitch_bend_forwarded_to_midi_instruments) {
     CHECK(h.midi.sent == centre);
 }
 
+#ifdef OT_MOD_ACD1   // a real ACD synth (opentracker-synths module)
 TEST(pitch_bend_bends_live_synth_voices) {
     Harness h;
     App& a = *h.app;
@@ -137,3 +139,4 @@ TEST(pitch_bend_bends_live_synth_voices) {
     noteOff(h, 64);
     bend(h, 8192);
 }
+#endif  // OT_MOD_ACD1

@@ -14,6 +14,7 @@
 #include "formats/wav.h"
 #include "app/sample_fx.h"
 #include "ui/screens.h"
+#include "ot_profile.h"
 
 using namespace ot;
 using namespace ot::audio;
@@ -279,7 +280,7 @@ TEST(slicer_and_zero_marks_skip_a_streamed_sample) {
 // ---- C10: Config rows, apply -> reload, marks, notices (§2.7) ----
 namespace {
 constexpr int kGeneralCat = 1;
-constexpr int kStreamRow = 15, kThresholdRow = 16;   // after Export theme, Export sample rate
+constexpr int kStreamRow = 16, kThresholdRow = 17;   // after Export sample rate, Radio stereo
 void runJob(Harness& h) {
     for (int i = 0; i < 4000 && h.app->jobBusy(); ++i) h.run(10);
 }
@@ -324,6 +325,10 @@ TEST(config_stream_apply_reloads_workspace) {
     CHECK(a.streamed(0));
 }
 
+// A profile without the default slots' models (a new project: ACD, ACD,
+// VAP) says "synth not available" first (one notice per load: the first
+// problem), e.g. profile idm (no VAP).
+#if defined(OT_MOD_ACD1) && defined(OT_MOD_VAP1)
 TEST(load_notice_counts_streamed_instruments) {
     Harness h;
     App& a = *h.app;
@@ -334,6 +339,7 @@ TEST(load_notice_counts_streamed_instruments) {
     CHECK(a.streamed(0));
     CHECK_STR(a.ui.notice(), "1 instrument streams from the card");
 }
+#endif  // OT_MOD_ACD1 && OT_MOD_VAP1
 
 TEST(streamed_instrument_is_marked_on_screens) {
     Harness h;

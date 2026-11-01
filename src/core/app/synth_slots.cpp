@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "modules/synth_models.h"
 #include "audio/synth_params.h"
 #include "formats/file_io.h"
 #include "formats/patch_pb.h"
@@ -24,10 +25,6 @@ constexpr uint32_t kFileOff = 0;
 constexpr uint32_t kPatchTmpOff = 0x8000;
 static_assert(kPatchMaxFileSize + 1 <= kPatchTmpOff, "patch file fits below the decode slot");
 
-SynthModel modelOf(const SynthSlotRecord& r) {
-    return SynthModel(r.model < uint32_t(kSynthModelCount) ? r.model : 0);
-}
-
 void setName(SynthSlotRecord& r, const char* name) {
     std::snprintf(r.patchName, sizeof(r.patchName), "%s", name ? name : "");
 }
@@ -37,9 +34,9 @@ void resetMacros(SynthSlotRecord& r, const SynthPatch& p) {
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
 }
 
-bool libraryPath(char* out, size_t cap, SynthModel m, const char* name) {
+bool libraryPath(char* out, size_t cap, int32_t engineId, const char* name) {
     if (!name || !name[0] || std::strchr(name, '/')) return false;
-    std::snprintf(out, cap, "Patches/%s/%s.patch", synthModelName(m), name);
+    std::snprintf(out, cap, "Patches/%s/%s.patch", synthEngineFolder(engineId), name);
     return true;
 }
 
@@ -54,15 +51,15 @@ const SynthPatch* App::readSynthLibraryPatch(int s, const char* name) {
     if (s < 0 || s >= kSynthSlotCount || !mem_.scratch || mem_.scratchBytes < kPatchTmpOff + sizeof(SynthPatch))
         return nullptr;
     if (jobBusy()) finishJob();   // the job shares the scratch (spec 05 appendix E3)
-    const SynthModel m = modelOf(project.synthSlot(s));
+    const int32_t eng = slotEngineId(s);
     char path[96];
-    if (!libraryPath(path, sizeof(path), m, name)) return nullptr;
+    if (!libraryPath(path, sizeof(path), eng, name)) return nullptr;
     uint8_t* buf = mem_.scratch + kFileOff;
     auto* tmp = reinterpret_cast<SynthPatch*>(mem_.scratch + kPatchTmpOff);
     uint32_t got = 0;
     if (readWholeFile(fs(), path, buf, kPatchMaxFileSize + 1, &got) != FmtStatus::Ok || got > kPatchMaxFileSize)
         return nullptr;
-    if (decodePatch(buf, got, tmp) != PatchStatus::kOk || tmp->engine != synthEngineId(m)) return nullptr;
+    if (decodePatch(buf, got, tmp) != PatchStatus::kOk || tmp->engine != eng) return nullptr;
     return tmp;
 }
 
@@ -103,9 +100,27 @@ void App::setSynthSlotRecord(int s, const SynthSlotRecord& r) {
     markProjectDirty();
 }
 
+void App::setSynthEngine(int s, int32_t engineId) {
+    if (s < 0 || s >= kSynthSlotCount) return;
+    if (engineId < 0x80) {
+        for (int m = 0; m < kSynthModelCount; ++m)
+            if (synthEngineId(SynthModel(m)) == engineId) setSynthModel(s, m);
+        return;
+    }
+    if (previewSlot_ == s) endSynthPreview();
+    // A module engine: the record keeps its Mini model (the fallback a Mini
+    // or an older OpenTracker plays); the sidecar names the engine.
+    setSlotEngine(s, engineId);
+    SynthSlotRecord r = project.synthSlot(s);
+    setName(r, "Init");
+    project.setSynthSlot(s, r);
+    if (!loadSynthLibraryPatch(s, "Init")) initSynthPatch(s);
+}
+
 void App::setSynthModel(int s, int model) {
     if (s < 0 || s >= kSynthSlotCount || model < 0 || model >= kSynthModelCount) return;
     if (previewSlot_ == s) endSynthPreview();
+    setSlotEngine(s, 0);
     SynthSlotRecord r = project.synthSlot(s);
     r.model = uint32_t(model);
     setName(r, "Init");
@@ -117,7 +132,7 @@ void App::initSynthPatch(int s) {
     if (s < 0 || s >= kSynthSlotCount) return;
     if (previewSlot_ == s) endSynthPreview();
     SynthSlotRecord r = project.synthSlot(s);
-    patchInit(synthEngineId(modelOf(r)), &patches_[s]);
+    patchInit(slotEngineId(s), &patches_[s]);
     patchSrc_[s] = PatchSource::Init;
     setName(r, "Init");
     resetMacros(r, patches_[s]);
@@ -141,10 +156,9 @@ bool App::loadSynthLibraryPatch(int s, const char* name) {
 
 bool App::synthUnavailableNotice(char* out, size_t cap) const {
     for (int s = 0; s < kSynthSlotCount; ++s) {
-        const SynthSlotRecord r = project.synthSlot(s);
-        const SynthModel m = modelOf(r);
-        if (audio::synthEngineFor(synthEngineId(m))) continue;
-        std::snprintf(out, cap, "Synth %d (%s) not available", s + 1, synthModelName(m));
+        const int32_t eng = slotEngineId(s);
+        if (eng && audio::synthEngineFor(eng)) continue;
+        std::snprintf(out, cap, "Synth %d (%s) not available", s + 1, synthEngineDisplayName(eng));
         return true;
     }
     return false;
@@ -154,14 +168,14 @@ bool App::saveSynthLibraryPatch(int s, const char* name) {
     if (s < 0 || s >= kSynthSlotCount || !mem_.scratch || mem_.scratchBytes < kPatchMaxFileSize) return false;
     if (jobBusy()) finishJob();
     SynthSlotRecord r = project.synthSlot(s);
-    const SynthModel m = modelOf(r);
+    const int32_t eng = slotEngineId(s);
     char path[96], dir[48], tmpPath[104];
-    if (!libraryPath(path, sizeof(path), m, name)) return false;
+    if (!libraryPath(path, sizeof(path), eng, name)) return false;
     uint8_t* out = mem_.scratch + kFileOff;
     size_t n = 0;
     if (encodePatch(patches_[s], out, kPatchMaxFileSize, &n) != PatchStatus::kOk) return false;
     IStorage& f = fs();
-    std::snprintf(dir, sizeof(dir), "Patches/%s", synthModelName(m));
+    std::snprintf(dir, sizeof(dir), "Patches/%s", synthEngineFolder(eng));
     if (!f.mkdir("Patches") || !f.mkdir(dir)) return false;
     std::snprintf(tmpPath, sizeof(tmpPath), "%s.tmp", path);
     if (writeWholeFile(f, tmpPath, out, uint32_t(n)) != FmtStatus::Ok) {

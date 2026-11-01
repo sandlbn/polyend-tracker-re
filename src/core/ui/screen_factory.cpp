@@ -7,6 +7,7 @@
 #include "app/app.h"
 #include "app/input_gain.h"
 #include "ui/gfx.h"
+#include "ui/screens.h"
 #include "ui/ui.h"
 #include "sdram_bss.h"
 
@@ -165,7 +166,11 @@ void FactoryTest::runRadio() {
 // has no check in OpenTracker.
 void FactoryTest::runSd() {
     IStorage& fs = app_.fs();
-    OT_SDRAM_BSS static uint8_t buf[4096];   // SDRAM on the device (OP-5)
+    // The browsers' list memory (screens.h): the test is entered from Config
+    // (whose pickers may be open), but it returns through ConfigScreen::start(),
+    // which resets them, and every list is rebuilt when it opens.
+    static_assert(kBrowserListBytes >= 4096, "the SD test's 4 KB fit the browser lists");
+    uint8_t (&buf)[4096] = *static_cast<uint8_t (*)[4096]>(browserListMem());
     bool ok = true;
     IStorage::Handle h = fs.open(kSdTestPath, IStorage::kWrite);
     if (h < 0) ok = false;

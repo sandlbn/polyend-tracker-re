@@ -809,6 +809,21 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
             }
         }
     }
+    // 6b. master inserts of modules (audio/inserts.h), a chain before the
+    // limiter: one count test per block when no module provides one. An
+    // insert runs while the bus carries sound (or the inserts before it left a
+    // tail) or while it reports its own tail.
+    if (const int ni = nIns_) {
+        if (tempo_ != insTempo_) {   // [3.x] E0: tempo-synced inserts follow the song
+            insTempo_ = tempo_;
+            for (int i = 0; i < ni; ++i) masterIns_[i]->setTempo(tempo_);
+        }
+        bool sound = anyVoice || dly || rev || line;
+        for (int i = 0; i < ni; ++i) {
+            if (sound || insTail_[i]) insTail_[i] = masterIns_[i]->process(mL_, mR_, kBlock);
+            sound = sound || insTail_[i];
+        }
+    }
     // 7. limiter with optional side-chain (§5.3)
     const float* sc = nullptr;
     if (m.sidechain >= 1 && m.sidechain <= 8) {

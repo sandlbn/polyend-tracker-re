@@ -43,8 +43,12 @@ enum class SongId : uint8_t {
     Idm = 18,
     // SD streaming: four long stereo stems + RAM drums (stemsong.inc): 2.x streaming.
     Stems = 19,
+    // Performance screen checks, tracks 1-8, stock and 2.x (perfsong.inc).
+    PerfTracks = 20,
+    PerfFilters = 21,
+    PerfSongLength = 22,
 };
-constexpr int kSongCount = 19;
+constexpr int kSongCount = 22;
 
 // Songs 6-12 (the BLAST GRID remixes).
 inline bool isBgSong(SongId id) { return int(id) >= int(SongId::BgTitle) && int(id) <= int(SongId::BgFinalBoss); }
