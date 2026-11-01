@@ -120,19 +120,24 @@ TEST(note_names_config_record) {
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.noteNames, kSpellAuto);
-    // A record from before the byte (payload 27) keeps Sharps.
+    // A record from before the byte (payload 27) keeps Sharps. Its checksum
+    // sits at offset 32; with these fields it is 1, a valid spelling, so only
+    // the payload length keeps it from being read as Flats.
     Config o;
-    o.synthVoices = 6;
+    o.synthVoices = 1;
+    o.streamThreshold = 0;
+    o.exportRate = 0;
     uint8_t ext[Config::kExtSize];
     o.toExt(ext);
     ext[4] = 27;
     uint8_t sum = 0;
     for (int i = 0; i < 27; ++i) sum = uint8_t(sum + ext[5 + i]);
     ext[5 + 27] = sum;
+    CHECK_EQ(ext[32], 1);
     Config k0;
     k0.noteNames = kSpellFlats;
     CHECK(k0.fromExt(ext, 5 + 27 + 1));
-    CHECK_EQ(k0.synthVoices, 6);
+    CHECK_EQ(k0.synthVoices, 1);
     CHECK_EQ(k0.noteNames, 0);
     // Out of range -> Sharps.
     c.noteNames = 3;

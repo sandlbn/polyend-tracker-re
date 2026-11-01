@@ -18,6 +18,7 @@ constexpr int kNoteSpellingCount = 3;
 // letters (C Mixolydian: Bb, not A#); on a tie, flats for flat keys.
 bool keyUsesFlats(int root, uint8_t scale);
 // Sets the spelling noteName() and pitchClassName() use; root/scale are the project's (Auto only).
+// Cheap to call every UI pass: it recomputes only when an argument changed.
 void setNoteSpelling(uint8_t spelling, int root, uint8_t scale);
 bool noteSpellingFlats();
 // Pitch class text without octave: "C", "C#" / "Db", ... (current spelling).

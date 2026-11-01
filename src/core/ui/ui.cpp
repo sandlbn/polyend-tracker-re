@@ -1030,7 +1030,8 @@ void Ui::update(uint32_t now) {
         }
     }
     // [I] Note names (Config > General): Auto follows the project key, which
-    // changes on project open and in Config, so it is re-derived every pass.
+    // changes on project open and in Config; setNoteSpelling re-derives it
+    // only when the setting, root or scale changed.
     const bool flats = noteSpellingFlats();
     setNoteSpelling(app.cfg.noteNames, app.project.u8(pf::kRootNote), app.project.u8(pf::kScale));
     if (noteSpellingFlats() != flats) dirty();
