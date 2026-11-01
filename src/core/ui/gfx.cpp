@@ -49,6 +49,26 @@ const fontdata::FontInfo* customFont(uint8_t handle) {
     return &fontdata::info(gFontSet, handle - IDisplay::kFontHandleBase);
 }
 
+// Characters a font draws (issue #128). FatFs hands file names over as
+// code page 437 bytes ("\x97" = u grave) and the fonts end at '~', so a byte
+// past it made CMD_TEXT draw the memory after the font. Text drawing maps
+// the CP437 accented letters 0x80..0xA5 (and 0xE1, sharp s) to their base
+// letter and any other byte the font has no glyph for to '?'; textWidth
+// measures the same characters. Only drawing changes, never the names.
+// `first`: the font's first glyph (custom fonts: their table, symbols from
+// 17; ROM fonts: 1, as before), 0 = no mapping (the icon sheet).
+constexpr char kCp437Base[] = "CueaaaaceeeiiiAAEaAooouuyOU????faiounN";   // 0x80..0xA5
+static_assert(sizeof(kCp437Base) == 0xA6 - 0x80 + 1, "CP437 0x80..0xA5");
+inline uint8_t shownChar(uint8_t ch, uint8_t first) {
+    if (!first || (ch >= first && ch < 0x7F)) return ch;
+    if (ch >= 0x80 && ch <= 0xA5) return uint8_t(kCp437Base[ch - 0x80]);
+    return ch == 0xE1 ? uint8_t('s') : uint8_t('?');
+}
+uint8_t firstGlyph(uint8_t handle) {
+    if (const fontdata::FontInfo* cf = customFont(handle)) return cf->first;
+    return gCustomFonts && handle == IDisplay::kIconHandle ? 0 : 1;
+}
+
 // ROM fallback role of a stock font role (gfx.h).
 uint8_t fallbackRole(uint8_t role) {
     switch (role) {
@@ -386,11 +406,23 @@ void Gfx::line(int x0, int y0, int x1, int y1, uint32_t c) {
 }
 
 void Gfx::text(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt) {
-    if (!s || !*s || !admit(4 + uint32_t(std::strlen(s)))) return;
+    if (!s || !*s) return;
+    const uint8_t handle = romFontFor(font), first = firstGlyph(handle);
+    size_t n = 0;
+    bool plain = true;
+    for (; s[n]; ++n) plain = plain && shownChar(uint8_t(s[n]), first) == uint8_t(s[n]);
+    char shown[160];   // a string with characters outside the font: drawn from a mapped copy
+    if (!plain) {
+        if (n > sizeof(shown) - 1) n = sizeof(shown) - 1;   // wider than the screen
+        for (size_t i = 0; i < n; ++i) shown[i] = char(shownChar(uint8_t(s[i]), first));
+        shown[n] = 0;
+        s = shown;
+    }
+    if (!admit(4 + uint32_t(n))) return;
     sync();   // CMD_TEXT draws in the current context (translate included)
     color(c);
-    d_->text(int16_t(x), int16_t(y), romFontFor(font), opt, s);
-    words_ += 4 + uint32_t(std::strlen(s));
+    d_->text(int16_t(x), int16_t(y), handle, opt, s);
+    words_ += 4 + uint32_t(n);
 }
 
 int textWidth(uint8_t font, const char* s, int len) {
@@ -398,9 +430,10 @@ int textWidth(uint8_t font, const char* s, int len) {
     const uint8_t handle = romFontFor(font);
     const fontdata::FontInfo* cf = customFont(handle);
     const RomMetrics* m = cf ? nullptr : romMetrics(handle);
+    const uint8_t first = firstGlyph(handle);
     int w = 0;
     for (int i = 0; s[i] && (len < 0 || i < len); ++i) {
-        const uint8_t ch = uint8_t(s[i]);
+        const uint8_t ch = shownChar(uint8_t(s[i]), first);   // as drawn (Gfx::text)
         if (cf) w += fontdata::advance(*cf, ch);
         else if (gCustomFonts && handle == IDisplay::kIconHandle) w += kIconSize;
         else if (!m) w += 8;
@@ -427,7 +460,9 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
     // instead of a CMD_TEXT (4 + n words) per run or per cell.
     const bool rom = !gCustomFonts;
     const bool romText = rom && gRomTextMode != kRomGlyphs;
-    auto drawable = [cf, rom](uint8_t ch) {
+    const uint8_t glyph0 = firstGlyph(handle);
+    auto drawable = [cf, rom, glyph0](uint8_t ch) {
+        ch = shownChar(ch, glyph0);
         return ch < 127 && (rom ? ch > ' ' : ch != ' ' && (!cf || ch >= cf->first));
     };
     // One VERTEX_TRANSLATE_X for the whole run when its glyphs fit one
@@ -470,7 +505,7 @@ void Gfx::glyphRun(int x, int y, uint8_t font, const char* s, uint32_t c, int ad
     else if (lo >= 400) base = 400;
     int pen = x;
     for (int i = 0; s[i]; ++i) {
-        const uint8_t ch = uint8_t(s[i]);
+        const uint8_t ch = shownChar(uint8_t(s[i]), glyph0);
         const int step = adv > 0 ? adv : ot::textWidth(font, s + i, 1);
         if (drawable(ch) && pen >= 0 && pen < 912) {
             if (!admit(2)) return;
@@ -524,7 +559,7 @@ void Gfx::textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int
     int base = 0;
     int pen = 0;
     for (int i = 0; s[i]; ++i) {
-        const uint8_t ch = uint8_t(s[i]);
+        const uint8_t ch = shownChar(uint8_t(s[i]), cf->first);
         const int step = fontdata::advance(*cf, ch);
         if (ch != ' ' && ch < 127 && ch >= cf->first) {
             int vx, vy;   // vertex = top-left of the turned cell

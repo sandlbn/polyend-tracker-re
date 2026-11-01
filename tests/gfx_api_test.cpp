@@ -5,6 +5,7 @@
 #include "test.h"
 #include "ui_fakes.h"
 
+#include <cstdio>
 #include <string>
 
 #include "ui/gfx.h"
@@ -113,6 +114,64 @@ TEST(glyph_run_rom_fonts_vertex2ii) {
     CHECK(has(d.last, "TEXT -3 40 f18 o0 \"AB\""));
     CHECK_EQ(count(d.last, "TEXT "), 1);
     CHECK_EQ(g.textWidth(kFont1, "Pa t"), 7 + 7 + 4 + 5);
+}
+
+// Issue #128: FatFs hands file names over as CP437 bytes ("ù" = 0x97); the
+// fonts end at '~', so CMD_TEXT drew memory past the font. Text drawing maps
+// the CP437 accented letters to their base letter and every other byte the
+// font lacks to '?'; textWidth measures the same characters.
+static std::string textArg(const std::string& line) {
+    const size_t a = line.find('"'), b = line.rfind('"');
+    return a == std::string::npos || b <= a ? std::string() : line.substr(a + 1, b - a - 1);
+}
+TEST(text_maps_bytes_outside_the_font) {
+    const char raw[] = "Pi\x97 \x82t\xE9\x7F\xFF\xE1\x80\xA4";
+    const char shown[] = "Piu et???sCn";
+    for (int mode = 0; mode < 3; ++mode) {   // ROM fonts, custom set 0, custom set 1
+        RecordingDisplay d;
+        d.customFonts = mode > 0;
+        setRomTextMode(kRomWholeText);
+        applyFontSet(&d, mode == 2 ? 1 : 0);
+        CHECK_EQ(customFontsBound(), mode > 0);
+        Gfx g(d);
+        g.beginFrame(0);
+        g.text(10, 10, kFont1, 0xFFFFFF, raw);
+        g.textf(10, 40, kFont3, 0xFFFFFF, 0, "%s", raw);
+        g.glyphRun(10, 70, kFont2, raw, 0xFFFFFF);
+        g.textRotated(10, 100, kFont1, 0xFFFFFF, raw, mode ? 1 : 0);
+        g.text(10, 200, kFont5, 0xFFFFFF, "\x11\x12");   // font 5 symbols (first 17) stay
+        if (mode) g.text(10, 230, kFont1, 0xFFFFFF, "a\x01" "b");   // below font 1's first glyph
+        g.endFrame();
+        int texts = 0;
+        for (const std::string& line : d.last) {
+            if (line.rfind("TEXT ", 0) == 0) {
+                ++texts;
+                const std::string t = textArg(line);
+                if (line.find(" 200 ") != std::string::npos) {
+                    CHECK(t == "\x11\x12");
+                } else if (line.find(" 230 ") != std::string::npos) {
+                    CHECK_STR(t.c_str(), "a?b");
+                } else {
+                    CHECK_STR(t.c_str(), shown);
+                }
+            }
+            unsigned x, y, hnd, ch;
+            if (std::sscanf(line.c_str(), "VERTEX2II %u %u %u %u", &x, &y, &hnd, &ch) == 4 && hnd != IDisplay::kIconHandle)
+                CHECK(ch >= 17 && ch <= 126);
+        }
+        CHECK(texts >= 3);
+        CHECK(has(d.last, "TEXT 10 10 f" + std::to_string(romFontFor(kFont1)) + " o0 \"" + shown + "\""));
+        for (uint8_t f : {uint8_t(kFont1), uint8_t(kFont2), uint8_t(kFont3), uint8_t(kFont4)}) {
+            CHECK_EQ(textWidth(f, raw), textWidth(f, shown));
+            CHECK_EQ(textWidth(f, raw, 3), textWidth(f, "Piu"));
+        }
+        if (mode) {   // glyph run: 'u' (117) for the 0x97 at the third pen position
+            const int x3 = 10 + textWidth(kFont2, "Pi");
+            CHECK(has(d.last, "VERTEX2II " + std::to_string(x3) + " 70 " + std::to_string(romFontFor(kFont2)) + " 117"));
+        }
+        applyFontSet(nullptr, 0);
+    }
+    setRomTextMode(kRomGlyphs);
 }
 
 TEST(gradient_hairline_roundrect_icons) {
