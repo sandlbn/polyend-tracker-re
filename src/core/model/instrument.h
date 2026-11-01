@@ -125,4 +125,8 @@ struct MidiInstrument {
     uint8_t extra[8] = {};
 };
 
+// A default Instrument (the fw new-instrument initialiser), built on first
+// use; one shared copy (SDRAM on the device, main loop only).
+const Instrument& defaultInstrument();
+
 }  // namespace ot
