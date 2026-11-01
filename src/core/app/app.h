@@ -307,7 +307,7 @@ public:
     void setStepJump(int v);
     bool trackMuted(int t) const;
     void setTrackMute(int t, bool m);
-    uint8_t padNote(uint8_t pad);                 // current scale map, slice-aware
+    uint8_t padNote(uint8_t pad);                 // current scale map, slice-aware; PadNotes::kNoNote = piano gap
     void refreshPadNotes();
     void applySequencerSettings();
 

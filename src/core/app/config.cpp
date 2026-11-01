@@ -143,6 +143,7 @@ void Config::sanitize() {
     if (radioFreq10 < 760 || radioFreq10 > 1080) radioFreq10 = 875;
     clampField<uint8_t>(cpuMeter, 2, 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
+    clampField<uint8_t>(padLayout, 1, 0);
     themeFile[sizeof(themeFile) - 1] = 0;
     if (themeFile[0] && !themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     validateImage(image);
@@ -176,6 +177,7 @@ void Config::toExt(uint8_t* out) const {
     out[9] = radioStereo;
     out[10] = exportRate;
     std::memcpy(out + 11, themeFile, sizeof(themeFile));
+    out[32] = padLayout;
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -200,6 +202,7 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
         std::memcpy(themeFile, in + 11, sizeof(themeFile));
         if (!themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     }
+    padLayout = (n >= 28 && in[32] <= 1) ? in[32] : 0;
     return true;
 }
 
@@ -221,6 +224,7 @@ bool Config::fromImage(const uint8_t* img) {
     c.radioStereo = radioStereo;
     c.exportRate = exportRate;
     std::memcpy(c.themeFile, themeFile, sizeof(themeFile));
+    c.padLayout = padLayout;
     c.sanitize();
     *this = c;
     toImage();
@@ -239,8 +243,14 @@ bool Config::load(INvStore& nv) {
     radioStereo = 0;
     exportRate = 1;
     themeFile[0] = 0;
-    if (nv.size() >= kExtOffset + kExtSize && nv.read(kExtOffset, ext, kExtSize)) fromExt(ext, kExtSize);
-    else if (nv.size() >= kExtOffset + kExtSizeV1 && nv.read(kExtOffset, ext, kExtSizeV1)) fromExt(ext, kExtSizeV1);   // v1 record
+    padLayout = 0;
+    // The longest record that fits the store (older records are shorter;
+    // fromExt reads the payload length from the record).
+    for (uint32_t len = kExtSize; len >= 7; --len)
+        if (nv.size() >= kExtOffset + len && nv.read(kExtOffset, ext, len)) {
+            fromExt(ext, len);
+            break;
+        }
     return true;
 }
 
@@ -252,7 +262,7 @@ bool Config::save(INvStore& nv) {
     if (nv.size() < kExtOffset + kExtSize) return true;
     uint8_t ext[kExtSize];
     if (cpuMeter == 0 && synthVoices == kDefaultSynthVoices && streamMode == 0 && streamThreshold == 1 &&
-        radioStereo == 0 && exportRate == 1 && themeFile[0] == 0) {
+        radioStereo == 0 && exportRate == 1 && themeFile[0] == 0 && padLayout == 0) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
     }
@@ -281,6 +291,7 @@ bool Config::load(IStorage& fs) {
         radioStereo = 0;
         exportRate = 1;
         themeFile[0] = 0;
+        padLayout = 0;
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
         return true;
     }
