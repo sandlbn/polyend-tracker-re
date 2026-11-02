@@ -1,6 +1,7 @@
 // [I] Config > General > Note names (not in stock): sharps, flats, or Auto
 // from the project key; the extension-record byte, the Config texts and the
 // pattern grid.
+#include <cstring>
 #include <string>
 
 #include "test.h"
@@ -20,6 +21,13 @@ std::string nn(int n) {
     return b;
 }
 ConfigScreen& cfgScreen(Harness& h) { return *static_cast<ConfigScreen*>(h.app->ui.screen(kModConfig)); }
+// Config > General row by name (rows after it may be added or moved).
+int generalRow(const char* name) {
+    ConfigScreen::OptionInfo o;
+    for (int i = 0; i < ConfigScreen::optionCount(1); ++i)
+        if (ConfigScreen::optionInfo(1, i, &o) && std::strcmp(o.name, name) == 0) return i;
+    return -1;
+}
 bool hasText(Harness& h, const char* s) {
     for (auto& l : h.disp.last)
         if (l.rfind("TEXT", 0) == 0 && l.find(std::string("\"") + s + "\"") != std::string::npos) return true;
@@ -115,28 +123,29 @@ TEST(note_names_config_record) {
     CHECK_EQ(c.noteNames, 0);
     c.noteNames = kSpellAuto;   // a non-default spelling alone writes the record
     CHECK(c.save(nv));
-    CHECK_EQ(nv.mem[0xF4 + 4], 28);                  // payload length
-    CHECK_EQ(nv.mem[0xF4 + 5 + 27], kSpellAuto);     // payload byte 28
+    CHECK_EQ(nv.mem[0xF4 + 4], 29);                  // payload length
+    CHECK_EQ(nv.mem[0xF4 + 5 + 28], kSpellAuto);     // payload byte 29
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.noteNames, kSpellAuto);
-    // A record from before the byte (payload 27) keeps Sharps. Its checksum
-    // sits at offset 32; with these fields it is 1, a valid spelling, so only
-    // the payload length keeps it from being read as Flats.
+    // A record from before the byte (payload 28, ends at Pad layout) keeps
+    // Sharps. Its checksum sits at offset 33; with these fields it is 1, a
+    // valid spelling, so only the payload length keeps it from being read as
+    // Flats.
     Config o;
     o.synthVoices = 1;
     o.streamThreshold = 0;
     o.exportRate = 0;
     uint8_t ext[Config::kExtSize];
     o.toExt(ext);
-    ext[4] = 27;
+    ext[4] = 28;
     uint8_t sum = 0;
-    for (int i = 0; i < 27; ++i) sum = uint8_t(sum + ext[5 + i]);
-    ext[5 + 27] = sum;
-    CHECK_EQ(ext[32], 1);
+    for (int i = 0; i < 28; ++i) sum = uint8_t(sum + ext[5 + i]);
+    ext[5 + 28] = sum;
+    CHECK_EQ(ext[33], 1);
     Config k0;
     k0.noteNames = kSpellFlats;
-    CHECK(k0.fromExt(ext, 5 + 27 + 1));
+    CHECK(k0.fromExt(ext, 5 + 28 + 1));
     CHECK_EQ(k0.synthVoices, 1);
     CHECK_EQ(k0.noteNames, 0);
     // Out of range -> Sharps.
@@ -156,8 +165,10 @@ TEST(note_names_config_screen_and_pattern) {
     Harness h;
     App& a = *h.app;
     ConfigScreen& c = cfgScreen(h);
+    const int row = generalRow("Note names");
+    CHECK(row >= 0);
     char t[48];
-    c.optionText(1, 17, t, sizeof t);
+    c.optionText(1, row, t, sizeof t);
     CHECK_STR(t, "Sharps");
     // Root note option 1 = C#1 with sharps.
     a.project.setU8(pf::kRootNote, 1);
@@ -169,7 +180,7 @@ TEST(note_names_config_screen_and_pattern) {
     a.pattern().tracks[0].steps[0].note = 61;
     h.app->ui.dirty();
     h.run(40);
-    c.optionText(1, 17, t, sizeof t);
+    c.optionText(1, row, t, sizeof t);
     CHECK_STR(t, "Flats");
     c.optionText(0, 3, t, sizeof t);
     CHECK_STR(t, "Db1");

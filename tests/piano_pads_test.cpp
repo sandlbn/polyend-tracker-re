@@ -87,7 +87,7 @@ TEST(piano_config_record) {
     CHECK_EQ(c.padLayout, 0);
     c.padLayout = 1;   // alone writes the record
     CHECK(c.save(nv));
-    CHECK_EQ(nv.mem[0xF4 + 4], 28);       // payload length
+    CHECK_EQ(nv.mem[0xF4 + 4], 29);       // payload length
     CHECK_EQ(nv.mem[0xF4 + 5 + 27], 1);   // payload byte 28
     Config r;
     CHECK(r.load(nv));
