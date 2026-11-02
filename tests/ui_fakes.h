@@ -301,6 +301,10 @@ public:
     void text(int16_t x, int16_t y, uint8_t font, uint16_t opt, const char* s) override {
         add("TEXT %d %d f%u o%u \"%s\"", x, y, font, opt, s);
     }
+    // Gfx::glyphRun's text (custom-font text is drawn as glyphs).
+    void textHint(int16_t x, int16_t y, uint8_t font, const char* s) override {
+        add("GLYPHS %d %d f%u \"%s\"", x, y, unsigned(ot::romFontFor(font)), s);   // the handle, as TEXT records it
+    }
     void number(int16_t x, int16_t y, uint8_t font, uint16_t opt, int32_t n) override {
         add("NUMBER %d %d f%u o%u %d", x, y, font, opt, int(n));
     }
@@ -448,9 +452,20 @@ public:
     void vertexTranslateX(int32_t x16) override { add("TRANSLATE_X %d", int(x16)); }
     void saveContext() override { add("SAVE_CONTEXT"); }
     void restoreContext() override { add("RESTORE_CONTEXT"); }
+    // On screen as CMD_TEXT or as a glyph run.
+    static bool isText(const std::string& l) { return l.compare(0, 5, "TEXT ") == 0 || l.compare(0, 7, "GLYPHS ") == 0; }
     bool lastHasText(const char* s) const {
         for (auto& l : last)
-            if (l.compare(0, 5, "TEXT ") == 0 && l.find(s) != std::string::npos) return true;
+            if (isText(l) && l.find(s) != std::string::npos) return true;
+        return false;
+    }
+    // A TEXT line whose string is exactly `s` (lastHasText also matches the
+    // coordinates: "16" was found in y 316).
+    bool lastHasExactText(const char* s) const {
+        const std::string q = std::string("\"") + s + "\"";
+        for (auto& l : last)
+            if (isText(l) && l.size() >= q.size() && l.compare(l.size() - q.size(), q.size(), q) == 0)
+                return true;
         return false;
     }
 
