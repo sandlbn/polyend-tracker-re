@@ -17,7 +17,7 @@
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
 # make export-sinc-table -> regenerate the committed weight table of the 44.1 kHz export
 #                    (src/core/audio/export_sinc_table.inc); needs python3
-VERSION   ?= 2.2.3
+VERSION   ?= 2.2.4
 BUILD     := build
 # Image file names must be exactly 24 characters (like the stock
 # "PolyendTracker_1.9.2.ptf"): the device's update bootloader rejected a
