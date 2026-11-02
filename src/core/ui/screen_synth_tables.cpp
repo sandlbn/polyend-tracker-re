@@ -345,9 +345,8 @@ void formatValue(int32_t engine, int index, float v, char* out, int cap) {
         case kFmtMs10: std::snprintf(out, c, "%.2f ms", double(v) * 0.1); break;
         case kFmtPercNote: {
             // Manual p.166: 12..119 = C0..B8 (kick C4 = 60).
-            static const char* const kL[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
             const int n = int(clampf(std::floor(v + 0.5f), 12.0f, 127.0f));
-            std::snprintf(out, c, "%s%d", kL[n % 12], n / 12 - 1);
+            std::snprintf(out, c, "%s%d", pitchClassName(n), n / 12 - 1);
             break;
         }
         case kFmtBodyWave: {

@@ -142,6 +142,7 @@ void Config::sanitize() {
     if (radioFreq10 < 760 || radioFreq10 > 1080) radioFreq10 = 875;
     clampField<uint8_t>(cpuMeter, 2, 0);
     if (synthVoices < 1 || synthVoices > kMaxSynthVoices) synthVoices = kDefaultSynthVoices;
+    clampField<uint8_t>(noteNames, 2, 0);
     clampField<uint8_t>(padLayout, 1, 0);
     themeFile[sizeof(themeFile) - 1] = 0;
     if (themeFile[0] && !themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
@@ -177,6 +178,7 @@ void Config::toExt(uint8_t* out) const {
     out[10] = exportRate;
     std::memcpy(out + 11, themeFile, sizeof(themeFile));
     out[32] = padLayout;
+    out[33] = noteNames;
     uint8_t sum = 0;
     for (uint32_t i = 0; i < kExtPayload; ++i) sum = uint8_t(sum + out[5 + i]);
     out[5 + kExtPayload] = sum;
@@ -203,6 +205,7 @@ bool Config::fromExt(const uint8_t* in, uint32_t len) {
         if (!themeNameValid(themeFile)) std::memset(themeFile, 0, sizeof(themeFile));
     }
     padLayout = (n >= 28 && in[32] <= 1) ? in[32] : 0;
+    noteNames = (n >= 29 && in[33] <= 2) ? in[33] : 0;
     return true;
 }
 
@@ -224,6 +227,7 @@ bool Config::fromImage(const uint8_t* img) {
     c.exportRate = exportRate;
     std::memcpy(c.themeFile, themeFile, sizeof(themeFile));
     std::memcpy(c.extKeep, extKeep, sizeof(extKeep));
+    c.noteNames = noteNames;
     c.padLayout = padLayout;
     c.sanitize();
     *this = c;
@@ -244,6 +248,7 @@ bool Config::load(INvStore& nv) {
     exportRate = d.exportRate;
     themeFile[0] = 0;
     std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
+    noteNames = d.noteNames;
     padLayout = d.padLayout;
     // The longest record that fits the store (older records are shorter;
     // fromExt reads the payload length from the record).
@@ -265,7 +270,8 @@ bool Config::save(INvStore& nv) {
     const Config d;
     if (cpuMeter == d.cpuMeter && synthVoices == d.synthVoices && streamMode == d.streamMode &&
         streamThreshold == d.streamThreshold && exportRate == d.exportRate && themeFile[0] == 0 &&
-        std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0 && padLayout == d.padLayout) {
+        std::memcmp(extKeep, d.extKeep, sizeof(extKeep)) == 0 && noteNames == d.noteNames &&
+        padLayout == d.padLayout) {
         Config probe;
         if (!nv.read(kExtOffset, ext, kExtSize) || !probe.fromExt(ext, kExtSize)) return true;
     }
@@ -295,6 +301,7 @@ bool Config::load(IStorage& fs) {
         exportRate = d.exportRate;
         themeFile[0] = 0;
         std::memcpy(extKeep, d.extKeep, sizeof(extKeep));
+        noteNames = d.noteNames;
         padLayout = d.padLayout;
         fromExt(buf + 8 + kImageSize, avail - kImageSize);
         return true;
