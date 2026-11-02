@@ -75,6 +75,14 @@ bool customFontsBound();
 enum RomTextMode : uint8_t { kRomGlyphs = 0, kRomText = 1, kRomWholeText = 2 };
 void setRomTextMode(RomTextMode m);
 RomTextMode romTextMode();
+// Gfx::text with custom fonts bound:
+//  kCustomGlyphs (default): drawn as a glyph run (VERTEX2II, one RAM_DL word
+//    per glyph anywhere on screen) wherever that gives the CMD_TEXT pixels;
+//  kCustomText: always CMD_TEXT (5 words + 1 per glyph, 2 right of x 511), the
+//    pixel reference for the simulator's textcheck and the emulator replay.
+enum CustomTextMode : uint8_t { kCustomGlyphs = 0, kCustomText = 1 };
+void setCustomTextMode(CustomTextMode m);
+CustomTextMode customTextMode();
 
 // Pen advance of `s` (or its first `len` chars, len < 0 = all) in pixels for a
 // font role or ROM handle. ROM fonts: the FT81x ROM advance tables (the
@@ -290,6 +298,9 @@ public:
     // advances; only a run clipped at the top / left edge (or a non-ROM
     // handle) falls back to CMD_TEXT (per glyph when advanceOverride > 0).
     void glyphRun(int x, int y, uint8_t font, const char* s, uint32_t colour, int advanceOverride = 0);
+    // text() as a glyph run when that draws the same pixels (custom fonts,
+    // kCustomGlyphs); false: the caller sends CMD_TEXT.
+    bool textAsGlyphs(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt);
     int textWidth(uint8_t font, const char* s) const { return ot::textWidth(font, s); }
     // Text turned by quarterTurns x 90 degrees counter-clockwise (1 = reads
     // bottom to top; stock style bit7 "vertical text"). (x, y) is the
@@ -299,9 +310,26 @@ public:
     // Fallback (ROM fonts): horizontal.
     void textRotated(int x, int y, uint8_t font, uint32_t c, const char* s, int quarterTurns = 1,
                      uint16_t opt = 0);
+    // Several turned strings in one font, colour and turn inside one
+    // SAVE_CONTEXT / transform (~14 words once instead of per string); the
+    // glyphs land where textRotated would put them.
+    struct RotatedText {
+        int x, y;
+        const char* s;
+        uint16_t opt;
+    };
+    void textRotatedRun(const RotatedText* t, int n, uint8_t font, uint32_t c, int quarterTurns = 1);
     // CMD_GRADIENT from c0 at (x0, y0) to c1 at (x1, y1) over the current
     // clip (spec 20 §1.5). Fallback displays: a solid fill.
     void gradient(int x0, int y0, int x1, int y1, uint32_t c0, uint32_t c1);
+    // RAM_DL words one CMD_GRADIENT expands to on the FT81x (it uploads 5).
+    // Measured on a Tracker (telemetry REG_CMD_DL, the same page in the
+    // default and the Monochrome theme, ~45 frames each): Track Mixer 17
+    // gradients 1794 vs 1140 words, Global Mixer 20 gradients 1754 vs 1085
+    // -> ~23 words per gradient. Counted as 24 so the budgets and the RAM_DL
+    // guard see what the device builds (at 5, gradient-heavy pages passed
+    // every host check and faulted on hardware).
+    static constexpr uint32_t kGradientDlWords = 24;
     // Box x, y, w, h filled with a gradient c0 -> c1, top to bottom (vertical)
     // or left to right: SAVE_CONTEXT, scissor, CMD_GRADIENT, RESTORE_CONTEXT.
     void gradientRect(int x, int y, int w, int h, uint32_t c0, uint32_t c1, bool vertical = true);
@@ -374,6 +402,8 @@ public:
     static constexpr uint32_t kLimitReserve = 8;
 
 private:
+    // CMD_TEXT charged `words` RAM_DL words (Gfx::text: what the FT81x builds).
+    void textWords(int x, int y, uint8_t font, uint32_t c, const char* s, uint16_t opt, uint32_t words);
     // Glyph runs and icons leave their BEGIN(BITMAPS) open and the
     // VERTEX_TRANSLATE_X in effect, so consecutive runs share them (a dense
     // Pattern page saves ~450 words: BEGIN/END and two translates per cell).
@@ -410,6 +440,10 @@ private:
         int alphaDepth = 0;
         uint8_t alphaStack[kAlphaStack] = {};
         bool rectsOpen = false;
+        // The display's VERTEX_TRANSLATE_X and open BEGIN(BITMAPS): a probe's
+        // glyph runs change them in the hasher only, so a miss puts them back.
+        int translate = 0;
+        bool bitmapsOpen = false;
     };
     State snapshot() const;
     void restore(const State& st);

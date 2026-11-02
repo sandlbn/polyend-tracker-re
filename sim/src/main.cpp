@@ -485,8 +485,14 @@ struct Headless {
         }
         std::vector<uint32_t> a(800 * 480), b(800 * 480);
         m.display.setFragments(false);
+        // The CMD_TEXT reference is a pixel reference only (the device draws
+        // ROM text as glyphs): at its RAM_DL cost a text-heavy screen passes
+        // the guard, so lift it for this frame.
+        const uint32_t limit = ui.dlFrameLimit();
+        ui.setDlFrameLimit(0);
         ot::setRomTextMode(ot::kRomText);
         ui.render();
+        ui.setDlFrameLimit(limit);
         m.display.frontCopy(a.data());
         const uint32_t textWords = ui.lastUploadWords();
         ot::setRomTextMode(ot::kRomGlyphs);

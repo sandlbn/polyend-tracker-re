@@ -77,10 +77,19 @@ bool hasText(const std::vector<std::string>& dl, const char* s) {
     return false;
 }
 
+// The CMD_TEXT or glyph-run line drawing `s`.
 std::string textLine(const std::vector<std::string>& dl, const char* s) {
     for (const std::string& l : dl)
-        if (l.rfind("TEXT", 0) == 0 && l.find(std::string("\"") + s + "\"") != std::string::npos) return l;
+        if ((l.rfind("TEXT", 0) == 0 || l.rfind("GLYPHS", 0) == 0) && l.find(std::string("\"") + s + "\"") != std::string::npos)
+            return l;
     return "";
+}
+
+// x of that line (a glyph run records its pen start, after the alignment).
+int textX(const std::vector<std::string>& dl, const char* s) {
+    const std::string l = textLine(dl, s);
+    const size_t sp = l.find(' ');
+    return sp == std::string::npos ? -9999 : std::atoi(l.c_str() + sp + 1);
 }
 
 // Runs `fn` inside one frame on a fresh recording display.
@@ -317,13 +326,20 @@ TEST(panels_lists_value_bars) {
     lv.count = 20;
     lv.sel = 0;
     lv.item = [](void*, int i, char* o, int cap) { std::snprintf(o, size_t(cap), "Item %d", i); };
+    setRomTextMode(kRomWholeText);   // rows as readable strings (the Harness mode)
     dl = frame([&](Gfx& g) { wg::list(g, O(), lv); });
+    setRomTextMode(kRomGlyphs);
     p = prims(dl);
     CHECK(hasRect(p, 0xFFFFFF, 255, 604, 33, 788, 33));      // scrollbar: inner w - 13
     CHECK(hasRect(p, 0xFFFFFF, 255, 604, 60, 788, 60));
     CHECK(hasRect(p, 0x000000, 255, 792, 37, 795, 416));    // scroll track
-    CHECK(textLine(dl, "Item 0").rfind("TEXT 614 46 ", 0) == 0);
-    CHECK(textLine(dl, "Item 13").rfind("TEXT 614 397 ", 0) == 0);
+    // Rows are glyph runs with their top at the row centre (46 + 27 n)
+    // minus half the font height; before, a CMD_TEXT centred on it.
+    char row0[32], row13[32];
+    std::snprintf(row0, sizeof row0, "TEXT 614 %d ", 46 - fontHeight(lv.font) / 2);
+    std::snprintf(row13, sizeof row13, "TEXT 614 %d ", 397 - fontHeight(lv.font) / 2);
+    CHECK(textLine(dl, "Item 0").rfind(row0, 0) == 0);
+    CHECK(textLine(dl, "Item 13").rfind(row13, 0) == 0);
     CHECK(!hasText(dl, "Item 14"));
     lv.count = 4;
     lv.x = 1;
@@ -426,8 +442,8 @@ TEST(status_layout_follows_font_set) {
     CHECK_EQ(l.posX, 392);
     wg::TitleStatus st;
     auto dl = frame([&](Gfx& g) { wg::titleBar(g, O(), "Config", nullptr, &st); });
-    CHECK(textLine(dl, "0m:00s").rfind("TEXT 288 13 ", 0) == 0);
-    CHECK(textLine(dl, "P1.001").rfind("TEXT 392 13 ", 0) == 0);
+    CHECK_EQ(textX(dl, "0m:00s"), 288);
+    CHECK_EQ(textX(dl, "P1.001"), 392);
     // 10 minutes and more: one pad space less.
     CHECK_EQ(wg::statusLayout(600).timeX, 284);
     d.customFonts = false;
@@ -550,6 +566,11 @@ TEST(keyboard_and_name_field_020) {
 
     Harness h;
     App& a = *h.app;
+    // The harness sends ROM-font text as whole CMD_TEXT strings (2006 words
+    // for this frame, past the guard); on the device it is ~1400
+    // (display_budget_test). This test checks the keyboard, not the budget:
+    // no guard (0 = off).
+    a.ui.setDlFrameLimit(0);
     a.ui.kb.open("Edit Pattern 2 Name", "", 31, "Save", nullptr, nullptr);
     a.ui.dirty();
     h.run(40);
@@ -768,9 +789,9 @@ TEST(list_tag_is_right_aligned_and_shrinks_the_name_column) {
     };
     auto count = [](const std::string& l, char c) { return int(std::count(l.begin(), l.end(), c)); };
     auto rowText = [](const std::vector<std::string>& dl, int y) {
-        const std::string pre = "TEXT 14 " + std::to_string(y) + " ";
+        const std::string top = " 14 " + std::to_string(y - fontHeight(kFont1) / 2) + " ";
         for (const std::string& l : dl)
-            if (l.rfind(pre, 0) == 0) return l;
+            if (l.rfind("TEXT" + top, 0) == 0 || l.rfind("GLYPHS" + top, 0) == 0) return l;
         return std::string();
     };
     const std::vector<std::string> plain = run(false), tag = run(true);

@@ -6,6 +6,7 @@
 #include "ui_fakes.h"
 
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 #include "ui/gfx.h"
@@ -71,6 +72,30 @@ TEST(custom_fonts_bind_to_handles) {
     CHECK(!customFontsBound());
 }
 
+// CMD_TEXT is charged what the FT81x builds in RAM_DL (measured on a
+// Tracker): 5 words for the string, 1 per glyph whose pen is inside x / y
+// 0..511, 2 per glyph anywhere else.
+TEST(cmd_text_counts_what_the_ft81x_builds) {
+    RecordingDisplay d;
+    applyFontSet(&d, 0);
+    Gfx g(d);
+    g.beginFrame(0);
+    g.text(0, 0, kFont1, 0xFFFFFF, "x");   // the colour is set once
+    auto cost = [&](int x, int y, const char* s, uint16_t opt = 0) {
+        const uint32_t w0 = g.dlWords();
+        g.text(x, y, kFont1, 0xFFFFFF, s, opt);
+        return g.dlWords() - w0;
+    };
+    CHECK_EQ(cost(10, 20, "abcd"), 9u);    // inside
+    CHECK_EQ(cost(600, 20, "abcd"), 13u);  // right of x 511
+    CHECK_EQ(cost(10, 520, "ab"), 9u);     // below y 511
+    const int wa = textWidth(kFont1, "a", 1);
+    CHECK_EQ(cost(512 - wa, 20, "ab"), 8u);   // straddles: a inside, b outside
+    const int wab = textWidth(kFont1, "ab");
+    CHECK_EQ(cost(511, 20, "ab", IDisplay::kOptRightX), wab <= 511 ? 7u : 9u);   // alignment applied first
+    g.endFrame();
+}
+
 TEST(glyph_run_fallback_is_text) {
     RecordingDisplay d;
     setRomTextMode(kRomWholeText);
@@ -78,12 +103,17 @@ TEST(glyph_run_fallback_is_text) {
     Gfx g(d);
     g.beginFrame(0);
     g.glyphRun(600, 20, kFont1, "Pattern", 0xFFFFFF);
-    g.glyphRun(10, 30, kFont2, "--", 0x777777, 11);
+    // Charged what the device draws (kRomGlyphs: 7 VERTEX2II + BEGIN and a
+    // translate at most), not the CMD_TEXT it stands in for (5 + 2 x 7 at
+    // x 600).
+    const uint32_t w0 = g.dlWords();
+    g.glyphRun(600, 50, kFont1, "Pattern", 0xFFFFFF);
+    CHECK_EQ(g.dlWords() - w0, 9u);
+    g.glyphRun(10, 30, kFont2, "--", 0x777777, 11);   // one string, the pitch ignored
     g.textRotated(5, 5, kFont3, 0xFFFFFF, "VOL");
     g.endFrame();
     CHECK(has(d.last, "TEXT 600 20 f26 o0 \"Pattern\""));
-    CHECK(has(d.last, "TEXT 10 30 f18 o0 \"-\""));
-    CHECK(has(d.last, "TEXT 21 30 f18 o0 \"-\""));
+    CHECK(has(d.last, "TEXT 10 30 f18 o0 \"--\""));
     CHECK(has(d.last, "TEXT 5 5 f27 o0 \"VOL\""));
     CHECK_EQ(count(d.last, "VERTEX2II"), 0);
     setRomTextMode(kRomGlyphs);
@@ -144,7 +174,8 @@ TEST(text_maps_bytes_outside_the_font) {
         g.endFrame();
         int texts = 0;
         for (const std::string& line : d.last) {
-            if (line.rfind("TEXT ", 0) == 0) {
+            // Custom fonts: text is drawn as glyph runs, read through textHint.
+            if (line.rfind("TEXT ", 0) == 0 || line.rfind("GLYPHS ", 0) == 0) {
                 ++texts;
                 const std::string t = textArg(line);
                 if (line.find(" 200 ") != std::string::npos) {
@@ -160,7 +191,8 @@ TEST(text_maps_bytes_outside_the_font) {
                 CHECK(ch >= 17 && ch <= 126);
         }
         CHECK(texts >= 3);
-        CHECK(has(d.last, "TEXT 10 10 f" + std::to_string(romFontFor(kFont1)) + " o0 \"" + shown + "\""));
+        const std::string f1 = std::to_string(romFontFor(kFont1));
+        CHECK(has(d.last, mode ? "GLYPHS 10 10 f" + f1 + " \"" + shown + "\"" : "TEXT 10 10 f" + f1 + " o0 \"" + shown + "\""));
         for (uint8_t f : {uint8_t(kFont1), uint8_t(kFont2), uint8_t(kFont3), uint8_t(kFont4)}) {
             CHECK_EQ(textWidth(f, raw), textWidth(f, shown));
             CHECK_EQ(textWidth(f, raw, 3), textWidth(f, "Piu"));
@@ -172,6 +204,67 @@ TEST(text_maps_bytes_outside_the_font) {
         applyFontSet(nullptr, 0);
     }
     setRomTextMode(kRomGlyphs);
+}
+
+// With custom fonts bound, Gfx::text maps a string to the characters the font
+// has before it decides between a glyph run and CMD_TEXT: a name with CP437
+// bytes (0x97 = u grave) is drawn as the same glyph run as its mapped ASCII
+// text, at that glyph run's cost, and textHint reads the mapped text.
+TEST(mapped_text_is_a_glyph_run_with_custom_fonts) {
+    const char raw[] = "Pi\x97 \x82t\xE9.wav";
+    const char shown[] = "Piu et?.wav";
+    const uint16_t opts[] = {0, IDisplay::kOptRightX, IDisplay::kOptCenterX | IDisplay::kOptCenterY};
+    for (uint8_t set = 0; set < 2; ++set) {
+        for (uint16_t opt : opts) {
+            int piW = 0;   // pen advance of "Pi" in the custom font
+            // The display list and the words of one string drawn at (300, 100).
+            auto draw = [&](const char* s, bool run, int rx, int ry, uint32_t& words) {
+                RecordingDisplay d;
+                d.customFonts = true;
+                CHECK(applyFontSet(&d, set));
+                Gfx g(d);
+                g.beginFrame(0);
+                g.text(0, 0, kFont1, 0xFFFFFF, "x");   // colour and BEGIN(BITMAPS) once
+                const uint32_t w0 = g.dlWords();
+                if (run) g.glyphRun(rx, ry, kFont1, s, 0xFFFFFF);
+                else g.text(300, 100, kFont1, 0xFFFFFF, s, opt);
+                words = g.dlWords() - w0;
+                piW = textWidth(kFont1, "Pi");
+                g.endFrame();
+                applyFontSet(nullptr, 0);
+                return d.last;
+            };
+            uint32_t wRaw = 0, wShown = 0, wRun = 0;
+            const std::vector<std::string> dlRaw = draw(raw, false, 0, 0, wRaw);
+            const std::vector<std::string> dlShown = draw(shown, false, 0, 0, wShown);
+            CHECK_EQ(count(dlRaw, "TEXT "), 0);
+            CHECK(dlRaw == dlShown);   // the same glyphs, alignment and hint
+            CHECK_EQ(wRaw, wShown);
+            // The run's text and pen start, as textHint got them.
+            std::string hint;
+            for (const std::string& l : dlRaw)
+                if (l.rfind("GLYPHS ", 0) == 0 && l.find(" 0 0 ") == std::string::npos) hint = l;
+            const std::string hinted = textArg(hint);
+            CHECK_STR(hinted.c_str(), shown);
+            int hx = -1, hy = -1;
+            CHECK_EQ(std::sscanf(hint.c_str(), "GLYPHS %d %d", &hx, &hy), 2);
+            // Charged what that glyph run costs (1 word per glyph), not CMD_TEXT.
+            const std::vector<std::string> dlRun = draw(shown, true, hx, hy, wRun);
+            CHECK_EQ(wRaw, wRun);
+            CHECK(wRaw < 5 + uint32_t(std::strlen(shown)));
+            int glyphs = 0;
+            bool u = false;
+            for (const std::string& l : dlRaw) {
+                unsigned x, y, hnd, ch;
+                if (std::sscanf(l.c_str(), "VERTEX2II %u %u %u %u", &x, &y, &hnd, &ch) != 4 || y == 0) continue;
+                ++glyphs;
+                CHECK(ch > ' ' && ch <= 126);   // cells within the font
+                if (ch == 'u' && int(x) == hx + piW) u = true;
+            }
+            CHECK(u);   // 0x97 drawn as 'u'
+            CHECK_EQ(glyphs, 10);   // "Piu et?.wav" less its space
+        }
+    }
 }
 
 TEST(gradient_hairline_roundrect_icons) {

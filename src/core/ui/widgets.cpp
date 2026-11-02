@@ -522,7 +522,7 @@ void bottomFade(Gfx& g, const Theme& th, int x, int y, int w, int h, uint32_t bg
     if (!th.flag(slot::kFlagBottomFade) || w <= 0 || h < kFadeH) return;
     if (g.lowDetail()) return;   // RAM_DL fallback: no gradients
     const int fy = y + h - kFadeH;
-    if (!g.saveContext(7)) return;   // scissor 2 + CMD_GRADIENT 5
+    if (!g.saveContext(2 + Gfx::kGradientDlWords)) return;   // scissor 2 + CMD_GRADIENT
     g.clip(x, fy, w + 1, kFadeH + 2);
     g.gradient(x, fy, x, y + h + 2, bg, th.bg);   // stock: 000000 (Original's background)
     g.restoreContext();
@@ -605,7 +605,8 @@ uint32_t marqueeTicks(int x, int y, int sel, const char* text) {
 }
 
 // Draws the glyphs of `s` (pen origin x0) that overlap left .. right - 1
-// as one text run; glyphs outside cost no RAM_DL words.
+// as one glyph run, like the rows that don't scroll: 1 RAM_DL word per
+// glyph; glyphs outside cost none.
 void textWindow(Gfx& g, uint8_t font, uint32_t c, char* s, int x0, int y, int left, int right) {
     int i = 0, pen = x0;
     while (s[i]) {
@@ -619,7 +620,7 @@ void textWindow(Gfx& g, uint8_t font, uint32_t c, char* s, int x0, int y, int le
     while (s[j] && p < right) p += textWidth(font, s + j++, 1);
     const char keep = s[j];
     s[j] = 0;
-    g.text(pen, y, font, c, s + i, IDisplay::kOptCenterY);
+    g.glyphRun(pen, y - fontHeight(font) / 2, font, s + i, c);
     s[j] = keep;
 }
 }  // namespace
@@ -682,7 +683,9 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             int n = 0, pen = 0;
             while (buf[n] && pen < room) pen += textWidth(v.font, buf + n++, 1);
             buf[n] = 0;
-            g.text(v.x + 13, ty, v.font, tc, buf, IDisplay::kOptCenterY);
+            // A glyph run: 1 RAM_DL word per glyph anywhere, where CMD_TEXT
+            // takes 2 right of x 511 (the MIDI instrument page's CC lists).
+            g.glyphRun(v.x + 13, ty - fontHeight(v.font) / 2, v.font, buf, tc);
         }
         g.noClip();
     }
