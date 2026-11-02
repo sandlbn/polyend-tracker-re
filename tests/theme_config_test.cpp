@@ -174,7 +174,7 @@ TEST(custom_theme_persists_in_ext_v5_and_reloads_at_boot) {
     h.app->markConfigDirty();
     CHECK(h.app->saveConfig());
     const uint8_t* x = nv.mem.data() + Config::kExtOffset;
-    CHECK_BYTES(x, 'O', 'T', 'X', 5, 29);   // + noteNames, padLayout
+    CHECK_BYTES(x, 'O', 'T', 'X', 5, 29);   // + padLayout, noteNames
     CHECK_EQ(Config::kExtSize, 35u);
     CHECK(std::memcmp(x + 11, "Paper\0", 6) == 0);
     CHECK_EQ(nv.mem[0xD5], 1);   // the stock byte holds the base
