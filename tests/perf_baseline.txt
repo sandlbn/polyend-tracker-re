@@ -56,6 +56,14 @@
 # (flash, not SRAM_L) and a second filter chain for the R side (+12.4k insn per voice; limit
 # 34k). Opt-in: Stereo 0 runs the mono kernels (fatinit / fatworst unchanged); four such
 # voices land near mixwtfm (above the 70 % alarm; the governor may take a voice).
+# exportm / exports (44.1 kHz WAV export, 32-tap FIR, audio/export_resampler.h):
+# ExportResampler::pushBlock per 128-frame input block, no-op sink. The offline export has
+# no block deadline, so these are not part of the 70 % budget; they gate the render time of
+# an export. exportm = master only (2 channels), exports = 14 stems (28 distinct noisy
+# full-scale channels, the worst case: no silent or L == R channel to skip). The SDRAM
+# accesses the bench prints are counted by OT_SDRAM_ACCESS in gather() and in the history
+# write of export_resampler.cpp. The song-5-like line exports.s5 (7 of 28 channels silent,
+# 10 of the other 21 with L == R) is informational and not in this file.
 idle     11112
 idle2    11470
 play8    145418
@@ -79,3 +87,5 @@ peak     228560
 wtfminit 9626
 wtfmworst 30214
 mixwtfm  299814
+exportm  91866
+exports  479627

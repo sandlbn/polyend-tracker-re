@@ -1083,9 +1083,111 @@ TEST(export_stems_wav_device_rate) {
 }
 
 namespace {
-// Export a held ACD sine and check the WAV, then the instrument that the
-// Render & Load import (wavImport with stereo on) makes from it.
-void checkSynthExport(bool resampleTo44100) {
+// Two engines are prepared the same way (same sample, same notes from the
+// per-block callback) so that two renders of the same material can be compared.
+struct ExportScript {
+    Rig* rig;
+    uint32_t blocks;
+    static void prepare(Rig& rig) {
+        rig.load(0, sine(20000, 330.0f), PlayMode::OneShot);
+        rig.load(1, sine(20000, 110.0f, 0.6f), PlayMode::OneShot);
+        rig.ins[0].reverbSend = 60;   // a reverb tail and a delay echo in the stems
+        rig.ins[0].delaySend = 60;
+    }
+    static bool running(void* c) {
+        ExportScript* x = static_cast<ExportScript*>(c);
+        if (x->blocks == 0) x->rig->note(0, 0, 60);
+        if (x->blocks == 5) x->rig->note(1, 1, 48, kFxReverbSend, 100, kFxPanning, 20);
+        return ++x->blocks <= 50;
+    }
+};
+
+const char* const kStemFiles[StemBlock::kStems] = {"track1", "track2", "track3", "track4", "track5",
+                                                   "track6", "track7", "track8", "reverb", "delay",
+                                                   "master", "synth_1", "synth_2", "synth_3"};
+
+uint32_t le32(const std::vector<uint8_t>& f, size_t o) {
+    return uint32_t(f[o]) | (uint32_t(f[o + 1]) << 8) | (uint32_t(f[o + 2]) << 16) | (uint32_t(f[o + 3]) << 24);
+}
+}  // namespace
+
+// The 44.1 kHz conversion treats the master like one stem: the master of a
+// stems export equals the master-only export of the same material, byte for
+// byte (same engine state, same notes, both with resampleTo44100).
+TEST(export_master_equals_stems_master) {
+    Rig a, b;
+    ExportScript::prepare(a);
+    ExportScript::prepare(b);
+    MemStorage fs;
+    ExportScript ca{&a, 0}, cb{&b, 0};
+    CHECK_EQ(a.eng->exportWav(fs, "Export/p/stems", true, 1000, ExportScript::running, &ca, true), 50);
+    CHECK_EQ(b.eng->exportWav(fs, "Export/p/master.wav", false, 1000, ExportScript::running, &cb, true), 50);
+    const auto& stemMaster = fs.files["Export/p/stems/master.wav"];
+    const auto& master = fs.files["Export/p/master.wav"];
+    CHECK_EQ(master.size(), 44u + 6397u * 4u);
+    CHECK_EQ(stemMaster.size(), master.size());
+    if (stemMaster.size() != master.size() || master.size() < 44) return;
+    CHECK_EQ(le32(master, 40), 6397u * 4u);
+    CHECK_EQ(le32(stemMaster, 40), 6397u * 4u);
+    CHECK(std::memcmp(stemMaster.data() + 44, master.data() + 44, master.size() - 44) == 0);
+    int nonzero = 0;
+    for (size_t i = 44; i < master.size(); ++i) nonzero += master[i] != 0;
+    CHECK(nonzero > 1000);   // not equal by both being silent
+    // The other stems of the same export are not copies of the master.
+    CHECK(fs.files["Export/p/stems/track1.wav"] != stemMaster);
+}
+
+// resampleTo44100 = false writes what the engine renders, block by block, and
+// only the header names 44117 Hz (spec 04 §6.1). Compared with a manual
+// beginOffline / renderOfflineBlock loop on an identically prepared engine.
+TEST(export_device_rate_writes_the_rendered_blocks) {
+    for (int stems = 0; stems < 2; ++stems) {
+        Rig a, b;
+        ExportScript::prepare(a);
+        ExportScript::prepare(b);
+        MemStorage fs;
+        ExportScript ca{&a, 0}, cb{&b, 0};
+        const int nw = stems ? StemBlock::kStems : 1;
+        const char* path = stems ? "Export/p/stems" : "Export/p/master.wav";
+        CHECK_EQ(a.eng->exportWav(fs, path, stems != 0, 1000, ExportScript::running, &ca, false), 50);
+
+        // The manual loop: the same `running` sequence, one block per true.
+        std::vector<std::vector<int16_t>> ref(nw);
+        std::unique_ptr<StemBlock> stemBuf(new StemBlock);
+        int16_t master[kBlock * 2];
+        b.eng->beginOffline();
+        while (ExportScript::running(&cb)) {
+            b.eng->renderOfflineBlock(master, stems ? stemBuf.get() : nullptr);
+            for (int i = 0; i < nw; ++i) {
+                const int16_t* src = stems ? stemBuf->data[i] : master;
+                ref[i].insert(ref[i].end(), src, src + kBlock * 2);
+            }
+        }
+        b.eng->endOffline();
+
+        int nonzero = 0;
+        for (int i = 0; i < nw; ++i) {
+            const std::string name = stems ? std::string(path) + "/" + kStemFiles[i] + ".wav" : std::string(path);
+            const auto& f = fs.files[name];
+            CHECK_EQ(f.size(), 44u + 50u * kBlock * 4u);
+            if (f.size() != 44u + 50u * kBlock * 4u) continue;
+            CHECK_EQ(le32(f, 24), 44117u);
+            CHECK_EQ(le32(f, 28), 176468u);
+            CHECK_EQ(le32(f, 40), 50u * kBlock * 4u);
+            CHECK_EQ(ref[i].size(), size_t(50u * kBlock * 2u));
+            if (ref[i].size() != size_t(50u * kBlock * 2u)) continue;
+            CHECK(std::memcmp(f.data() + 44, ref[i].data(), ref[i].size() * 2) == 0);
+            for (size_t k = 0; k < ref[i].size(); ++k) nonzero += ref[i][k] != 0;
+        }
+        CHECK(nonzero > 1000);   // there was something to compare
+    }
+}
+
+namespace {
+constexpr uint32_t kSynthExportBlocks = 2600;   // A sustained note for a little over four bars at 130 BPM.
+
+// Exports a held ACD sine (synth slot 0, C4) as one mono-in-stereo file.
+void exportSynthSine(MemStorage& fs, bool resampleTo44100) {
     Rig rig;
     SynthPatch patch;
     CHECK(patchInit(kSynthEngineAcd, &patch));
@@ -1098,7 +1200,7 @@ void checkSynthExport(bool resampleTo44100) {
     record.polyphony = 1;
     synth.setSlotRecord(0, record);
 
-    constexpr uint32_t kBlocks = 2600;  // A sustained note for a little over four bars at 130 BPM.
+    constexpr uint32_t kBlocks = kSynthExportBlocks;
     struct Ctx {
         AudioEngine* engine;
         uint32_t blocks = 0;
@@ -1114,9 +1216,24 @@ void checkSynthExport(bool resampleTo44100) {
         return ++c.blocks <= kBlocks;
     };
 
-    MemStorage fs;
     CHECK_EQ(rig.eng->exportWav(fs, "Export/synth", true, kBlocks, running, &ctx, resampleTo44100),
              int32_t(kBlocks));
+}
+
+// Largest |sample| of a 16-bit WAV (44-byte header).
+int wavPeak(const std::vector<uint8_t>& wav, size_t skipFrames = 0) {
+    int peak = 0;
+    for (size_t o = 44 + skipFrames * 4; o + 1 < wav.size(); o += 2)
+        peak = std::max(peak, std::abs(int(int16_t(uint16_t(wav[o]) | (uint16_t(wav[o + 1]) << 8)))));
+    return peak;
+}
+
+// Export a held ACD sine and check the WAV, then the instrument that the
+// Render & Load import (wavImport with stereo on) makes from it.
+void checkSynthExport(bool resampleTo44100) {
+    constexpr uint32_t kBlocks = kSynthExportBlocks;
+    MemStorage fs;
+    exportSynthSine(fs, resampleTo44100);
     const auto& wav = fs.files["Export/synth/synth_1.wav"];
     constexpr size_t kHeaderBytes = 44;
     const uint32_t deviceFrames = kBlocks * kBlock;
@@ -1158,6 +1275,18 @@ void checkSynthExport(bool resampleTo44100) {
     CHECK_EQ(clipped, 0);
     CHECK(std::fabs(mean / expectedFrames) < 20.0);
     CHECK(maxStep < peak / 5);  // No single-sample jumps characteristic of a resampling glitch.
+    if (resampleTo44100) {
+        // No ringing or clipping from the conversion: the converted file does not
+        // peak higher than the device-rate render of the same material (+ 1 % and
+        // 1 LSB for the other sampling instants). The first 32 frames (the filter
+        // length) are left out, so a harder onset's overshoot cannot trip it.
+        MemStorage raw;
+        exportSynthSine(raw, /*resampleTo44100=*/false);
+        const int rawPeak = wavPeak(raw.files["Export/synth/synth_1.wav"], 32);
+        CHECK(rawPeak > 1000);
+        CHECK(wavPeak(wav, 32) <= rawPeak + rawPeak / 100 + 1);
+        std::printf("  synth export: peak %d converted, %d device rate\n", peak, rawPeak);
+    }
 
     // The import takes a 44100 Hz file as is and converts a 44117 Hz file
     // (spec 02 §8.1). The header rate is not the device rate (44117.647 Hz),
