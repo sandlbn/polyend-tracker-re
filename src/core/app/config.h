@@ -92,6 +92,9 @@ struct Config {
     // keys in the row above; the pad lights draw the keys). Extension record
     // byte 32.
     uint8_t padLayout = 0;
+    // [I] Config > General "Note names" (ui/notes.h NoteSpelling): 0 Sharps,
+    // 1 Flats, 2 Auto (from the project key). Extension record byte 33.
+    uint8_t noteNames = 0;
 
     // --- the stock config image --------------------------------------------
     static constexpr uint32_t kImageSize = 0xF4;   // spec 05 §5.4 version word 0xf4
@@ -113,8 +116,8 @@ struct Config {
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 5;
     // cpuMeter, synthVoices, streamMode, streamThreshold, radioStereo, exportRate, themeFile[21],
-    // padLayout
-    static constexpr uint32_t kExtPayload = 6 + 21 + 1;
+    // padLayout, noteNames
+    static constexpr uint32_t kExtPayload = 6 + 21 + 2;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;
     void toExt(uint8_t* out) const;                          // kExtSize bytes
     bool fromExt(const uint8_t* in, uint32_t len);           // false: none / bad (fields unchanged)

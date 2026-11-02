@@ -3,3 +3,4 @@ tools/make_demo/make_demo
 dist/
 build/
 syncv3.sh
+__pycache__/
