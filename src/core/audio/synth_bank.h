@@ -60,6 +60,10 @@
 // Mixing: voices -> slot bus (stereo) -> slot gain (dB) -> pan as balance
 // (linear law, spec 04 §4.3) -> main bus; post-gain sends (L+R)/2 * SEND law
 // * Global Mixer delay / reverb level. The bus feeds the Synth k stem.
+// Per note on top: the Track Mixer fader of the track that started it (also
+// in its release), its step-FX pan / sends and the track's Performance pan /
+// sends (setTrackPerf); the Performance filter offset goes to the engine as
+// SynthVoice::cutoffOct (issue #23).
 //
 // Real time: no allocation, no I/O. Main-loop setters only store values
 // (the audio context picks them up at the next block). Memory (SRAM .bss,
@@ -122,6 +126,16 @@ struct SynthMixInputs {
     }
 };
 
+// Performance FX of one sequencer track as they reach its synth notes
+// (issue #23): read per block while a note sounds, also in its release.
+struct SynthPerf {
+    float cutoffOct = 0.0f;   // LP / HP / BP offset, octaves on the patch cutoff
+    int16_t pan = 0;          // added to the note's pan (0..100), clamped
+    int16_t dsend = 0;        // added to the note's delay / reverb send, clamped
+    int16_t rsend = 0;
+    bool active() const { return cutoffOct != 0.0f || pan != 0 || dsend != 0 || rsend != 0; }
+};
+
 class SynthBank : public IVoicePool {
 public:
     SynthBank();
@@ -178,6 +192,10 @@ public:
     // --- audio context (sequencer sink, AudioEngine) -------------------------
     void noteOn(int track, const SynthNoteOn& n);
     void noteOff(int track, NoteOffMode mode);
+    // Performance FX of track t (0..15; main loop, read at the next block;
+    // kept across reset()). The default value = none.
+    void setTrackPerf(int t, const SynthPerf& p);
+    SynthPerf trackPerf(int t) const;
     void applyFx(int track, uint8_t type, uint8_t value);
     void macroFx(int slot, int macro, uint8_t value);
     void transportStop();     // macro overrides -> page values
@@ -362,6 +380,11 @@ private:
     uint8_t heldSlot_[kSynthAllTracks];
     uint8_t heldSeq_[kSynthAllTracks];
     uint8_t heldNext_ = 0;
+    // Performance FX per track (setTrackPerf), one word each: bytes 0..3 =
+    // filter value (-100..100, x 477 / 5000 octaves), pan, delay and reverb
+    // send offsets (int8). Packed: the stack headroom has no room for more.
+    uint32_t perfWord_[kSynthTracks] = {};
+    volatile uint8_t perfActive_ = 0;         // tracks with a non-zero perfWord_
     uint32_t serial_ = 0;
     uint32_t steals_ = 0;
     int activeVoices_ = 0;                    // records not free
@@ -392,6 +415,7 @@ private:
     uint8_t liveSeen_[kSynthLiveTracks] = {};   // audio side: last serial
     uint8_t liveSerial_[kSynthLiveTracks] = {}; // main loop: last serial
     void liveDrain();
+    static float perfNote(uint32_t w, const SynthSlotRecord& rec, int8_t& pan, int8_t& sendD, int8_t& sendR);
     bool livePending() const {
         for (int k = 0; k < kSynthLiveTracks; ++k)
             if (uint8_t(live_[k]) != liveSeen_[k]) return true;

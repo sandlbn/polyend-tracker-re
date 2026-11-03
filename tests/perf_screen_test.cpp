@@ -34,6 +34,15 @@ int16_t imgValue(const std::vector<uint8_t>& m, int s, int r) {
     return int16_t(uint16_t(m[o] | (m[o + 1] << 8)));
 }
 
+// Turns the FX on for all 16 tracks (they start off, issue #86): F1..F8 in
+// bank A, then in bank B, back on bank A.
+void allOn(Harness& h) {
+    for (int b = 0; b < 2; ++b) {
+        for (uint8_t k : {btn::F1, btn::F2, btn::F3, btn::F4, btn::F5, btn::F6, btn::F7, btn::F8}) h.tap(k);
+        h.tap(btn::Performance);
+    }
+}
+
 void putPattern(App& a, int num, uint8_t note0) {
     a.storePattern(num, a.pattern());
     PatternStock& p = a.storedStock(num);
@@ -174,7 +183,7 @@ TEST(perf_track_key_patterns) {
     CHECK_EQ(a.seq.trackPattern(2), 2);
     CHECK_EQ(a.project.u16(pf::kPerfPatterns + 4), 2);
     r.h.up(btn::F3);
-    CHECK(p.fxOn[2]);   // key used for a pattern change: no FX toggle
+    CHECK(!p.fxOn[2]);   // key used for a pattern change: no FX toggle
     // Track key + Right: pending, queued on release.
     r.h.down(btn::F4);
     r.h.tap(btn::Right);
@@ -184,10 +193,10 @@ TEST(perf_track_key_patterns) {
     r.h.up(btn::F4);
     CHECK_EQ(a.seq.queuedTrackPattern(3), 3);
     CHECK_EQ(a.project.u16(pf::kPerfPatterns + 6), 3);
-    CHECK(p.fxOn[3]);
+    CHECK(!p.fxOn[3]);
     // Plain tap toggles the track's FX enable.
     r.h.tap(btn::F5);
-    CHECK(!p.fxOn[4]);
+    CHECK(p.fxOn[4]);
     // Leaving reverts: overrides dropped, perf mode off (spec 12 §C.4).
     r.h.tap(btn::Pattern);
     CHECK(!a.seq.performanceMode());
@@ -204,6 +213,7 @@ TEST(perf_cc_slot_live_value) {
     App& a = r.a();
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
+    allOn(r.h);
     a.handleControlChange(51, 127);   // slot 0 = volume
     CHECK_EQ(a.engine.voice(0).perf().volume, 0);   // latched only
     r.h.run(60);
@@ -289,6 +299,7 @@ TEST(perf_fx_conversion) {
     App& a = r.a();
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
+    allOn(r.h);
     p.src.setValue(1, 3, -70);
     r.h.pad(36 + 1);   // panning row 3
     CHECK_EQ(a.engine.voice(0).perf().pan, -70);   // P12: not halved
@@ -304,6 +315,7 @@ TEST(perf_start_and_type_change_rules) {
     App& a = r.a();
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
+    allOn(r.h);
     p.src.setValue(0, 1, 50);
     r.h.pad(12);
     CHECK_EQ(a.engine.voice(0).perf().volume, 50);
@@ -329,15 +341,107 @@ TEST(perf_start_and_type_change_rules) {
     CHECK_EQ(p.src.type(1), 2);
     CHECK_EQ(p.src.value(1, 2), 33);
     CHECK_EQ(p.src.row(1), 0);
-    // Rows are cleared and the patterns reset on a fresh entry; all tracks enabled.
+    // Rows are cleared and the patterns reset on a fresh entry; all tracks off.
     r.h.pad(24 + 1);
     r.h.tap(btn::F2);
     CHECK(!p.fxOn[1]);
+    CHECK(p.fxOn[2]);
     r.h.tap(btn::Pattern);
     r.h.tap(btn::Performance);
     CHECK_EQ(p.src.row(1), 0);
-    CHECK(p.fxOn[1]);
+    CHECK(!p.fxOn[2]);
     CHECK(!p.edit);
+}
+
+// Issue #86 report 1 (stock 1.9.2, issue #86 stock check A1-A8, B1-B3):
+// every track starts with its Performance FX off; a track key turns it on.
+TEST(perf_tracks_start_with_fx_off) {
+    PerfRig r;
+    App& a = r.a();
+    r.h.tap(btn::Performance);
+    PerformanceScreen& p = r.p();
+    auto vol = [&](int t) { return a.engine.voice(t).perf().volume; };
+    r.h.tap(btn::Play);                                // A1: playing
+    for (int t = 0; t < 16; ++t) CHECK(!p.fxOn[t]);
+    p.src.setValue(0, 1, -100);
+    r.h.pad(12);                                       // A2: Volume -100, no change
+    for (int t = 0; t < 8; ++t) CHECK_EQ(vol(t), 0);
+    r.h.tap(btn::F3);                                  // A3: only track 3 takes it
+    CHECK(p.fxOn[2]);
+    CHECK_EQ(vol(2), -100);
+    CHECK_EQ(vol(1), 0);
+    CHECK_EQ(vol(3), 0);
+    r.h.tap(btn::F3);                                  // A4
+    CHECK(!p.fxOn[2]);
+    CHECK_EQ(vol(2), 0);
+    for (uint8_t k : {btn::F1, btn::F2, btn::F4, btn::F5, btn::F6, btn::F7, btn::F8}) r.h.tap(k);   // A5
+    for (int t = 0; t < 8; ++t) CHECK_EQ(vol(t), (t == 2 ? 0 : -100));
+    r.h.pad(0);                                        // A6: top pad
+    for (int t = 0; t < 8; ++t) CHECK_EQ(vol(t), 0);
+    r.h.tap(btn::Play);                                // A7: Stop / Play keeps the state
+    CHECK(!a.seq.isPlaying());
+    r.h.tap(btn::Play);
+    r.h.pad(12);
+    for (int t = 0; t < 8; ++t) CHECK_EQ(vol(t), (t == 2 ? 0 : -100));
+    r.h.tap(btn::Play);                                // stop
+    r.h.pad(0);
+    r.h.tap(btn::Pattern);                             // A8, stopped: a fresh entry
+    r.h.tap(btn::Performance);
+    for (int t = 0; t < 16; ++t) CHECK(!p.fxOn[t]);
+    // A8, playing: back before the pattern ends keeps the state; after, a fresh entry.
+    r.h.tap(btn::Play);
+    r.h.tap(btn::F1);
+    r.h.tap(btn::Song);
+    r.h.tap(btn::Performance);
+    CHECK(p.fxOn[0]);
+    r.h.tap(btn::Song);
+    const uint32_t ends = a.patternEndCount();
+    for (int i = 0; i < 20000 && a.patternEndCount() == ends; ++i) r.h.audio.pump(1);
+    r.h.run(20);
+    CHECK(a.patternEndCount() != ends);
+    r.h.tap(btn::Performance);
+    CHECK(!p.fxOn[0]);
+    r.h.tap(btn::Play);
+}
+
+// Issue #23: the Performance filter / pan / send offsets reach synth notes
+// of every track whose FX are on (tracks 1-16), as an octave offset on the
+// synth's own cutoff (the sample law: 1.0 = 477 / 50 octaves).
+TEST(perf_filter_reaches_synth_notes_on_all_tracks) {
+    PerfRig r;
+    App& a = r.a();
+    r.h.tap(btn::Performance);
+    PerformanceScreen& p = r.p();
+    const audio::SynthBank& sb = a.engine.synth();
+    const float kOct = 477.0f / 50.0f;
+    p.src.setType(0, perf::kLowPass);
+    p.src.setValue(0, 1, -50);
+    p.src.setType(1, perf::kPanning);
+    p.src.setValue(1, 1, -30);
+    p.src.setType(2, perf::kDelaySend);
+    p.src.setValue(2, 1, 40);
+    r.h.tap(btn::F1);                        // track 1 on
+    r.h.tap(btn::Performance);               // bank B
+    r.h.tap(btn::F4);                        // track 12 on
+    r.h.tap(btn::Performance);
+    r.h.pad(12);
+    r.h.pad(13);
+    r.h.pad(14);
+    CHECK_NEAR(sb.trackPerf(0).cutoffOct, -0.5f * kOct, 1e-4);
+    CHECK_NEAR(sb.trackPerf(11).cutoffOct, -0.5f * kOct, 1e-4);
+    CHECK_EQ(sb.trackPerf(0).pan, -30);
+    CHECK_EQ(sb.trackPerf(11).dsend, 40);
+    CHECK_NEAR(sb.trackPerf(1).cutoffOct, 0.0f, 1e-6);   // FX off
+    CHECK_EQ(sb.trackPerf(1).pan, 0);
+    CHECK_NEAR(a.engine.voice(0).perf().cutoff, -0.5f, 1e-6);   // the sample path as before
+    // High-pass +30 replaces the low-pass (exclusive): +30 % up.
+    p.src.setType(3, perf::kHighPass);
+    p.src.setValue(3, 1, 30);
+    r.h.pad(15);
+    CHECK_NEAR(sb.trackPerf(0).cutoffOct, 0.3f * kOct, 1e-4);
+    // Top pads / leaving: nothing left on any track.
+    r.h.tap(btn::Pattern);
+    for (int t = 0; t < 16; ++t) CHECK(!sb.trackPerf(t).active());
 }
 
 // ---- 2.x M1-WP6: bank B (docs/specs/2x-01 §5, M1 plan §4) -------------------
@@ -395,12 +499,12 @@ TEST(perf_bank_b_no_pattern_overrides) {
     r.h.enc(1);
     r.h.up(btn::F5);
     CHECK_EQ(p.shownPattern(12), 1);
-    CHECK(p.fxOn[12]);                        // key used: no FX toggle
+    CHECK(!p.fxOn[12]);                       // key used: no FX toggle
     r.h.down(btn::F8);
     for (int i = 0; i < 4; ++i) r.h.tap(btn::Right);
     CHECK_EQ(p.shownPattern(15), 1);
     r.h.up(btn::F8);
-    CHECK(p.fxOn[15]);
+    CHECK(!p.fxOn[15]);
     CHECK_STR(a.ui.bar.label[7].bottom, "Patt: 1");
     r.h.down(btn::F6);
     r.h.tap(btn::Up);
@@ -409,7 +513,7 @@ TEST(perf_bank_b_no_pattern_overrides) {
     CHECK(std::memcmp(before.values, a.project.values, sizeof(before.values)) == 0);
     // Plain tap: FX enable of tracks 13-16 (owner decision), not stored.
     r.h.tap(btn::F7);
-    CHECK(!p.fxOn[14]);
+    CHECK(p.fxOn[14]);
     CHECK(std::memcmp(before.values, a.project.values, sizeof(before.values)) == 0);
     // Bank A keys still address tracks 1-8.
     r.h.tap(btn::Performance);
@@ -417,10 +521,10 @@ TEST(perf_bank_b_no_pattern_overrides) {
     r.h.enc(1);
     r.h.up(btn::F1);
     CHECK_EQ(a.project.u16(pf::kPerfPatterns + 0), 2);
-    // A fresh entry: FX enabled again on every track.
+    // A fresh entry: FX off again on every track.
     r.h.tap(btn::Pattern);
     r.h.tap(btn::Performance);
-    CHECK(r.p().fxOn[14]);
+    CHECK(!r.p().fxOn[14]);
     CHECK_EQ(r.p().shownPattern(15), 1);
 }
 
@@ -430,6 +534,7 @@ TEST(perf_apply_all_covers_16_tracks) {
     a.cfg.perfPresets = 1;
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
+    allOn(r.h);
     // Slot 0 = Play mode, row 1 = 3 (spec 12 §D): a sequencer-side FX.
     r.h.tap(btn::Rec);
     for (int i = 0; i < perf::kPlayMode - 1; ++i) r.h.tap(btn::Up);
@@ -457,16 +562,18 @@ TEST(perf_apply_all_covers_16_tracks) {
     for (int t = 0; t < 12; ++t) CHECK_EQ(a.seq.perfPlayMode(t), 0);
 }
 
-TEST(perf_fx_off_tracks_have_red_labels) {
-    // Stock 1.9.2 (owner photo + note, 2026-10-23): all tracks start with
-    // performance FX on and unlit (spec 06 §3.1 step 3); a track turned off
-    // with its key is lit red. (MANUAL_AUDIT_2026-10-23 #5 read the manual's
-    // older UI the other way round.)
+TEST(perf_fx_on_tracks_have_red_labels) {
+    // Stock 1.9.2 (issue #86 stock check A1-A5): every track
+    // starts with its FX off and a plain label; a track key turns the FX on
+    // and lights the label red, with the same light-grey text; a muted
+    // track's text is black, with or without the fill.
     Harness h;
     h.tap(btn::Performance);
-    auto redInLabel = [&](int t) {
+    auto frame = [&]() {
         h.app->ui.dirty();
         h.run(40);
+    };
+    auto redInLabel = [&](int t) {
         bool red = false, inRed = false;
         for (const std::string& l : h.disp.last) {
             if (l.rfind("COLOR ", 0) == 0) inRed = l == "COLOR CD1818";
@@ -477,11 +584,43 @@ TEST(perf_fx_off_tracks_have_red_labels) {
         }
         return red;
     };
-    for (int t = 0; t < 8; ++t) CHECK(!redInLabel(t));   // all on, unlit
-    h.tap(btn::F3);                                       // track 3 off
+    // The colour in effect when a label's top line ("Track N") is drawn.
+    auto topColour = [&](int t) {
+        std::string c, want = "\"Track " + std::to_string(t + 1) + "\"";
+        for (const std::string& l : h.disp.last) {
+            if (l.rfind("COLOR ", 0) == 0) c = l;
+            if (l.rfind("TEXT ", 0) == 0 && l.find(want) != std::string::npos) return c;
+        }
+        return std::string("none");
+    };
+    frame();
+    for (int t = 0; t < 8; ++t) CHECK(!redInLabel(t));   // all off, plain
+    const std::string plain = topColour(1);
+    h.tap(btn::F3);                                       // track 3 on
+    frame();
+    CHECK(h.app->ui.screen(kModPerformance) && static_cast<PerformanceScreen*>(h.app->ui.screen(kModPerformance))->fxOn[2]);
     CHECK(redInLabel(2));
     CHECK(!redInLabel(1));
-    h.tap(btn::F3);                                       // on again
+    CHECK(topColour(2) == plain);                         // light grey, not white
+    auto shiftTap = [&](uint8_t k) {
+        h.down(btn::Shift);
+        h.tap(k);
+        h.up(btn::Shift);
+    };
+    shiftTap(btn::F3);                                    // mute track 3
+    frame();
+    CHECK(h.app->trackMuted(2));
+    CHECK(redInLabel(2));
+    CHECK(topColour(2) == "COLOR 000000");                // muted: black
+    h.tap(btn::F3);                                       // FX off, still muted
+    frame();
+    CHECK(!redInLabel(2));
+    CHECK(topColour(2) == "COLOR 000000");                // black on black: blank
+    h.tap(btn::F3);
+    shiftTap(btn::F3);
+    CHECK(!h.app->trackMuted(2));
+    h.tap(btn::F3);                                       // off again
+    frame();
     CHECK(!redInLabel(2));
 }
 

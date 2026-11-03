@@ -10,7 +10,7 @@
 //  - no heap; state lives in the host's structures (SynthVoice::state) or in
 //    fixed static buffers declared in ModuleInfo;
 //  - only the core headers a module needs: modules/module.h, audio/synth_engine.h,
-//    audio/dsp.h, audio/bbd_chorus.h (the DSP JUNO and JU6 share), audio/va_dsp.h,
+//    audio/dsp.h, audio/bbd_chorus.h (the DSP BBDC and JU6 share), audio/va_dsp.h,
 //    audio/chip_dsp.h and audio/fm_dsp.h (the retro engines' and LoFi's DSP),
 //    audio/ring_io.h (block spans to and from the SDRAM), fastrun.h (API major
 //    kModuleApi);

@@ -26,6 +26,9 @@
 //    / pan / sends), multiplied by g0 + i * gInc, and returns false once the
 //    voice is silent for good (the framework frees it). It also stores the
 //    amplitude-envelope level (0..1) in SynthVoice::level for voice stealing.
+//  - An engine with a filter adds SynthVoice::cutoffOct (the Performance
+//    filter offset of the note's track, octaves) to its cutoff octave term,
+//    inside its own clamp; 0 = the plain patch.
 #pragma once
 
 #include <cstddef>
@@ -120,6 +123,10 @@ struct alignas(8) SynthVoice {
     // falls to 0 and the record is freed after it). Engines that keep state
     // beyond the voice (PERC's kit) release it here.
     bool fading = false;
+    // Framework: Performance filter offset of the note's track, in octaves
+    // (issue #23). Engines with a filter add it to their cutoff octave term,
+    // inside their own clamp; 0 when the track's Performance FX are off.
+    float cutoffOct = 0.0f;
     alignas(8) uint8_t state[kSynthVoiceStateBytes];
     template <class T>
     T& as() {

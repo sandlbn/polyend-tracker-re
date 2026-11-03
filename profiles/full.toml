@@ -14,6 +14,6 @@ modules = [
     { id = "FM4S", path = "modules/fm4" },    # module engine 0x80 (not a Mini model)
     # Effects (opentracker-fx, next to opentracker-synths): master inserts run in this order.
     { id = "CHOR", path = "../opentracker-fx/modules/chorus" },
-    { id = "JUNO", path = "../opentracker-fx/modules/juno" },
+    { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
     { id = "TAPE", path = "../opentracker-fx/modules/tape" },
 ]

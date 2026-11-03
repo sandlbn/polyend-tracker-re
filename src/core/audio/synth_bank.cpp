@@ -15,6 +15,7 @@ namespace ot {
 namespace audio {
 
 namespace {
+inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 // Step FX ids (spec 03 §3.6).
 constexpr uint8_t kFxDelaySend = 30, kFxPanning = 31, kFxReverbSend = 32, kFxRandVol = 7, kFxVol = 18, kFxGlideId = 19, kFxMicro = 34, kFxTuneId = 40, kFxSlideU = 41,
@@ -923,7 +924,7 @@ void SynthBank::applyFx(int track, uint8_t type, uint8_t value) {
         // top of the slot's pan (exact at the slot's default centre).
         case kFxPanning: V.pan = int8_t(value > 100 ? 100 : value); break;
         default:
-            break;   // filter FX: not on synth notes
+            break;   // filter step FX: not on synth notes (the Performance filters are, #23)
     }
 }
 
@@ -946,6 +947,45 @@ void SynthBank::transportStop() {
             o = -1;
         }
     }
+}
+
+namespace {
+constexpr float kPerfOctPerUnit = 477.0f / 5000.0f;   // filter value 1 = 0.0954 octaves
+int8_t perfByte(float v) { return int8_t(v < -100.0f ? -100 : (v > 100.0f ? 100 : int(std::lround(v)))); }
+}  // namespace
+
+void SynthBank::setTrackPerf(int t, const SynthPerf& p) {
+    if (t < 0 || t >= kSynthTracks) return;
+    const uint8_t b[4] = {uint8_t(perfByte(p.cutoffOct / kPerfOctPerUnit)), uint8_t(perfByte(p.pan)),
+                          uint8_t(perfByte(p.dsend)), uint8_t(perfByte(p.rsend))};
+    perfWord_[t] = uint32_t(b[0]) | uint32_t(b[1]) << 8 | uint32_t(b[2]) << 16 | uint32_t(b[3]) << 24;
+    uint8_t n = 0;
+    for (uint32_t w : perfWord_) n = uint8_t(n + (w ? 1 : 0));
+    perfActive_ = n;
+}
+
+SynthPerf SynthBank::trackPerf(int t) const {
+    SynthPerf p;
+    if (t < 0 || t >= kSynthTracks) return p;
+    const uint32_t w = perfWord_[t];
+    p.cutoffOct = float(int8_t(w)) * kPerfOctPerUnit;
+    p.pan = int8_t(w >> 8);
+    p.dsend = int8_t(w >> 16);
+    p.rsend = int8_t(w >> 24);
+    return p;
+}
+
+// Performance FX of a sounding note's track (issue #23): its filter offset
+// in octaves, and its pan / sends added to the note's own (centre / the
+// slot's send). In flash, not in render's FASTRUN copy: it runs once per
+// voice per block, only while a track has Performance FX on.
+__attribute__((noinline)) float SynthBank::perfNote(uint32_t w, const SynthSlotRecord& rec, int8_t& pan, int8_t& sendD,
+                                                    int8_t& sendR) {
+    const int dp = int8_t(w >> 8), dd = int8_t(w >> 16), dr = int8_t(w >> 24);
+    if (dp) pan = int8_t(clampi((pan >= 0 ? pan : 50) + dp, 0, 100));
+    if (dd) sendD = int8_t(clampi((sendD >= 0 ? sendD : int(clampf(rec.delaySend, 0.0f, 100.0f) + 0.5f)) + dd, 0, 100));
+    if (dr) sendR = int8_t(clampi((sendR >= 0 ? sendR : int(clampf(rec.reverbSend, 0.0f, 100.0f) + 0.5f)) + dr, 0, 100));
+    return float(int8_t(w)) * kPerfOctPerUnit;
 }
 
 void SynthBank::resetFx() {
@@ -1083,8 +1123,18 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             V.v.fading = V.state == kFading;
             V.fresh = 0;
             // Voice gain x the Track Mixer fader of the voice's track (user
-            // report: synth tracks ignored the Track Mixer volume).
-            const float tg = V.track >= 0 && V.track < kSynthTracks ? in.trackGain[V.track] : 1.0f;
+            // report: synth tracks ignored the Track Mixer volume). owner_
+            // survives the note-off, so a release tail keeps the fader and
+            // the track's Performance FX (V.track is cleared at release).
+            const int ot = owner_[r];
+            const bool seqTrack = ot >= 0 && ot < kSynthTracks;
+            const float tg = seqTrack ? in.trackGain[ot] : 1.0f;
+            // Performance pan / sends / filter of the note's track (#23):
+            // the pan / sends stand in for the note's own for this block
+            // and are put back after the mix below.
+            const bool perfV = perfActive_ && seqTrack && perfWord_[ot];
+            const int8_t keepD = V.sendD, keepR = V.sendR, keepP = V.pan;
+            V.v.cutoffOct = perfV ? perfNote(perfWord_[ot], sl.rec, V.pan, V.sendD, V.sendR) : 0.0f;
             const float target = voiceGain(sl, V) * tg;   // 0 while fading
             const float g0 = V.g;
             const float gInc = (target - g0) * (1.0f / float(kBlock));
@@ -1108,7 +1158,8 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 // User report: the init PERC kit's snare and hats reached the
                 // delay whatever the instrument and step FX sent. A drum's
                 // send is its patch send x this note's send (FX) or else the
-                // instrument's (2 x mixD = SEND law of the record).
+                // instrument's (2 x mixD = SEND law of the record), with the
+                // track's Performance send (#23).
                 const float kd = td * (V.sendD >= 0 ? sendGain(V.sendD) : 2.0f * sl.mixD);
                 const float ke = te * (V.sendR >= 0 ? sendGain(V.sendR) : 2.0f * sl.mixE);
                 sl.eng->setSendTap(s, kd > 0.0f ? dsend : nullptr, ke > 0.0f ? rsend : nullptr, kd, ke);
@@ -1145,6 +1196,11 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                     if (rsend) rsend[i] += m * xr;
                 }
                 if (tapV) addTap(tapL, tapR, voiceL_, voiceR_, gl, gr);
+            }
+            if (perfV) {
+                V.sendD = keepD;
+                V.sendR = keepR;
+                V.pan = keepP;
             }
             if (V.state == kFading || !alive) {
                 if (V.track >= 0 && trackVoice_[V.track] == r) trackVoice_[V.track] = -1;

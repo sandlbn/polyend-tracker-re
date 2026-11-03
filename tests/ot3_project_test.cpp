@@ -13,6 +13,7 @@
 #include "formats/crc32.h"
 #include "formats/ot3.h"
 #include "modules/module.h"
+#include "modules/module_ui.h"
 #include "ui_fakes.h"
 
 using namespace ot;
@@ -193,3 +194,53 @@ TEST(sidecar_damaged_file_is_set_aside) {
     CHECK(h.fs.files.count("Workspace/project.ot3x.bad") == 1);
     CHECK_EQ(int(g_sec.v[1]), 0);
 }
+
+#ifdef OT_MOD_BBDC
+// The BBD chorus insert was saved as module JUNO before its rename: such a
+// project loads its settings into BBDC without a "not in this build" notice
+// and is saved back under the new id.
+TEST(sidecar_loads_the_bbd_chorus_under_its_old_id) {
+    Harness h;
+    App& a = *h.app;
+    a.ui.platform.notified = &onNote;
+    CHECK(a.newProject());
+    mod::IModule* m = const_cast<mod::IModule*>(mod::ModuleHost::instance().find("BBDC"));
+    CHECK(m && m->section() && m->page());
+    if (!m || !m->section() || !m->page()) return;
+    mod::IProjectSection* sec = m->section();
+    sec->reset();
+    m->page()->adjust(0, 2);   // Chorus II
+    uint8_t pay[16];
+    const uint32_t n = sec->encode(pay, sizeof pay);
+    CHECK(n > 0);
+    sec->reset();
+    std::vector<uint8_t> f(512);
+    ot3::Writer w;
+    const uint8_t wr[4] = {3, 0, 0, 0};
+    w.begin(f.data(), uint32_t(f.size()), ot3::kKindProjectSidecar, wr);
+    const uint8_t info[4] = {3, 0, 0, 0};
+    w.chunk(ot3::kTagInfo, ot3::kFlagCritical, info, 4);
+    ot3::ModEntry me{};
+    std::memcpy(me.id, "JUNO", 4);
+    w.chunk(ot3::kTagMods, ot3::kFlagCritical, &me, sizeof me);
+    ot3::ModuleChunkHeader mh{};
+    std::memcpy(mh.id, "JUNO", 4);
+    mh.version = sec->version();
+    w.chunk2(sec->tag(), 0, &mh, sizeof mh, pay, n);
+    f.resize(w.end());
+    h.fs.files[kWsSidecar] = f;
+    g_note.clear();
+    CHECK(a.loadWorkspace());
+    CHECK(g_note.find("JUNO") == std::string::npos);
+    mod::ModuleRow row{};
+    m->page()->row(0, row);
+    CHECK_STR(row.value, "II");
+    m->page()->adjust(1, -10);   // a change: the sidecar is written again
+    a.autosave();
+    bool renamed = false;
+    for (const ot3::Chunk& c : chunks(h.fs.files[kWsSidecar]))
+        if (c.tag == sec->tag()) renamed = std::memcmp(c.payload, "BBDC", 4) == 0;
+    CHECK(renamed);
+    sec->reset();
+}
+#endif
