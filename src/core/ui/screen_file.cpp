@@ -59,7 +59,8 @@ constexpr const char* kModDir = "Mod";
 constexpr int kModEntries = ProjectBrowser::kMaxEntries;   // the same limit as Open (2.x: 200)
 constexpr int kModNameCap = 56;
 enum : uint8_t { kMbUp = 0, kMbFolder = 1, kMbFile = 2 };
-char g_modPath[ProjectBrowser::kPathMax + 1] = "Mod";
+// Main-loop browser state in the SDRAM (OP-5): starts empty, read as "Mod".
+OT_SDRAM_BSS char g_modPath[ProjectBrowser::kPathMax + 1];
 // In browserListMem() (screens.h): names, then the kinds.
 static_assert(kModEntries * (kModNameCap + 1) <= kBrowserListBytes, "Import Mod list");
 char (*const g_modNames)[kModNameCap] = reinterpret_cast<char (*)[kModNameCap]>(g_browserLists);
@@ -79,6 +80,7 @@ bool modListFn(const IStorage::DirEntry& e, void*) {
 
 // ".." first (below the root), then folders, then files, by name.
 void modList(App& a) {
+    if (!g_modPath[0]) std::snprintf(g_modPath, sizeof(g_modPath), "%s", kModDir);
     g_modCount = 0;
     if (std::strcmp(g_modPath, kModDir) != 0) {
         std::snprintf(g_modNames[0], kModNameCap, "..");

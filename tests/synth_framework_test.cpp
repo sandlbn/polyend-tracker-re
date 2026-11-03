@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <map>
 #include <vector>
 
 #include "audio/engine.h"
@@ -32,6 +33,7 @@ struct SpyEngine : ISynthEngine {
     std::vector<SynthNote> ons;
     int offs = 0, prepares = 0, resets = 0, renders = 0;
     float tempo = 0.0f;
+    std::map<int, float> cutOct;   // note -> SynthVoice::cutoffOct at its last render
     int32_t id() const override { return kSynthEngineTest; }
     void setTempo(float bpm) override { tempo = bpm; }
     const char* name() const override { return "SPY"; }
@@ -47,6 +49,7 @@ struct SpyEngine : ISynthEngine {
     }
     bool render(SynthVoice& v, const SynthParams& p, float g0, float gi, float* L, float* R) override {
         ++renders;
+        cutOct[v.note] = v.cutoffOct;
         return inner->render(v, p, g0, gi, L, R);
     }
 };
@@ -83,9 +86,9 @@ struct BankRig {
         }
         block();
     }
+    SynthMixInputs in;
     bool block(int16_t* const* stems = nullptr) {
         for (uint32_t i = 0; i < kBlock; ++i) L[i] = R[i] = D[i] = V[i] = 0.0f;
-        SynthMixInputs in;
         return bank.render(in, L, R, D, V, stems);
     }
     void on(int track, int slot, int note, int vol = -1, StepFx a = {}, StepFx bb = {}) {
@@ -807,6 +810,119 @@ TEST(synth_step_fx_sends_reach_the_send_buses) {
     r.run(4, l, d, v);
     CHECK(l > 0.0);
     CHECK(v == 0.0 && d == 0.0);
+}
+
+// Issue #23: the Performance filter offset reaches synth notes per track,
+// through SynthVoice::cutoffOct (octaves on the engine's own cutoff). Two
+// tracks sharing a slot keep their own state; a release tail keeps the
+// track that started it; a mono slot's legato voice takes the latest track.
+TEST(synth_perf_cutoff_follows_the_owning_track) {
+    BankRig r(2, 1);
+    SynthPerf lp;
+    lp.cutoffOct = -4.77f;
+    r.bank.setTrackPerf(2, lp);
+    CHECK_NEAR(r.bank.trackPerf(2).cutoffOct, -4.77f, 1e-6);
+    r.on(2, 0, 60);
+    r.on(5, 0, 64);
+    r.block();
+    CHECK_NEAR(r.spy.cutOct[60], -4.77f, 1e-6);
+    CHECK_NEAR(r.spy.cutOct[64], 0.0f, 1e-6);
+    r.bank.noteOff(2, NoteOffMode::Off);   // release tail: still track 3's offset
+    r.spy.cutOct.clear();
+    r.block();
+    CHECK(r.spy.cutOct.count(60) == 1);
+    CHECK_NEAR(r.spy.cutOct[60], -4.77f, 1e-6);
+    r.bank.setTrackPerf(2, SynthPerf{});
+    r.block();
+    CHECK_NEAR(r.spy.cutOct[60], 0.0f, 1e-6);
+    // Mono slot 1 shared by tracks 2 and 5: the legato voice follows the latest note.
+    r.bank.setTrackPerf(5, lp);
+    r.on(2, 1, 40);
+    r.block();
+    CHECK_NEAR(r.spy.cutOct[40], 0.0f, 1e-6);
+    r.on(5, 1, 41);
+    r.block();
+    CHECK_NEAR(r.spy.cutOct[41], -4.77f, 1e-6);
+    // The audition track never takes a Performance offset.
+    r.bank.setTrackPerf(0, lp);
+    r.bank.auditionOn(2, 70);
+    r.block();
+    r.block();
+    CHECK(r.spy.cutOct.count(70) == 1);
+    CHECK_NEAR(r.spy.cutOct[70], 0.0f, 1e-6);
+}
+
+// Issue #23: Performance Panning / Delay send / Reverb send per track on
+// synth notes, added to the note's own value (centre / the slot's send).
+TEST(synth_perf_pan_and_sends_by_track) {
+    BankRig r(2);
+    auto energy = [&](int blocks, double& el, double& er, double& ed, double& ev) {
+        el = er = ed = ev = 0.0;
+        for (int k = 0; k < blocks; ++k) {
+            r.block();
+            for (uint32_t i = 0; i < kBlock; ++i) {
+                el += double(r.L[i]) * r.L[i];
+                er += double(r.R[i]) * r.R[i];
+                ed += double(r.D[i]) * r.D[i];
+                ev += double(r.V[i]) * r.V[i];
+            }
+        }
+    };
+    double el, er, ed, ev;
+    SynthPerf left;
+    left.pan = -100;
+    left.dsend = 100;
+    r.bank.setTrackPerf(3, left);
+    r.on(3, 0, 60);
+    energy(6, el, er, ed, ev);
+    CHECK(el > 0.0);
+    CHECK(er < 1e-9 * el);   // hard left
+    CHECK(ed > 0.0);         // the slot's delay send is 0: the offset adds one
+    r.bank.noteOff(3, NoteOffMode::Cut);
+    for (int k = 0; k < 4; ++k) r.block();
+    // The same slot from track 4 (no Performance FX): centred, no delay send.
+    r.on(4, 0, 62);
+    energy(6, el, er, ed, ev);
+    CHECK(el > 0.0 && std::fabs(el - er) < 0.01 * el);
+    CHECK(ed == 0.0);
+    r.bank.noteOff(4, NoteOffMode::Cut);
+    for (int k = 0; k < 4; ++k) r.block();
+    // Reverb send -100 on a slot that sends 100: that note sends nothing.
+    SynthSlotRecord rr = rec(SynthModel::ACD, 2);
+    rr.reverbSend = 100.0f;
+    r.bank.setSlotRecord(0, rr);
+    r.block();
+    SynthPerf dry;
+    dry.rsend = -100;
+    r.bank.setTrackPerf(5, dry);
+    r.on(5, 0, 60);
+    energy(6, el, er, ed, ev);
+    CHECK(el > 0.0);
+    CHECK(ev < 1e-9 * el);
+    r.bank.noteOff(5, NoteOffMode::Cut);
+    for (int k = 0; k < 4; ++k) r.block();
+    r.on(6, 0, 60);
+    energy(6, el, er, ed, ev);
+    CHECK(ev > 1e-3 * el);   // track 7 keeps the slot's reverb send
+}
+
+// Side finding of the #23 plan: a synth note's release tail follows the
+// Track Mixer fader / mute of the track that started it (it played at the
+// full level once the key was released).
+TEST(synth_release_tail_keeps_the_track_fader) {
+    BankRig r(2);
+    r.on(3, 0, 60);
+    for (int k = 0; k < 4; ++k) r.block();
+    r.bank.noteOff(3, NoteOffMode::Off);
+    r.in.trackGain[3] = 0.0f;   // muted during the release
+    for (int k = 0; k < 4; ++k) r.block();
+    float peak = 0.0f;
+    for (int k = 0; k < 4; ++k) {
+        r.block();
+        for (uint32_t i = 0; i < kBlock; ++i) peak = std::max(peak, std::fabs(r.L[i]));
+    }
+    CHECK(r.spy.cutOct.count(60) == 1);   // still rendering (a tail)
+    CHECK(peak < 1e-6f);
 }
 
 TEST(synth_step_fx_panning) {

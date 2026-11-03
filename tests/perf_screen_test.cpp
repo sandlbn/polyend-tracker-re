@@ -404,6 +404,46 @@ TEST(perf_tracks_start_with_fx_off) {
     r.h.tap(btn::Play);
 }
 
+// Issue #23: the Performance filter / pan / send offsets reach synth notes
+// of every track whose FX are on (tracks 1-16), as an octave offset on the
+// synth's own cutoff (the sample law: 1.0 = 477 / 50 octaves).
+TEST(perf_filter_reaches_synth_notes_on_all_tracks) {
+    PerfRig r;
+    App& a = r.a();
+    r.h.tap(btn::Performance);
+    PerformanceScreen& p = r.p();
+    const audio::SynthBank& sb = a.engine.synth();
+    const float kOct = 477.0f / 50.0f;
+    p.src.setType(0, perf::kLowPass);
+    p.src.setValue(0, 1, -50);
+    p.src.setType(1, perf::kPanning);
+    p.src.setValue(1, 1, -30);
+    p.src.setType(2, perf::kDelaySend);
+    p.src.setValue(2, 1, 40);
+    r.h.tap(btn::F1);                        // track 1 on
+    r.h.tap(btn::Performance);               // bank B
+    r.h.tap(btn::F4);                        // track 12 on
+    r.h.tap(btn::Performance);
+    r.h.pad(12);
+    r.h.pad(13);
+    r.h.pad(14);
+    CHECK_NEAR(sb.trackPerf(0).cutoffOct, -0.5f * kOct, 1e-4);
+    CHECK_NEAR(sb.trackPerf(11).cutoffOct, -0.5f * kOct, 1e-4);
+    CHECK_EQ(sb.trackPerf(0).pan, -30);
+    CHECK_EQ(sb.trackPerf(11).dsend, 40);
+    CHECK_NEAR(sb.trackPerf(1).cutoffOct, 0.0f, 1e-6);   // FX off
+    CHECK_EQ(sb.trackPerf(1).pan, 0);
+    CHECK_NEAR(a.engine.voice(0).perf().cutoff, -0.5f, 1e-6);   // the sample path as before
+    // High-pass +30 replaces the low-pass (exclusive): +30 % up.
+    p.src.setType(3, perf::kHighPass);
+    p.src.setValue(3, 1, 30);
+    r.h.pad(15);
+    CHECK_NEAR(sb.trackPerf(0).cutoffOct, 0.3f * kOct, 1e-4);
+    // Top pads / leaving: nothing left on any track.
+    r.h.tap(btn::Pattern);
+    for (int t = 0; t < 16; ++t) CHECK(!sb.trackPerf(t).active());
+}
+
 // ---- 2.x M1-WP6: bank B (docs/specs/2x-01 §5, M1 plan §4) -------------------
 
 TEST(perf_bank_toggle_by_performance_key) {
