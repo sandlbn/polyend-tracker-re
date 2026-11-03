@@ -16,8 +16,8 @@
 // over the dry signal. The mode fixes rate and depth as the original's buttons
 // do (I: 0.5 Hz, 2.0..5.0 ms; II: 0.8 Hz, 1.5..5.5 ms). I+II runs both at
 // once, as TAL-U-NO-LX's I+II measures (both rates present, no fast wobble):
-// the same line read by I's tap pair and II's, each pair at 1/sqrt(2) so the
-// wet level stays that of one mode. No hiss: silence stays silence. Our own
+// the same line read by I's tap pair and II's, each pair at 1/sqrt(2) (the
+// sides a little wider, as TAL's). No hiss: silence stays silence. Our own
 // design; textbook technique.
 #pragma once
 
@@ -191,7 +191,9 @@ __attribute__((noinline)) inline bool process(State& s, int16_t* line, uint8_t m
         const float del = (el1 - el) * inv, der = (er1 - er) * inv;
         constexpr float kPair = 0.70710678f;
         mid *= kPair;
-        constexpr float kBothSide = 1.35f;   // I+II side gain
+        // The two pairs' sides add up narrower than one pair's; TAL's I+II is
+        // wider than its I (L/R correlation 0.26 vs 0.37): 1.35 gives 0.27 vs 0.38.
+        constexpr float kBothSide = 1.35f;
         side *= kPair * kBothSide;
         const float dmid2 = dmid * kPair, dside2 = dside * kPair * kBothSide;
         for (uint32_t i = 0; i < n; ++i) {
