@@ -24,16 +24,18 @@ const char* const kLength[] = {"---", "1", "2", "4", "8", "16", "32", "64", "128
 // spec 06 §3.2 / spec 12 §E.2 ranges; LP/HP/BP exclude each other (§E.1).
 // Names: stock 1.9.2 screen (owner photo 2026-10-23) for the first 12; the rest
 // from the manual p.276 list until a stock capture shows them [I].
+// [I] Panning, the filters and the sends drop stock's "Sample" prefix: they
+// reach synth notes too (issue #23).
 const FxDesc kFx[kFxCount] = {
     {"---", 0, 0, nullptr, 0, 0, false},
     {"Volume/Velocity", -100, 100, nullptr, 0, 0, false},
-    {"Sample panning", -100, 100, nullptr, 0, 0, false},
+    {"Panning", -100, 100, nullptr, 0, 0, false},
     {"Tune", -48, 48, nullptr, 0, 0, false},
-    {"Sample LP cutoff", -100, 100, nullptr, kHighPass, kBandPass, false},
-    {"Sample HP cutoff", -100, 100, nullptr, kLowPass, kBandPass, false},
-    {"Sample BP cutoff", -100, 100, nullptr, kLowPass, kHighPass, false},
-    {"Sample delay send", -100, 100, nullptr, 0, 0, false},
-    {"Sample reverb snd", -100, 100, nullptr, 0, 0, false},
+    {"LP cutoff", -100, 100, nullptr, kHighPass, kBandPass, false},
+    {"HP cutoff", -100, 100, nullptr, kLowPass, kBandPass, false},
+    {"BP cutoff", -100, 100, nullptr, kLowPass, kHighPass, false},
+    {"Delay send", -100, 100, nullptr, 0, 0, false},
+    {"Reverb send", -100, 100, nullptr, 0, 0, false},
     {"Sample position", -100, 100, nullptr, 0, 0, false},
     {"Sample end", -100, 100, nullptr, 0, 0, false},
     {"Sample playback", 0, 1, kDirection, 0, 0, false},

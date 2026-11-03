@@ -626,9 +626,11 @@ TEST(perf_fx_on_tracks_have_red_labels) {
 
 TEST(perf_fx_names_follow_stock) {
     // Stock 1.9.2 screen (owner photo, 2026-10-23), not the manual's list
-    // (MANUAL_AUDIT_2026-10-23 #37 corrected): the first 12 effects.
-    const char* const want[] = {"---", "Volume/Velocity", "Sample panning", "Tune", "Sample LP cutoff",
-                                "Sample HP cutoff", "Sample BP cutoff", "Sample delay send", "Sample reverb snd",
+    // (MANUAL_AUDIT_2026-10-23 #37 corrected): the first 12 effects. [I]
+    // Panning, the filters and the sends without stock's "Sample" prefix:
+    // they reach synth notes too (issue #23).
+    const char* const want[] = {"---", "Volume/Velocity", "Panning", "Tune", "LP cutoff",
+                                "HP cutoff", "BP cutoff", "Delay send", "Reverb send",
                                 "Sample position", "Sample end", "Sample playback", "Volume LFO speed"};
     for (int i = 0; i < 13; ++i) CHECK(std::string(perf::fx(uint8_t(i)).name) == want[i]);
 }
