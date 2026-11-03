@@ -202,6 +202,19 @@ table step lists what still reaches a row from flash only; that code runs the fl
 (for example PERC's snare path). Changing a synth while stopped re-shares the block,
 which cuts synth notes still ringing.
 
+## Clean room
+
+OpenTracker stays clean-room. Polyend has published its own firmware as
+[Tracker CE](https://github.com/polyend/tracker-ce) under a noncommercial licence. Please
+don't read or copy CE source code, headers or binaries when working on OpenTracker, and
+treat developer docs that describe its internals as source too. CE's user docs, changelog
+and on-device behaviour are fine to use as a reference, in your own words.
+
+The one exception is CE's sample editor SDK (`.ptfx` plugins), which is MIT licensed: it
+and its docs may be used, with its licence kept in `third_party/`. Nothing else from CE.
+See `AGENTS.md` for the full rules.
+
+
 ## Known limitations
 
 - The synth sound is own design: settings match the Mini, the sound is close but not
