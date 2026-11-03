@@ -690,10 +690,9 @@ void Voice::control(const VoiceControl& c) {
     uint8_t fType = ov_.ftype >= 0 ? uint8_t(ov_.ftype) : (ins_->filterType > 2 ? 0 : ins_->filterType);
     float baseCut = ov_.cutoff >= 0.0f ? ov_.cutoff : ins_->cutoff;
     if (perf_.filterType >= 0) {
-        // Performance filter FX: force the type; when the instrument filter
-        // was off or of another type, offsets start from the open position
-        // (LP 1.0, HP 0.0, BP 0.5) -- OpenTracker choice (SPEC GAP).
-        if (!fOn || fType != uint8_t(perf_.filterType)) baseCut = perf_.filterType == 0 ? 1.0f : (perf_.filterType == 1 ? 0.0f : 0.5f);
+        // Performance filter FX: force the type; the offset is added to the
+        // instrument's cutoff and clamped, also when its filter is off or of
+        // another type (stock 1.9.2, issue #86 stock check C).
         fOn = true;
         fType = uint8_t(perf_.filterType);
         baseCut = clampf(baseCut + perf_.cutoff, 0.0f, 1.0f);
@@ -701,6 +700,7 @@ void Voice::control(const VoiceControl& c) {
     if (!firstBlock_ && (fOn != filtOn_ || (fOn && fType != filtType_))) filtXfade_ = true;
     filtOn_ = fOn;
     filtType_ = fType;
+    filtCut_ = baseCut;
     const float cut = baseCut + mods_[kAutoCutoff].out;
     fmTarget_ = svfFmult(cutoffHz(cut));
     dpTarget_ = svfDamp(ins_->resonance);

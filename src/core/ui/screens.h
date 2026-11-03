@@ -710,9 +710,9 @@ public:
     bool edit = false;
     int column = 0;
     int bank = 0;                   // 2.x: F1..F8 = tracks 1-8 (0) or 9-16 (1)
-    // FX enabled per track (session state; every track on at screen start).
-    bool fxOn[kTrackCount] = {true, true, true, true, true, true, true, true,
-                              true, true, true, true, true, true, true, true};
+    // FX enabled per track (session state; every track off at screen start,
+    // issue #86 stock check A1).
+    bool fxOn[kTrackCount] = {};
     perf::Source src;               // active preset source (spec 12 §A.1)
     uint8_t sourceIndex = 0;        // 0 global (config), 1 per project
     int16_t cur[12] = {};           // current value per slot (what is applied)
