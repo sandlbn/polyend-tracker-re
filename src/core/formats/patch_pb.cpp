@@ -607,6 +607,10 @@ bool patchParamInRange(int32_t engine, int index, float v) {
     if (!t || index < 0 || index >= n + ne || !std::isfinite(v)) return false;
     const PatchParamRange& r = index < n ? t[index] : x[index - n];
     if (r.flags & kParamFlagNoRange) return true;
+    // Our patches store full floats, Mini patches halves: a bound is in range
+    // either way (half 0.1 is 0.09998, half 0.01 is 0.0100021). The float
+    // check first: it is the common case and costs no rounding (note-on path).
+    if (v >= r.min && v <= r.max) return true;
     return v >= toHalfPrecision(r.min) && v <= toHalfPrecision(r.max);
 }
 

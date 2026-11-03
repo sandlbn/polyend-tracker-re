@@ -4,6 +4,7 @@
 // $OT_VENDOR_FIXTURES/mini-patches-2.0/<ENGINE>/*.patch, never copied, and the
 // fixture tests skip when the folder is absent.
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -488,6 +489,28 @@ TEST(validation_ranges) {
     CHECK(validatePatch(p, nullptr, 0) >= 1);
 }
 #endif
+
+// Every parameter of every engine in this build takes its own min and max:
+// a bound that rounds inward as a half (T-Type Closed Decay min 0.01 s ->
+// 0.0100021) used to send the bound itself back to the default.
+TEST(every_param_accepts_its_own_bounds) {
+    int engines = 0;
+    for (int32_t e = 0; e < 256; ++e) {
+        int n = 0, ne = 0;
+        const PatchParamRange* t = patchEngineParams(e, &n);
+        const PatchParamRange* x = patchEngineExtParams(e, &ne);
+        if (!t) continue;
+        ++engines;
+        for (int i = 0; i < n + ne; ++i) {
+            const PatchParamRange& r = i < n ? t[i] : x[i - n];
+            if (!patchParamInRange(e, i, r.min) || !patchParamInRange(e, i, r.max))
+                std::printf("       engine 0x%02x param %d: %g..%g\n", unsigned(e), i, double(r.min), double(r.max));
+            CHECK(patchParamInRange(e, i, r.min));
+            CHECK(patchParamInRange(e, i, r.max));
+        }
+    }
+    CHECK(engines > 0);
+}
 
 // ---------------------------------------------------------------------------
 // Fuzz
