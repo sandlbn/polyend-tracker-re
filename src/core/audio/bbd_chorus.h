@@ -14,7 +14,8 @@
 // linear and the delay moves slowly, so here all stages run before the line
 // (the same response, and a silent line reads exact zeros). Each tap is mixed
 // over the dry signal. The mode fixes rate and depth as the original's buttons
-// do (I: 0.5 Hz, 2.0..5.0 ms; II: 0.8 Hz, 1.5..5.5 ms). No hiss: silence
+// do (I: 0.5 Hz, 2.0..5.0 ms; II: 0.8 Hz, 1.5..5.5 ms; I+II: a fast, shallow
+// wobble, 9.75 Hz, 3.1..3.9 ms, as the Juno-106's I+II). No hiss: silence
 // stays silence. Our own design; textbook technique.
 #pragma once
 
@@ -35,13 +36,15 @@ struct Mode {
     float depth;    // swing either side of the centre, frames
 };
 constexpr float kMs = 0.001f * kSampleRate;   // frames per millisecond
-constexpr int kModeCount = 2;                 // mode 1..kModeCount (0 = Off)
+constexpr int kModeCount = 3;                 // mode 1..kModeCount (0 = Off)
 constexpr Mode kModes[kModeCount] = {
-    {0.5f, 3.5f * kMs, 1.5f * kMs},   // Chorus I: 2.0 .. 5.0 ms
-    {0.8f, 3.5f * kMs, 2.0f * kMs},   // Chorus II: 1.5 .. 5.5 ms
+    {0.5f, 3.5f * kMs, 1.5f * kMs},    // Chorus I: 2.0 .. 5.0 ms
+    {0.8f, 3.5f * kMs, 2.0f * kMs},    // Chorus II: 1.5 .. 5.5 ms
+    {9.75f, 3.5f * kMs, 0.4f * kMs},   // Chorus I+II: 3.1 .. 3.9 ms
 };
 static_assert(kModes[1].centre + kModes[1].depth + 2.0f < float(kLine), "bbd line too short");
 static_assert(kModes[0].centre + kModes[0].depth + 2.0f < float(kLine), "bbd line too short");
+static_assert(kModes[2].centre + kModes[2].depth + 2.0f < float(kLine), "bbd line too short");
 
 // The BBD filters' cutoff for Tone t (0..100), Hz.
 inline float toneHz(uint8_t t) { return 6000.0f * __builtin_exp2f(0.01f * float(t)); }
