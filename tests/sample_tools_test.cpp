@@ -1013,3 +1013,75 @@ TEST(loader_trim_projection_keeps_stereo) {
     CHECK(a.instrPresent[0]);
     CHECK_EQ(l.memoryShown(), a.bank.usedBytes());
 }
+
+// Tester report (2.2.4 / 3.0, 2026-11-03): Add next is greyed on a folder but
+// F2 still entered it; with the instrument list focused and the SD cursor on
+// a folder, Add / Add next looked enabled but had no file to load.
+TEST(loader_add_next_on_a_folder_does_nothing) {
+    Harness h;
+    h.fs.dirs.insert("Kits");
+    putWavCh(h, "a.wav", std::vector<int16_t>(1000, 100), 1);
+    h.tap(btn::SampleLoader);
+    LoaderScreen& l = ld(h);
+    CHECK(selectSd(h, "Kits") >= 0);
+    CHECK(!h.app->ui.bar.label[1].enabled);
+    char before[sizeof(l.dir)];
+    std::memcpy(before, l.dir, sizeof(before));
+    h.tap(btn::F2);
+    CHECK_STR(l.dir, before);   // still in the same folder
+    h.tap(btn::F1);             // Enter does go in
+    CHECK(std::strcmp(l.dir, before) != 0);
+}
+
+TEST(loader_add_keys_greyed_without_files_to_load) {
+    Harness h;
+    App& a = *h.app;
+    h.fs.dirs.insert("Kits");
+    putWavCh(h, "a.wav", std::vector<int16_t>(1000, 100), 1);
+    h.tap(btn::SampleLoader);
+    LoaderScreen& l = ld(h);
+    CHECK(selectSd(h, "Kits") >= 0);
+    h.tap(btn::Right);   // instrument list, SD cursor still on the folder
+    CHECK_EQ(l.focus, 1);
+    CHECK(!a.ui.bar.label[0].enabled);
+    CHECK(!a.ui.bar.label[1].enabled);
+    // On a file they are enabled with either focus.
+    h.tap(btn::Left);
+    CHECK(selectSd(h, "a.wav") >= 0);
+    CHECK(a.ui.bar.label[0].enabled && a.ui.bar.label[1].enabled);
+    h.tap(btn::Right);
+    CHECK(a.ui.bar.label[0].enabled && a.ui.bar.label[1].enabled);
+}
+
+// Tester report: holding Preview onto an empty slot kept the last sample
+// playing. Moving there now releases it, as letting go of Preview does.
+TEST(loader_held_preview_stops_on_an_empty_slot) {
+    std::vector<int16_t> loud(44100 * 4);
+    for (size_t i = 0; i < loud.size(); ++i) loud[i] = int16_t((i / 50) % 2 ? 12000 : -12000);
+    uint32_t tail[2] = {};
+    for (int k = 0; k < 2; ++k) {   // 0: Preview released, 1: moved to an empty slot
+        Harness h;
+        App& a = *h.app;
+        putWavCh(h, "loud.wav", loud, 1);
+        CHECK(a.importSample("loud.wav", 0));
+        CHECK(!a.instrPresent[1]);
+        h.tap(btn::SampleLoader);
+        h.tap(btn::Right);
+        CHECK_EQ(ld(h).insCursor, 0);
+        h.down(btn::F3);
+        h.run(20);
+        CHECK(h.audio.pump(8) > 5000);
+        if (k == 0) {
+            h.up(btn::F3);
+        } else {
+            h.tap(btn::Down);   // Preview still held
+            CHECK_EQ(ld(h).insCursor, 1);
+        }
+        h.run(50);
+        h.audio.pump(64);
+        tail[k] = h.audio.pump(8);
+        if (k == 1) h.up(btn::F3);
+    }
+    std::printf("       tail after release %u, after moving %u\n", unsigned(tail[0]), unsigned(tail[1]));
+    CHECK(tail[1] <= tail[0] + tail[0] / 10 + 10);
+}
