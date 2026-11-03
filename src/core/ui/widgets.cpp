@@ -657,7 +657,11 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             v.item(v.ctx, idx, buf, sizeof(buf));
             buf[sizeof(buf) - 1] = 0;
             const bool marked = v.marked && v.marked(v.ctx, idx);
-            const uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            if (v.enabled && v.colour) {
+                const int32_t c = v.colour(v.ctx, idx);
+                if (c >= 0) tc = uint32_t(c);
+            }
             const int ty = v.y + 17 + kListRowH * r;
             // A tag takes the row's right end; the name column shrinks by it.
             const char* tag = v.tag ? v.tag(v.ctx, idx) : nullptr;
