@@ -87,6 +87,8 @@ TEST(performance_fx_reach_the_engine) {
     h.tap(btn::Performance);
     PerformanceScreen& p = perfScreen(h);
     const perf::Source& s = p.src;
+    // Every track starts with its FX off (issue #86): turn tracks 1-8 on.
+    for (uint8_t k : {btn::F1, btn::F2, btn::F3, btn::F4, btn::F5, btn::F6, btn::F7, btn::F8}) h.tap(k);
     // Default slots show FX 1..12 with zero values (spec 12 §A.2).
     CHECK_EQ(s.type(0), 1);
     CHECK_EQ(s.value(0, 1), 0);
@@ -100,7 +102,7 @@ TEST(performance_fx_reach_the_engine) {
     h.pad(12 + 3);   // LP cutoff row 1
     CHECK_EQ(a.engine.voice(0).perf().filterType, 0);
     CHECK_NEAR(a.engine.voice(0).perf().cutoff, -0.2, 1e-6);
-    // F1 release toggles "performance FX enabled" for track 1: reverted there only.
+    // F1 release toggles "performance FX enabled" for track 1: off reverts it there only.
     h.tap(btn::F1);
     CHECK(!p.fxOn[0]);
     CHECK_EQ(a.engine.voice(0).perf().volume, 0);
@@ -168,6 +170,58 @@ TEST(performance_offsets_change_the_sound) {
     CHECK_EQ(h.audio.pump(4), 0);
     a.engine.setPerf(0, audio::PerfOffsets{});
     CHECK(h.audio.pump(4) > 0);
+}
+
+// Issue #86 report 2 (stock 1.9.2, issue #86 stock check C): the
+// Performance filters add their offset to the instrument's own cutoff and
+// clamp it, also when the instrument filter is off or of another type; the
+// top pad disconnects the filter again.
+TEST(perf_filter_offsets_start_from_instrument_cutoff) {
+    Harness h;
+    App& a = *h.app;
+    addWav(h, "saw.wav", 44100);
+    CHECK(a.importSample("saw.wav", 0));
+    struct Case {
+        uint8_t on, type;
+        float cut;
+        int8_t perfType;
+        float off, want;
+    };
+    const Case cases[] = {
+        {0, 0, 1.0f, 1, 0.3f, 1.0f},     // filter off, 100 %: HP +30 -> 100 % (near silent)
+        {0, 0, 1.0f, 2, -0.4f, 0.6f},    // BP -40 -> 60 %
+        {0, 0, 1.0f, 0, -0.5f, 0.5f},    // LP -50 -> 50 %
+        {0, 0, 0.2f, 0, -0.5f, 0.0f},    // filter off, 20 %: LP -50 -> 0 %
+        {0, 0, 0.2f, 1, 0.3f, 0.5f},     // HP +30 -> 50 %
+        {1, 1, 0.5f, 0, -0.5f, 0.0f},    // HP on, 50 %: LP -50 -> 0 %
+        {1, 0, 0.5f, 1, 0.3f, 0.8f},     // LP on, 50 %: HP +30 -> 80 %
+        {1, 0, 0.5f, 2, -0.4f, 0.1f},    // BP -40 -> 10 %
+    };
+    VoiceNoteOn n;
+    n.instrument = 0;
+    n.note = 60;
+    for (const Case& c : cases) {
+        Instrument& ins = a.instruments[0];
+        ins.filterEnabled = c.on;
+        ins.filterType = c.type;
+        ins.cutoff = c.cut;
+        a.engine.setPerf(0, audio::PerfOffsets{});
+        a.engine.voiceNoteOn(0, n);
+        h.audio.pump(1);
+        audio::PerfOffsets p;
+        p.filterType = c.perfType;
+        p.cutoff = c.off;
+        a.engine.setPerf(0, p);
+        h.audio.pump(1);
+        const audio::Voice& v = a.engine.voice(0);
+        CHECK(v.filterOn());
+        CHECK_EQ(int(v.filterType()), int(c.perfType));
+        CHECK_NEAR(v.filterCutoff(), c.want, 1e-5);
+        // Top pad: back to the instrument's own filter.
+        a.engine.setPerf(0, audio::PerfOffsets{});
+        h.audio.pump(1);
+        CHECK_EQ(v.filterOn(), c.on != 0);
+    }
 }
 
 TEST(pattern_horizontal_arrangement) {

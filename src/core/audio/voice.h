@@ -114,6 +114,11 @@ public:
     // Performance offsets (kept across reset(); spec 06 §3.4 apply/revert).
     void setPerf(const PerfOffsets& p);
     const PerfOffsets& perf() const { return perf_; }
+    // The filter as last set up by the control update (tests): on, type
+    // (0 LP, 1 HP, 2 BP) and the 0..1 cutoff before modulation.
+    bool filterOn() const { return filtOn_; }
+    uint8_t filterType() const { return filtType_; }
+    float filterCutoff() const { return filtCut_; }
     void stop();
     bool active() const { return playing_ || env_.active(); }
     bool playing() const { return playing_; }
@@ -267,6 +272,7 @@ private:
     Svf svf_;
     uint8_t filtType_ = 0;
     bool filtOn_ = false;
+    float filtCut_ = 1.0f;
     bool filtXfade_ = false;
     float filtLast_ = 0.0f;
     float fmTarget_ = 0.0f, dpTarget_ = 1.0f / 0.7f;

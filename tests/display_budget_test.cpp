@@ -189,6 +189,9 @@ TEST(performance_frame_budget) {
     PerformanceScreen& p = *static_cast<PerformanceScreen*>(r.h.app->ui.screen(kModPerformance));
     for (int c = 0; c < perf::kSlots; ++c)
         for (int row = 1; row < perf::kRows; ++row) p.src.setValue(c, row, int16_t(row * 7 - 11));
+    // FX on for tracks 1-8: every label lit red (the worst case; issue #86).
+    for (uint8_t k : {btn::F1, btn::F2, btn::F3, btn::F4, btn::F5, btn::F6, btn::F7, btn::F8}) r.h.tap(k);
+    for (int t = 0; t < 8; ++t) CHECK(p.fxOn[t]);
     r.h.tap(btn::Rec);   // edit mode: focus frame on column 0
     r.h.tap(btn::Right);
     r.h.tap(btn::Play);
