@@ -860,10 +860,14 @@ bool SynthScreen::encoderOnList() const {
     if (view != View::Edit || !available()) return false;
     const synthui::Section* sec = nullptr;
     const int n = synthui::sections(engine(), &sec);
-    if (section < 0 || section >= n || sec[section].macro >= 0) return false;
+    if (section < 0 || section >= n) return false;
+    // A macro's Off / On row is a two-item list (drawn by listColumn).
+    if (sec[section].macro >= 0) return row == 1;
     if (row < 0 || row >= sec[section].count) return false;
     const synthui::ParamUi* u = synthui::paramUi(engine(), sec[section].params[row]);
-    return u && u->fmt == synthui::kFmtEnum;   // Filter Type, LFO Waveform, ...
+    // Enum rows (Filter Type, LFO Waveform, ...) and On / Off rows are drawn
+    // as lists (tester report: the wheel ran backwards on On / Off rows).
+    return u && (u->fmt == synthui::kFmtEnum || u->fmt == synthui::kFmtOnOff);
 }
 #endif
 
