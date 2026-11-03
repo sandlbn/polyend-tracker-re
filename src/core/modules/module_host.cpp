@@ -138,9 +138,18 @@ const SynthDescriptor* ModuleHost::engineAt(int k) {
     return k >= 0 && k < nDesc_ ? desc_[k] : nullptr;
 }
 
+// Modules renamed after projects were saved with their old id (the
+// sidecar's module list and project sections keep the id they were saved
+// with): old id -> current id.
+constexpr const char* kRenamed[][2] = {
+    {"JUNO", "BBDC"},   // the BBD chorus insert, renamed before 3.0
+};
+
 const IModule* ModuleHost::find(const char* id) const {
     for (int i = 0; i < n_; ++i)
         if (std::strncmp(mods_[i]->info().id, id, 4) == 0) return mods_[i];
+    for (const auto& r : kRenamed)
+        if (std::strncmp(r[0], id, 4) == 0) return find(r[1]);
     return nullptr;
 }
 

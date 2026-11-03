@@ -1,19 +1,19 @@
-// BBD-style stereo chorus (header-only DSP, module-facing): the Juno-60 style
-// chorus of the JUNO master insert (opentracker-fx modules/juno) and of the
+// BBD-style stereo chorus (header-only DSP, module-facing): the classic two-mode
+// BBD chorus of the BBDC master insert (opentracker-fx modules/bbd) and of the
 // JU6 synth's built-in chorus (opentracker-synths modules/ju6, once per slot).
 // One copy of the DSP for both repositories; each caller owns its State and
 // its kLine-frame line (static storage of the module, declared in its
 // ModuleInfo) and passes its targets per block.
 //
-// After the published analyses of the Juno-60 chorus: the mono sum passes
+// After the published analyses of the classic two-mode BBD chorus: the mono sum passes
 // the BBD's low-pass filters (three one-pole stages at Tone, 6..12 kHz) and a
 // gentle soft clip (standing in for the compander) into one delay line (int16,
 // like a bucket brigade), read by two taps moved by one triangle LFO: the
 // left tap at centre + depth * tri, the right one at centre - depth * tri
-// (opposite phase). The Juno filters before and after its BBD; both are
+// (opposite phase). The original filters before and after its BBD; both are
 // linear and the delay moves slowly, so here all stages run before the line
 // (the same response, and a silent line reads exact zeros). Each tap is mixed
-// over the dry signal. The mode fixes rate and depth as the Juno's buttons
+// over the dry signal. The mode fixes rate and depth as the original's buttons
 // do (I: 0.5 Hz, 2.0..5.0 ms; II: 0.8 Hz, 1.5..5.5 ms). No hiss: silence
 // stays silence. Our own design; textbook technique.
 #pragma once
@@ -28,7 +28,7 @@ namespace bbd {
 
 constexpr int kLine = 256;   // frames (5.8 ms), int16 (512 B)
 
-// What a Juno chorus button fixes: LFO rate and the tap delay swing.
+// What a chorus mode button fixes: LFO rate and the tap delay swing.
 struct Mode {
     float hz;       // triangle LFO rate
     float centre;   // centre delay, frames
@@ -94,7 +94,7 @@ inline void clear(State& s, int16_t* line) {
 constexpr uint32_t kTailFrames = uint32_t(kLine) + uint32_t(kBlock);
 
 // One block in place. mode 0 (Off) .. kModeCount; wetEnd 0..1 (1: dry and
-// wet equal, as on the Juno) and widthEnd 0..1 (0: both taps on both sides,
+// wet equal, as on the original) and widthEnd 0..1 (0: both taps on both sides,
 // 1: one tap per side) are reached at the block end; tone 0..100. Returns
 // false when Off and faded out: l / r untouched (and the line cleared).
 // Out of line: inlined with a constant n, the compiler unrolls it (+0.7 KB

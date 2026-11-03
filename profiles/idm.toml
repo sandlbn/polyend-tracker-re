@@ -1,7 +1,7 @@
 # Build profile: the digital / IDM flavour. The wavetable FM and the four-operator FM
 # synths (WTF1, FM4S), the drum synth (PRC1) and the acid bass (ACD1), FAT (FAT1, a
 # Tracker Mini model, so more Mini projects play), and CHOR then TAPE as the master
-# chain. No VAP, no JUNO.
+# chain. No VAP, no BBDC.
 # Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
 name = "idm"
 variant = "i"                 # image PolyendTrackerOTi<ver>.ptf (24 characters)

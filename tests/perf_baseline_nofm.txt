@@ -4,8 +4,8 @@
 # sets, synth4w and the song-5 peak replay (peakavg / peak) are not in its bench output.
 # The entries that remain carry the numbers of tests/perf_baseline.txt unchanged (no limit
 # moved); the module benches (ju6.unit, ju6.unit.chorus, tape.unit) are gated by their own
-# "limit N" lines. Since JU6's chorus is built in, nofm has no CHOR / JUNO insert (no
-# chor.unit / juno.unit lines); the per-slot hook costs synth4 ~+30 insn (well inside +5 %).
+# "limit N" lines. Since JU6's chorus is built in, nofm has no CHOR / BBDC insert (no
+# chor.unit / bbdc.unit lines); the per-slot hook costs synth4 ~+30 insn (well inside +5 %).
 idle     11112
 idle2    11470
 play8    145418

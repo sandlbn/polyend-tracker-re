@@ -24,7 +24,7 @@ std::vector<uint8_t> sample() {
     se.slot = 1;
     se.miniFallback = 0;
     se.engineId = 0xF0;
-    std::memcpy(se.moduleId, "JUNO", 4);
+    std::memcpy(se.moduleId, "TENG", 4);
     se.moduleVersion = 100;
     CHECK(w.chunk(ot3::kTagSlotEngine, 0, &se, sizeof se));
     ot3::ModuleChunkHeader mh{};
@@ -52,7 +52,7 @@ TEST(ot3_round_trip) {
     std::memcpy(&se, c.payload, sizeof se);
     CHECK_EQ(int(se.slot), 1);
     CHECK_EQ(se.engineId, int32_t(0xF0));
-    CHECK(std::memcmp(se.moduleId, "JUNO", 4) == 0);
+    CHECK(std::memcmp(se.moduleId, "TENG", 4) == 0);
     CHECK(r.next(c) && c.tag == 0x4001 && c.len == 13);
     CHECK(std::memcmp(c.payload, "TAPE", 4) == 0);
     CHECK_EQ(int(c.payload[8 + 4]), 5);
