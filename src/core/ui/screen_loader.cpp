@@ -566,8 +566,11 @@ void LoaderScreen::refreshBar() {
     }
     const bool onDir = focus == 0 && count > 0 && isDir[sdCursor];
     const bool emptySlot = focus == 1 && !a.instrPresent[insCursor];
-    b.set(0, onDir ? "Enter" : "Add", nullptr, focus <= 1);
-    b.set(1, "Add next", nullptr, !onDir);
+    // Add / Add next need a file in the SD selection (a folder alone loads
+    // nothing); F1 on a folder with the SD list focused is Enter.
+    const bool files = focus <= 1 && sdFilesSelected() > 0;
+    b.set(0, onDir ? "Enter" : "Add", nullptr, onDir || files);
+    b.set(1, "Add next", nullptr, !onDir && files);
     b.set(2, "Preview", nullptr, !onDir && !emptySlot);
     b.set(3, "Rename", nullptr, focus == 1 && !emptySlot);
     int f, l;
@@ -737,20 +740,26 @@ void LoaderScreen::streamedDone(void* ctx, bool ok) {
     s.addFrom(s.addI_, s.addN_);
 }
 
-void LoaderScreen::add(bool next) {
-    // spec 06 §5.4 Add / Add next.
-    App& a = app_;
-    if (focus == 0 && count > 0 && isDir[sdCursor]) {
-        enter();
-        return;
-    }
-    // Add works from the SD list and from the instrument list (F1 is enabled
-    // with either focus); it always loads the SD selection.
-    if (focus > 1 || count == 0) return;
+int LoaderScreen::sdFilesSelected() const {
+    if (count == 0) return 0;
     int f, l;
     listRange(true, &f, &l);
     int files = 0;
     for (int i = f; i <= l; ++i) files += isDir[i] ? 0 : 1;
+    return files;
+}
+
+void LoaderScreen::add(bool next) {
+    // spec 06 §5.4 Add / Add next.
+    App& a = app_;
+    if (focus == 0 && count > 0 && isDir[sdCursor]) {
+        if (!next) enter();   // Add next is greyed on a folder: its key does nothing
+        return;
+    }
+    // Add works from the SD list and from the instrument list (F1 is enabled
+    // with either focus); it always loads the SD selection.
+    if (focus > 1) return;
+    const int files = sdFilesSelected();
     if (files == 0) return;
     if (insCursor + files - 1 > 47) {
         ui_.notify("Too many samples selected");
@@ -765,6 +774,8 @@ void LoaderScreen::add(bool next) {
             ui_.notify("Sample memory is reserved by the resample take", 3000);
             return;
         }
+        int f, l;
+        listRange(true, &f, &l);
         char path[kPathMax + 1];
         for (int i = f, n = 0; i <= l; ++i) {
             if (isDir[i]) continue;
@@ -852,7 +863,11 @@ void LoaderScreen::moveCursor(int d) {
             std::memset(insMarked_, 0, sizeof(insMarked_));
         }
         app_.setCurrentInstrument(insCursor);
-        if (previewing_ && app_.instrPresent[insCursor]) app_.previewOn(App::kAuditionLoader, uint8_t(insCursor), 60, 127);
+        if (previewing_ && insCursor != old) {
+            // Preview held: the next loaded slot auditions; an empty one is silent.
+            if (app_.instrPresent[insCursor]) app_.previewOn(App::kAuditionLoader, uint8_t(insCursor), 60, 127);
+            else app_.previewAllOff();
+        }
     } else {
         app_.cfg.previewVolume = uint8_t(clampi(app_.cfg.previewVolume + d, 0, 100));
         app_.markConfigDirty();
