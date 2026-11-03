@@ -282,6 +282,17 @@ public:
 
     // Performance FX offsets for track t (spec 06 §3.2/§3.4).
     void setPerf(int track, const PerfOffsets& p) { if (track >= 0 && track < kVoices) voices_[track].setPerf(p); }
+    // The same offsets on the synth notes of track 0..15 (issue #23): the
+    // LP / HP / BP offset in octaves on the synth's own cutoff (the sample
+    // law 20 Hz x 2^(c x 477 / 50): 1.0 = 9.54 octaves), pan and sends.
+    void setSynthPerf(int track, const PerfOffsets& p) {
+        SynthPerf s;
+        if (p.filterType >= 0) s.cutoffOct = p.cutoff * (477.0f / 50.0f);
+        s.pan = p.pan;
+        s.dsend = p.dsend;
+        s.rsend = p.rsend;
+        synth_.setTrackPerf(track, s);
+    }
 
     void stopAll();
     void clearEffects();   // zero delay and reverb memory

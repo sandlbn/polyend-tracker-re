@@ -773,7 +773,7 @@ FAT_PER_BLOCK bool FatEngine::render(SynthVoice& v, const SynthParams& p, float 
 
     // 2. destinations at the block end ---------------------------------------------------
     const float dt1 = pitchToDt(clampf(V.pitch + v.bend + S.vib * lfo, -48.0f, 160.0f));
-    const float oct = clampf(S.envOct * V.fenv + S.lfoOct * lfo, -20.0f, 20.0f);
+    const float oct = clampf(S.envOct * V.fenv + S.lfoOct * lfo + v.cutoffOct, -20.0f, 20.0f);   // + Performance (#23)
     const float fc = clampf(S.cutoff * fastExp2(oct), 16.0f, 0.45f * kSampleRate);
     const float g1 = fastTan(kPi * fc * kInvFs);
     const float amp1 = V.amp * kOutTrim;

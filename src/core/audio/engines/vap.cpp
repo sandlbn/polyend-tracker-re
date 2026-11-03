@@ -223,7 +223,7 @@ inline float pitchToDt(float pitch) {
 }
 
 // src[]: Amp Env, Env 1, Env 2, LFO 1, LFO 2. atEnd selects the mod amount.
-VAP_PER_BLOCK void evalDest(const float* P, const SlotState& S, const float* src, bool atEnd, float pitch, Dest& d) {
+VAP_PER_BLOCK void evalDest(const float* P, const SlotState& S, const float* src, bool atEnd, float pitch, float cutOct, Dest& d) {
     float m[kDstCount];
     for (int j = 0; j < kDstCount; ++j) {
         OT_NO_LIBCALL();
@@ -245,7 +245,8 @@ VAP_PER_BLOCK void evalDest(const float* P, const SlotState& S, const float* src
     d.dt2 = pitchToDt(pitch + P[kTune2] + fine + det + 12.0f * m[kDstPitch2]);
     d.noise = clampf(P[kNoise] + m[kDstNoise], 0.0f, 1.0f);
     // Filter.
-    const float oct = kCutoffOct * (P[kFilterEnvAmt] * env1 + m[kDstCutoff]) + P[kNoteTrack] * (pitch - 60.0f) * (1.0f / 12.0f);
+    const float oct = kCutoffOct * (P[kFilterEnvAmt] * env1 + m[kDstCutoff]) + P[kNoteTrack] * (pitch - 60.0f) * (1.0f / 12.0f) +
+                      cutOct;   // + Performance (#23)
     const float fc = clampf(P[kCutoff] * fastExp2(oct), 16.0f, 0.45f * kSampleRate);
     const float g = fastTan(kPi * fc * kInvFs);
     const float r = clampf(P[kResonance] * (1.0f / 1.5f), 0.0f, 1.0f);
@@ -838,8 +839,8 @@ public:
         // Destinations: the block start is the last block's end.
         Dest d0, d1;
         if (V.lastValid) d0 = V.last;
-        else evalDest(p.start, S, src0, false, pitch0 + v.bendStart, d0);
-        evalDest(P1, S, src1, true, V.pitch + v.bend, d1);
+        else evalDest(p.start, S, src0, false, pitch0 + v.bendStart, v.cutoffOct, d0);
+        evalDest(P1, S, src1, true, V.pitch + v.bend, v.cutoffOct, d1);
         V.last = d1;
         V.lastValid = 1;
 

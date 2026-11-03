@@ -12,6 +12,7 @@ namespace ot {
 namespace audio {
 
 namespace {
+inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 // Step FX ids (spec 03 §3.6).
 constexpr uint8_t kFxDelaySend = 30, kFxPanning = 31, kFxReverbSend = 32, kFxRandVol = 7, kFxVol = 18, kFxGlideId = 19, kFxMicro = 34, kFxTuneId = 40, kFxSlideU = 41,
@@ -785,7 +786,7 @@ void SynthBank::applyFx(int track, uint8_t type, uint8_t value) {
         // top of the slot's pan (exact at the slot's default centre).
         case kFxPanning: V.pan = int8_t(value > 100 ? 100 : value); break;
         default:
-            break;   // filter FX: not on synth notes
+            break;   // filter step FX: not on synth notes (the Performance filters are, #23)
     }
 }
 
@@ -806,6 +807,14 @@ void SynthBank::transportStop() {
             o = -1;
         }
     }
+}
+
+void SynthBank::setTrackPerf(int t, const SynthPerf& p) {
+    if (t < 0 || t >= kSynthTracks) return;
+    perf_[t] = p;
+    uint8_t n = 0;
+    for (const SynthPerf& q : perf_) n = uint8_t(n + (q.active() ? 1 : 0));
+    perfActive_ = n;
 }
 
 void SynthBank::resetFx() {
@@ -932,8 +941,13 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             V.v.fading = V.state == kFading;
             V.fresh = 0;
             // Voice gain x the Track Mixer fader of the voice's track (user
-            // report: synth tracks ignored the Track Mixer volume).
-            const float tg = V.track >= 0 && V.track < kSynthTracks ? in.trackGain[V.track] : 1.0f;
+            // report: synth tracks ignored the Track Mixer volume). owner_
+            // survives the note-off, so a release tail keeps the fader and
+            // the track's Performance FX (V.track is cleared at release).
+            const int ot = owner_[r];
+            const bool seqTrack = ot >= 0 && ot < kSynthTracks;
+            const float tg = seqTrack ? in.trackGain[ot] : 1.0f;
+            V.v.cutoffOct = perfActive_ && seqTrack ? perf_[ot].cutoffOct : 0.0f;
             const float target = voiceGain(sl, V) * tg;   // 0 while fading
             const float g0 = V.g;
             const float gInc = (target - g0) * (1.0f / float(kBlock));
@@ -945,7 +959,16 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             // [I] A note of the resample-tapped track does too: only its
             // own signal goes to the tap.
             const bool tapV = tapL && owner_[r] == tapTrack;
-            const bool own = tapV || V.sendD >= 0 || V.sendR >= 0 || V.pan >= 0;
+            // Performance Panning / sends of the note's track (issue #23):
+            // added to the note's own value (centre / the slot's send).
+            int pan = V.pan, sendD = V.sendD, sendR = V.sendR;
+            if (perfActive_ && seqTrack) {
+                const SynthPerf& pf = perf_[ot];
+                if (pf.pan) pan = clampi((pan >= 0 ? pan : 50) + pf.pan, 0, 100);
+                if (pf.dsend) sendD = clampi((sendD >= 0 ? sendD : int(clampf(sl.rec.delaySend, 0.0f, 100.0f) + 0.5f)) + pf.dsend, 0, 100);
+                if (pf.rsend) sendR = clampi((sendR >= 0 ? sendR : int(clampf(sl.rec.reverbSend, 0.0f, 100.0f) + 0.5f)) + pf.rsend, 0, 100);
+            }
+            const bool own = tapV || sendD >= 0 || sendR >= 0 || pan >= 0;
             float* vl = busL_;
             float* vr = busR_;
             if (own) {
@@ -957,9 +980,10 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 // User report: the init PERC kit's snare and hats reached the
                 // delay whatever the instrument and step FX sent. A drum's
                 // send is its patch send x this note's send (FX) or else the
-                // instrument's (2 x mixD = SEND law of the record).
-                const float kd = td * (V.sendD >= 0 ? sendGain(V.sendD) : 2.0f * sl.mixD);
-                const float ke = te * (V.sendR >= 0 ? sendGain(V.sendR) : 2.0f * sl.mixE);
+                // instrument's (2 x mixD = SEND law of the record), with the
+                // track's Performance send (#23).
+                const float kd = td * (sendD >= 0 ? sendGain(sendD) : 2.0f * sl.mixD);
+                const float ke = te * (sendR >= 0 ? sendGain(sendR) : 2.0f * sl.mixE);
                 sl.eng->setSendTap(s, kd > 0.0f ? dsend : nullptr, ke > 0.0f ? rsend : nullptr, kd, ke);
             }
             if (sl.eng) {
@@ -975,17 +999,17 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 }
             }
             if (own) {
-                if (V.pan >= 0 && V.pan != 50) {
+                if (pan >= 0 && pan != 50) {
                     float pl, pr;
-                    panGains(V.pan, pl, pr);
+                    panGains(pan, pl, pr);
                     for (uint32_t i = 0; i < kBlock; ++i) {
                         voiceL_[i] *= pl;
                         voiceR_[i] *= pr;
                     }
                 }
                 // (A tapping engine sent this note's share through the tap.)
-                const float xd = V.sendD >= 0 && !tapped ? (0.5f * sendGain(V.sendD) - sl.mixD) * in.delayLevel : 0.0f;
-                const float xr = V.sendR >= 0 && !tapped ? (0.5f * sendGain(V.sendR) - sl.mixE) * in.reverbLevel : 0.0f;
+                const float xd = sendD >= 0 && !tapped ? (0.5f * sendGain(sendD) - sl.mixD) * in.delayLevel : 0.0f;
+                const float xr = sendR >= 0 && !tapped ? (0.5f * sendGain(sendR) - sl.mixE) * in.reverbLevel : 0.0f;
                 for (uint32_t i = 0; i < kBlock; ++i) {
                     const float m = voiceL_[i] + voiceR_[i];
                     busL_[i] += voiceL_[i];
