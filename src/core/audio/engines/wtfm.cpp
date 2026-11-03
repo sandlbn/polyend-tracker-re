@@ -469,7 +469,7 @@ inline float pitchToInc(float pitch, float ratio, float cents) {
     return clampf(440.0f * kInvFs * ratio * fastExp2((pitch - 69.0f + 0.01f * cents) * (1.0f / 12.0f)), 1.0e-6f, kMaxInc);
 }
 
-WTFM_PER_BLOCK void evalDest(const float* P, const SlotState& S, const float* src, bool atEnd, float pitch, Dest& d) {
+WTFM_PER_BLOCK void evalDest(const float* P, const SlotState& S, const float* src, bool atEnd, float pitch, float cutOct, Dest& d) {
     float m[kDstCount];
     for (int j = 0; j < kDstCount; ++j) {
         OT_NO_LIBCALL();
@@ -488,7 +488,8 @@ WTFM_PER_BLOCK void evalDest(const float* P, const SlotState& S, const float* sr
     d.fb21 = clampf(P[kFb21] + m[kDstFb21], 0.0f, 1.0f);
     d.fm = clampf(P[kFm] + m[kDstFm], 0.0f, 10.0f);
     // Filter.
-    const float oct = kCutoffOct * (P[kFilterEnvAmt] * src[kSrcEnv1] + m[kDstCutoff]) + P[kNoteTrack] * (pitch - 60.0f) * (1.0f / 12.0f);
+    const float oct = kCutoffOct * (P[kFilterEnvAmt] * src[kSrcEnv1] + m[kDstCutoff]) + P[kNoteTrack] * (pitch - 60.0f) * (1.0f / 12.0f) +
+                      cutOct;   // + Performance (#23)
     const float fc = clampf(P[kCutoff] * fastExp2(oct), 16.0f, 0.45f * kSampleRate);
     const float r = clampf(P[kResonance] * (1.0f / 1.5f), 0.0f, 1.0f);
     d.g = fastTan(kPi * fc * kInvFs);
@@ -707,8 +708,8 @@ public:
 
         Dest d0, d1;
         if (V.lastValid) d0 = V.last;
-        else evalDest(p.start, S, src0, false, pitch0 + v.bendStart, d0);
-        evalDest(P1, S, src1, true, V.pitch + v.bend, d1);
+        else evalDest(p.start, S, src0, false, pitch0 + v.bendStart, v.cutoffOct, d0);
+        evalDest(P1, S, src1, true, V.pitch + v.bend, v.cutoffOct, d1);
         V.last = d1;
         V.lastValid = 1;
 

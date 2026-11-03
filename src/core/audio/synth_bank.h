@@ -47,6 +47,10 @@
 // Mixing: voices -> slot bus (stereo) -> slot gain (dB) -> pan as balance
 // (linear law, spec 04 §4.3) -> main bus; post-gain sends (L+R)/2 * SEND law
 // * Global Mixer delay / reverb level. The bus feeds the Synth k stem.
+// Per note on top: the Track Mixer fader of the track that started it (also
+// in its release), its step-FX pan / sends and the track's Performance pan /
+// sends (setTrackPerf); the Performance filter offset goes to the engine as
+// SynthVoice::cutoffOct (issue #23).
 //
 // Real time: no allocation, no I/O. Main-loop setters only store values
 // (the audio context picks them up at the next block). Memory (SRAM .bss,
@@ -109,6 +113,16 @@ struct SynthMixInputs {
     }
 };
 
+// Performance FX of one sequencer track as they reach its synth notes
+// (issue #23): read per block while a note sounds, also in its release.
+struct SynthPerf {
+    float cutoffOct = 0.0f;   // LP / HP / BP offset, octaves on the patch cutoff
+    int16_t pan = 0;          // added to the note's pan (0..100), clamped
+    int16_t dsend = 0;        // added to the note's delay / reverb send, clamped
+    int16_t rsend = 0;
+    bool active() const { return cutoffOct != 0.0f || pan != 0 || dsend != 0 || rsend != 0; }
+};
+
 class SynthBank : public IVoicePool {
 public:
     SynthBank();
@@ -160,6 +174,10 @@ public:
     // --- audio context (sequencer sink, AudioEngine) -------------------------
     void noteOn(int track, const SynthNoteOn& n);
     void noteOff(int track, NoteOffMode mode);
+    // Performance FX of track t (0..15; main loop, read at the next block;
+    // kept across reset()). The default value = none.
+    void setTrackPerf(int t, const SynthPerf& p);
+    const SynthPerf& trackPerf(int t) const { return perf_[t < 0 || t >= kSynthTracks ? 0 : t]; }
     void applyFx(int track, uint8_t type, uint8_t value);
     void macroFx(int slot, int macro, uint8_t value);
     void transportStop();     // macro overrides -> page values
@@ -320,6 +338,8 @@ private:
     // resample tap); -1 free. Not in Voice: one more byte pads each record.
     int8_t owner_[kSynthMaxVoices];
     float trackPitch_[kSynthAllTracks];       // last note pitch (Glide FX source)
+    SynthPerf perf_[kSynthTracks];            // Performance FX per track (setTrackPerf)
+    volatile uint8_t perfActive_ = 0;         // tracks with a non-default perf_
     uint32_t serial_ = 0;
     uint32_t steals_ = 0;
     int activeVoices_ = 0;                    // records not free

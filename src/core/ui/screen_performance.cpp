@@ -182,10 +182,11 @@ void PerformanceScreen::edited() {
 // FX apply / revert (spec 12 §E)
 
 // Rebuild every track's performance state from the slots' current values and
-// push it to the engine and the sequencer. 2.x: all 16 tracks; the voice FX
-// (audio::PerfOffsets) exist on the sample tracks 1-8 only, tracks 9-16 take
-// the sequencer side (Volume as velocity offset, Tune as transpose, step
-// repeater, play mode; 2x-01 §5). A slot with cur = 0 is reverted;
+// push it to the engine and the sequencer. 2.x: all 16 tracks; the sample
+// voice FX (audio::PerfOffsets) exist on tracks 1-8; synth notes of every
+// track take the filter, pan and sends (issue #23, Engine::setSynthPerf);
+// every track takes the sequencer side (Volume as velocity offset, Tune as
+// transpose, step repeater, play mode; 2x-01 §5). A slot with cur = 0 is reverted;
 // disabled tracks are reverted; a global FX (Pattern length) is applied once
 // (spec 12 §E.1). FX types are exclusive, so at most one slot per type is
 // normally active; if two are, the higher slot wins.
@@ -240,6 +241,7 @@ void PerformanceScreen::applyAll(bool revertEverything) {
             }
         }
         if (t < kMidiTrackStart) a.engine.setPerf(t, p);
+        a.engine.setSynthPerf(t, p);
         q.setPerfRepeat(t, repeat);
         q.setPerfPlayMode(t, playMode);
         q.setPerfVelocityOffset(t, velOff);
