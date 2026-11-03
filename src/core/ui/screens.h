@@ -352,6 +352,7 @@ public:
     void openImport();                  // F5 (spec 06 §5.5 step 1)
     // §5.5 gating: Normal iff 2n < free - 10000, low quality iff n < free - 10000.
     bool importAllowed(bool lowQuality) const;
+    int sdFilesSelected() const;   // files in the SD selection (folders skipped)
     bool over() const { return over_; }
     uint32_t memoryShown() const { return shown_; }   // bytes the memory bar and label show
 
