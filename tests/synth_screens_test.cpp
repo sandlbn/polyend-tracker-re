@@ -1478,6 +1478,46 @@ TEST(synth_edit_wheel_hint_lists_and_values) {
     CHECK(values >= 2);
 }
 
+// Tester report (3.0 preview, 2026-11-02): the wheel scrolled the wrong
+// way on every On / Off row (Sync, Reset, Oversampling, ...) and on a
+// macro's Off / On row: they are drawn as two-item lists like the enum
+// rows, so they are lists for the wheel hint too.
+TEST(synth_edit_wheel_hint_on_off_rows_are_lists) {
+    Harness h;
+    App& a = *h.app;
+    int onOff = 0, macroRows = 0;
+    for (SynthModel m : {SynthModel::ACD, SynthModel::FAT, SynthModel::VAP, SynthModel::WTFM}) {
+        openSlot(h, 1, m);
+        SynthScreen& s = synth(a);
+        if (s.view != SynthScreen::View::Params) h.tap(btn::InstrParams);
+        h.tap(btn::F8);
+        CHECK(s.view == SynthScreen::View::Edit);
+        const synthui::Section* sec = nullptr;
+        const int n = synthui::sections(s.engine(), &sec);
+        for (int i = 0; i < n; ++i) {
+            s.section = i;
+            if (sec[i].macro >= 0) {
+                s.row = 1;   // Off / On (bipolar)
+                CHECK(a.ui.encoderOnList());
+                s.row = 0;   // Name: Edit key
+                CHECK(!a.ui.encoderOnList());
+                ++macroRows;
+                continue;
+            }
+            for (int r = 0; r < sec[i].count; ++r) {
+                s.row = r;
+                const synthui::ParamUi* u = synthui::paramUi(s.engine(), sec[i].params[r]);
+                const bool list = u && (u->fmt == synthui::kFmtEnum || u->fmt == synthui::kFmtOnOff);
+                CHECK_EQ(a.ui.encoderOnList(), list);
+                onOff += u && u->fmt == synthui::kFmtOnOff;
+            }
+        }
+        h.tap(btn::Pattern);
+    }
+    CHECK(onOff >= 5);
+    CHECK(macroRows >= 1);
+}
+
 TEST(instr_hold_chooser_on_the_synth_page) {
     // User report: holding Instr on a synth page did nothing. It opens the
     // instrument chooser (samples, MIDI, then Synth 1..3); releasing it opens
