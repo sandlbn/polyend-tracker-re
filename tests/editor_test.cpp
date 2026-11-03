@@ -518,3 +518,39 @@ TEST(loader_memory_bar_shows_the_change_in_colour) {
     pointAt("small.wav", 0);  // replaces the big sample: memory shrinks
     CHECK(hasColour(a.ui.th().good));
 }
+
+TEST(editor_delete_resets_start_end_and_zoom) {
+    // spec 06 §6.3: Delete resets the focused control; issue #143 holds the
+    // key (Zoom + Delete) as on stock.
+    Harness h;
+    App& a = *h.app;
+    addNoise(h, "n.wav", 300000);
+    CHECK(a.importSample("n.wav", 0));
+    a.setCurrentInstrument(0);
+    h.tap(btn::SampleEditor);
+    EditorScreen& e = ed(h);
+    h.tap(btn::F3);
+    for (int i = 0; i < 20; ++i) h.enc(1);
+    CHECK(e.view.zoom() > 1.0f);
+    h.down(btn::F3);
+    h.tap(btn::Delete);
+    h.up(btn::F3);
+    CHECK_NEAR(e.view.zoom(), 1.0, 1e-6);
+    char want[16];
+    std::snprintf(want, sizeof(want), "%.2f", 1.0);
+    CHECK_STR(a.ui.bar.label[2].bottom, want);
+    h.tap(btn::F1);
+    for (int i = 0; i < 20; ++i) h.enc(1);
+    CHECK(e.startM > 0);
+    h.down(btn::F1);
+    h.tap(btn::Delete);
+    h.up(btn::F1);
+    CHECK_EQ(e.startM, 0);
+    h.tap(btn::F2);
+    for (int i = 0; i < 20; ++i) h.enc(-1);
+    CHECK(e.endM < 65535);
+    h.down(btn::F2);
+    h.tap(btn::Delete);
+    h.up(btn::F2);
+    CHECK_EQ(e.endM, 65535);
+}
