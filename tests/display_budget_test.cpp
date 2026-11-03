@@ -189,6 +189,9 @@ TEST(performance_frame_budget) {
     PerformanceScreen& p = *static_cast<PerformanceScreen*>(r.h.app->ui.screen(kModPerformance));
     for (int c = 0; c < perf::kSlots; ++c)
         for (int row = 1; row < perf::kRows; ++row) p.src.setValue(c, row, int16_t(row * 7 - 11));
+    // FX on for tracks 1-8: every label lit red (the worst case; issue #86).
+    for (uint8_t k : {btn::F1, btn::F2, btn::F3, btn::F4, btn::F5, btn::F6, btn::F7, btn::F8}) r.h.tap(k);
+    for (int t = 0; t < 8; ++t) CHECK(p.fxOn[t]);
     r.h.tap(btn::Rec);   // edit mode: focus frame on column 0
     r.h.tap(btn::Right);
     r.h.tap(btn::Play);
@@ -199,7 +202,7 @@ TEST(performance_frame_budget) {
     std::printf("performance (values, edit, playing): max %u DL words\n", unsigned(words));
     // 1500 when gradients counted 5 words; ~1680 at Gfx::kGradientDlWords
     // (verified on a Tracker: ~7.4 KB of the 8 KB RAM_DL, no faults); ~1740
-    // since upstream 2.2.1's red labels of tracks with the FX off; 1879 with
+    // since upstream 2.2.1's red labels (tracks with the FX on, issue #86); 1879 with
     // CMD_TEXT at what the FT81x builds (the Performance screen's 56
     // strings, 100 glyphs right of x 511, were ~190 words over the old count).
     CHECK(words <= 1900);

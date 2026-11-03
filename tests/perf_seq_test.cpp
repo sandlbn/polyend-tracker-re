@@ -509,6 +509,37 @@ TEST(track_pattern_song_advance_and_pending_queue) {
     CHECK(eq(r.tail(0, 16), {48, 49}));
 }
 
+// Issue #86 report 3 (stock 1.9.2, issue #86 stock check D4-D6): the
+// Performance pattern length is global, so in Song mode the song moves on
+// after the shortened length.
+TEST(global_length_moves_the_song_on) {
+    Rig r;
+    r.project.playlist[0] = 1;
+    r.project.playlist[1] = 2;
+    r.project.playlist[2] = 3;
+    r.seq.setPerformanceMode(true);
+    r.seq.setPerfGlobalLength(3);                // 4 steps
+    r.seq.playSong(0);
+    r.steps(0, 12);
+    CHECK(eq(r.tail(0, 0), {16, 17, 18, 19, 32, 33, 34, 35, 48, 49, 50, 51}));
+    CHECK_EQ(r.seq.currentPatternNumber(), 3);
+    // Length 8: back to pattern 1 (playlist end), 8 steps per pattern.
+    r.seq.setPerfGlobalLength(7);
+    size_t from = r.sink.notes[0].size();
+    r.steps(0, 16);
+    CHECK(eq(r.tail(0, from), {52, 53, 54, 55, 16, 17, 18, 19, 20, 21, 22, 23, 32, 33, 34, 35}));
+    // Shortened below the position already played: moves on at the next step.
+    r.seq.setPerfGlobalLength(1);
+    from = r.sink.notes[0].size();
+    r.steps(0, 3);
+    CHECK(eq(r.tail(0, from), {48, 49, 16}));
+    // Cleared: the patterns' own length again.
+    r.seq.setPerfGlobalLength(-1);
+    from = r.sink.notes[0].size();
+    r.steps(0, 9);
+    CHECK(eq(r.tail(0, from), {17, 18, 19, 20, 21, 22, 23, 32, 33}));
+}
+
 // Stock bug: the per-track loader used the preload buffer as scratch, so a
 // load during the last step clobbered the next song pattern (spec 12 §C.1).
 TEST(track_pattern_load_does_not_clobber_preload) {

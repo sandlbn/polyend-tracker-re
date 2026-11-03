@@ -189,15 +189,15 @@ TEST(perf_stays_live_on_instr_params_and_master) {
     r.h.pad(24 + 1);
     const int row = p.src.row(1);
     CHECK(row != 0);
-    r.h.tap(btn::F2);   // FX off for track 2
-    CHECK(!p.fxOn[1]);
+    r.h.tap(btn::F2);   // FX on for track 2 (all start off, issue #86)
+    CHECK(p.fxOn[1]);
     r.h.tap(btn::InstrParams);
     CHECK(a.ui.active() == kModInstrument);
     CHECK(a.seq.performanceMode());
     CHECK(p.keepAlive() == PerformanceScreen::KeepAlive::Always);
     r.h.tap(btn::Performance);
     CHECK_EQ(p.src.row(1), row);   // resumed, rows kept
-    CHECK(!p.fxOn[1]);
+    CHECK(p.fxOn[1]);
     r.h.tap(btn::Master);
     CHECK(a.seq.performanceMode());
     r.h.tap(btn::Performance);
@@ -207,6 +207,7 @@ TEST(perf_stays_live_on_instr_params_and_master) {
     CHECK(p.keepAlive() == PerformanceScreen::KeepAlive::None);
     r.h.tap(btn::Performance);
     CHECK_EQ(p.src.row(1), 0);   // fresh entry
+    CHECK(!p.fxOn[1]);
 }
 
 // Spec 16 §A.15: the stock handler runs on every screen key while the FX are
@@ -277,6 +278,7 @@ TEST(perf_export_while_fx_alive_equals_baseline) {
         PerformanceScreen& p = r.p();
         p.src.setType(0, perf::kVolume);
         p.src.setValue(0, 1, -80);
+        r.h.tap(btn::F1);   // track 1 FX on (all start off, issue #86)
         r.h.pad(12 + 0);
         CHECK_EQ(p.src.row(0), 1);
         CHECK(a.engine.voice(0).perf().volume != 0);
@@ -317,24 +319,24 @@ TEST(perf_other_screen_while_playing_reverts_at_pattern_end) {
     a.seq.stop();
 }
 
-// Audit 12.1 / spec 16 §A.14: highlighted label = FX on, dim text = muted;
-// the live cell is drawn on top.
+// Audit 12.1 / spec 16 §A.14: highlighted label = FX on (every track starts
+// off, issue #86), dim text = muted; the live cell is drawn on top.
 TEST(perf_label_colours_and_live_cell_on_top) {
     PerfRig r;
     App& a = *r.h.app;
     r.h.tap(btn::Performance);
     PerformanceScreen& p = r.p();
-    CHECK(a.ui.bar.label[0].highlight);
-    CHECK(a.ui.bar.label[0].enabled);
-    r.h.tap(btn::F1);   // FX off for track 1
-    CHECK(!p.fxOn[0]);
     CHECK(!a.ui.bar.label[0].highlight);
+    CHECK(a.ui.bar.label[0].enabled);
+    r.h.tap(btn::F1);   // FX on for track 1
+    CHECK(p.fxOn[0]);
+    CHECK(a.ui.bar.label[0].highlight);
     a.setTrackMute(1, true);
     r.h.tap(btn::Right);
     a.ui.dirty();
     r.h.run(200);
     CHECK(!a.ui.bar.label[1].enabled);
-    CHECK(a.ui.bar.label[1].highlight);
+    CHECK(!a.ui.bar.label[1].highlight);
     a.setTrackMute(1, false);
     // Live value cell of column 0: the title band (text centre y 53) above
     // the four rows [S snap 021].
