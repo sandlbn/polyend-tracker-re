@@ -194,14 +194,14 @@ void Picker::pick(int pad) {
     if (c < count_) cursor_ = c;
 }
 
-namespace {
-// `s` cut to the characters that fit `maxW` px in `font` (a cell line).
 void fitText(char* out, int cap, uint8_t font, const char* s, int maxW) {
     int n = 0;
     while (s[n] && n < cap - 1 && textWidth(font, s, n + 1) <= maxW) ++n;
     std::memcpy(out, s, size_t(n));
     out[n] = 0;
 }
+
+namespace {
 // Glyph run centred on (cx, cy) (one word per glyph with custom fonts).
 void centredRun(Gfx& g, int cx, int cy, uint8_t font, uint32_t c, const char* s) {
     if (!s || !*s) return;

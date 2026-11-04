@@ -133,16 +133,20 @@ void ResampleScreen::refreshBar() {
     App& a = app_;
     const ResampleSettings& r = a.resampleCfg;
     b.clear();
-    char lbl[24];
+    // Track names run to 20 characters: cut them to the label, which only
+    // drops to font 3 when a value is too wide [I].
+    char lbl[24], fit[24];
     fromItem(&a, r.source % ResampleSettings::kSources, lbl, sizeof(lbl));
-    b.set(0, "From", lbl);
+    fitText(fit, sizeof(fit), kFont3, lbl, wg::kBarValueW);
+    b.set(0, "From", fit);
     b.set(1, "Length", kLength[r.length % ResampleSettings::kLengths]);
     b.set(kColSlices, "Slices", kSlices[r.slices % ResampleSettings::kSlices]);
     {
-        const PlaceRows rows{&a, &a.pattern(), 0, 0};
-        placeItem(const_cast<PlaceRows*>(&rows), r.place % ResampleSettings::kPlaces, lbl, sizeof(lbl));
+        PlaceRows rows{&a, &a.pattern(), 0, 0};
+        placeItem(&rows, r.place % ResampleSettings::kPlaces, lbl, sizeof(lbl));
     }
-    b.set(kColPlace, "Place on", lbl);
+    fitText(fit, sizeof(fit), kFont3, lbl, wg::kBarValueW);
+    b.set(kColPlace, "Place on", fit);
     char v[12];
     if (r.into) std::snprintf(v, sizeof(v), "Instr %u", unsigned(r.into));
     else std::snprintf(v, sizeof(v), "New");

@@ -506,7 +506,7 @@ void barLabel(Gfx& g, const Theme& th, int i, bool wide, const char* top, const 
     if (two) {
         // Set +0x44 names ("Export / Song") stay grey in font 3; a value that
         // does not fit the label in the 10-px mono uses font 3 too.
-        const int maxW = wide ? 194 : 94;
+        const int maxW = wide ? kBarValueWideW : kBarValueW;
         const uint8_t f = st.nameLines || textWidth(kFont2, bottom) > maxW ? kFont3 : kFont2;
         g.text(cx, kLabelY2, f, st.nameLines ? tc : vc, bottom, IDisplay::kOptCenter);
     }
