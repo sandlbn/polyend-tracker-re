@@ -14,8 +14,12 @@
 // linear and the delay moves slowly, so here all stages run before the line
 // (the same response, and a silent line reads exact zeros). Each tap is mixed
 // over the dry signal. The mode fixes rate and depth as the original's buttons
-// do (I: 0.5 Hz, 2.0..5.0 ms; II: 0.8 Hz, 1.5..5.5 ms). No hiss: silence
-// stays silence. Our own design; textbook technique.
+// do (I: 0.5 Hz, 2.0..5.0 ms; II: 0.8 Hz, 1.5..5.5 ms). I+II runs both at
+// once (both rates present, no fast wobble, as a measured software I+II):
+// the same line read by I's tap pair and II's, each pair at 1/sqrt(2), the
+// sides a little wider. Switching into or out of I+II fades II's pair over
+// one block. No hiss: silence stays silence. Our own design; textbook
+// technique.
 #pragma once
 
 #include <cstdint>
@@ -35,8 +39,9 @@ struct Mode {
     float depth;    // swing either side of the centre, frames
 };
 constexpr float kMs = 0.001f * kSampleRate;   // frames per millisecond
-constexpr int kModeCount = 2;                 // mode 1..kModeCount (0 = Off)
-constexpr Mode kModes[kModeCount] = {
+constexpr int kModeCount = 3;                 // mode 1..kModeCount (0 = Off)
+constexpr int kModeBoth = 3;                  // I+II: kModes[0] and kModes[1] at once
+constexpr Mode kModes[2] = {
     {0.5f, 3.5f * kMs, 1.5f * kMs},   // Chorus I: 2.0 .. 5.0 ms
     {0.8f, 3.5f * kMs, 2.0f * kMs},   // Chorus II: 1.5 .. 5.5 ms
 };
@@ -52,6 +57,9 @@ struct State {
     uint32_t w;            // line write index
     float ph;              // LFO phase, cycles
     float dl, dr;          // tap delays the last block ended on (0: start at the mode's)
+    float ph2;             // I+II: the second pair's (mode II's) LFO phase
+    float dl2, dr2;        // I+II: the second pair's tap delays
+    float pair;            // I+II: the second pair's level the last block ended on (0..1, ramps)
     float wet;             // the wet amount the last block ended on (ramps)
     float width;           // the width the last block ended on
     float g;               // one-pole coefficient of the BBD filters
@@ -83,6 +91,7 @@ inline void clear(State& s, int16_t* line) {
     for (int i = 0; i < kLine; ++i) line[i] = 0;
     s.w = 0;
     s.ph = s.dl = s.dr = s.wet = 0.0f;
+    s.ph2 = s.dl2 = s.dr2 = s.pair = 0.0f;
     s.mode = 1;
     s.widthSet = 0;
     s.lp[0] = s.lp[1] = s.lp[2] = 0.0f;
@@ -116,7 +125,8 @@ __attribute__((noinline)) inline bool process(State& s, int16_t* line, uint8_t m
     }
     // While fading out after Off the taps keep the last mode's motion.
     if (mode) s.mode = mode;
-    const Mode& md = kModes[s.mode - 1];
+    const bool both = s.mode == kModeBoth;
+    const Mode& md = kModes[both ? 0 : s.mode - 1];
     // The triangle is a straight line between its corners: the tap delays at
     // the block ends, ramped from where the last block ended (a corner inside
     // a block rounds it off; a mode switch glides over one block).
@@ -144,27 +154,86 @@ __attribute__((noinline)) inline bool process(State& s, int16_t* line, uint8_t m
     float a0 = s.lp[0], a1 = s.lp[1], a2 = s.lp[2];
     constexpr uint32_t kMask = uint32_t(kLine - 1);
     uint32_t w = s.w;
-    for (uint32_t i = 0; i < n; ++i) {
-        a0 += gh * (l[i] + r[i]) - g * a0;
-        a1 += g * (a0 - a1);
-        a2 += g * (a1 - a2);
-        line[w] = toQ15(clip(a2));
-        // A tap d = k + f frames back: between w - k and w - k - 1.
-        const uint32_t kl = uint32_t(dl), kr = uint32_t(dr);
-        const float fl = dl - float(kl), fr = dr - float(kr);
-        const float x0 = float(line[(w - kl) & kMask]), x1 = float(line[(w - kl - 1u) & kMask]);
-        const float y0 = float(line[(w - kr) & kMask]), y1 = float(line[(w - kr - 1u) & kMask]);
-        const float tl = x0 + fl * (x1 - x0), tr = y0 + fr * (y1 - y0);
-        const float m = mid * (tl + tr), sd = side * (tl - tr);
-        l[i] = dry * l[i] + (m + sd);
-        r[i] = dry * r[i] + (m - sd);
-        w = (w + 1u) & kMask;
-        dl += ddl;
-        dr += ddr;
-        dry += ddry;
-        mid += dmid;
-        side += dside;
+    const float pairEnd = both ? 1.0f : 0.0f;
+    if (s.pair <= 0.0f && pairEnd <= 0.0f) {
+        for (uint32_t i = 0; i < n; ++i) {
+            a0 += gh * (l[i] + r[i]) - g * a0;
+            a1 += g * (a0 - a1);
+            a2 += g * (a1 - a2);
+            line[w] = toQ15(clip(a2));
+            // A tap d = k + f frames back: between w - k and w - k - 1.
+            const uint32_t kl = uint32_t(dl), kr = uint32_t(dr);
+            const float fl = dl - float(kl), fr = dr - float(kr);
+            const float x0 = float(line[(w - kl) & kMask]), x1 = float(line[(w - kl - 1u) & kMask]);
+            const float y0 = float(line[(w - kr) & kMask]), y1 = float(line[(w - kr - 1u) & kMask]);
+            const float tl = x0 + fl * (x1 - x0), tr = y0 + fr * (y1 - y0);
+            const float m = mid * (tl + tr), sd = side * (tl - tr);
+            l[i] = dry * l[i] + (m + sd);
+            r[i] = dry * r[i] + (m - sd);
+            w = (w + 1u) & kMask;
+            dl += ddl;
+            dr += ddr;
+            dry += ddry;
+            mid += dmid;
+            side += dside;
+        }
+    } else {
+        // I+II: mode II's tap pair on its own LFO next to I's. At full level
+        // both pairs run at 1/sqrt(2) and the sides are kBothSide wider; the
+        // level `pair` ramps over the block, so a switch into or out of I+II
+        // crossfades instead of stepping.
+        const Mode& m2 = kModes[1];
+        if (s.pair <= 0.0f) {   // the pair starts afresh, on I's phase
+            s.ph2 = s.ph;
+            s.dl2 = m2.centre + m2.depth * tri(s.ph2);
+            s.dr2 = m2.centre - m2.depth * tri(s.ph2);
+        }
+        float ph2 = s.ph2 + m2.hz * float(n) / kSampleRate;
+        ph2 -= float(int(ph2));
+        const float t2 = tri(ph2);
+        float el = s.dl2, er = s.dr2;
+        const float el1 = m2.centre + m2.depth * t2, er1 = m2.centre - m2.depth * t2;
+        const float del = (el1 - el) * inv, der = (er1 - er) * inv;
+        constexpr float kPair = 0.70710678f;
+        // Two pairs' sides add up narrower than one pair's; a measured software
+        // I+II is wider than its I (L/R correlation 0.26 vs 0.37): 1.35 gives
+        // 0.27 vs 0.38.
+        constexpr float kBothSide = 1.35f;
+        float b = s.pair;
+        const float db = (pairEnd - b) * inv;
+        for (uint32_t i = 0; i < n; ++i) {
+            a0 += gh * (l[i] + r[i]) - g * a0;
+            a1 += g * (a0 - a1);
+            a2 += g * (a1 - a2);
+            line[w] = toQ15(clip(a2));
+            const uint32_t kl = uint32_t(dl), kr = uint32_t(dr), jl = uint32_t(el), jr = uint32_t(er);
+            const float fl = dl - float(kl), fr = dr - float(kr), gl = el - float(jl), gr = er - float(jr);
+            const float x0 = float(line[(w - kl) & kMask]), x1 = float(line[(w - kl - 1u) & kMask]);
+            const float y0 = float(line[(w - kr) & kMask]), y1 = float(line[(w - kr - 1u) & kMask]);
+            const float u0 = float(line[(w - jl) & kMask]), u1 = float(line[(w - jl - 1u) & kMask]);
+            const float v0 = float(line[(w - jr) & kMask]), v1 = float(line[(w - jr - 1u) & kMask]);
+            const float k1 = 1.0f - (1.0f - kPair) * b, k2 = kPair * b;   // I's pair, II's pair
+            const float sw = side * (1.0f + (kBothSide - 1.0f) * b);
+            const float tl = k1 * (x0 + fl * (x1 - x0)) + k2 * (u0 + gl * (u1 - u0));
+            const float tr = k1 * (y0 + fr * (y1 - y0)) + k2 * (v0 + gr * (v1 - v0));
+            const float m = mid * (tl + tr), sd = sw * (tl - tr);
+            l[i] = dry * l[i] + (m + sd);
+            r[i] = dry * r[i] + (m - sd);
+            w = (w + 1u) & kMask;
+            dl += ddl;
+            dr += ddr;
+            el += del;
+            er += der;
+            b += db;
+            dry += ddry;
+            mid += dmid;
+            side += dside;
+        }
+        s.ph2 = ph2;
+        s.dl2 = el1;
+        s.dr2 = er1;
     }
+    s.pair = pairEnd;
     s.w = w;
     s.ph = ph1;
     s.dl = dl1;
