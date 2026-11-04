@@ -41,6 +41,41 @@ void intoItem(void* ctx, int i, char* out, int cap) {
     else std::snprintf(out, size_t(cap), "%d", i);
 }
 
+// [I] Tracks 1-8 by their name (Pattern header), "Track N" without one.
+void trackLabel(const App& a, int t, char* out, int cap) {
+    if (!a.project.trackName(t, out, uint32_t(cap)) || !out[0]) std::snprintf(out, size_t(cap), "Track %d", t + 1);
+}
+
+// From: Master, the tracks, Line in, USB.
+void fromItem(void* ctx, int i, char* out, int cap) {
+    const App& a = *static_cast<const App*>(ctx);
+    if (i >= 1 && i <= 8) trackLabel(a, i - 1, out, cap);
+    else std::snprintf(out, size_t(cap), "%s", kFrom[i]);
+}
+
+// [I] Place on: a track with notes in the current pattern is red (placing
+// mixes the take with them), a free one green; Off keeps the list colour.
+struct PlaceRows {
+    const App* app;
+    const Pattern* pattern;
+    uint32_t free, used;
+};
+
+int32_t placeColour(void* ctx, int i) {
+    const PlaceRows& r = *static_cast<const PlaceRows*>(ctx);
+    if (i <= 0 || i > Sequencer::kVoiceTracks) return -1;
+    const Track& t = r.pattern->tracks[i - 1];
+    for (int s = 0; s <= int(t.lastStep); ++s)
+        if (t.steps[s].note != kNoteEmpty) return int32_t(r.used);
+    return int32_t(r.free);
+}
+
+void placeItem(void* ctx, int i, char* out, int cap) {
+    const PlaceRows& r = *static_cast<const PlaceRows*>(ctx);
+    if (i >= 1 && i <= 8) trackLabel(*r.app, i - 1, out, cap);
+    else std::snprintf(out, size_t(cap), "%s", kPlace[i]);
+}
+
 void list(Gfx& g, const Theme& th, int col, const char* const* items, int count, int sel) {
     wg::ListView v;
     v.x = kColX0 + 100 * col;
@@ -98,10 +133,20 @@ void ResampleScreen::refreshBar() {
     App& a = app_;
     const ResampleSettings& r = a.resampleCfg;
     b.clear();
-    b.set(0, "From", kFrom[r.source % ResampleSettings::kSources]);
+    // Track names run to 20 characters: cut them to the label, which only
+    // drops to font 3 when a value is too wide [I].
+    char lbl[24], fit[24];
+    fromItem(&a, r.source % ResampleSettings::kSources, lbl, sizeof(lbl));
+    fitText(fit, sizeof(fit), kFont3, lbl, wg::kBarValueW);
+    b.set(0, "From", fit);
     b.set(1, "Length", kLength[r.length % ResampleSettings::kLengths]);
     b.set(kColSlices, "Slices", kSlices[r.slices % ResampleSettings::kSlices]);
-    b.set(kColPlace, "Place on", kPlace[r.place % ResampleSettings::kPlaces]);
+    {
+        PlaceRows rows{&a, &a.pattern(), 0, 0};
+        placeItem(&rows, r.place % ResampleSettings::kPlaces, lbl, sizeof(lbl));
+    }
+    fitText(fit, sizeof(fit), kFont3, lbl, wg::kBarValueW);
+    b.set(kColPlace, "Place on", fit);
     char v[12];
     if (r.into) std::snprintf(v, sizeof(v), "Instr %u", unsigned(r.into));
     else std::snprintf(v, sizeof(v), "New");
@@ -235,10 +280,32 @@ void ResampleScreen::draw(Gfx& g) {
     const Theme& th = ui_.th();
     ui_.drawTitle(g, "Resample");
     const ResampleSettings& r = a.resampleCfg;
-    list(g, th, 0, kFrom, ResampleSettings::kSources, r.source % ResampleSettings::kSources);
+    {
+        wg::ListView v;
+        v.x = kColX0;
+        v.w = wg::columnW();
+        v.count = ResampleSettings::kSources;
+        v.sel = r.source % ResampleSettings::kSources;
+        v.selStyle = wg::ListSel::kWhite;
+        v.item = fromItem;
+        v.ctx = &a;
+        wg::list(g, th, v);
+    }
     list(g, th, 1, kLength, ResampleSettings::kLengths, r.length % ResampleSettings::kLengths);
     list(g, th, kColSlices, kSlices, ResampleSettings::kSlices, r.slices % ResampleSettings::kSlices);
-    list(g, th, kColPlace, kPlace, ResampleSettings::kPlaces, r.place % ResampleSettings::kPlaces);
+    {
+        PlaceRows rows{&a, &a.pattern(), th.good & 0xFFFFFFu, th.alert & 0xFFFFFFu};
+        wg::ListView v;
+        v.x = kColX0 + 100 * kColPlace;
+        v.w = wg::columnW();
+        v.count = ResampleSettings::kPlaces;
+        v.sel = r.place % ResampleSettings::kPlaces;
+        v.selStyle = wg::ListSel::kWhite;
+        v.item = placeItem;
+        v.colour = placeColour;
+        v.ctx = &rows;
+        wg::list(g, th, v);
+    }
     {
         wg::ListView v;
         v.x = kColX0 + 100 * kColInto;

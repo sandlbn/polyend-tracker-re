@@ -506,7 +506,7 @@ void barLabel(Gfx& g, const Theme& th, int i, bool wide, const char* top, const 
     if (two) {
         // Set +0x44 names ("Export / Song") stay grey in font 3; a value that
         // does not fit the label in the 10-px mono uses font 3 too.
-        const int maxW = wide ? 194 : 94;
+        const int maxW = wide ? kBarValueWideW : kBarValueW;
         const uint8_t f = st.nameLines || textWidth(kFont2, bottom) > maxW ? kFont3 : kFont2;
         g.text(cx, kLabelY2, f, st.nameLines ? tc : vc, bottom, IDisplay::kOptCenter);
     }
@@ -657,7 +657,11 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             v.item(v.ctx, idx, buf, sizeof(buf));
             buf[sizeof(buf) - 1] = 0;
             const bool marked = v.marked && v.marked(v.ctx, idx);
-            const uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            if (v.enabled && v.colour) {
+                const int32_t c = v.colour(v.ctx, idx);
+                if (c >= 0) tc = uint32_t(c);
+            }
             const int ty = v.y + 17 + kListRowH * r;
             // A tag takes the row's right end; the name column shrinks by it.
             const char* tag = v.tag ? v.tag(v.ctx, idx) : nullptr;

@@ -527,6 +527,66 @@ TEST(resample_screen) {
     CHECK(!a.inputMonitorMuted);
 }
 
+// [I] Place on: free tracks are green, tracks with notes in the current
+// pattern red (placing there mixes the take with them); Off keeps the list
+// colour. The colours follow the pattern as it changes.
+TEST(resample_place_on_shows_used_tracks) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);   // notes on track 1
+    a.pattern().tracks[3].steps[5].note = kNoteOff;   // a note off counts too
+    a.patternEdited();
+    a.seq.play(0);
+    h.tap(btn::SampleRecorder);
+    h.tap(btn::F6);
+    CHECK(a.ui.active() == kModResample);
+    ResampleScreen& r = *static_cast<ResampleScreen*>(a.ui.screen(kModResample));
+    // The Place on column's rows (x 415); From (x 15) lists the tracks too.
+    auto colourOf = [&](const char* name) {
+        char want[40];
+        std::snprintf(want, sizeof(want), "\"%s\"", name);
+        std::string colour;
+        for (const std::string& l : h.disp.last) {
+            if (l.compare(0, 6, "COLOR ") == 0) colour = l.substr(6);
+            else if (l.compare(0, 9, "TEXT 415 ") == 0 && l.find(want) != std::string::npos) return colour;
+        }
+        return std::string("none");
+    };
+    char good[8], alert[8];
+    std::snprintf(good, sizeof(good), "%06X", unsigned(a.ui.th().good & 0xFFFFFF));
+    std::snprintf(alert, sizeof(alert), "%06X", unsigned(a.ui.th().alert & 0xFFFFFF));
+    a.ui.dirty();
+    h.run(40);
+    CHECK(colourOf("Track 1") == alert);
+    CHECK(colourOf("Track 2") == good);
+    CHECK(colourOf("Track 4") == alert);
+    CHECK(colourOf("Track 8") == good);
+    CHECK(colourOf("Off") != good && colourOf("Off") != alert && colourOf("Off") != "none");
+    // Named tracks show their name in Place on and From (Pattern header names).
+    CHECK(a.project.setTrackName(2, "Bass"));
+    a.resampleCfg.place = 2;
+    a.resampleCfg.source = 2;
+    r.sel = 0;
+    h.enc(1);    // From: track 3
+    r.sel = 4;
+    h.enc(1);    // Place on: track 3
+    CHECK_EQ(a.resampleCfg.source, 3);
+    CHECK_EQ(a.resampleCfg.place, 3);
+    a.ui.dirty();
+    h.run(40);
+    CHECK(colourOf("Bass") == good);
+    CHECK(h.disp.lastHasText("Bass"));
+    CHECK_STR(a.ui.bar.label[4].bottom, "Bass");
+    CHECK_STR(a.ui.bar.label[0].bottom, "Bass");
+    // A note on track 2 turns it red.
+    a.pattern().tracks[1].steps[0].note = 48;
+    a.patternEdited();
+    a.ui.dirty();
+    h.run(40);
+    CHECK(colourOf("Track 2") == alert);
+    a.seq.stop();
+}
+
 // #9: the Sample Recorder's Source list routes the codec to a microphone
 // (Mic LG / Mic HG); the Resample screen must route Line in again.
 // Simulator: the mouse wheel scrolls the lists (From, Length, Slices, Into,
