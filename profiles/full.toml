@@ -11,7 +11,8 @@ modules = [
     { id = "VAP1", path = "modules/vap" },
     { id = "PRC1", path = "modules/perc" },
     { id = "WTF1", path = "modules/wtfm" },
-    { id = "FM4S", path = "modules/fm4" },    # module engine 0x80 (not a Mini model)
+    # FM4S (module engine 0x80) is in the IDM image, not here: its ~7 KB of flash
+    # go to the slot inserts.
     # Effects (opentracker-fx, next to opentracker-synths): master inserts run in this order.
     { id = "CHOR", path = "../opentracker-fx/modules/chorus" },
     { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
