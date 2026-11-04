@@ -47,6 +47,12 @@ bool pathExists(const fs::path& p) {
     std::error_code ec;
     return fs::exists(p, ec);
 }
+// A symlink on the card (also a dangling one): never followed, so a card path
+// cannot reach outside the root (#103).
+bool isLink(const fs::path& p) {
+    std::error_code ec;
+    return fs::is_symlink(fs::symlink_status(p, ec));
+}
 std::FILE* openFile(const fs::path& p, const char* mode) {
 #ifdef _WIN32
     wchar_t wmode[8] = {};
@@ -83,6 +89,7 @@ bool HostStorage::resolve(const char* path, std::string& out, bool* existsOut) c
         if (comp == "..") return false;   // not on a FAT card root
         if (!exists) return false;        // missing intermediate directory
         const fs::path cand = cur / fromUtf8(comp);
+        if (isLink(cand)) return false;
         if (pathExists(cand)) {
             cur = cand;
             continue;
@@ -93,6 +100,7 @@ bool HostStorage::resolve(const char* path, std::string& out, bool* existsOut) c
         for (fs::directory_iterator it(cur, ec), end; !ec && it != end; it.increment(ec)) {
             const fs::path name = it->path().filename();
             if (iequals(toUtf8(name), comp)) {
+                if (isLink(it->path())) return false;
                 cur /= name;
                 found = true;
                 break;
@@ -234,7 +242,8 @@ int32_t HostStorage::listDir(const char* path, DirFn fn, void* ctx) {
     for (fs::directory_iterator end; it != end; it.increment(ec)) {
         if (ec) break;
         std::error_code e2;
-        const fs::file_status st = it->status(e2);   // follows symlinks, like stat()
+        if (isLink(it->path())) continue;   // not reachable through resolve()
+        const fs::file_status st = it->status(e2);
         if (e2 || !fs::exists(st)) continue;
         const bool dir = fs::is_directory(st);
         uint32_t size = 0;

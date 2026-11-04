@@ -23,6 +23,14 @@ jobs:
     timeout-minutes: 30   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
     steps:
       - uses: actions/checkout@v5
+      # The synth and effect modules (profiles/*.toml): MODULES_DIR defaults to
+      # ../../opentracker-synths, with opentracker-fx next to it. The base build
+      # of size-report ($RUNNER_TEMP/base) finds the same folder.
+      - name: Fetch the module repositories
+        run: |
+          for r in opentracker-synths opentracker-fx; do
+            git clone --depth 1 "https://github.com/opentracker-fw/$r" "$GITHUB_WORKSPACE/../../$r"
+          done
       - name: Install GCC 14
         run: sudo apt-get update && sudo apt-get install -y g++-14
       # ASan aborts at start-up under the runners' 32-bit mmap randomisation.
@@ -48,6 +56,14 @@ jobs:
     timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
     steps:
       - uses: actions/checkout@v5
+      # The synth and effect modules (profiles/*.toml): MODULES_DIR defaults to
+      # ../../opentracker-synths, with opentracker-fx next to it. The base build
+      # of size-report ($RUNNER_TEMP/base) finds the same folder.
+      - name: Fetch the module repositories
+        run: |
+          for r in opentracker-synths opentracker-fx; do
+            git clone --depth 1 "https://github.com/opentracker-fw/$r" "$GITHUB_WORKSPACE/../../$r"
+          done
       - name: Install GCC 14 and SDL2
         run: sudo apt-get update && sudo apt-get install -y g++-14 libsdl2-dev pkg-config
       - name: Simulator checks
@@ -72,18 +88,26 @@ jobs:
     timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
     steps:
       - uses: actions/checkout@v5
+      # The synth and effect modules (profiles/*.toml): MODULES_DIR defaults to
+      # ../../opentracker-synths, with opentracker-fx next to it. The base build
+      # of size-report ($RUNNER_TEMP/base) finds the same folder.
+      - name: Fetch the module repositories
+        run: |
+          for r in opentracker-synths opentracker-fx; do
+            git clone --depth 1 "https://github.com/opentracker-fw/$r" "$GITHUB_WORKSPACE/../../$r"
+          done
       - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
       - name: Build
         run: make -j"$(nproc)"
       - name: Flash, stack headroom and libm checks
-        run: python3 tools/telemetry_check.py size --size-tool arm-none-eabi-size build/opentracker.elf
+        run: python3 tools/telemetry_check.py size --size-tool arm-none-eabi-size build/full/opentracker.elf
       - name: Upload firmware image
         uses: actions/upload-artifact@v4
         with:
           name: firmware-${{ github.sha }}
-          path: build/*.ptf
+          path: build/full/*.ptf
           if-no-files-found: error
 
   # The PR (GitHub's merge commit) against its base: tools/size_report.py
@@ -97,18 +121,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
+      # The synth and effect modules (profiles/*.toml): MODULES_DIR defaults to
+      # ../../opentracker-synths, with opentracker-fx next to it. The base build
+      # of size-report ($RUNNER_TEMP/base) finds the same folder.
+      - name: Fetch the module repositories
+        run: |
+          for r in opentracker-synths opentracker-fx; do
+            git clone --depth 1 "https://github.com/opentracker-fw/$r" "$GITHUB_WORKSPACE/../../$r"
+          done
       - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
       - name: Build this PR
         run: |
           make -j"$(nproc)"
-          cp build/opentracker.elf "$RUNNER_TEMP/head.elf"
+          cp build/full/opentracker.elf "$RUNNER_TEMP/head.elf"
       - name: Build the base
         run: |
           git worktree add "$RUNNER_TEMP/base" "${{ github.event.pull_request.base.sha }}"
           make -C "$RUNNER_TEMP/base" -j"$(nproc)"
-          cp "$RUNNER_TEMP/base/build/opentracker.elf" "$RUNNER_TEMP/base.elf"
+          cp "$RUNNER_TEMP/base/build/full/opentracker.elf" "$RUNNER_TEMP/base.elf"
       - name: Memory report
         run: |
           python3 tools/size_report.py "$RUNNER_TEMP/base.elf" "$RUNNER_TEMP/head.elf" \
