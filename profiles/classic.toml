@@ -1,6 +1,6 @@
 # Build profile (docs/PLAN_CLASSIC.md §1): the analog-style image. The Tracker Mini
 # models ACD, FAT and VAP, the one-DCO poly JU6S, the three-oscillator mono D-Type
-# (DTY1), the two-layer poly CS-Type (CST1), the duophonic A-Type (ATY1), and the master chain BBDC (the BBD chorus, also the synth slot insert) -> TAPE. No FM synths (WTF1, FM4S), no PERC (PRC1: with
+# (DTY1), the two-layer poly CS-Type (CST1), the duophonic A-Type (ATY1), and the master chain DIRT (drive / bitcrush) -> BBDC (the BBD chorus) -> TAPE; Drive and Chorus are also the synth slot inserts. No FM synths (WTF1, FM4S), no PERC (PRC1: with
 # it the image comes too close to the flash gate), no CHOR (JU6 has its chorus built in). Mini projects with a PERC or WTFM slot show "not available" here.
 # Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
 name = "classic"
@@ -17,6 +17,7 @@ modules = [
     { id = "CST1", path = "modules/cstype" }, # module engine 0x83 (CS-Type, two-layer poly)
     { id = "ATY1", path = "modules/atype" },  # module engine 0x84 (A-Type, duophonic)
     # Effects (opentracker-fx, next to opentracker-synths): the master insert.
+    { id = "DIRT", path = "../opentracker-fx/modules/dirt" },
     { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
     { id = "TAPE", path = "../opentracker-fx/modules/tape" },
 ]

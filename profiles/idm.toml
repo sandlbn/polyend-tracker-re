@@ -1,7 +1,8 @@
 # Build profile: the digital / IDM flavour. The wavetable FM and the four-operator FM
 # synths (WTF1, FM4S), the drum synth (PRC1) and the acid bass (ACD1), FAT (FAT1, a
-# Tracker Mini model, so more Mini projects play), and CHOR then TAPE as the master
-# chain. No VAP, no BBDC.
+# Tracker Mini model, so more Mini projects play), and the master chain DIRT (drive /
+# bitcrush) -> CHOR -> BBDC (the BBD chorus) -> TAPE; Drive and BBDC's Chorus are also the
+# synth slot inserts. No VAP.
 # Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
 name = "idm"
 variant = "i"                 # image PolyendTrackerOTi<ver>.ptf (24 characters)
@@ -15,6 +16,8 @@ modules = [
     { id = "WTF1", path = "modules/wtfm" },
     { id = "FM4S", path = "modules/fm4" },    # module engine 0x80 (four-operator FM)
     # Effects (opentracker-fx, next to opentracker-synths): master inserts run in this order.
+    { id = "DIRT", path = "../opentracker-fx/modules/dirt" },
     { id = "CHOR", path = "../opentracker-fx/modules/chorus" },
+    { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
     { id = "TAPE", path = "../opentracker-fx/modules/tape" },
 ]
