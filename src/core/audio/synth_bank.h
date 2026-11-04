@@ -204,6 +204,9 @@ public:
     void setInsertMemory(int16_t* lines) { insLines_ = lines; }
     const IEffect* slotInsert(int s) const { return ins_[clampSlot(s)].fx; }
 #endif
+    // The voice scratch as an int16 window of kEffectWorkMax bytes: free
+    // outside render() (the master chain's slow effect memory, effectWindow()).
+    int16_t* scratchWindow() { return vs_.w; }
     // 2.x live MIDI input pitch bend in semitones for every note the live
     // tracks started (releases included). Main loop; the audio block applies it.
     void setLiveBend(float semis) { liveBend_ = semis; }

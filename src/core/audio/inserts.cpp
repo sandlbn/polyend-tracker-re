@@ -3,8 +3,17 @@
 
 #include <cstring>
 
+#include "audio/ring_io.h"
+
 namespace ot {
 namespace audio {
+
+namespace {
+int16_t* gWindow = nullptr;
+}  // namespace
+
+int16_t* effectWindow() { return gWindow; }
+void setEffectWindow(int16_t* window) { gWindow = window; }
 
 void IEffect::valueText(int i, uint8_t v, char* out, int cap) const {
     if (!out || cap <= 0) return;
@@ -46,7 +55,17 @@ void EffectInsert::reset() {
 
 bool EffectInsert::process(float* l, float* r, uint32_t n) {
     const Pub p = pub_[__atomic_load_n(&cur_, __ATOMIC_ACQUIRE)];
-    return fx_.process(state_, work_, p.set, p.on, l, r, n);
+    if (!slow_) return fx_.process(state_, work_, p.set, p.on, l, r, n);
+    // The line comes in from the slow memory, the block runs on the copy, the
+    // copy goes back (one span each way).
+    int16_t* const w = gWindow;
+    int16_t* const line = static_cast<int16_t*>(work_);
+    const uint32_t n16 = fx_.workBytes() / sizeof(int16_t);
+    if (!w || !line || n16 > kEffectWorkMax / 2) return false;
+    spanIn(line, w, n16);
+    const bool live = fx_.process(state_, w, p.set, p.on, l, r, n);
+    spanOut(line, w, n16);
+    return live;
 }
 
 }  // namespace audio

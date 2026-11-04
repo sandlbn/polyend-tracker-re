@@ -287,6 +287,9 @@ AudioEngine::AudioEngine() {
 
 bool AudioEngine::init(int16_t* fx, size_t fxSamples, int16_t* pool, size_t poolSamples, const Instrument* ins) {
     initTables();
+    // The master chain runs after the synth bank in each block: its voice
+    // scratch is the window for effects whose memory is in the SDRAM.
+    setEffectWindow(synth_.scratchWindow());
     if (!fx || fxSamples < kFxMemorySamples || !ins) return false;
     instruments_ = ins;
     bank_.init(pool, pool ? poolSamples : 0);

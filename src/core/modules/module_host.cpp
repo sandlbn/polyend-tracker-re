@@ -64,6 +64,10 @@ void ModuleHost::init() {
         for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
             if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
     }
+#if defined(OT_SLOT_INSERTS) && OT_SLOT_INSERTS
+    // The core's reservation in the same block (tools/profile.py sizes it).
+    insertLines_ = sdram(uint32_t(audio::kSynthSlots) * audio::kEffectWorkMax);
+#endif
 }
 
 bool ModuleHost::descriptorsOk(const IModule& m) const {

@@ -151,6 +151,10 @@ public:
     // attach() only (main loop); never freed. Audio use: block spans only
     // (the rule above).
     void* sdram(uint32_t bytes);
+    // [3.x] The core's synth slot insert lines (one kEffectWorkMax line per
+    // slot), reserved once at init after the modules (images with slot
+    // inserts; else nullptr).
+    void* slotInsertLines() const { return insertLines_; }
     uint32_t sdramUsed() const { return sdram_.used; }
     uint32_t sdramSize() const { return sdram_.size; }
     struct SdramArena {
@@ -174,6 +178,7 @@ private:
     bool inited_ = false;
     char refused_[5] = {};
     SdramArena sdram_ = {nullptr, 0, 0};   // the profile's block from init() (constant-initialised)
+    void* insertLines_ = nullptr;
     static SdramArena profileSdram();
 };
 

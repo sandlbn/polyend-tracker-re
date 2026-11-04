@@ -125,6 +125,41 @@ TEST(effect_insert_equals_the_bare_effect) {
     CHECK(zero);
 }
 
+// Slow work memory (a module's line in the SDRAM): the wrapper moves it into the
+// shared effect window for each block and back. Bit-exact with work in place.
+TEST(effect_insert_slow_work_equals_in_place) {
+    FakeEffect fx("TFX1");
+    alignas(8) static uint8_t st1[kEffectStateMax], st2[kEffectStateMax];
+    alignas(8) static int16_t inPlace[8], slow[8], window[kEffectWorkMax / 2];
+    std::memset(st1, 0, sizeof(st1));
+    std::memset(st2, 0, sizeof(st2));
+    std::memset(inPlace, 0, sizeof(inPlace));
+    std::memset(slow, 0, sizeof(slow));
+    int16_t* const saved = effectWindow();
+    setEffectWindow(window);
+    EffectInsert a(fx, st1, inPlace), b(fx, st2, nullptr);
+    b.setSlowWork(slow);
+    const EffectSettings s = effectDefaults(fx);
+    a.set(s, true);
+    b.set(s, true);
+    float x[2][kBlock], y[2][kBlock];
+    bool same = true;
+    for (uint32_t k = 0; k < 10; ++k) {
+        tone(x[0], x[1], kBlock, k);
+        tone(y[0], y[1], kBlock, k);
+        same = same && a.process(x[0], x[1], kBlock) == b.process(y[0], y[1], kBlock) && std::memcmp(x, y, sizeof(x)) == 0;
+        std::memset(window, 0x5A, sizeof(window));   // the window is shared: anything may be in it between blocks
+    }
+    CHECK(same);
+    CHECK(std::memcmp(inPlace, slow, sizeof(slow)) == 0);   // the line holds the same as the in-place one
+    CHECK_EQ(int(reinterpret_cast<uint8_t*>(slow)[0]), 10);
+    b.reset();
+    bool zero = true;
+    for (int16_t v : slow) zero = zero && v == 0;
+    CHECK(zero);
+    setEffectWindow(saved);
+}
+
 // The registry: effects of the profile's modules (kCapEffect, IModule::effect(i)), in
 // module order, by id; a module repeating an effect id or over the limits is refused.
 namespace {

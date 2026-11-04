@@ -76,8 +76,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
 #if OT_SLOT_INSERTS
     // Synth slot inserts: one delay line per slot from the profile's SDRAM
     // block (the core's reservation, tools/profile.py).
-    engine.synth().setInsertMemory(static_cast<int16_t*>(
-        mod::ModuleHost::instance().sdram(uint32_t(kSynthSlotCount) * audio::kEffectWorkMax)));
+    engine.synth().setInsertMemory(static_cast<int16_t*>(mod::ModuleHost::instance().slotInsertLines()));
 #endif
     engine.setPreBlockHook(&App::preBlockThunk, this);
     // Tempo-locked LFO phase (spec 07 Q5).

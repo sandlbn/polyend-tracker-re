@@ -81,6 +81,11 @@ public:
 // Every setting at its default.
 EffectSettings effectDefaults(const IEffect& fx);
 
+// The shared SRAM window for slow work memory (kEffectWorkMax bytes, free
+// while the master chain runs; the engine sets it before audio starts).
+int16_t* effectWindow();
+void setEffectWindow(int16_t* window);
+
 // One IEffect instance as a master insert: its state, its work (static
 // storage of the module) and the published settings (main loop -> audio,
 // taken at the next block).
@@ -92,6 +97,12 @@ public:
     void set(const EffectSettings& s, bool on);   // main loop
     EffectSettings settings() const { return pub_[cur_].set; }
     bool on() const { return pub_[cur_].on; }
+    // Work in slow memory (the SDRAM), moved into effectWindow() and back once
+    // per block; from attach() (main loop, before audio).
+    void setSlowWork(void* work) {
+        work_ = work;
+        slow_ = true;
+    }
     void reset();   // zero state and work, then IEffect::reset; before audio or in it
     bool process(float* l, float* r, uint32_t n) override;
     void setTempo(float bpm) override { fx_.setTempo(bpm); }
@@ -107,6 +118,7 @@ private:
     void* work_;
     Pub pub_[2];
     volatile uint8_t cur_ = 0;
+    bool slow_ = false;
 };
 
 }  // namespace audio
