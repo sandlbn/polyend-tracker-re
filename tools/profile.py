@@ -156,6 +156,20 @@ def sram_of(m):
     return int(m["man"].get("sram_audio_bytes", 0)) + int(m["man"].get("fastrun_bytes", 0))
 
 
+# Synth slot inserts: on when a module offers an effect (module.toml effects)
+# and the profile does not set slot_inserts = false. The core then reserves
+# one delay line per synth slot in the SDRAM block (3 x 512 B).
+SLOT_INSERT_SDRAM = 3 * 512
+
+
+def slot_inserts(prof, mods):
+    return bool(prof.get("slot_inserts", True)) and any(m["man"].get("effects") for m in mods)
+
+
+def core_sdram(prof, mods):
+    return SLOT_INSERT_SDRAM if slot_inserts(prof, mods) else 0
+
+
 def budget_check(prof, mods):
     """[(what, used, limit, per-module sizes)] for every limit the profile sets,
     and the failure messages (with the module to leave out)."""
@@ -164,7 +178,7 @@ def budget_check(prof, mods):
               ("SRAM", "sram_modules_max", sram_of),
               ("SDRAM", "sdram_modules_max", lambda m: int(m["man"].get("sdram_bytes", 0)))]
     for what, key, size in checks:
-        used = sum(size(m) for m in mods)
+        used = sum(size(m) for m in mods) + (core_sdram(prof, mods) if what == "SDRAM" else 0)
         limit = prof.get(key)
         rows.append((what, used, limit))
         if limit is not None and used > limit:
@@ -184,6 +198,8 @@ def budget(args):
         g = m["man"].get
         print(f"  {m['id']:4s} {int(g('flash_max_bytes', 0)):9d} {int(g('sram_audio_bytes', 0)):6d} "
               f"{int(g('fastrun_bytes', 0)):7d} {int(g('sdram_bytes', 0)):7d} {int(g('cpu_insn_per_unit', 0)):8d}")
+    if core_sdram(prof, mods):
+        print(f"  core slot inserts: {core_sdram(prof, mods)} B SDRAM")
     rows, errors = budget_check(prof, mods)
     for what, used, limit in rows:
         print(f"  {what:5s} {used:7d} B declared" + (f" of {limit} B ({limit - used:+d} B)" if limit is not None
@@ -236,7 +252,8 @@ def gen(args):
         f'#define OT_PROFILE_DISPLAY_NAME "{prof["display_name"]}"',
         f'#define OT_PROFILE_MODULES "{desc}"',
         f"#define OT_PROFILE_MODULE_COUNT {len(mods)}",
-        f"#define OT_PROFILE_SDRAM_BYTES {sums['sdram_bytes']}",
+        f"#define OT_PROFILE_SDRAM_BYTES {sums['sdram_bytes'] + core_sdram(prof, mods)}",
+        f"#define OT_SLOT_INSERTS {1 if slot_inserts(prof, mods) else 0}",
         f'#define OT_MODULES_REV "{rev}"',
     ] + [f"#define OT_MOD_{i} 1" for i in ids]
     changed |= write_if_changed(os.path.join(out, "ot_profile.h"), "\n".join(h) + "\n")

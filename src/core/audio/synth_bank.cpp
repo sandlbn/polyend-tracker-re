@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "audio/cpu_meter.h"
+#include "audio/ring_io.h"
 #include "fastrun.h"
 #include "formats/patch_pb.h"
 #include "modules/module.h"
@@ -52,6 +53,17 @@ void SynthBank::reset() {
     }
     activeVoices_ = 0;
     tails_ = 0;
+#if OT_SLOT_INSERTS
+    for (Ins& in : ins_) {   // the binding stays; a pending kind change completes
+        if (in.off) {
+            in.fx = in.next;
+            in.set = in.nextSet;
+            in.next = nullptr;
+        }
+        clearInsert(in);
+    }
+    insTails_ = 0;
+#endif
     aud_.req = 0;
     for (int k = 0; k < kSynthLiveTracks; ++k) liveSeen_[k] = uint8_t(live_[k]);
 }
@@ -73,6 +85,84 @@ void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
     pendRec_[s] = r;
     recDirty_[s] = true;
 }
+
+#if OT_SLOT_INSERTS
+void SynthBank::setSlotInsert(int s, IEffect* fx, const EffectSettings& set) {
+    if (s < 0 || s >= kSynthSlots) return;
+    pendIns_[s] = PendIns{fx, set};
+    insDirty_[s] = true;
+}
+
+void SynthBank::clearInsert(Ins& in) {
+    std::memset(in.state, 0, sizeof(in.state));
+    in.fresh = true;
+    in.off = false;
+    in.offBlocks = 0;
+    in.quiet = 0;
+}
+
+// Main-loop insert changes -> audio state (in sync()).
+void SynthBank::syncInsert(int s) {
+    if (!insDirty_[s]) return;
+    insDirty_[s] = false;
+    const PendIns p = pendIns_[s];
+    IEffect* fx = p.fx;
+    if (fx && fx->workBytes() && !insLines_) fx = nullptr;   // no memory for it: dry
+    Ins& in = ins_[s];
+    if (fx == in.fx) {   // the same kind: new settings (the effect ramps them)
+        in.set = p.set;
+        in.off = false;
+        in.next = nullptr;
+    } else if (!in.fx) {
+        clearInsert(in);
+        in.fx = fx;
+        in.set = p.set;
+    } else {   // another kind: fade the bound one out first (rendered even on a silent slot)
+        in.off = true;
+        in.next = fx;
+        in.nextSet = p.set;
+        in.offBlocks = 0;
+        insTails_ = uint8_t(insTails_ | (1u << s));
+    }
+}
+
+// The slot insert on the slot bus (busL_ / busR_); true while it rings. Its
+// work memory comes in from the slow line into the voice scratch and goes back
+// out after the block (one span each way).
+__attribute__((noinline)) bool SynthBank::runInsert(int s, bool voiced) {
+    Ins& in = ins_[s];
+    IEffect* fx = in.fx;
+    if (voiced) in.quiet = 0;
+    else if (in.quiet < 0xF000u) in.quiet = uint16_t(in.quiet + kBlock);
+    const uint32_t n16 = fx->workBytes() / sizeof(int16_t);
+    int16_t* const line = n16 ? insLines_ + s * (kEffectWorkMax / 2) : nullptr;
+    int16_t* const win = n16 ? vs_.w : nullptr;
+    if (n16) {
+        if (in.fresh) {
+            spanZero(line, n16);
+            std::memset(win, 0, n16 * sizeof(int16_t));
+        } else {
+            spanIn(line, win, n16);
+        }
+    }
+    if (in.fresh) {
+        fx->reset(in.state, win);
+        in.fresh = false;
+    }
+    const bool live = fx->process(in.state, win, in.set, !in.off, busL_, busR_, kBlock);
+    if (n16) spanOut(line, win, n16);
+    if (in.off && (!live || ++in.offBlocks >= 4)) {   // faded out: the next kind (or none)
+        IEffect* const next = in.next;
+        const EffectSettings set = in.nextSet;
+        clearInsert(in);
+        in.fx = next;
+        in.set = set;
+        in.next = nullptr;
+        return false;
+    }
+    return live && in.quiet < fx->tailFrames();
+}
+#endif
 
 void SynthBank::setSlotEngine(int s, int32_t engineId) {
     if (s < 0 || s >= kSynthSlots) return;
@@ -212,6 +302,9 @@ int SynthBank::busyRecords() const {
 void SynthBank::sync() {
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
+#if OT_SLOT_INSERTS
+        syncInsert(s);
+#endif
         for (int k = 0; k < kSynthSeqMacros; ++k) {
             if (!ovrRelease_[s][k]) continue;
             ovrRelease_[s][k] = false;
@@ -1016,6 +1109,17 @@ void SynthBank::stopAll() {
     // (Also reached from the main loop: a render racing this store keeps or
     // drops one slot's tail for one block; its scratch is zeroed either way.)
     tails_ = 0;
+#if OT_SLOT_INSERTS
+    for (Ins& in : ins_) {   // the inserts' tails go too; the next note starts clean
+        if (in.off) {
+            in.fx = in.next;
+            in.set = in.nextSet;
+            in.next = nullptr;
+        }
+        clearInsert(in);
+    }
+    insTails_ = 0;
+#endif
 }
 
 // --- render ----------------------------------------------------------------------------
@@ -1060,7 +1164,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
         int16_t* stem = stems ? stems[s] : nullptr;
         // A slot without voices renders on while its engine's slot effect
         // rings (slotPost on the silent bus).
-        if (!busy[s] && !(sl.eng && (tails_ & (1u << s)))) {
+        if (!busy[s] && !(sl.eng && (tails_ & (1u << s))) && !insTailOf(s)) {
             sl.gl.jump(gl);
             sl.gr.jump(gr);
             sl.sd.jump(sd);
@@ -1150,9 +1254,9 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             float* vl = busL_;
             float* vr = busR_;
             if (own) {
-                for (uint32_t i = 0; i < kBlock; ++i) voiceL_[i] = voiceR_[i] = 0.0f;
-                vl = voiceL_;
-                vr = voiceR_;
+                for (uint32_t i = 0; i < kBlock; ++i) vs_.f[0][i] = vs_.f[1][i] = 0.0f;
+                vl = vs_.f[0];
+                vr = vs_.f[1];
             }
             if (tapped) {
                 // User report: the init PERC kit's snare and hats reached the
@@ -1181,21 +1285,21 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                     float pl, pr;
                     panGains(V.pan, pl, pr);
                     for (uint32_t i = 0; i < kBlock; ++i) {
-                        voiceL_[i] *= pl;
-                        voiceR_[i] *= pr;
+                        vs_.f[0][i] *= pl;
+                        vs_.f[1][i] *= pr;
                     }
                 }
                 // (A tapping engine sent this note's share through the tap.)
                 const float xd = V.sendD >= 0 && !tapped ? (0.5f * sendGain(V.sendD) - sl.mixD) * in.delayLevel : 0.0f;
                 const float xr = V.sendR >= 0 && !tapped ? (0.5f * sendGain(V.sendR) - sl.mixE) * in.reverbLevel : 0.0f;
                 for (uint32_t i = 0; i < kBlock; ++i) {
-                    const float m = voiceL_[i] + voiceR_[i];
-                    busL_[i] += voiceL_[i];
-                    busR_[i] += voiceR_[i];
+                    const float m = vs_.f[0][i] + vs_.f[1][i];
+                    busL_[i] += vs_.f[0][i];
+                    busR_[i] += vs_.f[1][i];
                     if (dsend) dsend[i] += m * xd;
                     if (rsend) rsend[i] += m * xr;
                 }
-                if (tapV) addTap(tapL, tapR, voiceL_, voiceR_, gl, gr);
+                if (tapV) addTap(tapL, tapR, vs_.f[0], vs_.f[1], gl, gr);
             }
             if (perfV) {
                 V.sendD = keepD;
@@ -1241,6 +1345,19 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             tails_ = uint8_t(tail ? tails_ | (1u << s) : tails_ & ~(1u << s));
             if (prof) engCyc += CpuMeter::stampCycles() - c0;
         }
+#if OT_SLOT_INSERTS
+        // The slot insert: after the engine's slot effect, before Width / gain /
+        // pan / sends, so they carry the effected sound. A note's own sends and
+        // the resample tap took the voice before it (dry). Counted as slot time.
+        if (ins_[s].fx) {
+            const uint32_t c0 = prof ? CpuMeter::stampCycles() : 0u;
+            const bool ring = runInsert(s, busy[s] != 0 || (tails_ & (1u << s)) != 0);
+            insTails_ = uint8_t(ring ? insTails_ | (1u << s) : insTails_ & ~(1u << s));
+            if (prof) engCyc += CpuMeter::stampCycles() - c0;
+        } else {
+            insTails_ = uint8_t(insTails_ & ~(1u << s));
+        }
+#endif
         if (prof) prof_->slot[s] += engCyc;
         widen(sl);
         const float pk = mixSlot(sl, mL, mR, dsend, rsend, stem);

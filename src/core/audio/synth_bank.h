@@ -80,11 +80,18 @@
 #include "audio/block_profile.h"
 #include "audio/dsp.h"
 #include "audio/governor.h"
+#include "audio/inserts.h"
 #include "audio/synth_engine.h"
 #include "audio/synth_params.h"
 #include "model/project.h"
 #include "model/synth_patch.h"
 #include "sequencer/seq_sink.h"
+#if __has_include("ot_profile.h")
+#include "ot_profile.h"
+#endif
+#ifndef OT_SLOT_INSERTS
+#define OT_SLOT_INSERTS 0
+#endif
 
 namespace ot {
 namespace audio {
@@ -185,6 +192,18 @@ public:
     // velocity, else 0..100. Main loop; the audio block starts it.
     void liveOn(int k, int s, uint8_t note, int8_t volume);
     void liveOff(int k);
+#if OT_SLOT_INSERTS
+    // [3.x] Slot inserts: slot s's effect (nullptr = none) and its settings,
+    // after the engine's slot effect, before Width, gain, pan and the slot
+    // sends (a note's own sends stay dry). Main loop; a change of kind fades
+    // the old effect out first. An effect with work memory needs the lines
+    // (setInsertMemory), else it is not bound.
+    void setSlotInsert(int s, IEffect* fx, const EffectSettings& set);
+    // kSynthSlots lines of kEffectWorkMax bytes in slow memory (SDRAM), before
+    // audio starts; moved to the voice scratch once per block.
+    void setInsertMemory(int16_t* lines) { insLines_ = lines; }
+    const IEffect* slotInsert(int s) const { return ins_[clampSlot(s)].fx; }
+#endif
     // 2.x live MIDI input pitch bend in semitones for every note the live
     // tracks started (releases included). Main loop; the audio block applies it.
     void setLiveBend(float semis) { liveBend_ = semis; }
@@ -206,7 +225,8 @@ public:
     // queued / counted for the block (note-on spreading), or an engine's
     // slot effect still rings (ISynthEngine::slotPost).
     bool active() const {
-        return activeVoices_ != 0 || aud_.req != 0 || nDefer_ != 0 || starts_ != 0 || tails_ != 0 || livePending();
+        return activeVoices_ != 0 || aud_.req != 0 || nDefer_ != 0 || starts_ != 0 || tails_ != 0 || insTails() ||
+               livePending();
     }
     // Render one block: adds into mL/mR and the send buses. stems[s] (may be
     // nullptr) receives slot s's post-gain/pan bus as interleaved int16.
@@ -422,7 +442,42 @@ private:
         return false;
     }
     float busL_[kBlock] = {}, busR_[kBlock] = {};   // slot bus, zero between slots
-    float voiceL_[kBlock] = {}, voiceR_[kBlock] = {};
+    // One voice's output during the voice loop; a slot insert's work memory
+    // (int16) after it, while the insert runs.
+    union VoiceScratch {
+        float f[2][kBlock];
+        int16_t w[kEffectWorkMax / 2];
+    } vs_ = {};
+    static_assert(sizeof(int16_t) * (kEffectWorkMax / 2) <= sizeof(float) * 2 * kBlock, "insert work fits");
+#if OT_SLOT_INSERTS
+    struct Ins {
+        IEffect* fx = nullptr;          // bound (runs)
+        IEffect* next = nullptr;        // bound after the fade-out (off)
+        EffectSettings set = {}, nextSet = {};
+        bool off = false;               // fading the bound effect out (a kind change)
+        bool fresh = true;              // state / line zero: reset() at the next run
+        uint8_t offBlocks = 0;
+        uint16_t quiet = 0;             // frames of silent bus
+        alignas(8) uint8_t state[kEffectStateMax] = {};
+    };
+    Ins ins_[kSynthSlots];
+    struct PendIns {
+        IEffect* fx = nullptr;
+        EffectSettings set = {};
+    };
+    PendIns pendIns_[kSynthSlots];
+    volatile bool insDirty_[kSynthSlots] = {};
+    int16_t* insLines_ = nullptr;
+    uint8_t insTails_ = 0;              // bit s: slot s's insert rings
+    bool insTails() const { return insTails_ != 0; }
+    bool insTailOf(int s) const { return ((insTails_ >> s) & 1u) != 0; }
+    void syncInsert(int s);
+    bool runInsert(int s, bool voiced);
+    void clearInsert(Ins& in);
+#else
+    bool insTails() const { return false; }
+    bool insTailOf(int) const { return false; }
+#endif
     int8_t noteSendD_ = -1, noteSendR_ = -1;   // sends of the note being started (startOn)
     int8_t notePan_ = -1;                      // its Panning FX   // a note with its own sends (step FX)
     volatile float peak_[kSynthSlots] = {};          // bus peaks for slotPeak()
