@@ -12,6 +12,12 @@
 #include "modules/synth_descriptor.h"
 #include "ui/loader_list.h"
 #include "ui/ui.h"
+#if __has_include("ot_profile.h")
+#include "ot_profile.h"
+#endif
+#ifndef OT_SLOT_INSERTS
+#define OT_SLOT_INSERTS 0
+#endif
 #include "ui/wave.h"
 
 namespace ot {
@@ -1037,8 +1043,11 @@ public:
     // a synth (the sample / MIDI Instrument screen opens).
     static int entrySlot(App& a, Ui& ui, int active);
 
-    enum class View : uint8_t { Params, Macros, Edit, Browser };
+    // Insert: [3.x] the slot's insert effect (Shift + Instrument Params; builds
+    // with OT_SLOT_INSERTS).
+    enum class View : uint8_t { Params, Macros, Edit, Browser, Insert };
     View view = View::Params;
+    int insFocus = 0;       // Insert: 0 the insert list (F1), 1..6 its settings (F2..F7)
     int slot = 0;           // 0..2
     int param = 0;          // Params page: F1..F6 (0 model .. 5 delay send)
     int macro = 0;          // Macros page: M1..M6
@@ -1089,6 +1098,12 @@ private:
     void drawMacros(Gfx& g);
     void drawEdit(Gfx& g);
     void drawBrowser(Gfx& g);
+#if OT_SLOT_INSERTS
+    void drawInsert(Gfx& g);
+    void insertKey(uint8_t id);
+    void insertChange(int d);
+    void insertBar();
+#endif
     void title(Gfx& g, const char* text);
     // on: the slot's audition note (Enc push, Load Patch F5 / F6); off: that
     // note and every held pad.

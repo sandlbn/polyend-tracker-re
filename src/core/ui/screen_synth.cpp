@@ -17,6 +17,7 @@
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
 #include "sdram_bss.h"
+#include "modules/module.h"
 #include "modules/synth_models.h"
 #include "ui/screens.h"
 
@@ -129,6 +130,26 @@ bool sortName(const char* a, const char* b) {
         if (x != y || !x) return x < y;
     }
 }
+#if OT_SLOT_INSERTS
+// The Insert list: "None", then the build's effects in module order.
+constexpr int kInsertListMax = 17;
+int insertList(const char** items) {
+    mod::ModuleHost& h = mod::ModuleHost::instance();
+    int n = 0;
+    items[n++] = "None";
+    for (int k = 0; k < h.effectCount() && n < kInsertListMax; ++k) items[n++] = h.effectAt(k)->name();
+    return n;
+}
+// Slot s's insert in that list: 0 none, -1 an effect this build lacks.
+int insertIndex(const App& a, int s) {
+    const char* id = a.slotInsertId(s);
+    if (!id) return 0;
+    mod::ModuleHost& h = mod::ModuleHost::instance();
+    for (int k = 0; k < h.effectCount() && k + 1 < kInsertListMax; ++k)
+        if (std::strncmp(h.effectAt(k)->id(), id, 4) == 0) return k + 1;
+    return -1;
+}
+#endif
 }  // namespace
 
 void synthui::slotLabel(const App& a, int s, char* out, int cap) {
@@ -273,6 +294,11 @@ void SynthScreen::refreshBar() {
             b.separators = uint8_t(0xFE & ~((1u << 5) | (1u << 6)));
             break;
         }
+        case View::Insert:
+#if OT_SLOT_INSERTS
+            insertBar();
+#endif
+            break;
         case View::Browser:
             // Tracker+ 1.0 Load Patch popup: F5-F6 Preview, F7 Cancel, F8 Confirm.
             for (int i = 0; i < 4; ++i) b.label[i].hidden = true;
@@ -749,6 +775,12 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
         if (state != kPress) return;
         audition(false, 0);
         if (view == View::Browser) closeBrowser();   // Cancel, back to page 1/2
+#if OT_SLOT_INSERTS
+        // [3.x] Shift + Instrument Params: the slot's insert; Instrument
+        // Params from there: back to page 1/2.
+        else if (view == View::Insert) view = View::Params;
+        else if (ui_.shift()) view = View::Insert;
+#endif
         else view = view == View::Params ? View::Macros : View::Params;
         refreshBar();
         ui_.dirty();
@@ -840,6 +872,11 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
             }
             break;
         }
+        case View::Insert:
+#if OT_SLOT_INSERTS
+            insertKey(id);
+#endif
+            break;
         case View::Browser:
             if (id == btn::F5 || id == btn::F6) {
                 // Preview (Tracker+ 1.0; "preview low notes or high notes"):
@@ -865,6 +902,13 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
 bool SynthScreen::encoderOnList() const {
     if (view == View::Browser) return true;     // patch list
     if (view == View::Params) return param == 0;   // model list
+#if OT_SLOT_INSERTS
+    if (view == View::Insert) {   // the insert list and enum settings are lists
+        if (insFocus == 0) return true;
+        audio::IEffect* fx = app_.slotInsertEffect(slot);
+        return fx && insFocus <= fx->paramCount() && fx->param(insFocus - 1).names;
+    }
+#endif
     if (view != View::Edit || !available()) return false;
     const synthui::Section* sec = nullptr;
     const int n = synthui::sections(engine(), &sec);
@@ -884,6 +928,11 @@ void SynthScreen::onEncoder(int d) {
         case View::Params: paramsChange(param == 0 ? (d > 0 ? 1 : -1) : d); break;
         case View::Macros: macroChange(d); break;
         case View::Edit: editChange(d); break;
+        case View::Insert:
+#if OT_SLOT_INSERTS
+            insertChange(d);
+#endif
+            break;
         case View::Browser:
             browserSel = clampi(browserSel + d, 0, browserCount > 0 ? browserCount - 1 : 0);
             break;
@@ -953,6 +1002,110 @@ void SynthScreen::title(Gfx& g, const char* text) {
         ui_.drawTitle(g, text, right, false);
     }
 }
+
+#if OT_SLOT_INSERTS
+// ---------------------------------------------------------------------------
+// [3.x] The Synth Insert view: F1 the insert, F2..F7 its settings, F8 Back.
+
+void SynthScreen::insertBar() {
+    BottomBar& b = ui_.bar;
+    audio::IEffect* fx = app_.slotInsertEffect(slot);
+    const char* id = app_.slotInsertId(slot);
+    char idText[5] = {};
+    if (id && !fx) std::memcpy(idText, id, 4);
+    b.set(0, "Insert", fx ? fx->name() : (id ? idText : "None"));
+    const int np = fx ? std::min(fx->paramCount(), audio::kEffectMaxParams) : 0;
+    const audio::EffectSettings set = app_.slotInsertSettings(slot);
+    for (int i = 0; i < audio::kEffectMaxParams; ++i) {
+        if (i < np) {
+            char v[24];
+            fx->valueText(i, set.v[i], v, sizeof(v));
+            b.set(i + 1, fx->param(i).label, v);
+        } else {
+            b.label[i + 1].hidden = true;
+        }
+    }
+    b.set(7, "Back");
+    if (insFocus > np) insFocus = 0;
+    b.highlight(insFocus, true);
+}
+
+void SynthScreen::insertChange(int d) {
+    if (!d) return;
+    if (insFocus == 0) {   // the list: one step, no wrap
+        const char* items[kInsertListMax];
+        const int n = insertList(items);
+        const int cur = std::max(insertIndex(app_, slot), 0);
+        const int k = clampi(cur + (d > 0 ? 1 : -1), 0, n - 1);
+        if (k != cur) app_.setSlotInsertKind(slot, k ? mod::ModuleHost::instance().effectAt(k - 1)->id() : nullptr);
+        return;
+    }
+    audio::IEffect* fx = app_.slotInsertEffect(slot);
+    if (!fx || insFocus > fx->paramCount()) return;
+    const int i = insFocus - 1;
+    const int v = clampi(int(app_.slotInsertSettings(slot).v[i]) + d, 0, fx->param(i).max);
+    app_.setSlotInsertValue(slot, i, uint8_t(v));
+}
+
+void SynthScreen::insertKey(uint8_t id) {
+    audio::IEffect* fx = app_.slotInsertEffect(slot);
+    const int np = fx ? std::min(fx->paramCount(), audio::kEffectMaxParams) : 0;
+    const bool list = insFocus == 0 || (fx && fx->param(insFocus - 1).names);
+    if (id == btn::F1) {
+        if (insFocus == 0) {   // pressed again: the next insert, wrapping (like Model)
+            const char* items[kInsertListMax];
+            const int n = insertList(items);
+            const int k = (std::max(insertIndex(app_, slot), 0) + 1) % n;
+            app_.setSlotInsertKind(slot, k ? mod::ModuleHost::instance().effectAt(k - 1)->id() : nullptr);
+        }
+        insFocus = 0;
+    } else if (id >= btn::F2 && id <= btn::F7) {
+        if (int(id) <= np) insFocus = id;
+    } else if (id == btn::F8) {
+        view = View::Params;
+    } else if (id == btn::Up || id == btn::Down) {
+        // Lists move like lists (Up = the item above), values like bars.
+        const int d = id == btn::Up ? 1 : -1;
+        insertChange(list ? -d : d);
+    } else if (id == btn::Left || id == btn::Right) {
+        insFocus = clampi(insFocus + (id == btn::Right ? 1 : -1), 0, np);
+    } else if (id == btn::Delete) {
+        if (insFocus == 0) app_.setSlotInsertKind(slot, nullptr);
+        else if (fx && insFocus <= np) app_.setSlotInsertValue(slot, insFocus - 1, fx->param(insFocus - 1).def);
+    } else if (!btn::isFKey(id)) {
+        Screen::onButton(id, kPress);
+    }
+}
+
+void SynthScreen::drawInsert(Gfx& g) {
+    const Theme& th = ui_.th();
+    title(g, "Synth Insert");
+    const char* items[kInsertListMax];
+    const int n = insertList(items);
+    const int cur = insertIndex(app_, slot);
+    listColumn(g, th, 0, 1, items, n, cur < 0 ? 0 : cur);
+    audio::IEffect* fx = app_.slotInsertEffect(slot);
+    const int np = fx ? std::min(fx->paramCount(), audio::kEffectMaxParams) : 0;
+    const audio::EffectSettings set = app_.slotInsertSettings(slot);
+    for (int i = 0; i < audio::kEffectMaxParams; ++i) {
+        const int col = i + 1;
+        if (i >= np) {
+            wg::panelColumn(g, th, col);
+            continue;
+        }
+        const audio::EffectParam& p = fx->param(i);
+        if (p.names) listColumn(g, th, col, 1, p.names, p.max + 1, set.v[i]);
+        else barColumn(g, th, col, p.max ? float(set.v[i]) / float(p.max) : 0.0f, false, true);
+    }
+    wg::panelColumn(g, th, 7);
+    if (cur < 0) {   // an insert of an effect this build lacks: named, not played
+        char t[32];
+        std::snprintf(t, sizeof(t), "%.4s not in this build", app_.slotInsertId(slot));
+        g.text(wg::columnX(1) + 12, 47, kFont3, th.slot(slot::kFocusFrame), t, IDisplay::kOptCenterY);
+    }
+    wg::panelFocus(g, th, wg::columnX(insFocus), wg::columnW());
+}
+#endif
 
 void SynthScreen::drawParams(Gfx& g) {
     const Theme& th = ui_.th();
@@ -1143,6 +1296,11 @@ void SynthScreen::draw(Gfx& g) {
         case View::Macros: drawMacros(g); break;
         case View::Edit: drawEdit(g); break;
         case View::Browser: drawBrowser(g); break;
+        case View::Insert:
+#if OT_SLOT_INSERTS
+            drawInsert(g);
+#endif
+            break;
     }
 }
 
