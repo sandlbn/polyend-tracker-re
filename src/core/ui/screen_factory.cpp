@@ -7,8 +7,8 @@
 #include "app/app.h"
 #include "app/input_gain.h"
 #include "ui/gfx.h"
+#include "ui/screens.h"
 #include "ui/ui.h"
-#include "sdram_bss.h"
 
 namespace ot {
 
@@ -165,21 +165,26 @@ void FactoryTest::runRadio() {
 // has no check in OpenTracker.
 void FactoryTest::runSd() {
     IStorage& fs = app_.fs();
-    OT_SDRAM_BSS static uint8_t buf[4096];   // SDRAM on the device (OP-5)
+    // [I] The staging block borrows the browsers' shared list buffer
+    // (screens.h): no browser is open on this screen, and each rebuilds its
+    // list when it opens.
+    constexpr uint32_t kBlock = 4096;
+    static_assert(kBlock <= kBrowserListBytes, "the SD test block fits the list buffer");
+    uint8_t* const buf = static_cast<uint8_t*>(browserListMem());
     bool ok = true;
     IStorage::Handle h = fs.open(kSdTestPath, IStorage::kWrite);
     if (h < 0) ok = false;
     for (uint32_t blk = 0; ok && blk < 4; ++blk) {
-        for (uint32_t i = 0; i < sizeof(buf); ++i) buf[i] = uint8_t((i * 7u) ^ (blk * 31u) ^ (i >> 8));
-        ok = fs.write(h, buf, sizeof(buf)) == int32_t(sizeof(buf));
+        for (uint32_t i = 0; i < kBlock; ++i) buf[i] = uint8_t((i * 7u) ^ (blk * 31u) ^ (i >> 8));
+        ok = fs.write(h, buf, kBlock) == int32_t(kBlock);
     }
     if (h >= 0) fs.close(h);
     if (ok) {
         h = fs.open(kSdTestPath, IStorage::kRead);
         ok = h >= 0;
         for (uint32_t blk = 0; ok && blk < 4; ++blk) {
-            ok = fs.read(h, buf, sizeof(buf)) == int32_t(sizeof(buf));
-            for (uint32_t i = 0; ok && i < sizeof(buf); ++i)
+            ok = fs.read(h, buf, kBlock) == int32_t(kBlock);
+            for (uint32_t i = 0; ok && i < kBlock; ++i)
                 ok = buf[i] == uint8_t((i * 7u) ^ (blk * 31u) ^ (i >> 8));
         }
         if (h >= 0) fs.close(h);

@@ -2515,11 +2515,13 @@ bool saveProjectInto(App& a, const char* folder, const char* name) {
 // Memory pre-check, recents, card removal
 
 namespace {
-// The folder scan of the memory pre-check (one copy in SDRAM).
+// The folder scan of the memory pre-checks (scanForMemory, workspaceFitsMemory):
+// one copy in SDRAM. Each fills it and reads it before returning, so they
+// share it; the running job's scan is g_scan.
+OT_SDRAM_BSS SlotScan g_memScan;
 const SlotScan& scanForMemory(App& a, const char* dir) {
-    OT_SDRAM_BSS static SlotScan s;
-    scanSlots(a.fs(), dir, s);
-    return s;
+    scanSlots(a.fs(), dir, g_memScan);
+    return g_memScan;
 }
 }  // namespace
 
@@ -2538,8 +2540,8 @@ bool projectFitsMemory(App& a, const char* folder, const char* name) {
 }
 
 bool workspaceFitsMemory(App& a) {
-    OT_SDRAM_BSS static SlotScan s;   // the Workspace names its files instrument_NN.pti
-    scanSlots(a.fs(), kWorkspace, s, true);
+    SlotScan& s = g_memScan;
+    scanSlots(a.fs(), kWorkspace, s, true);   // the Workspace names its files instrument_NN.pti
     const uint32_t bank = a.mem().sampleBankSamples;
     const bool on = a.cfg.streamMode != 0 && a.hal().streamReader && bank >= 2u * audio::kStreamRegionSamples;
     const uint64_t cap = uint64_t(bank - (on ? audio::kStreamRegionSamples : 0u)) * sizeof(int16_t);

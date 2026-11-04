@@ -2,7 +2,6 @@
 
 #include <cmath>
 
-#include "sdram_bss.h"
 
 namespace ot {
 namespace iedit {
@@ -13,10 +12,7 @@ int toUnits(float v, float unit) { return int(std::lround(v / unit)); }
 bool isAuto(InstrParam p) { return p >= InstrParam::AutoType; }
 int dclamp(int dest) { return clampi(dest, 0, kAutomationCount - 1); }
 
-const Instrument& defaults() {
-    OT_SDRAM_BSS static const Instrument def;   // built on first use (main loop); SDRAM on the device
-    return def;
-}
+const Instrument& defaults() { return defaultInstrument(); }
 }  // namespace
 
 // spec 05 appendix C §6: p 0..100 -> 10 ms steps, 100..190 -> 100 ms steps.
