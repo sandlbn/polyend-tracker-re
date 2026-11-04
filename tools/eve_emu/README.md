@@ -25,7 +25,10 @@ make -C sim eve-check
 4. `check.py` fails on a fault, more than 2048 words, a frame where the
    emulator and the UI's count (+36 words of driver font setup with custom
    fonts) differ by more than 8 words, or a glyph-run frame whose pixels
-   differ from its `CMD_TEXT` form. CI runs this (job `display-emulator`).
+   differ from its `CMD_TEXT` form. CI runs this (workflow
+   `display-emulator.yml`) on pull requests that touch `src/core/ui`, the
+   simulator or these tools, and on pushes to `v2`; `sim-check` holds the
+   other PRs to the budget with the UI's own count.
 
 The pixel comparison is how the coprocessor's text alignment was pinned
 down: it treats a string as spanning width - 1 pixels from its first column,
@@ -41,7 +44,8 @@ comparison (telemetry REG_CMD_DL vs the UI count) was within -5..+2 words.
 ## Requirements
 
 - `wine` (64-bit) and `x86_64-w64-mingw32-g++` (Arch: `wine mingw-w64-gcc`;
-  Ubuntu: `wine wine64 mingw-w64`).
+  Ubuntu: `wine wine64 g++-mingw-w64-x86-64`, `--no-install-recommends`
+  is enough).
 - Network on the first run: `check.py` downloads `bt8xxemu.dll`, `zlib.dll`
   and the two headers from github.com/Bridgetek/EVE-Emulator at a pinned
   commit (v5.3.35), checks their SHA-256 and keeps them in `build/eve_emu`.
