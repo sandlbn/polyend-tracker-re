@@ -67,7 +67,7 @@ def load(profile_path, modules_dir):
              + (" (default from name; set display_name)" if defaulted else "")
              + ": 1-10 characters A-Z a-z 0-9 + . - and single spaces, starting with a letter or digit")
     mods, ids, basenames = [], set(), {}
-    engine_ids, section_tags = {}, {}
+    engine_ids, section_tags, effect_ids = {}, {}, {}
     for entry in prof.get("modules", []):
         mid, rel = entry.get("id"), entry.get("path")
         if not mid or not rel:
@@ -98,6 +98,13 @@ def load(profile_path, modules_dir):
             if e in engine_ids:
                 fail(f"module {mid}: engine id {e} also in module {engine_ids[e]}")
             engine_ids[e] = mid
+        # Per-instance effects (IModule::effect): 4-character ids, unique in the profile.
+        for fx in man.get("effects", []):
+            if not isinstance(fx, str) or not ID_RE.match(fx):
+                fail(f"module {mid}: effect id {fx!r}: 4 characters A-Z / 0-9")
+            if fx in effect_ids:
+                fail(f"module {mid}: effect id {fx} also in module {effect_ids[fx]}")
+            effect_ids[fx] = mid
         tag = man.get("section_tag")
         if tag is not None:
             if not isinstance(tag, int) or not (0x4000 <= tag <= 0x7FFF):
