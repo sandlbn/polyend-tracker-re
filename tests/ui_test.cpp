@@ -676,6 +676,48 @@ TEST(sample_playback_playhead) {
     h.push(InputEvent::kPadUp, 2);
 }
 
+// Issue #143 (stock 1.9.2, tester): in Sample Playback, Start + Delete puts
+// the start at the beginning, End + Delete the end at the end, Zoom + Delete
+// the zoom back to 1. Loop points keep their place.
+TEST(sample_playback_delete_resets_start_end_and_zoom) {
+    Harness h;
+    App& a = *h.app;
+    addWav(h, "long.wav", 300000);
+    CHECK(a.importSample("long.wav", 0));
+    a.setCurrentInstrument(0);
+    Instrument& in = a.instruments[0];
+    in.playMode = 1;   // forward loop
+    in.startPoint = 1000;
+    in.loopPoint1 = 20000;
+    in.loopPoint2 = 40000;
+    in.endPoint = 60000;
+    h.tap(btn::SamplePlayback);
+    auto* s = static_cast<PlaybackScreen*>(a.ui.screen(kModPlayback));
+    h.tap(btn::F6);   // Zoom
+    for (int i = 0; i < 20; ++i) h.enc(1);
+    CHECK(s->zoom() > 1.0f);
+    h.down(btn::F6);
+    h.tap(btn::Delete);
+    h.up(btn::F6);
+    CHECK_NEAR(s->zoom(), 1.0, 1e-6);
+    h.down(btn::F2);   // Start
+    h.tap(btn::Delete);
+    h.up(btn::F2);
+    CHECK_EQ(int(in.startPoint), 0);
+    h.down(btn::F5);   // End
+    h.tap(btn::Delete);
+    h.up(btn::F5);
+    CHECK_EQ(int(in.endPoint), 65535);
+    CHECK_EQ(int(in.loopPoint1), 20000);
+    CHECK_EQ(int(in.loopPoint2), 40000);
+    CHECK(a.unsavedChanges());
+    // Selected (not held) works too.
+    in.startPoint = 500;
+    h.tap(btn::F2);
+    h.tap(btn::Delete);
+    CHECK_EQ(int(in.startPoint), 0);
+}
+
 // USER_REPORTS_R2 §4: while a song plays, Up/Down browse the song list; the
 // cursor re-joins the playing slot only when that slot changes.
 TEST(song_cursor_free_between_slot_changes) {

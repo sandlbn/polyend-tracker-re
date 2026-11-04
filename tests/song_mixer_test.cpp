@@ -427,6 +427,33 @@ TEST(master_key_combination) {
     CHECK_EQ(m.page, 1);
 }
 
+// Issue #142 (stock 1.9.2, tester): the volume set with the Jog while Master
+// is held, then the release: back to the screen before, like a key (§4.1).
+TEST(master_held_jog_returns_to_the_previous_screen) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.ui.active() == kModPattern);
+    a.cfg.masterVolume = 50;
+    h.down(btn::Master);
+    h.enc(3);
+    CHECK(a.ui.active() == kModMaster);
+    h.up(btn::Master);
+    CHECK_EQ(int(a.cfg.masterVolume), 53);
+    CHECK(a.ui.active() == kModPattern);
+    // The same after the hold tick, and from the Track Mixer page.
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    MixerScreen& m = mixer(h);
+    CHECK_EQ(m.page, 1);
+    h.down(btn::Master);
+    h.run(400);
+    h.enc(-2);
+    h.up(btn::Master);
+    CHECK_EQ(int(a.cfg.masterVolume), 51);
+    CHECK(a.ui.active() == kModPattern);
+    CHECK_EQ(m.page, 1);
+}
+
 // spec 06 §4.4 meter law.
 TEST(mixer_meter_law) {
     // log10 units: -3.6..+0.6 = -72..+12 dB.

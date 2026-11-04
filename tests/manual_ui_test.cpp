@@ -34,7 +34,9 @@ TEST(hold_master_and_jog_from_pattern_sets_master_volume) {
     h.enc(-5);   // Jog while Master is still held
     CHECK_EQ(int(a.cfg.masterVolume), int(v0) - 5);
     h.up(btn::Master);
-    CHECK(a.ui.active() == kModMaster);
+    // The release returns to the screen before, as after a key [S stock
+    // 1.9.2, issue #142].
+    CHECK(a.ui.active() == kModPattern);
     // A plain tap still only switches: the page does not cycle on release.
     h.tap(btn::Pattern);
     MixerScreen& m = *static_cast<MixerScreen*>(a.ui.screen(kModMaster));
