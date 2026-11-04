@@ -83,9 +83,10 @@ struct Config {
     // Themes/<name>.txt, empty = a stock theme. While it is set, `theme`
     // holds the file's base. Extension record bytes 7..27 (record v5).
     char themeFile[21] = {};
-    // Extension record byte 5: an option of later 2.x builds this one does
-    // not know yet; read and written back unchanged (its default).
-    uint8_t extKeep[1] = {0};
+    // [I] 2.x Config > General "Radio stereo" Off / On: the tuner leaves its
+    // stock forced mono and the Sample Recorder takes the Radio source in two
+    // lanes. Extension record byte 5.
+    uint8_t radioStereo = 0;
     // Config > General "Pad layout": 0 Stock (the project's Notes layout),
     // 1 Piano (two keyboards an octave apart: white keys along a row, black
     // keys in the row above; the pad lights draw the keys). Extension record
@@ -114,7 +115,7 @@ struct Config {
     // the payload. A missing or bad record leaves the defaults.
     static constexpr uint32_t kExtOffset = kImageSize;
     static constexpr uint8_t kExtVersion = 5;
-    // cpuMeter, synthVoices, streamMode, streamThreshold, extKeep[1], exportRate, themeFile[21],
+    // cpuMeter, synthVoices, streamMode, streamThreshold, radioStereo, exportRate, themeFile[21],
     // padLayout, noteNames
     static constexpr uint32_t kExtPayload = 6 + 21 + 2;
     static constexpr uint32_t kExtSize = 5 + kExtPayload + 1;

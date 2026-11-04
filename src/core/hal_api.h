@@ -452,6 +452,9 @@ public:
     virtual bool seek(bool up) = 0;          // starts a seek; poll busy()
     virtual bool busy() const = 0;
     virtual float frequency() const = 0;     // MHz
+    // [I] 2.x Config "Radio stereo": stereo reception instead of the stock
+    // forced mono. Applied at once when on, else at the next power-up.
+    virtual void setStereo(bool on) { (void)on; }
 };
 
 // ---------------------------------------------------------------------------
