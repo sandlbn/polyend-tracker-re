@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <string>
 #include <vector>
 
 #include "hal_api.h"
@@ -47,6 +48,12 @@ public:
     }
     MasterDspRecord masterDsp;
     void enableLineIn(bool on) { lineInWanted_ = on; }
+    // Device buffer in frames (before start(); default 256) and output device
+    // name (SDL_GetAudioDeviceName; empty = the system default).
+    void setBufferFrames(int frames) { bufferFrames_ = frames; }
+    void setDeviceName(const std::string& name) { deviceName_ = name; }
+    int bufferFrames() const { return bufferFrames_; }
+    int obtainedFrames() const { return obtainedFrames_; }
     // Latest captured block (128 interleaved frames) or nullptr; audio thread only.
     const int16_t* lineIn() const { return lineInValid_ ? lineInBlock_ : nullptr; }
 
@@ -59,6 +66,8 @@ private:
     void* ctx_ = nullptr;
     SDL_AudioDeviceID dev_ = 0, cap_ = 0;
     bool lineInWanted_ = false;
+    int bufferFrames_ = 256, obtainedFrames_ = 0;
+    std::string deviceName_;
     int16_t block_[kBlockFrames * kChannels] = {};
     uint32_t blockPos_ = kBlockFrames;
     // capture ring (SPSC)

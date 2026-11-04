@@ -1,7 +1,5 @@
 #include "panel.h"
 
-#include <strings.h>
-
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -67,6 +65,19 @@ void centeredText(Canvas& c, int cx, int cy, uint8_t font, const char* s) {
 }
 }  // namespace
 
+namespace {
+// strcasecmp without <strings.h> (portable): ASCII letters fold.
+bool iequals(const char* a, const char* b) {
+    for (;; ++a, ++b) {
+        int x = (unsigned char)*a, y = (unsigned char)*b;
+        if (x >= 'A' && x <= 'Z') x += 'a' - 'A';
+        if (y >= 'A' && y <= 'Z') y += 'a' - 'A';
+        if (x != y) return false;
+        if (!x) return true;
+    }
+}
+}  // namespace
+
 const ButtonInfo* buttonTable(int* count) {
     if (count) *count = kNumButtons;
     return kButtons;
@@ -75,7 +86,7 @@ const ButtonInfo* buttonTable(int* count) {
 int buttonByName(const char* name) {
     if (!name || !*name) return -1;
     for (const auto& bi : kButtons)
-        if (::strcasecmp(bi.name, name) == 0 || ::strcasecmp(bi.label, name) == 0) return bi.id;
+        if (iequals(bi.name, name) || iequals(bi.label, name)) return bi.id;
     char* end = nullptr;
     const long v = std::strtol(name, &end, 0);
     if (end && *end == 0 && v >= 0 && v < 64) return int(v);
