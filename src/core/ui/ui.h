@@ -57,6 +57,8 @@ constexpr const char* kExportingSelection = "Exporting Selection";
 
 // Module for a module key, or kModNone (spec 05 §1.5 button -> module map).
 int moduleForButton(uint8_t id);
+// `s` cut to the characters that fit `maxW` px in `font` (a cell line).
+void fitText(char* out, int cap, uint8_t font, const char* s, int maxW);
 
 class Screen {
 public:
