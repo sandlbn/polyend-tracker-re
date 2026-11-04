@@ -469,7 +469,9 @@ private:
     volatile bool insDirty_[kSynthSlots] = {};
     int16_t* insLines_ = nullptr;
     uint8_t insTails_ = 0;              // bit s: slot s's insert rings
-    bool insTails() const { return insTails_ != 0; }
+    // Rings, or a main-loop change waits for sync() (a quiet bank renders once).
+    bool insTails() const { return insTails_ != 0 || insDirty_[0] || insDirty_[1] || insDirty_[2]; }
+    static_assert(kSynthSlots == 3, "insTails() names each slot");
     bool insTailOf(int s) const { return ((insTails_ >> s) & 1u) != 0; }
     void syncInsert(int s);
     bool runInsert(int s, bool voiced);

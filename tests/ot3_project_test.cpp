@@ -244,3 +244,100 @@ TEST(sidecar_loads_the_bbd_chorus_under_its_old_id) {
     sec->reset();
 }
 #endif
+
+#if OT_SLOT_INSERTS
+// Synth slot inserts (chunk 0x0008 SLOT_INSERT, one per slot with an insert):
+// the effect by its id and its settings survive autosave and load; an effect
+// not in this build keeps its record and is written back; values above a
+// setting's max are clamped; New Project clears them; the audio bank gets the
+// bound effect.
+namespace {
+class InsFx final : public audio::IEffect {
+public:
+    const char* id() const override { return "XINS"; }
+    const char* name() const override { return "Ins"; }
+    uint32_t stateBytes() const override { return 4; }
+    int paramCount() const override { return 2; }
+    const audio::EffectParam& param(int i) const override {
+        static const audio::EffectParam p[2] = {{"Amount", 100, 40, nullptr}, {"Mode", 2, 1, nullptr}};
+        return p[i];
+    }
+    bool process(void*, void*, const audio::EffectSettings&, bool on, float*, float*, uint32_t) override { return on; }
+};
+InsFx g_insFx;
+class InsModule final : public mod::IModule {
+public:
+    const mod::ModuleInfo& info() const override {
+        static const mod::ModuleInfo i = {"XINM", mod::kModuleApi, 100, "Test insert", mod::kCapEffect, 0, 0, 0, 0, 0};
+        return i;
+    }
+    bool attach(mod::ModuleHost&) override { return true; }
+    audio::IEffect* effect(int i) override { return i == 0 ? &g_insFx : nullptr; }
+};
+InsModule g_insMod;
+}  // namespace
+
+TEST(sidecar_slot_insert_round_trip) {
+    static bool done = false;
+    if (!done) done = mod::ModuleHost::instance().addForTest(g_insMod);
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    CHECK(a.slotInsertId(1) == nullptr);
+    a.setSlotInsertKind(1, "XINS");
+    CHECK(a.slotInsertEffect(1) == &g_insFx);
+    CHECK_EQ(int(a.slotInsertSettings(1).v[0]), 40);   // the defaults
+    CHECK_EQ(int(a.slotInsertSettings(1).v[1]), 1);
+    a.setSlotInsertValue(1, 0, 77);
+    a.setSlotInsertValue(1, 1, 9);                     // clamped to 2
+    CHECK_EQ(int(a.slotInsertSettings(1).v[1]), 2);
+    CHECK(a.sidecarDirty());
+    a.autosave();
+    std::vector<ot3::Chunk> cs = chunks(h.fs.files[kWsSidecar]);
+    int found = 0;
+    for (const ot3::Chunk& c : cs)
+        if (c.tag == ot3::kTagSlotInsert) {
+            ++found;
+            CHECK(c.len >= 12 && c.payload[0] == 1 && std::memcmp(c.payload + 2, "XINS", 4) == 0);
+            CHECK(c.payload[6] == 77 && c.payload[7] == 2);
+            CHECK((c.flags & ot3::kFlagCritical) == 0);
+        }
+    CHECK_EQ(found, 1);
+    // The audio bank has it bound after a block.
+    h.audio.pump(1);
+    CHECK(a.engine.synth().slotInsert(1) == &g_insFx);
+    // Load: back.
+    a.setSlotInsertKind(1, nullptr);
+    CHECK(a.loadWorkspace());
+    CHECK(a.slotInsertEffect(1) == &g_insFx);
+    CHECK_EQ(int(a.slotInsertSettings(1).v[0]), 77);
+    // An effect not in this build (ZZZZ on slot 2): kept, not bound, written back.
+    std::vector<uint8_t> f(512);
+    ot3::Writer w;
+    const uint8_t wr[4] = {3, 1, 0, 0};
+    w.begin(f.data(), uint32_t(f.size()), ot3::kKindProjectSidecar, wr);
+    const uint8_t info[4] = {3, 0, 0, 0};
+    w.chunk(ot3::kTagInfo, ot3::kFlagCritical, info, 4);
+    ot3::SlotInsert si{};
+    si.slot = 2;
+    std::memcpy(si.effectId, "ZZZZ", 4);
+    si.set[0] = 5;
+    w.chunk(ot3::kTagSlotInsert, 0, &si, sizeof si);
+    f.resize(w.end());
+    h.fs.files[kWsSidecar] = f;
+    CHECK(a.loadWorkspace());
+    CHECK(a.slotInsertId(1) == nullptr);
+    CHECK(a.slotInsertId(2) != nullptr && std::memcmp(a.slotInsertId(2), "ZZZZ", 4) == 0);
+    CHECK(a.slotInsertEffect(2) == nullptr);
+    a.setSlotEngine(0, 0x90);   // any edit: the file is written again
+    a.autosave();
+    found = 0;
+    for (const ot3::Chunk& c : chunks(h.fs.files[kWsSidecar]))
+        if (c.tag == ot3::kTagSlotInsert && c.payload[0] == 2 && std::memcmp(c.payload + 2, "ZZZZ", 4) == 0 && c.payload[6] == 5)
+            ++found;
+    CHECK_EQ(found, 1);
+    // New Project: none.
+    CHECK(a.newProject());
+    CHECK(a.slotInsertId(1) == nullptr && a.slotInsertId(2) == nullptr);
+}
+#endif

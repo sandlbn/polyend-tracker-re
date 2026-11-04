@@ -52,6 +52,48 @@ void App::setSlotEngine(int s, int32_t engineId) {
     engine.synth().setSlotEngine(s, v);
 }
 
+#if OT_SLOT_INSERTS
+audio::IEffect* App::slotInsertEffect(int s) const {
+    const char* id = slotInsertId(s);
+    return id ? mod::ModuleHost::instance().effectById(id) : nullptr;
+}
+
+const char* App::slotInsertId(int s) const {
+    if (s < 0 || s >= kSynthSlotCount) return nullptr;
+    const char* id = slotInsert_[s].id;
+    return id[0] || id[1] || id[2] || id[3] ? id : nullptr;
+}
+
+audio::EffectSettings App::slotInsertSettings(int s) const {
+    return s >= 0 && s < kSynthSlotCount ? slotInsert_[s].set : audio::EffectSettings{};
+}
+
+void App::applySlotInsert(int s) { engine.synth().setSlotInsert(s, slotInsertEffect(s), slotInsert_[s].set); }
+
+void App::setSlotInsertKind(int s, const char* effectId) {
+    if (s < 0 || s >= kSynthSlotCount) return;
+    SlotInsertCfg c = {};
+    if (effectId && effectId[0]) {
+        std::memcpy(c.id, effectId, 4);
+        if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(c.id)) c.set = audio::effectDefaults(*fx);
+    }
+    if (std::memcmp(&c, &slotInsert_[s], sizeof c) != 0) sidecarDirty_ = true;
+    slotInsert_[s] = c;
+    applySlotInsert(s);
+}
+
+void App::setSlotInsertValue(int s, int i, uint8_t v) {
+    audio::IEffect* fx = slotInsertEffect(s);
+    if (!fx || i < 0 || i >= fx->paramCount() || i >= audio::kEffectMaxParams) return;
+    const uint8_t max = fx->param(i).max;
+    const uint8_t c = v > max ? max : v;
+    if (slotInsert_[s].set.v[i] == c) return;
+    slotInsert_[s].set.v[i] = c;
+    sidecarDirty_ = true;
+    applySlotInsert(s);
+}
+#endif
+
 bool App::sidecarDirty() const {
     if (sidecarReadOnly_) return false;
     if (sidecarDirty_) return true;
@@ -66,6 +108,10 @@ void App::resetSidecar() {
     for (int s = 0; s < kSynthSlotCount; ++s) {
         slotEngine_[s] = 0;
         engine.synth().setSlotEngine(s, 0);
+#if OT_SLOT_INSERTS
+        slotInsert_[s] = SlotInsertCfg{};
+        applySlotInsert(s);
+#endif
     }
     mod::ModuleHost& h = mod::ModuleHost::instance();
     for (int i = 0; i < h.count(); ++i)
@@ -104,6 +150,17 @@ bool App::encodeSidecar(uint8_t* out, uint32_t cap, uint32_t* len) {
         w.chunk(ot3::kTagSlotEngine, 0, &se, sizeof se);
         any = true;
     }
+#if OT_SLOT_INSERTS
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        if (!slotInsertId(s)) continue;
+        ot3::SlotInsert si{};
+        si.slot = uint8_t(s);
+        std::memcpy(si.effectId, slotInsert_[s].id, 4);
+        std::memcpy(si.set, slotInsert_[s].set.v, sizeof si.set);
+        w.chunk(ot3::kTagSlotInsert, 0, &si, sizeof si);
+        any = true;
+    }
+#endif
     // Module sections with data: MODS lists them, then one chunk each.
     struct Pending {
         uint16_t tag, version;
@@ -174,6 +231,24 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
             }
             continue;
         }
+#if OT_SLOT_INSERTS
+        if (c.tag == ot3::kTagSlotInsert && c.len >= 6) {
+            ot3::SlotInsert si{};
+            std::memcpy(&si, c.payload, c.len < sizeof si ? c.len : sizeof si);
+            if (si.slot < kSynthSlotCount && (si.effectId[0] || si.effectId[1] || si.effectId[2] || si.effectId[3])) {
+                SlotInsertCfg& cfg = slotInsert_[si.slot];
+                std::memcpy(cfg.id, si.effectId, 4);
+                std::memcpy(cfg.set.v, si.set, sizeof si.set);
+                if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(cfg.id))
+                    for (int i = 0; i < audio::kEffectMaxParams; ++i) {
+                        const uint8_t max = i < fx->paramCount() ? fx->param(i).max : 0;
+                        if (cfg.set.v[i] > max) cfg.set.v[i] = max;
+                    }
+                applySlotInsert(si.slot);
+            }
+            continue;
+        }
+#endif
         if (c.tag == ot3::kTagMods) {
             for (uint32_t o = 0; o + sizeof(ot3::ModEntry) <= c.len; o += sizeof(ot3::ModEntry)) {
                 const char* id = reinterpret_cast<const char*>(c.payload + o);
