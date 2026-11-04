@@ -26,6 +26,9 @@
 //             saturation, side-chain limiter, line-in with sends
 //   synth4    2.x synth framework: 4 voices of the internal test engine
 //   synth4w   synth4 with Width 1 (stereo S2 slot widener)
+//   synth4i   synth4 with the image's first effect as Synth 1's slot insert
+//             (images with slot inserts); synth.ins = synth4i - synth4, one
+//             insert incl. its SDRAM line copies
 //   fatstereo fatworst with the [OT] Stereo at 1 (stereo S4: D stack, two filter paths)
 //             (sine + envelope) in Synth 1, reverb send on; WP-F engines
 //             replace the test engine (docs/MINI_PLAN.md §4: <= 72k/block)
@@ -81,6 +84,7 @@
 #include "audio/engine.h"
 #include "audio/stream_source.h"
 #include "audio/synth_params.h"
+#include "modules/module.h"
 #include "ot_profile.h"
 // The engine scenarios need the synth pack modules (opentracker-synths); a
 // profile without them reports only the core scenarios.
@@ -1259,6 +1263,7 @@ int main(int argc, char** argv) {
         r.eng->previewBuffer(noise.data(), uint32_t(noise.size()), false);
         report("worst", timeBlocks(r, 2000, lineNoise));
     }
+    double synth4 = 0.0;   // synth4i's reference
     {   // synth4: 4 test-engine voices in Synth 1 (sustained), reverb send
         Rig r;
         r.synth(4);
@@ -1268,9 +1273,28 @@ int main(int argc, char** argv) {
         rc.reverbSend = 40.0f;
         r.eng->synth().setSlotRecord(0, rc);
         for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
-        report("synth4", timeBlocks(r, 2000, lineNoise));
+        synth4 = timeBlocks(r, 2000, lineNoise);
+        report("synth4", synth4);
         std::printf("  (synth voices sounding after the run: %d)\n", r.eng->synth().sounding());
     }
+#if OT_SLOT_INSERTS
+    if (audio::IEffect* fx = mod::ModuleHost::instance().effectAt(0)) {   // synth4i: synth4 + one slot insert
+        static int16_t lines[kSynthSlots * audio::kEffectWorkMax / 2];
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        rc.reverbSend = 40.0f;
+        r.eng->synth().setSlotRecord(0, rc);
+        r.eng->synth().setInsertMemory(lines);
+        r.eng->synth().setSlotInsert(0, fx, audio::effectDefaults(*fx));
+        for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+        const double v = timeBlocks(r, 2000, lineNoise);
+        report("synth4i", v);
+        std::printf("    synth.ins %10.1f  (one %s slot insert incl. its SDRAM line copies)\n", v - synth4, fx->name());
+    }
+#endif
 #ifdef OT_BENCH_SYNTH_PACK   // Width needs the ACD module's extension table
     {   // synth4w: synth4 with the slot's [OT] Width at 1 (stereo S2 widener)
         Rig r;
