@@ -766,6 +766,9 @@ bool MixerScreen::encoderOnList() const {
 #endif
 
 void MixerScreen::onEncoder(int d) {
+    // The Jog while Master is held counts as the other key (§4.1): the
+    // release returns to the screen before [S stock 1.9.2, issue #142].
+    if (masterPending_ && ui_.isDown(btn::Master)) otherKeyDuringMaster_ = true;
     change(d);
     refreshBar();
 }

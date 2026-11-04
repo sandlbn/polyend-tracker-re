@@ -669,8 +669,22 @@ void PlaybackScreen::onButton(uint8_t id, uint8_t state) {
             break;
         case btn::Delete:
             // 0x536e4: slice modes, selection 0/1 -> remove the selected slice.
-            // Point modes (0x5351c) are not decoded (appendix B open item).
-            if (slice && (sel == 0 || sel == 1)) removeSlice();
+            // Point modes (0x5351c, not decoded) per held / selected point:
+            // Start -> 0, End -> the end, Zoom -> 1 [S stock 1.9.2, issue
+            // #143]. Loop points keep their place [I].
+            if (slice && (sel == 0 || sel == 1)) {
+                removeSlice();
+            } else if ((slice && sel == 4) || (mode <= 3 && sel == 5)) {
+                view.spp = 0;
+            } else if (mode <= 3) {
+                const int pts = heldPoints ? heldPoints : sel >= 1 && sel <= 4 ? 1 << (sel - 1) : 0;
+                if (pts & 1) movePoint(0, -65535);
+                if (pts & 8) movePoint(3, 65535);
+                if (pts & 9) {
+                    keepVisible(pointRef(in, pts & 1 ? 0 : 3), false);
+                    a.markInstrumentDirty(ci);
+                }
+            }
             break;
         case btn::Up:
         case btn::Down: {
