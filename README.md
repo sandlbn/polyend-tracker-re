@@ -18,8 +18,30 @@ graphics, and is not affiliated with or endorsed by Polyend.
 
 2.x brings the newer Tracker Mini features to the original hardware: 16 tracks, synth
 engines, stereo samples, Mini-compatible project files and USB Storage mode. These notes cover
-the whole 2.x line (2.0 to 2.2.4); the full list is in the release notes of the
-[2.2.4 download](https://github.com/sandlbn/polyend-tracker-re/releases).
+the whole 2.x line (2.0 to 2.2.5); the full list is in the release notes of the
+[2.2.5 download](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.5).
+
+## New in 2.2.5
+
+- **Performance screen as on stock** (issue #86): every track starts with its FX off; press
+  and release a track's screen button to turn them on. A red label now means FX on, and the
+  filters start from the instrument's own cutoff. Saved performances with a filter column
+  can sound different.
+- **Performance FX on synth notes** (issue #23): on tracks whose FX are on, the filters move
+  the synth's own cutoff, and Panning, Delay send and Reverb send add to the note's pan and
+  sends, also in its release.
+- **Shorter Performance names** (contributed by syamajala): Panning, LP / HP / BP cutoff,
+  Delay send and Reverb send drop the "Sample" prefix.
+- **Note names** (contributed by syamajala): Config > General > Note names: Sharps (C#5),
+  Flats (Db5) or Auto, which follows the project's root note and scale. Display only.
+- **Synth release tails follow the Track Mixer:** a released synth note follows its track's
+  fader and mute; before, the tail played at full level.
+- **Sample Loader:** Add next on a folder does nothing, Add and Add next are greyed when
+  there are no files to add, and moving onto an empty slot with Preview held stops the sample.
+- **Sample Playback** (issue #143): Delete resets Start, End or Zoom, as on stock.
+- **Master held + Jog** (issue #142): letting go of Master returns to the screen you were on.
+- **More free memory** (contributed by syamajala): about 5 KB of SDRAM freed for coming
+  features.
 
 ## New in 2.2.4
 
@@ -136,7 +158,7 @@ the whole 2.x line (2.0 to 2.2.4); the full list is in the release notes of the
 
 ## Install
 
-1. Copy `PolyendTrackerOTv224.ptf` to `/Firmware` on the SD card. Keep the name; the
+1. Copy `PolyendTrackerOTv225.ptf` to `/Firmware` on the SD card. Keep the name; the
    bootloader only accepts 24-character names.
 2. Go to **Config > Firmware update**, select it and confirm. If the screen stays dark
    after the update, press the power button once.
@@ -188,4 +210,4 @@ and an IDM track using three engines at once) and seven BLAST GRID synth remixes
 (Title, World 1, World 4, Battle, Battle FM, Boss, Final Boss). Copy them to `/Projects` on
 the card.
 
-Downloads: https://github.com/sandlbn/polyend-tracker-re/releases
+Downloads: https://github.com/sandlbn/polyend-tracker-re/releases (latest: [2.2.5](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.5))
