@@ -244,6 +244,7 @@ TEST(eight_track_view_tabs_cover_the_top_row) {
     for (int t = 0; t < 8; ++t) a.pattern().tracks[t].steps[0].note = 60;
     h.down(btn::Pattern);
     h.tap(btn::Note);
+    h.tap(btn::Fx1);
     h.up(btn::Pattern);
     a.ui.dirty();
     h.run(40);

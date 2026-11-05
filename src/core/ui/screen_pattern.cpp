@@ -307,8 +307,10 @@ SelRect PatternScreen::target() const {
 }
 
 uint8_t PatternScreen::detailKey() const {
-    if (recArmPage) return 2;
-    return ui_.shift() && focus < 0 && !pop_.isOpen() ? 1 : 0;   // refreshBar's mute page
+    // Column view (4 / 8 / 16 tracks): a denser view must not keep a lighter one in low detail.
+    const uint8_t view = uint8_t(maskedTrackCount(colMask) / 4 << 2);
+    if (recArmPage) return 2 | view;
+    return (ui_.shift() && focus < 0 && !pop_.isOpen() ? 1 : 0) | view;   // refreshBar's mute page
 }
 
 void PatternScreen::collapse() {
