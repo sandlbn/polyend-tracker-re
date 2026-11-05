@@ -127,12 +127,15 @@ uint32_t wavResampledFrames(uint32_t srcFrames, uint32_t srcRate) {
 
 int16_t wavDecodeSample(const uint8_t* p, uint16_t format, uint16_t bits) {
     if (format == wav::kFormatFloat) {
-        // (int16)(int)(x * 32767) (spec 07 Q8): truncation; |x| > 1 wraps
-        // through the int16 cast instead of saturating. NaN and values
-        // outside the int32 range (undefined in C) give 0 (OpenTracker guard).
+        // (int16)(int)(x * 32767) (spec 07 Q8): truncation. Past full scale
+        // (|x| > 1, common in float exports) it is held at the int16 limits:
+        // stock wraps it through the cast, which turns hot files into noise.
+        // NaN gives 0.
         const float x = rdF32(p) * 32767.0f;
-        if (!(x > -2147483648.0f && x < 2147483648.0f)) return 0;
-        return int16_t(uint16_t(uint32_t(int32_t(x))));
+        if (x != x) return 0;
+        if (x >= 32767.0f) return 32767;
+        if (x <= -32768.0f) return -32768;
+        return int16_t(x);
     }
     switch (bits) {
         case 8: return int16_t((int(p[0]) - 128) * 256);
