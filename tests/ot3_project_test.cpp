@@ -303,6 +303,18 @@ TEST(sidecar_slot_insert_round_trip) {
             CHECK((c.flags & ot3::kFlagCritical) == 0);
         }
     CHECK_EQ(found, 1);
+    // Off: kept with the settings, saved in the reserved byte (bit 0).
+    CHECK(!a.slotInsertOff(1));
+    a.setSlotInsertOff(1, true);
+    CHECK(a.slotInsertOff(1));
+    a.autosave();
+    for (const ot3::Chunk& c : chunks(h.fs.files[kWsSidecar]))
+        if (c.tag == ot3::kTagSlotInsert) CHECK_EQ(int(c.payload[1]), 1);
+    CHECK(a.loadWorkspace());
+    CHECK(a.slotInsertOff(1));
+    CHECK_EQ(int(a.slotInsertSettings(1).v[0]), 77);
+    a.setSlotInsertOff(1, false);
+    a.autosave();
     // The audio bank has it bound after a block.
     h.audio.pump(1);
     CHECK(a.engine.synth().slotInsert(1) == &g_insFx);

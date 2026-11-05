@@ -68,7 +68,18 @@ audio::EffectSettings App::slotInsertSettings(int s) const {
     return s >= 0 && s < kSynthSlotCount ? slotInsert_[s].set : audio::EffectSettings{};
 }
 
-void App::applySlotInsert(int s) { engine.synth().setSlotInsert(s, slotInsertEffect(s), slotInsert_[s].set); }
+void App::applySlotInsert(int s) {
+    engine.synth().setSlotInsert(s, slotInsertEffect(s), slotInsert_[s].set, slotInsert_[s].off);
+}
+
+bool App::slotInsertOff(int s) const { return s >= 0 && s < kSynthSlotCount && slotInsertId(s) && slotInsert_[s].off; }
+
+void App::setSlotInsertOff(int s, bool off) {
+    if (!slotInsertId(s) || slotInsert_[s].off == off) return;
+    slotInsert_[s].off = off;
+    sidecarDirty_ = true;
+    applySlotInsert(s);
+}
 
 void App::setSlotInsertKind(int s, const char* effectId) {
     if (s < 0 || s >= kSynthSlotCount) return;
@@ -155,6 +166,7 @@ bool App::encodeSidecar(uint8_t* out, uint32_t cap, uint32_t* len) {
         if (!slotInsertId(s)) continue;
         ot3::SlotInsert si{};
         si.slot = uint8_t(s);
+        si.rsv = slotInsert_[s].off ? ot3::kSlotInsertOff : 0;
         std::memcpy(si.effectId, slotInsert_[s].id, 4);
         std::memcpy(si.set, slotInsert_[s].set.v, sizeof si.set);
         w.chunk(ot3::kTagSlotInsert, 0, &si, sizeof si);
@@ -239,6 +251,7 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
                 SlotInsertCfg& cfg = slotInsert_[si.slot];
                 std::memcpy(cfg.id, si.effectId, 4);
                 std::memcpy(cfg.set.v, si.set, sizeof si.set);
+                cfg.off = (si.rsv & ot3::kSlotInsertOff) != 0;
                 if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(cfg.id))
                     for (int i = 0; i < audio::kEffectMaxParams; ++i) {
                         const uint8_t max = i < fx->paramCount() ? fx->param(i).max : 0;

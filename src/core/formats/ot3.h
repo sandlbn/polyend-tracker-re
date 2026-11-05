@@ -47,9 +47,10 @@ struct SlotEngine {   // kTagSlotEngine payload, little endian
 };
 static_assert(sizeof(SlotEngine) == 16, "SlotEngine layout");
 
+constexpr uint8_t kSlotInsertOff = 0x01;   // SlotInsert::rsv bit 0: the insert is Off (settings kept)
 struct SlotInsert {   // kTagSlotInsert payload: a synth slot's insert effect
     uint8_t slot;
-    uint8_t rsv;
+    uint8_t rsv;            // bit 0 kSlotInsertOff; other bits 0
     char effectId[4];       // IEffect::id()
     uint8_t set[6];         // its settings (audio::EffectSettings)
     uint8_t rsv2[4];

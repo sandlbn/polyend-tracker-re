@@ -140,6 +140,11 @@ int insertList(const char** items) {
     for (int k = 0; k < h.effectCount() && n < kInsertListMax; ++k) items[n++] = h.effectAt(k)->name();
     return n;
 }
+// The first setting of an insert, when it is a list, starts with "Off" (the
+// effect not run, its settings kept): Chorus Off, I, II, I+II.
+constexpr int kInsertNamesMax = 16;
+bool offInList(const audio::IEffect* fx, int i) { return fx && i == 0 && fx->param(0).names; }
+
 // Slot s's insert in that list: 0 none, -1 an effect this build lacks.
 int insertIndex(const App& a, int s) {
     const char* id = a.slotInsertId(s);
@@ -1019,7 +1024,8 @@ void SynthScreen::insertBar() {
     for (int i = 0; i < audio::kEffectMaxParams; ++i) {
         if (i < np) {
             char v[24];
-            fx->valueText(i, set.v[i], v, sizeof(v));
+            if (offInList(fx, i) && app_.slotInsertOff(slot)) std::snprintf(v, sizeof(v), "Off");
+            else fx->valueText(i, set.v[i], v, sizeof(v));
             b.set(i + 1, fx->param(i).label, v);
         } else {
             b.label[i + 1].hidden = true;
@@ -1043,6 +1049,14 @@ void SynthScreen::insertChange(int d) {
     audio::IEffect* fx = app_.slotInsertEffect(slot);
     if (!fx || insFocus > fx->paramCount()) return;
     const int i = insFocus - 1;
+    if (offInList(fx, i)) {   // Off, then the values
+        const int cur = app_.slotInsertOff(slot) ? 0 : app_.slotInsertSettings(slot).v[0] + 1;
+        const int k = clampi(cur + d, 0, fx->param(0).max + 1);
+        if (k == cur) return;
+        if (k) app_.setSlotInsertValue(slot, 0, uint8_t(k - 1));
+        app_.setSlotInsertOff(slot, k == 0);
+        return;
+    }
     const int v = clampi(int(app_.slotInsertSettings(slot).v[i]) + d, 0, fx->param(i).max);
     app_.setSlotInsertValue(slot, i, uint8_t(v));
 }
@@ -1071,7 +1085,10 @@ void SynthScreen::insertKey(uint8_t id) {
         insFocus = clampi(insFocus + (id == btn::Right ? 1 : -1), 0, np);
     } else if (id == btn::Delete) {
         if (insFocus == 0) app_.setSlotInsertKind(slot, nullptr);
-        else if (fx && insFocus <= np) app_.setSlotInsertValue(slot, insFocus - 1, fx->param(insFocus - 1).def);
+        else if (fx && insFocus <= np) {
+            app_.setSlotInsertValue(slot, insFocus - 1, fx->param(insFocus - 1).def);
+            if (offInList(fx, insFocus - 1)) app_.setSlotInsertOff(slot, false);
+        }
     } else if (!btn::isFKey(id)) {
         Screen::onButton(id, kPress);
     }
@@ -1094,7 +1111,12 @@ void SynthScreen::drawInsert(Gfx& g) {
             continue;
         }
         const audio::EffectParam& p = fx->param(i);
-        if (p.names) listColumn(g, th, col, 1, p.names, p.max + 1, set.v[i]);
+        if (offInList(fx, i)) {
+            const char* names[kInsertNamesMax + 1] = {"Off"};
+            const int nn = std::min(int(p.max) + 1, kInsertNamesMax);
+            for (int k = 0; k < nn; ++k) names[k + 1] = p.names[k];
+            listColumn(g, th, col, 1, names, nn + 1, app_.slotInsertOff(slot) ? 0 : std::min(int(set.v[i]), nn - 1) + 1);
+        } else if (p.names) listColumn(g, th, col, 1, p.names, p.max + 1, set.v[i]);
         else barColumn(g, th, col, p.max ? float(set.v[i]) / float(p.max) : 0.0f, false, true);
     }
     wg::panelColumn(g, th, 7);

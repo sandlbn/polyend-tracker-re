@@ -96,6 +96,47 @@ TEST(synth_insert_view_edits_the_insert) {
     CHECK(a.engine.synth().slotInsert(0) == first);
 }
 
+// The first setting starts with "Off" (Chorus: Off, I, II, I+II; Drive:
+// Off, Soft, ...): the wheel below the first value turns the insert off and
+// keeps its settings; above it, on again. A new insert starts on.
+TEST(synth_insert_first_setting_has_off) {
+    Harness h;
+    App& a = *h.app;
+    audio::IEffect* first = mod::ModuleHost::instance().effectAt(0);
+    CHECK(first->param(0).names != nullptr);
+    openInsert(h, 0);
+    h.tap(btn::F1);
+    CHECK(a.slotInsertEffect(0) == first);
+    CHECK(!a.slotInsertOff(0));
+    h.tap(btn::F2);
+    a.setSlotInsertValue(0, 1, 7);
+    for (int k = 0; k <= first->param(0).max; ++k) h.tap(btn::Down);   // a list: Down = the item below
+    CHECK(!a.slotInsertOff(0));
+    CHECK_EQ(int(a.slotInsertSettings(0).v[0]), int(first->param(0).max));
+    for (int k = 0; k <= first->param(0).max; ++k) h.tap(btn::Up);
+    CHECK(a.slotInsertOff(0));
+    CHECK_STR(a.ui.bar.label[1].bottom, "Off");
+    CHECK_EQ(int(a.slotInsertSettings(0).v[1]), 7);   // kept
+    h.audio.pump(1);
+    CHECK(a.engine.synth().slotInsertOff(0));
+    h.tap(btn::Down);
+    CHECK(!a.slotInsertOff(0));
+    CHECK_EQ(int(a.slotInsertSettings(0).v[0]), 0);
+    char want[24];
+    first->valueText(0, 0, want, sizeof(want));
+    CHECK_STR(a.ui.bar.label[1].bottom, want);
+    // Off, then Delete: the default (on).
+    h.tap(btn::Up);
+    CHECK(a.slotInsertOff(0));
+    h.tap(btn::Delete);
+    CHECK(!a.slotInsertOff(0));
+    // Another insert starts on.
+    a.setSlotInsertOff(0, true);
+    h.tap(btn::F1);
+    h.tap(btn::F1);
+    CHECK(!a.slotInsertOff(0));
+}
+
 #else
 TEST(synth_insert_view_not_in_this_build) { CHECK(true); }
 #endif
