@@ -470,6 +470,74 @@ TEST(presets_macro_extremes_stay_in_bounds) {
     }
 }
 
+// Contributed patches (tools/make_patches/contrib/<MODEL>/, made on the
+// device, copied into the pack as they are): for the models of this build
+// each file decodes with the engine id of its folder, validates, loads
+// through Load Patch byte for byte, and plays like the generated presets of
+// its engine (audible, 1 dB below full scale, no clip as saved and with all
+// macros at either extreme). Names: no "OT " (the generated pack), at most
+// 24 characters, none twice.
+TEST(contrib_patches_load_and_render) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::path("../tools/make_patches/contrib");
+    Harness h;
+    App& a = *h.app;
+    std::vector<std::string> names;
+    for (const presets::Preset& p : presets::all()) names.push_back(p.name);
+    int checked = 0;
+    std::vector<presets::Preset> engines;   // one generated preset per engine of this build
+    for (const presets::Preset& p : presets::all())
+        if (std::none_of(engines.begin(), engines.end(), [&](const presets::Preset& q) { return presets::engineOf(q) == presets::engineOf(p); }))
+            engines.push_back(p);
+    for (const presets::Preset& e : engines) {
+        const fs::path md = dir / presets::folderOf(e);
+        if (!fs::is_directory(md)) continue;
+        std::vector<fs::path> files;
+        for (const auto& f : fs::directory_iterator(md)) files.push_back(f.path());
+        std::sort(files.begin(), files.end());
+        for (const fs::path& f : files) {
+            const std::string name = f.stem().string();
+            CHECK(f.extension() == ".patch");
+            CHECK(name.compare(0, 3, "OT ") != 0);
+            CHECK(name.size() <= 24);
+            CHECK(std::find(names.begin(), names.end(), name) == names.end());
+            names.push_back(name);
+            std::ifstream in(f, std::ios::binary);
+            const std::vector<uint8_t> file((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            SynthPatch dec;
+            CHECK(decodePatch(file.data(), file.size(), &dec) == PatchStatus::kOk);
+            CHECK_EQ(dec.engine, presets::engineOf(e));
+            CHECK_EQ(validatePatch(dec, nullptr, 0), 0);
+            h.fs.files[std::string("Patches/") + presets::folderOf(e) + "/" + name + ".patch"] = file;
+            setEngine(a, 0, e);
+            a.initSynthPatch(0);
+            CHECK(a.loadSynthLibraryPatch(0, name.c_str()));
+            CHECK(encode(a.synthPatch(0)) == file);
+            const SynthPatch loaded = a.synthPatch(0);
+            Slot s(loaded, e.model, polyFor(e), -1, e.engine);
+            perform(s, e, polyFor(e));
+            std::printf("  %-5s %-24s peak %6.1f dBFS\n", presets::folderOf(e), name.c_str(), dbfs(s.peak));
+            CHECK(s.finite);
+            CHECK(dbfs(s.peak) > -30.0);
+            CHECK(dbfs(s.peak) < -1.0);
+            CHECK_EQ(s.clips, 0L);
+            for (int v : {0, 127}) {
+                Slot x(loaded, e.model, polyFor(e), v, e.engine);
+                perform(x, e, polyFor(e));
+                if (!x.finite || x.clips)
+                    std::printf("       %s macros %d: peak %.1f dBFS, %ld clipped\n", name.c_str(), v, dbfs(x.peak), x.clips);
+                CHECK(x.finite);
+                CHECK_EQ(x.clips, 0L);
+            }
+            ++checked;
+        }
+    }
+#if defined(OT_MOD_ATY1)
+    CHECK(checked >= 35);
+#endif
+    std::printf("  contributed: %d\n", checked);
+}
+
 TEST(presets_release_folder_matches_the_generator) {
     namespace fs = std::filesystem;
     const fs::path dir = fs::path("../../releases/OpenTracker-Presets");

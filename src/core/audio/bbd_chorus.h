@@ -97,6 +97,12 @@ inline void clear(State& s, int16_t* line) {
     s.lp[0] = s.lp[1] = s.lp[2] = 0.0f;
 }
 
+// A chorus coming on from silence writes the whole line, the wet held at 0,
+// before it fades in, so the taps never read the empty line (its edge
+// reaching a tap stepped the wet: a click). The line is two blocks: after a
+// clear the first block starts at w 0 with fresh taps, the second at w kBlock.
+static_assert(kLine == 2 * kBlock, "bbd line fill: two blocks");
+
 // Frames of silent input after which the line holds exact zeros again (the
 // filters fall below the int16 step within a few frames, then one line
 // length): from then on a silent input gives a silent output.
@@ -114,6 +120,9 @@ __attribute__((noinline)) inline bool process(State& s, int16_t* line, uint8_t m
     if (mode > kModeCount) mode = kModeCount;
     if (!mode) wetEnd = 0.0f;
     if (wetEnd <= 0.0f && s.wet <= 0.0f) return false;   // Off and faded out: untouched
+    // Coming on from silence: fill the line first (dry out), then fade in.
+    const bool filling = s.wet <= 0.0f && (s.w != 0u || s.dl <= 0.0f);
+    if (filling) wetEnd = 0.0f;
     if (!s.toneSet || tone != s.tone) {
         s.tone = tone;
         s.toneSet = 1;
@@ -244,6 +253,7 @@ __attribute__((noinline)) inline bool process(State& s, int16_t* line, uint8_t m
     s.lp[0] = flush(a0);
     s.lp[1] = flush(a1);
     s.lp[2] = flush(a2);
+    if (filling) return true;
     if (wetEnd <= 0.0f) {
         clear(s, line);
         return false;
