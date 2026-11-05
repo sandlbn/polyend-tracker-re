@@ -46,12 +46,18 @@ $(BIN): $(CORE_OBJS) $(TOOL_OBJS)
 	$(CXX) $^ -lpthread -o $@
 
 # Fresh card folder each run; only Patches/ is meant for the card (the
-# generator's own Workspace, config and project folders are removed).
+# generator's own Workspace, config and project folders are removed). The
+# contributed patches (contrib/<MODEL>/, tests/patches_test.cpp) join the
+# folders of the models this profile has.
 run: $(BIN)
 	rm -rf $(SD)
 	mkdir -p $(SD)
 	$(BIN) $(SD)
 	cd $(SD) && find . -mindepth 1 -maxdepth 1 ! -name Patches -exec rm -rf {} +
+	for d in contrib/*/; do \
+	    m=$$(basename "$$d"); \
+	    if [ -d "$(SD)/Patches/$$m" ]; then cp "$$d"*.patch "$(SD)/Patches/$$m/"; fi; \
+	done
 
 # PRESETS.md covers every model: PROFILE=full plus the sections of the other profiles
 # that full does not have (nofm: JU6, D-Type; classic: CS-Type, A-Type; techno: T-Type;
