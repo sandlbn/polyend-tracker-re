@@ -26,6 +26,10 @@
 #include "ui/ui.h"
 
 namespace ot {
+namespace remote {
+class DeviceBridge;
+}
+
 
 // Interfaces handed to the app (mirrors hal::HalSet without depending on src/hal).
 struct HalRefs {
@@ -57,6 +61,9 @@ struct HalRefs {
     // 2.x USB Storage mode (Config > USB > USB Storage). Null: not available
     // in this build (OT_USB_MSC=0).
     IUsbStorage* usbStorage = nullptr;
+    // [I] Remote control bridge (core/remote/remote.h, Config > USB > Remote
+    // control). Null: not available (simulator, host tests).
+    remote::DeviceBridge* remote = nullptr;
     // SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md): reads streamed sample
     // data from the card (device: raw sectors; host / sim: IStorage). Null:
     // streaming not available (the option reads as Off).
@@ -334,6 +341,7 @@ public:
     enum class ThemeExport : uint8_t { kOk = 0, kExists, kUnavailable, kFailed };
     ThemeExport exportTheme();
     void setUsbStorage(IUsbStorage* u) { hal_.usbStorage = u; }
+    void setRemoteBridge(remote::DeviceBridge* r) { hal_.remote = r; }   // [I] tests
 
     // ---- 2.x USB Storage mode (Tracker Mini manual §13.10) ----------------
     // Enter: refused while a project job other than the autosave runs, while
@@ -347,6 +355,15 @@ public:
     UsbEnter enterUsbStorage();
     void exitUsbStorage();
     bool usbStorageActive() const { return usbActive_; }
+    remote::DeviceBridge* remoteBridge() const { return hal_.remote; }
+    // [I] Remote drive mode (core/remote/remote.h): one status line,
+    // "@RC S key=value ..." (spaces in values as '_'), incl. performance.
+    int remoteStatus(char* out, int cap);
+    // Main loop: answers the bridge's status query, meters while driven,
+    // redraws when drive mode starts / ends (its title-bar marker).
+    void serviceRemote();
+    bool remoteDrivingShown_ = false;
+    bool remoteCacheOff_ = false, remoteCacheWas_ = true;   // fragment cache off for a recorded frame
 
     // ---- SD streaming (docs/PLAN_SD_STREAMING_P1C_P2.md) ----
     // Rings carved from the top of the sample bank when streaming is on

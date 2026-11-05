@@ -1,5 +1,6 @@
 #include <cstdio>
 #include <cstring>
+#include <new>
 // OpenTracker device glue: hands the HAL drivers and the SDRAM buffers to the
 // App (core stays free of hal headers; ARCHITECTURE.md rules).
 #include "app/app.h"
@@ -21,6 +22,9 @@
 #include "hal/stack_guard.h"
 #include "hal/stack_watch.h"
 #include "hal/usb_storage.h"
+#include "remote/display_tap.h"
+#include "remote/remote.h"
+#include "sdram_bss.h"
 
 extern "C" uint8_t _ssdram_bss[], _esdram_bss[];   // src/hal/opentracker.ld
 
@@ -338,9 +342,48 @@ void telemetryTick() {
     ot::hal::diagLog(line);
 }
 
+// [I] Remote control (core/remote/remote.h): the panel as the simulator's
+// front panel over the USB serial port. The bridge sits between the panel
+// drivers and the App; with no host it passes everything through.
+// SDRAM (`.sdram_bss`, zeroed in otAppMain before use): the SRAM stack
+// headroom (make perf-gate) has no room for them.
+OT_SDRAM_BSS alignas(ot::remote::DeviceBridge) unsigned char gRemoteMem[sizeof(ot::remote::DeviceBridge)];
+OT_SDRAM_BSS char gRemoteRx[512];
+OT_SDRAM_BSS uint8_t gFrameRec[ot::remote::kFrameBufBytes];   // [I] display command export: one recorded frame
+ot::remote::DeviceBridge* gRemote = nullptr;
+// The display as the App sees it: the real one, recorded for "@RC FRAME".
+OT_SDRAM_BSS alignas(ot::remote::DisplayTap) unsigned char gTapMem[sizeof(ot::remote::DisplayTap)];
+ot::IClock* gClock = nullptr;
+
+void remoteSend(void*, const char* line) { ot::hal::diagLog(line); }
+// Screenshot lines (~120 B with the timestamp) only while the 4 KB log ring
+// has room for several more and whatever else gets logged meanwhile.
+bool remoteRoom(void*) { return ot::hal::diagTerminalOpen() && ot::hal::diagTxFree() >= 1024; }
+// Panel mode (started on purpose, with the simulator) gets notices; drive
+// mode (scripted tests) only shows the title-bar marker (Ui::drawTitle).
+bool gRemotePanel = false;
+void remoteChanged(void*, bool on) {
+    if (on && gRemote && gRemote->active()) {
+        gRemotePanel = true;
+        gApp.ui.notify("Remote control: panel drives the simulator", 4000);
+    } else if (!on && gRemotePanel) {
+        gRemotePanel = false;
+        gApp.ui.notify("Remote control off", 4000);
+    }
+}
+
+void remoteService() {
+    if (!gRemote) return;
+    const uint32_t now = gClock->millis();
+    char buf[128];
+    for (size_t n; (n = ot::hal::diagRemoteRead(buf, sizeof buf)) > 0;) gRemote->rx(buf, n, now);
+    gRemote->tick(now, ot::hal::diagTerminalOpen());
+}
+
 // Called once per App::loop() iteration (HalRefs::service).
 void appService() {
     if (gHalService) gHalService();
+    remoteService();
     applyBrightness();
     telemetryTick();
 }
@@ -402,12 +445,22 @@ void otAppMain(ot::hal::HalSet& hal) {
     mem.exportStems = reinterpret_cast<audio::StemBlock*>(sd + kOffStems);
 
     HalRefs refs;
-    refs.display = hal.display;
+    auto* tap = new (gTapMem) ot::remote::DisplayTap(*hal.display);
+    tap->setBuffer(gFrameRec, ot::remote::kFrameBufBytes);
+    refs.display = tap;
     refs.audio = hal.audio;
     refs.storage = hal.storage;
     refs.midi = hal.midi;
-    refs.input = hal.input;
-    refs.leds = hal.leds;
+    ot::remote::DeviceBridge::Io rio;
+    rio.send = &remoteSend;
+    rio.changed = &remoteChanged;
+    rio.room = &remoteRoom;
+    gRemote = new (gRemoteMem) ot::remote::DeviceBridge(*hal.input, *hal.leds, rio);
+    gRemote->setTap(tap);
+    hal::diagRemoteBuffer(gRemoteRx, sizeof gRemoteRx);
+    gClock = hal.clock;
+    refs.input = &gRemote->input();
+    refs.leds = &gRemote->leds();
     refs.clock = hal.clock;
     gHalService = hal.service;
     refs.service = &appService;   // HAL service + brightness + telemetry
@@ -422,6 +475,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     refs.usbStorage = hal::usbStorage();
     static hal::SdStreamReader sStreamReader(hal::storage());
     refs.streamReader = &sStreamReader;   // SD streaming (raw sectors through the cluster map)   // 2.x USB Storage mode (null in an OT_USB_MSC=0 image)
+    refs.remote = gRemote;                // [I] remote control bridge
     if (!gApp.init(refs, mem)) return;   // falls back to the selftest
     hal::setPowerOffHook(&powerOffHook);
     gApp.ui.platform.devStats = &devStats;         // Config /.develop overlay (spec 06 §7.2)
