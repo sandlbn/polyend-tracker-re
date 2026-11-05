@@ -21,6 +21,7 @@ constexpr int kHeaderH = 26;                       // track header row inside th
 constexpr int kRowHInfo = 26;                      // 15 rows of 26 px in the 395-px grid (top info on)
 constexpr int kRowHOff = 28;                       // 15 rows of 28 px in the 423-px grid (top info off)
 constexpr int kMaskTracks = 8;                     // spec 06 §1.2/§1.9: 8 tracks with a mask
+constexpr int kSingleMaskTracks = 16;
 constexpr int kHTrackLabelW = 50;                  // horizontal arrangement: track label column
 // Column widths in characters: note "C-5", instrument "01 "/"M01", FX
 // "V100" (spec 06 §1.2 cell text, spec 16 §A.8; ui/fx_text.h).
@@ -36,8 +37,15 @@ constexpr uint32_t kLatchTapMs = 400;   // F1 shorter than this, alone: the Patt
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
+int maskedTrackCount(uint8_t mask) {
+    if (!mask) return kVisibleTracks;
+    int columns = 0;
+    for (int c = 0; c < 4; ++c) columns += (mask >> c) & 1;
+    return columns == 1 ? kSingleMaskTracks : kMaskTracks;
+}
+
 // Grid geometry for the current column-view mask (spec 06 §1.2, §1.9):
-// 4 tracks with all columns, or 8 tracks with the masked columns only.
+// 4 tracks with all columns, 8 with two masked columns, or 16 with one.
 struct CellLayout {
     int tracks = kVisibleTracks;
     int trackW = (kScreenW - kStepColW) / kVisibleTracks;
@@ -50,8 +58,8 @@ struct CellLayout {
 CellLayout cellLayout(uint8_t mask) {
     CellLayout L;
     if (mask) {
-        L.tracks = kMaskTracks;
-        L.trackW = (kScreenW - kStepColW) / kMaskTracks;
+        L.tracks = maskedTrackCount(mask);
+        L.trackW = (kScreenW - kStepColW) / L.tracks;
     }
     int c = 0;
     for (int k = 0; k < 4; ++k) {
@@ -310,7 +318,7 @@ void PatternScreen::collapse() {
 }
 
 void PatternScreen::keepTrackVisible() {
-    const int vis = colMask ? 8 : kVisibleTracks;
+    const int vis = maskedTrackCount(colMask);
     if (track < firstTrack) firstTrack = track;
     if (track >= firstTrack + vis) firstTrack = track - vis + 1;
     firstTrack = clampi(firstTrack, 0, kTrackCount - vis);
@@ -1819,7 +1827,7 @@ void PatternScreen::drawGridHorizontal(Gfx& g) {
     const int cw = hStepColW();
     const int headerY = gridTop() + 2;
     const int bandY0 = headerY + kHeaderH + 2;
-    const int tracks = colMask ? kMaskTracks : kVisibleTracks;
+    const int tracks = maskedTrackCount(colMask);
     const int bandH = (kBarY - 2 - bandY0) / tracks;
     int shown[4], nShown = 0;
     for (int c = 0; c < 4; ++c)

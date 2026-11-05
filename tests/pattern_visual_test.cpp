@@ -263,3 +263,23 @@ TEST(eight_track_view_tabs_cover_the_top_row) {
     std::printf("       widest tab-height rect in the 8-track view: %d px\n", widest);
     CHECK(widest >= 80);
 }
+
+TEST(single_column_view_shows_all_tracks) {
+    Harness h;
+    App& a = *h.app;
+    a.pattern().tracks[15].steps[0].note = 60;
+
+    h.down(btn::Pattern);
+    h.tap(btn::Note);
+    h.up(btn::Pattern);
+    CHECK_EQ(pe(h).firstTrack, 0);
+    render(h);
+    CHECK(hasText(h, "C5"));
+
+    h.down(btn::Pattern);
+    h.tap(btn::Note);
+    h.tap(btn::Instr);
+    h.up(btn::Pattern);
+    render(h);
+    CHECK(!hasText(h, "C5"));
+}
