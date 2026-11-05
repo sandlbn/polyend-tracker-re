@@ -424,7 +424,7 @@ TEST(q8_mono_import_takes_left_channel) {
     for (uint32_t i = 0; i < res.frames; ++i) CHECK_EQ(out[i], 1000);   // no averaging
 }
 
-TEST(q8_float_decode_truncates_and_wraps) {
+TEST(q8_float_decode_truncates_and_saturates) {
     auto f = [](float x) {
         uint8_t b[4];
         std::memcpy(b, &x, 4);
@@ -433,7 +433,9 @@ TEST(q8_float_decode_truncates_and_wraps) {
     CHECK_EQ(f(0.25f), 8191);      // 8191.75 -> toward zero
     CHECK_EQ(f(-0.25f), -8191);
     CHECK_EQ(f(1.0f), 32767);
-    CHECK_EQ(f(1.5f), int16_t(-16386));   // (int16)(int)49150.5 wraps, not saturated
+    CHECK_EQ(f(1.5f), 32767);      // past full scale: held at the top, not wrapped into noise
+    CHECK_EQ(f(-2.625f), -32768);
+    CHECK_EQ(f(1e30f), 32767);
 }
 
 TEST(q8_resampler_truncates_then_clamps) {

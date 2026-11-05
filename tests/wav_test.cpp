@@ -211,8 +211,8 @@ TEST(sample_decoding) {
     CHECK_EQ(wavDecodeSample(f, 3, 32), 16383);  // trunc(0.5 * 32767)
     wrF32(f, -1.0f);
     CHECK_EQ(wavDecodeSample(f, 3, 32), -32767);
-    wrF32(f, 2.0f);   // (int16)(int)65534 wraps (spec 07 Q8)
-    CHECK_EQ(wavDecodeSample(f, 3, 32), -2);
+    wrF32(f, 2.0f);   // past full scale: held at the top
+    CHECK_EQ(wavDecodeSample(f, 3, 32), 32767);
     wrF32(f, -0.00001f);
     CHECK_EQ(wavDecodeSample(f, 3, 32), 0);
 }
