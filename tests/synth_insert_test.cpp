@@ -252,6 +252,35 @@ TEST(slot_insert_kind_change_fades_then_switches) {
     CHECK(r.bank.slotInsert(0) == nullptr);
 }
 
+// Off (the first setting's "Off"): the effect fades out as on a kind change,
+// then is not run at all (no CPU); On again resumes with the same settings.
+TEST(slot_insert_off_fades_out_then_stops_running) {
+    Gain2 fx;
+    Rig dry, wet;
+    const EffectSettings set = effectDefaults(fx);
+    wet.bank.setSlotInsert(0, &fx, set);
+    dry.on(0, 48);
+    wet.on(0, 48);
+    dry.blocks(10);
+    wet.blocks(10);
+    wet.bank.setSlotInsert(0, &fx, set, true);
+    dry.blocks(10);
+    wet.blocks(10);
+    const int ran = fx.blocks;
+    dry.blocks(20);
+    wet.blocks(20);
+    CHECK_EQ(fx.blocks, ran);   // parked: not run
+    CHECK(wet.bank.slotInsert(0) == &fx);
+    const size_t from = 22 * kBlock, to = 40 * kBlock;
+    CHECK_NEAR(energy(wet.outL, from, to) / energy(dry.outL, from, to), 1.0, 1e-6);
+    // On again: x2 again (after the ramp).
+    wet.bank.setSlotInsert(0, &fx, set, false);
+    dry.blocks(20);
+    wet.blocks(20);
+    CHECK(fx.blocks > ran);
+    CHECK_NEAR(energy(wet.outL, 44 * kBlock, 60 * kBlock) / energy(dry.outL, 44 * kBlock, 60 * kBlock), 4.0, 1e-3);
+}
+
 TEST(slot_insert_needs_its_memory) {
     // An effect with work memory and no SDRAM lines given: not bound, the slot
     // plays dry. A memoryless effect still binds.

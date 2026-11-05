@@ -197,12 +197,15 @@ public:
     // after the engine's slot effect, before Width, gain, pan and the slot
     // sends (a note's own sends stay dry). Main loop; a change of kind fades
     // the old effect out first. An effect with work memory needs the lines
-    // (setInsertMemory), else it is not bound.
-    void setSlotInsert(int s, IEffect* fx, const EffectSettings& set);
+    // (setInsertMemory), else it is not bound. off (the first setting's
+    // "Off"): the effect fades out, then is not run until on again (its
+    // settings and memory kept).
+    void setSlotInsert(int s, IEffect* fx, const EffectSettings& set, bool off = false);
     // kSynthSlots lines of kEffectWorkMax bytes in slow memory (SDRAM), before
     // audio starts; moved to the voice scratch once per block.
     void setInsertMemory(int16_t* lines) { insLines_ = lines; }
     const IEffect* slotInsert(int s) const { return ins_[clampSlot(s)].fx; }
+    bool slotInsertOff(int s) const { return ins_[clampSlot(s)].bypass; }
 #endif
     // The voice scratch as an int16 window of kEffectWorkMax bytes: free
     // outside render() (the master chain's slow effect memory, effectWindow()).
@@ -458,6 +461,8 @@ private:
         IEffect* next = nullptr;        // bound after the fade-out (off)
         EffectSettings set = {}, nextSet = {};
         bool off = false;               // fading the bound effect out (a kind change)
+        bool bypass = false;            // Off: the effect fades out, then parks
+        bool parked = false;            // Off and faded out: not run
         bool fresh = true;              // state / line zero: reset() at the next run
         uint8_t offBlocks = 0;
         uint16_t quiet = 0;             // frames of silent bus
@@ -467,6 +472,7 @@ private:
     struct PendIns {
         IEffect* fx = nullptr;
         EffectSettings set = {};
+        bool bypass = false;
     };
     PendIns pendIns_[kSynthSlots];
     volatile bool insDirty_[kSynthSlots] = {};

@@ -87,9 +87,9 @@ void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
 }
 
 #if OT_SLOT_INSERTS
-void SynthBank::setSlotInsert(int s, IEffect* fx, const EffectSettings& set) {
+void SynthBank::setSlotInsert(int s, IEffect* fx, const EffectSettings& set, bool off) {
     if (s < 0 || s >= kSynthSlots) return;
-    pendIns_[s] = PendIns{fx, set};
+    pendIns_[s] = PendIns{fx, set, off};
     insDirty_[s] = true;
 }
 
@@ -97,6 +97,7 @@ void SynthBank::clearInsert(Ins& in) {
     std::memset(in.state, 0, sizeof(in.state));
     in.fresh = true;
     in.off = false;
+    in.parked = false;
     in.offBlocks = 0;
     in.quiet = 0;
 }
@@ -109,6 +110,8 @@ void SynthBank::syncInsert(int s) {
     IEffect* fx = p.fx;
     if (fx && fx->workBytes() && !insLines_) fx = nullptr;   // no memory for it: dry
     Ins& in = ins_[s];
+    in.bypass = p.bypass;
+    if (!p.bypass) in.parked = false;
     if (fx == in.fx) {   // the same kind: new settings (the effect ramps them)
         in.set = p.set;
         in.off = false;
@@ -119,6 +122,7 @@ void SynthBank::syncInsert(int s) {
         in.set = p.set;
     } else {   // another kind: fade the bound one out first (rendered even on a silent slot)
         in.off = true;
+        in.parked = false;
         in.next = fx;
         in.nextSet = p.set;
         in.offBlocks = 0;
@@ -131,6 +135,7 @@ void SynthBank::syncInsert(int s) {
 // out after the block (one span each way).
 __attribute__((noinline)) bool SynthBank::runInsert(int s, bool voiced) {
     Ins& in = ins_[s];
+    if (in.parked) return false;   // Off and faded out: not run
     IEffect* fx = in.fx;
     if (voiced) in.quiet = 0;
     else if (in.quiet < 0xF000u) in.quiet = uint16_t(in.quiet + kBlock);
@@ -149,8 +154,12 @@ __attribute__((noinline)) bool SynthBank::runInsert(int s, bool voiced) {
         fx->reset(in.state, win);
         in.fresh = false;
     }
-    const bool live = fx->process(in.state, win, in.set, !in.off, busL_, busR_, kBlock);
+    const bool live = fx->process(in.state, win, in.set, !in.off && !in.bypass, busL_, busR_, kBlock);
     if (n16) spanOut(line, win, n16);
+    if (in.bypass && !in.off && !live) {   // Off: faded out, parked until on again
+        in.parked = true;
+        return false;
+    }
     if (in.off && (!live || ++in.offBlocks >= 4)) {   // faded out: the next kind (or none)
         IEffect* const next = in.next;
         const EffectSettings set = in.nextSet;

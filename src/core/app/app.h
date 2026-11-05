@@ -504,9 +504,13 @@ public:
 #if OT_SLOT_INSERTS
     // [3.x] Synth slot s's insert: the effect by id (nullptr / "" = none) at
     // its defaults, one setting, and what is set. An id this build lacks is
-    // kept (and saved) but not bound. Saved in project.ot3x.
+    // kept (and saved) but not bound. Off (the first setting's "Off"): the
+    // effect fades out and is not run, its settings kept; a new kind starts
+    // on. Saved in project.ot3x.
     void setSlotInsertKind(int s, const char* effectId);
     void setSlotInsertValue(int s, int i, uint8_t v);
+    void setSlotInsertOff(int s, bool off);
+    bool slotInsertOff(int s) const;
     const char* slotInsertId(int s) const;   // 4 characters, nullptr = none
     audio::IEffect* slotInsertEffect(int s) const;
     audio::EffectSettings slotInsertSettings(int s) const;
@@ -764,6 +768,7 @@ private:
     struct SlotInsertCfg {
         char id[4];                  // all zero = none
         audio::EffectSettings set;
+        bool off;                    // Off: not run, the settings kept
     };
     SlotInsertCfg slotInsert_[kSynthSlotCount] = {};
     void applySlotInsert(int s);
