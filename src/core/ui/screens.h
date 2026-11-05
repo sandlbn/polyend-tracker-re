@@ -165,6 +165,10 @@ private:
     bool encUsedInHold_ = false;
     bool patternHeld_ = false;
     bool patternCombo_ = false;   // another key / the encoder was used while Pattern was held
+    bool patternLatch_ = false;   // 2.x: F1 tapped, the pads keep picking patterns
+    bool focusUsed_ = false;      // a pad / arrow / key / the encoder was used while F1 was held
+    bool f1Ends_ = false;         // this F1 press ended the latch: its release does nothing
+    uint32_t focusAt_ = 0;
     int maskKeys_[2] = {-1, -1};
     uint32_t lastUpdate_ = 0;
     int lastPlayStep_ = -1;

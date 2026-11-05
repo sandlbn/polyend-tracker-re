@@ -32,6 +32,7 @@ constexpr uint8_t kLenPresets[] = {1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 128};   /
 constexpr uint8_t kJumpPresets[] = {0, 1, 2, 4, 8, 16, 32};
 constexpr uint32_t kNoteHoldMs = 500;              // spec 06 §0.4 item 2
 constexpr uint32_t kColHoldMs = 180;
+constexpr uint32_t kLatchTapMs = 400;   // F1 shorter than this, alone: the Pattern pads stay on
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -248,6 +249,7 @@ int PatternScreen::lastNote() const {
 void PatternScreen::start(int opt) {
     (void)opt;
     focus = -1;
+    patternLatch_ = false;
     fillOpen = false;
     recArmPage = false;
     colKey_ = 0;
@@ -267,6 +269,7 @@ void PatternScreen::stop() {
     pop_.close();
     pickerKey_ = 0;
     focus = -1;
+    patternLatch_ = false;
 }
 
 SelRect PatternScreen::target() const {
@@ -543,6 +546,7 @@ void PatternScreen::refreshBar() {
 void PatternScreen::onButton(uint8_t id, uint8_t state) {
     App& a = app_;
     if (patternHeld_ && id != btn::Pattern && state == kPress) patternCombo_ = true;
+    if (focus == 0 && id != btn::F1 && state == kPress) focusUsed_ = true;
     if (fillOpen) {
         if (state == kPress) fillButton(id);
         refreshBar();
@@ -800,9 +804,38 @@ bool PatternScreen::renderSelection(const char* name, bool load) {
 void PatternScreen::pageButton(int f, uint8_t state) {
     App& a = app_;
     const bool e = edit();
+    // 2.x: any other F-key ends the Pattern focus, latched (F1 tap, below)
+    // or held, so a release that goes to Fill or the next page cannot leave it on.
+    if (f != 0 && state == kPress && focus == 0) {
+        patternLatch_ = false;
+        focus = -1;
+    }
     if (page == 0) {
         switch (f) {
             case 0:
+                // 2.x: F1 tapped alone keeps the Pattern focus, so the pads
+                // pick patterns with one finger; F1 again ends it. Held with
+                // a pad, an arrow or the encoder it is the stock hold.
+                if (state == kPress) {
+                    if (patternLatch_) {
+                        patternLatch_ = false;
+                        focus = -1;
+                        f1Ends_ = true;
+                        return;
+                    }
+                    focus = 0;
+                    focusUsed_ = false;
+                    f1Ends_ = false;
+                    focusAt_ = ui_.now();
+                } else if (state == kRelease) {
+                    if (f1Ends_) f1Ends_ = false;
+                    else if (focus == 0 && !focusUsed_ && ui_.now() - focusAt_ < kLatchTapMs) patternLatch_ = true;
+                    else {
+                        patternLatch_ = false;
+                        if (focus == 0) focus = -1;
+                    }
+                }
+                return;
             case 1:
             case 2:
                 if (state == kPress) focus = f;
@@ -983,11 +1016,12 @@ void PatternScreen::transport() {
             // follows the playhead while playing), as on stock 1.9.2.
         }
     }
-    focus = -1;
+    if (!patternLatch_) focus = -1;   // the latched Pattern pads stay on
 }
 
 void PatternScreen::focusArrow(uint8_t id) {
     App& a = app_;
+    focusUsed_ = true;
     const int fcs = focus >= 0 ? focus : 0;   // Pattern key held acts like focus 0
     if (fcs == 0) {
         // spec 16 §A.2: Up/Right = +1, Down/Left = -1. Up/Down change the
@@ -1024,6 +1058,7 @@ void PatternScreen::focusArrow(uint8_t id) {
 
 void PatternScreen::focusDelta(int d) {
     App& a = app_;
+    focusUsed_ = true;
     if (focus == 0 || (focus < 0 && ui_.isDown(btn::Pattern))) {
         // spec 16 §A.2: Pattern + encoder changes the pattern at once, also while
         // playing (like Up/Down; only Left/Right queue).
@@ -1168,6 +1203,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     colKey_ = 0;
     // Hold focus: pads pick values (spec 06 §1.6).
     if (focus == 0) {
+        focusUsed_ = true;
         a.selectPattern(pad + 1);
         refreshBar();
         return;
@@ -1593,7 +1629,9 @@ void PatternScreen::update(uint32_t now) {
         if (barPage0) ui_.bar.highlight(0, b);
         ui_.dirty();
     }
-    if (barPage0) {
+    const bool latchBar =
+        page == 0 && focus == 0 && patternLatch_ && !fillOpen && !ui_.shift() && !recArmPage && !pop_.isOpen();
+    if (barPage0 || latchBar) {   // latched: the number follows a queued switch
         char v[8];
         std::snprintf(v, sizeof(v), a.cfg.numbering == 2 ? "%02X" : "%d", q ? q : a.patternNumber());
         if (std::strcmp(v, ui_.bar.label[0].bottom) != 0) {
@@ -1645,7 +1683,14 @@ void PatternScreen::padLeds(uint8_t* lv) {
         for (int p = 0; p < 48; ++p)
             if (a.patternPresent(p + 1) && a.patternHasData(p + 1)) lv[p] = dim;
         const int pn = a.patternNumber() - 1;
-        if (pn >= 0 && pn < 48) lv[pn] = full;
+        if (patternLatch_) {
+            // 2.x latched: the queued pattern at full, the current one blinks.
+            const int q = a.seq.queuedPattern() - 1;
+            if (q >= 0 && q < 48) lv[q] = full;
+            if (pn >= 0 && pn < 48) lv[pn] = ((ui_.now() / 200) & 1) ? full : 0;
+        } else if (pn >= 0 && pn < 48) {
+            lv[pn] = full;
+        }
         return;
     }
     if (focus == 1) {
