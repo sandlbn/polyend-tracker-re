@@ -314,6 +314,69 @@ TEST(focus_blocks_note_entry_and_pattern_right) {
     h.up(btn::F1);
 }
 
+TEST(pattern_pads_latch_on_f1_tap) {
+    // F1 tapped alone keeps the Pattern focus: the pads pick patterns with
+    // one finger, the current pattern's pad blinks. F1 again ends it.
+    Harness h;
+    App& a = *h.app;
+    const uint8_t full = uint8_t(a.cfg.padFull() > 31 ? 255 : a.cfg.padFull() * 255 / 31);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.pad(4);
+    CHECK_EQ(a.patternNumber(), 5);
+    h.pad(1);
+    CHECK_EQ(a.patternNumber(), 2);
+    CHECK_EQ(pe(h).focus, 0);
+    int on = 0, off = 0;
+    for (int i = 0; i < 40; ++i) {
+        h.run(10);
+        if (h.leds.level[1] == full) ++on;
+        else if (h.leds.level[1] == 0) ++off;
+    }
+    CHECK(on > 0);
+    CHECK(off > 0);
+    // Play keeps the pads on patterns; a pad then queues the pattern, its
+    // pad lit full while the current one keeps blinking.
+    h.tap(btn::Play);
+    CHECK_EQ(pe(h).focus, 0);
+    h.pad(6);
+    CHECK_EQ(a.seq.queuedPattern(), 7);
+    h.run(10);
+    CHECK_EQ(h.leds.level[6], full);
+    h.tap(btn::Play);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, -1);
+    // Held F1 with a pad is the stock hold: released, the focus ends.
+    h.down(btn::F1);
+    h.pad(2);
+    h.up(btn::F1);
+    CHECK_EQ(a.patternNumber(), 3);
+    CHECK_EQ(pe(h).focus, -1);
+    // Another F-key ends the latch.
+    h.tap(btn::F1);
+    h.tap(btn::F2);
+    CHECK_EQ(pe(h).focus, -1);
+}
+
+TEST(pattern_latch_ends_through_the_rec_arm_page) {
+    // F1 on the rec-arm page arms a track; the latch it ends must not come
+    // back, so the next F1 tap latches again at once.
+    Harness h;
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.down(btn::Shift);
+    h.tap(btn::Rec);
+    CHECK(pe(h).recArmPage);
+    h.tap(btn::F1);
+    h.up(btn::Shift);
+    CHECK(!pe(h).recArmPage);
+    CHECK_EQ(pe(h).focus, -1);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, -1);
+}
+
 TEST(pattern_up_down_switch_immediately_while_playing) {
     // spec 16 §A.2: Pattern + Up/Down = pattern +1/-1 at once, also while
     // playing (step position kept); Pattern + Left/Right queue.
