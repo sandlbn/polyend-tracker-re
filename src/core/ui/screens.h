@@ -884,8 +884,8 @@ private:
     void selection(uint32_t* s0, uint32_t* s1) const;
     const int16_t* data() const;
     const int16_t* dataR() const;          // right lane (stereo take), else nullptr
-    bool stereoInput() const;              // Line In source with Config Line in channel = Stereo
-    const char* sourceName(int src) const; // "Line in ST" / "Line in L" / "Line in R" for Line In
+    bool stereoInput() const;              // Line In with Line in channel = Stereo, or Radio with Radio stereo On
+    const char* sourceName(int src) const; // "Line in ST" / "Line in L" / "Line in R" for Line In, "Radio ST"
     struct View {
         uint32_t off, len;
     } undo_[kUndoLevels] = {};

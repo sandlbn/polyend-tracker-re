@@ -17,14 +17,15 @@ bool SdlAudio::start() {
     want.freq = int(kSampleRate);
     want.format = AUDIO_S16SYS;
     want.channels = uint8_t(kChannels);
-    want.samples = 256;
+    want.samples = uint16_t(bufferFrames_);
     want.callback = &SdlAudio::sdlCallback;
     want.userdata = this;
-    dev_ = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+    dev_ = SDL_OpenAudioDevice(deviceName_.empty() ? nullptr : deviceName_.c_str(), 0, &want, &have, 0);
     if (!dev_) {
         std::fprintf(stderr, "sim audio: cannot open output: %s\n", SDL_GetError());
         return false;
     }
+    obtainedFrames_ = have.samples;
     if (lineInWanted_) {
         SDL_AudioSpec cw = want, ch{};
         cw.callback = &SdlAudio::captureCallback;

@@ -64,7 +64,7 @@ public:
     // Last STATUSRSSI.RSSI (dBuV, 0..75), refreshed by service() about every
     // 500 ms while ready; -1 when off.
     int rssi() const { return powered() ? rssi_ : -1; }
-    bool stereo() const { return stereo_; }
+    bool stereo() const { return stereo_; }   // STATUSRSSI.ST: a stereo pilot is received
     uint16_t deviceId() const { return regs_[0]; }   // 0x1242 expected (datasheet DEVICEID)
     uint32_t errorCount() const { return errors_; }
     uint32_t tuneFailures() const { return tuneFailures_; }   // STC never came (timeout)
@@ -78,6 +78,7 @@ public:
 
     // IRadio
     void setBand(float minMHz, float maxMHz, float stepMHz) override;
+    void setStereo(bool on) override;
     bool tune(float mhz) override;
     bool seek(bool up) override;
     bool busy() const override;
@@ -112,6 +113,8 @@ private:
     int8_t pendingSeek_ = 0;        // +1 up, -1 down
     bool timedOut_ = false;         // the STC wait of this tune/seek gave up
     bool regionDirty_ = false;      // setBand() not yet written to the chip
+    bool wantStereo_ = false;       // [I] 2.x Radio stereo: POWERCFG without MONO
+    bool monoDirty_ = false;        // setStereo() not yet written to the chip
     uint8_t region_ = 0;
     int rssi_ = 0;
     bool stereo_ = false;

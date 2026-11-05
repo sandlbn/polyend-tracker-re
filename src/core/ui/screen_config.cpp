@@ -95,6 +95,7 @@ const Opt kGeneral[] = {
     {"CPU meter", kEnum, kCfg, CF(cpuMeter), 0, 3, kCpuMeter, 0},   // [I] 2.x
     // [I] 2.x: the synth voice budget (governor budget B, OPTIMIZATION_2X item 10 / OP-8).
     {"Synth voices", kNum, kCfg, CF(synthVoices), 1, Config::kMaxSynthVoices, nullptr, 0},
+    {"Radio stereo", kEnum, kCfg, CF(radioStereo), 0, 2, kOffOn, 0},   // [I] 2.x
     {"Export sample rate", kEnum, kCfg, CF(exportRate), 0, 2, kExportRates, 0},   // [I] 2.x
     {"Stream from card", kEnum, kCfg, CF(streamMode), 0, 3, kStreamModes, 0},          // [I] 2.x
     {"Stream threshold", kEnum, kCfg, CF(streamThreshold), 0, 4, kStreamThresholds, 0},   // [I] 2.x

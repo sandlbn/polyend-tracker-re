@@ -279,7 +279,7 @@ TEST(slicer_and_zero_marks_skip_a_streamed_sample) {
 // ---- C10: Config rows, apply -> reload, marks, notices (§2.7) ----
 namespace {
 constexpr int kGeneralCat = 1;
-constexpr int kStreamRow = 15, kThresholdRow = 16;   // after Export theme, Export sample rate
+constexpr int kStreamRow = 16, kThresholdRow = 17;   // after Export theme, Radio stereo, Export sample rate
 void runJob(Harness& h) {
     for (int i = 0; i < 4000 && h.app->jobBusy(); ++i) h.run(10);
 }

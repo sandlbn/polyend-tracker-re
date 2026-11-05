@@ -12,8 +12,10 @@ ifeq ($(HAVE_ALSA),1)
 ALSA_CFLAGS := -DOT_SIM_ALSA $(shell pkg-config --cflags alsa)
 ALSA_LIBS   := $(shell pkg-config --libs alsa)
 endif
+# Config "Current version" and the boot splash show the firmware VERSION (../Makefile).
+VERSION  := $(shell sed -n 's/^VERSION *?= *//p' $(ROOT)/Makefile)
 CXXFLAGS := -std=c++17 -O2 -g -Wall -Wextra -Wno-format-truncation -MMD -I$(ROOT)/src/core -I$(ROOT)/src -Isrc \
-            $(SDL_CFLAGS) $(ALSA_CFLAGS)
+            -DOT_VERSION=\"$(VERSION)\" $(SDL_CFLAGS) $(ALSA_CFLAGS)
 LDLIBS   := $(SDL_LIBS) $(ALSA_LIBS) -lpthread
 
 CORE_SRCS := $(shell find $(ROOT)/src/core -name '*.cpp')

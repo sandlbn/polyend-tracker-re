@@ -47,6 +47,8 @@ const char* const kGeneralHelp[] = {
     "time. Off: never.",
     "How many synth voices can sound at once over all three synths (1 to 8, default 4). More voices cost more "
     "processing time; when the load gets too high, voices are taken away for a while.",
+    "Records the built-in radio in stereo. Off keeps the radio mono, as the original firmware does; mono "
+    "is cleaner on weak stations and doubles the recording time.",
     "Sample rate of exported songs, patterns, stems and renders. 44.1 kHz converts them, so they play in "
     "time in any DAW. 44117 Hz keeps the Tracker's own rate as the original firmware does; a DAW converts "
     "them on import.",

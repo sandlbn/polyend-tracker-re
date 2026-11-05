@@ -227,6 +227,12 @@ void Si4703Radio::logDone(const char* what, uint32_t now) {
               unsigned((st & ST_SFBL) != 0), unsigned((st & ST_STC) != 0));
 }
 
+void Si4703Radio::setStereo(bool on) {
+    if (on == wantStereo_) return;
+    wantStereo_ = on;
+    monoDirty_ = powered();   // off: the next power-up writes it
+}
+
 void Si4703Radio::service() {
     if (!powered()) return;
     const uint32_t now = port_.millis ? port_.millis() : 0;
@@ -238,7 +244,8 @@ void Si4703Radio::service() {
             // (x & 0xFFF0) | 0x190A (band/space kept); write. CHANNEL untouched.
             if (!readAll()) return fail("power up read");
             regs_[SYSCONFIG3] = uint16_t(regs_[SYSCONFIG3] | kSysCfg3Seek);
-            regs_[POWERCFG] = kPowerCfg;
+            regs_[POWERCFG] = wantStereo_ ? uint16_t(kPowerCfg & ~PWR_MONO) : kPowerCfg;   // [I] 2.x stereo
+            monoDirty_ = false;
             regs_[SYSCONFIG2] = uint16_t((regs_[SYSCONFIG2] & 0xFFF0) | kSysCfg2Base);
             if (!writeRegs(false)) return fail("power up write");
             if (port_.log)
@@ -310,6 +317,15 @@ void Si4703Radio::service() {
     if (regionDirty_ && !pendingTune_ && pendingSeek_ == 0) {
         pendingFreq_ = freq_;   // startTune() writes the new region first
         pendingTune_ = true;
+    }
+    if (monoDirty_) {
+        // [I] 2.x Radio stereo switched while on: read-modify-write of MONO only.
+        monoDirty_ = false;
+        if (!readAll()) return fail("mono read");
+        regs_[POWERCFG] = wantStereo_ ? uint16_t(regs_[POWERCFG] & ~PWR_MONO) : uint16_t(regs_[POWERCFG] | PWR_MONO);
+        if (!writeRegs(true)) return fail("mono write");
+        if (port_.log) port_.log("radio: %s POWERCFG 0x%04X", wantStereo_ ? "stereo" : "mono", unsigned(regs_[POWERCFG]));
+        return;
     }
     if (pendingSeek_ != 0) return startSeek();
     if (pendingTune_) return startTune();

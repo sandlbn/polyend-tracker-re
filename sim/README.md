@@ -177,6 +177,16 @@ tone-sample SLOT FRAMES [stereo]
 expect-playhead on|off      fail unless Sample Playback does (not) draw its playhead
 ```
 
+## Source layout
+
+`src/main.cpp` is the simulator's front end: options, the SDL window with the
+drawn front panel and the key map. The machine (`src/machine.*`: the HAL
+objects below, the App and its large buffers, `MachineOptions`) and the
+headless script runner (`src/headless.*`: the script language above, PNG
+screenshots) are separate, so another program can embed them: it fills
+`MachineOptions`, calls `Machine::start` and `step`, and adds script
+commands of its own through `Headless::extension`.
+
 ## HAL mapping
 
 | interface | simulator |
