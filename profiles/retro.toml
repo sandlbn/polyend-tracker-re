@@ -3,8 +3,9 @@
 # four chip-style engines 8-Type (8TY1: a 3-voice 8-bit home computer style voice), Hand-Type
 # (HND1: a 4-channel handheld console style), B-Type (BTY1: an 8-bit computer with polynomial
 # counters) and Arc-Type (ARC1: a home-console 4-operator FM style), then the master chain
-# LOFI (a chip DAC / speaker) -> ECHO (the tempo-synced echo, its line in the SDRAM) -> TAPE.
-# No VAP, WTFM or PERC (Mini projects with those slots show "not available" here), no DIRT.
+# LOFI (a chip DAC / speaker) -> BBDC (the BBD chorus, also the synth slot insert) -> ECHO
+# (the tempo-synced echo, its line in the SDRAM) -> TAPE. No VAP, WTFM or PERC (Mini projects
+# with those slots show "not available" here), no DIRT (with it the image is over the flash limit).
 # Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
 name = "retro"
 variant = "r"                 # image PolyendTrackerOTr<ver>.ptf (24 characters)
@@ -21,6 +22,7 @@ modules = [
     { id = "ARC1", path = "modules/arc" },    # module engine 0x89 (Arc-Type, home-console 4-operator FM style)
     # Effects (opentracker-fx, next to opentracker-synths): the master chain.
     { id = "LOFI", path = "../opentracker-fx/modules/lofi" },   # the chip DAC / speaker (tag 0x4007)
+    { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
     { id = "ECHO", path = "../opentracker-fx/modules/echo" },
     { id = "TAPE", path = "../opentracker-fx/modules/tape" },
 ]

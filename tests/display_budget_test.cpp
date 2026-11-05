@@ -15,6 +15,7 @@
 #include "ui_fakes.h"
 
 #include "ui/gfx.h"
+#include "modules/module.h"
 #include "ui/screens.h"
 
 using namespace ot;
@@ -914,6 +915,48 @@ TEST(overlay_matrix_bank_b) {
     h.up(btn::Shift);
     std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
 }
+
+#if OT_SLOT_INSERTS
+// [3.x] The Synth Insert view with each of the build's effects (the focus on
+// the last setting) and with an effect the build lacks, with the shared overlays.
+TEST(overlay_matrix_synth_insert) {
+    WorstRig r;
+    Harness& h = r.h;
+    App& a = r.a;
+    SynthScreen& sy = *static_cast<SynthScreen*>(a.ui.screen(kModSynth));
+    a.setCurrentInstrument(64);
+    h.tap(btn::Pattern);
+    {   // Instrument Params takes the instrument under the cursor (issue #52).
+        const PatternScreen& ps = *static_cast<PatternScreen*>(a.ui.screen(kModPattern));
+        Step& st = a.pattern().tracks[ps.track].steps[ps.step];
+        if (st.note >= 0) {
+            st.instrument = 64;
+            a.patternEdited();
+        }
+    }
+    h.tap(btn::InstrParams);
+    h.down(btn::Shift);
+    h.tap(btn::InstrParams);
+    h.up(btn::Shift);
+    CHECK(sy.view == SynthScreen::View::Insert);
+    r.overlays("synth insert, none");
+    mod::ModuleHost& mh = mod::ModuleHost::instance();
+    for (int k = 0; k < mh.effectCount(); ++k) {
+        audio::IEffect* fx = mh.effectAt(k);
+        a.setSlotInsertKind(0, fx->id());
+        sy.insFocus = 0;
+        for (int i = 0; i < fx->paramCount(); ++i) h.tap(btn::Right);   // the focus on the last setting
+        CHECK_EQ(sy.insFocus, fx->paramCount());
+        char nm[48];
+        std::snprintf(nm, sizeof(nm), "synth insert %s", fx->name());
+        r.overlays(nm);
+    }
+    a.setSlotInsertKind(0, "ZZZZ");
+    h.tap(btn::Left);
+    r.measure("synth insert, not in this build");
+    std::printf("  worst: %s, %u words\n", r.worstName.c_str(), unsigned(r.worst));
+}
+#endif
 
 // 2.x WP-G: the synth screens (Synth Parameters, Synth Macros, every Edit
 // Patch section of the densest engines, the patch browser with 128 long

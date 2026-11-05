@@ -11,4 +11,5 @@ worst    244349
 stereo8  174615
 stream8  182222
 synth4   66860
+synth4i  73875
 pswitch  145180

@@ -4,6 +4,7 @@ name = "full"
 variant = "v"                 # image PolyendTrackerOTv<ver>.ptf (24 characters)
 display_name = "Full"         # shown with the version: boot splash, Config, diag log
 flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+slot_inserts = false           # no synth slot inserts: the stack headroom has no room for their state
 
 modules = [
     { id = "ACD1", path = "modules/acd" },

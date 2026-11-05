@@ -1,6 +1,7 @@
 // Module host (modules/module.h).
 #include "modules/module.h"
 
+#include "audio/inserts.h"
 #include "audio/synth_engine.h"
 #include "model/synth_patch.h"
 #include "modules/synth_descriptor.h"
@@ -52,7 +53,8 @@ void ModuleHost::init() {
     for (int i = 0; kModuleFactories[i]; ++i) {
         IModule& m = kModuleFactories[i]();
         const ModuleInfo& in = m.info();
-        bool ok = in.api == kModuleApi && n_ < kMaxModules && !find(in.id) && descriptorsOk(m) && m.attach(*this);
+        bool ok = in.api == kModuleApi && n_ < kMaxModules && !find(in.id) && descriptorsOk(m) && effectsOk(m) &&
+                  m.attach(*this);
         if (!ok) {
             std::memcpy(refused_, in.id, sizeof(refused_));
             refused_[4] = '\0';
@@ -62,6 +64,10 @@ void ModuleHost::init() {
         for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
             if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
     }
+#if defined(OT_SLOT_INSERTS) && OT_SLOT_INSERTS
+    // The core's reservation in the same block (tools/profile.py sizes it).
+    insertLines_ = sdram(uint32_t(audio::kSynthSlots) * audio::kEffectWorkMax);
+#endif
 }
 
 bool ModuleHost::descriptorsOk(const IModule& m) const {
@@ -78,6 +84,45 @@ bool ModuleHost::descriptorsOk(const IModule& m) const {
         ++add;
     }
     return nDesc_ + add <= kMaxEngines;
+}
+
+bool ModuleHost::effectsOk(IModule& m) {
+    for (int i = 0; audio::IEffect* fx = m.effect(i); ++i) {
+        const char* id = fx->id();
+        if (!id || std::strlen(id) != 4 || !fx->name() || !fx->name()[0]) return false;
+        if (fx->stateBytes() > audio::kEffectStateMax || fx->workBytes() > audio::kEffectWorkMax) return false;
+        if (fx->paramCount() < 1 || fx->paramCount() > audio::kEffectMaxParams) return false;
+        if (effectById(id)) return false;
+        for (int j = 0; j < i; ++j)
+            if (std::strncmp(m.effect(j)->id(), id, 4) == 0) return false;
+    }
+    return true;
+}
+
+int ModuleHost::effectCount() {
+    if (!inited_) init();
+    int n = 0;
+    for (int i = 0; i < n_; ++i)
+        for (int j = 0; mods_[i]->effect(j); ++j) ++n;
+    return n;
+}
+
+audio::IEffect* ModuleHost::effectAt(int k) {
+    if (!inited_) init();
+    if (k < 0) return nullptr;
+    for (int i = 0; i < n_; ++i)
+        for (int j = 0; audio::IEffect* fx = mods_[i]->effect(j); ++j)
+            if (k-- == 0) return fx;
+    return nullptr;
+}
+
+audio::IEffect* ModuleHost::effectById(const char* id) {
+    if (!inited_) init();
+    if (!id) return nullptr;
+    for (int i = 0; i < n_; ++i)
+        for (int j = 0; audio::IEffect* fx = mods_[i]->effect(j); ++j)
+            if (std::strncmp(fx->id(), id, 4) == 0) return fx;
+    return nullptr;
 }
 
 int ModuleHost::pageCount() {
@@ -114,7 +159,7 @@ audio::IMasterInsert* ModuleHost::masterInsert() {
 
 bool ModuleHost::addForTest(IModule& m) {
     if (!inited_) init();
-    if (n_ >= kMaxModules || find(m.info().id) || !descriptorsOk(m) || !m.attach(*this)) return false;
+    if (n_ >= kMaxModules || find(m.info().id) || !descriptorsOk(m) || !effectsOk(m) || !m.attach(*this)) return false;
     mods_[n_++] = &m;
     for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
         if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;

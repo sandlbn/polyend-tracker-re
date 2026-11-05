@@ -501,6 +501,16 @@ public:
     int32_t slotEngineId(int s) const;
     // Record a module engine for slot s (0 = back to the Mini record's model).
     void setSlotEngine(int s, int32_t engineId);
+#if OT_SLOT_INSERTS
+    // [3.x] Synth slot s's insert: the effect by id (nullptr / "" = none) at
+    // its defaults, one setting, and what is set. An id this build lacks is
+    // kept (and saved) but not bound. Saved in project.ot3x.
+    void setSlotInsertKind(int s, const char* effectId);
+    void setSlotInsertValue(int s, int i, uint8_t v);
+    const char* slotInsertId(int s) const;   // 4 characters, nullptr = none
+    audio::IEffect* slotInsertEffect(int s) const;
+    audio::EffectSettings slotInsertSettings(int s) const;
+#endif
     // Put slot s on any engine of the model list (modules/synth_models.h): a
     // Mini engine = setSynthModel; a module engine keeps the record's model.
     void setSynthEngine(int s, int32_t engineId);
@@ -750,6 +760,14 @@ private:
     // docs/specs/3x-01-ot3-format.md): module engine per synth slot (0 = the
     // Mini record's model), module sections, foreign module chunks kept.
     int32_t slotEngine_[kSynthSlotCount] = {};
+#if OT_SLOT_INSERTS
+    struct SlotInsertCfg {
+        char id[4];                  // all zero = none
+        audio::EffectSettings set;
+    };
+    SlotInsertCfg slotInsert_[kSynthSlotCount] = {};
+    void applySlotInsert(int s);
+#endif
     bool sidecarDirty_ = false;
     bool sidecarReadOnly_ = false;   // newer format / damaged chunk: never re-saved
     // Load Patch preview (synth_slots.cpp): slot (-1 none), its saved source

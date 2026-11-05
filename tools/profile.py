@@ -67,7 +67,7 @@ def load(profile_path, modules_dir):
              + (" (default from name; set display_name)" if defaulted else "")
              + ": 1-10 characters A-Z a-z 0-9 + . - and single spaces, starting with a letter or digit")
     mods, ids, basenames = [], set(), {}
-    engine_ids, section_tags = {}, {}
+    engine_ids, section_tags, effect_ids = {}, {}, {}
     for entry in prof.get("modules", []):
         mid, rel = entry.get("id"), entry.get("path")
         if not mid or not rel:
@@ -98,6 +98,13 @@ def load(profile_path, modules_dir):
             if e in engine_ids:
                 fail(f"module {mid}: engine id {e} also in module {engine_ids[e]}")
             engine_ids[e] = mid
+        # Per-instance effects (IModule::effect): 4-character ids, unique in the profile.
+        for fx in man.get("effects", []):
+            if not isinstance(fx, str) or not ID_RE.match(fx):
+                fail(f"module {mid}: effect id {fx!r}: 4 characters A-Z / 0-9")
+            if fx in effect_ids:
+                fail(f"module {mid}: effect id {fx} also in module {effect_ids[fx]}")
+            effect_ids[fx] = mid
         tag = man.get("section_tag")
         if tag is not None:
             if not isinstance(tag, int) or not (0x4000 <= tag <= 0x7FFF):
@@ -149,6 +156,20 @@ def sram_of(m):
     return int(m["man"].get("sram_audio_bytes", 0)) + int(m["man"].get("fastrun_bytes", 0))
 
 
+# Synth slot inserts: on when a module offers an effect (module.toml effects)
+# and the profile does not set slot_inserts = false. The core then reserves
+# one delay line per synth slot in the SDRAM block (3 x 512 B).
+SLOT_INSERT_SDRAM = 3 * 512
+
+
+def slot_inserts(prof, mods):
+    return bool(prof.get("slot_inserts", True)) and any(m["man"].get("effects") for m in mods)
+
+
+def core_sdram(prof, mods):
+    return SLOT_INSERT_SDRAM if slot_inserts(prof, mods) else 0
+
+
 def budget_check(prof, mods):
     """[(what, used, limit, per-module sizes)] for every limit the profile sets,
     and the failure messages (with the module to leave out)."""
@@ -157,7 +178,7 @@ def budget_check(prof, mods):
               ("SRAM", "sram_modules_max", sram_of),
               ("SDRAM", "sdram_modules_max", lambda m: int(m["man"].get("sdram_bytes", 0)))]
     for what, key, size in checks:
-        used = sum(size(m) for m in mods)
+        used = sum(size(m) for m in mods) + (core_sdram(prof, mods) if what == "SDRAM" else 0)
         limit = prof.get(key)
         rows.append((what, used, limit))
         if limit is not None and used > limit:
@@ -177,6 +198,8 @@ def budget(args):
         g = m["man"].get
         print(f"  {m['id']:4s} {int(g('flash_max_bytes', 0)):9d} {int(g('sram_audio_bytes', 0)):6d} "
               f"{int(g('fastrun_bytes', 0)):7d} {int(g('sdram_bytes', 0)):7d} {int(g('cpu_insn_per_unit', 0)):8d}")
+    if core_sdram(prof, mods):
+        print(f"  core slot inserts: {core_sdram(prof, mods)} B SDRAM")
     rows, errors = budget_check(prof, mods)
     for what, used, limit in rows:
         print(f"  {what:5s} {used:7d} B declared" + (f" of {limit} B ({limit - used:+d} B)" if limit is not None
@@ -229,7 +252,8 @@ def gen(args):
         f'#define OT_PROFILE_DISPLAY_NAME "{prof["display_name"]}"',
         f'#define OT_PROFILE_MODULES "{desc}"',
         f"#define OT_PROFILE_MODULE_COUNT {len(mods)}",
-        f"#define OT_PROFILE_SDRAM_BYTES {sums['sdram_bytes']}",
+        f"#define OT_PROFILE_SDRAM_BYTES {sums['sdram_bytes'] + core_sdram(prof, mods)}",
+        f"#define OT_SLOT_INSERTS {1 if slot_inserts(prof, mods) else 0}",
         f'#define OT_MODULES_REV "{rev}"',
     ] + [f"#define OT_MOD_{i} 1" for i in ids]
     changed |= write_if_changed(os.path.join(out, "ot_profile.h"), "\n".join(h) + "\n")

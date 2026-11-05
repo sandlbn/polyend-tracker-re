@@ -26,6 +26,7 @@ namespace ot {
 namespace audio {
 class ISynthEngine;
 class IMasterInsert;
+class IEffect;
 }
 namespace mod {
 struct SynthDescriptor;   // modules/synth_descriptor.h
@@ -42,6 +43,7 @@ enum : uint32_t {
     kCapSection = 1u << 2,           // section(): data saved with the project (project.ot3x)
     kCapMasterInsert = 1u << 3,      // masterInsert(): an effect on the master bus (audio/inserts.h)
     kCapPage = 1u << 4,              // page(): a settings page in the Master cycle (modules/module_ui.h)
+    kCapEffect = 1u << 5,            // effect(i): per-instance effects (audio/inserts.h IEffect)
 };
 
 // Module data saved with the project: one chunk of the project sidecar
@@ -96,6 +98,12 @@ public:
     virtual audio::IMasterInsert* masterInsert() { return nullptr; }
     // Settings page (kCapPage), or nullptr.
     virtual IModulePage* page() { return nullptr; }
+    // [3.x] The i-th per-instance effect (kCapEffect; i = 0, 1, ...), nullptr
+    // past the end. Singletons: the caller owns each instance's memory.
+    virtual audio::IEffect* effect(int i) {
+        (void)i;
+        return nullptr;
+    }
 };
 
 using ModuleFactory = IModule& (*)();
@@ -126,6 +134,12 @@ public:
     // Master inserts of the profile's modules, in module order (a chain).
     int masterInserts(audio::IMasterInsert** out, int cap);
     audio::IMasterInsert* masterInsert();   // the first, or nullptr
+    // [3.x] Per-instance effects of the profile's modules, in module order (no
+    // table: walked per call, main loop). A module repeating an effect id or
+    // over the IEffect limits is refused at init.
+    int effectCount();
+    audio::IEffect* effectAt(int k);
+    audio::IEffect* effectById(const char* id);
     // Host builds (tests): register one more module after init().
     bool addForTest(IModule& m);
     // Id of the last module refused at init ("" = none).
@@ -137,6 +151,10 @@ public:
     // attach() only (main loop); never freed. Audio use: block spans only
     // (the rule above).
     void* sdram(uint32_t bytes);
+    // [3.x] The core's synth slot insert lines (one kEffectWorkMax line per
+    // slot), reserved once at init after the modules (images with slot
+    // inserts; else nullptr).
+    void* slotInsertLines() const { return insertLines_; }
     uint32_t sdramUsed() const { return sdram_.used; }
     uint32_t sdramSize() const { return sdram_.size; }
     struct SdramArena {
@@ -152,6 +170,7 @@ public:
 
 private:
     bool descriptorsOk(const IModule& m) const;
+    bool effectsOk(IModule& m);
     IModule* mods_[kMaxModules] = {};
     const SynthDescriptor* desc_[kMaxEngines] = {};
     int n_ = 0;
@@ -159,6 +178,7 @@ private:
     bool inited_ = false;
     char refused_[5] = {};
     SdramArena sdram_ = {nullptr, 0, 0};   // the profile's block from init() (constant-initialised)
+    void* insertLines_ = nullptr;
     static SdramArena profileSdram();
 };
 

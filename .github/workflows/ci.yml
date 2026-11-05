@@ -136,12 +136,23 @@ jobs:
         run: |
           make -j"$(nproc)"
           cp build/full/opentracker.elf "$RUNNER_TEMP/head.elf"
+      # A PR that changes the module interface needs the module repositories
+      # as they are now; the base may no longer build against them. Then
+      # there is no base to compare with: the report is skipped, not failed.
       - name: Build the base
+        id: base
         run: |
           git worktree add "$RUNNER_TEMP/base" "${{ github.event.pull_request.base.sha }}"
-          make -C "$RUNNER_TEMP/base" -j"$(nproc)"
-          cp "$RUNNER_TEMP/base/build/full/opentracker.elf" "$RUNNER_TEMP/base.elf"
+          if make -C "$RUNNER_TEMP/base" -j"$(nproc)" > "$RUNNER_TEMP/base.log" 2>&1; then
+            cp "$RUNNER_TEMP/base/build/full/opentracker.elf" "$RUNNER_TEMP/base.elf"
+            echo "built=1" >> "$GITHUB_OUTPUT"
+          else
+            grep -m3 "error:" "$RUNNER_TEMP/base.log" || true
+            echo "::notice::The base does not build against the current module repositories (module interface changed); no memory report."
+            echo "Memory report skipped: the base does not build against the current module repositories." >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Memory report
+        if: steps.base.outputs.built == '1'
         run: |
           python3 tools/size_report.py "$RUNNER_TEMP/base.elf" "$RUNNER_TEMP/head.elf" \
             --size-tool arm-none-eabi-size | tee -a "$GITHUB_STEP_SUMMARY"

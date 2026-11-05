@@ -30,6 +30,7 @@ enum : uint16_t {
 enum : uint16_t {
     kTagInfo = 0x0001,        // u8 synthSlots, u8 rsv[3]
     kTagSlotEngine = 0x0007,  // SlotEngine (16 B)
+    kTagSlotInsert = 0x0008,  // SlotInsert (16 B), not critical
     kTagMods = 0x0010,        // n x ModEntry (8 B)
     kTagModuleFirst = 0x4000, // module chunks: ModuleChunkHeader + payload
     kTagModuleLast = 0x7FFF,
@@ -45,6 +46,15 @@ struct SlotEngine {   // kTagSlotEngine payload, little endian
     uint16_t rsv2;
 };
 static_assert(sizeof(SlotEngine) == 16, "SlotEngine layout");
+
+struct SlotInsert {   // kTagSlotInsert payload: a synth slot's insert effect
+    uint8_t slot;
+    uint8_t rsv;
+    char effectId[4];       // IEffect::id()
+    uint8_t set[6];         // its settings (audio::EffectSettings)
+    uint8_t rsv2[4];
+};
+static_assert(sizeof(SlotInsert) == 16, "SlotInsert layout");
 
 struct ModEntry {   // kTagMods entry
     char id[4];
