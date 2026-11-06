@@ -177,6 +177,39 @@ TEST(record_edits_apply_live) {
     (void)s;
 }
 
+TEST(macro_label_shows_the_fx_override) {
+    // User report: an FX CC moved M1 (its bar yellow) while the label under F1
+    // kept the page value. The label follows the bar, and Stop returns it.
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    audio::SynthBank& bank = a.engine.synth();
+    SynthSlotRecord r = a.synthSlot(1);
+    r.macros[0] = 0;
+    a.setSynthSlotRecord(1, r);
+    h.audio.pump(1);
+    const int page = int(a.synthSlot(1).macros[0]);
+    char want[8];
+    bank.macroFx(1, 0, 100);
+    h.audio.pump(1);
+    h.run(40);
+    const bool bi = a.synthPatch(1).macros[0].bipolar;
+    std::snprintf(want, sizeof(want), "%d", bi ? 100 - 63 : 100);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    bank.macroFx(1, 0, 40);     // and it keeps moving, with no key pressed
+    h.audio.pump(1);
+    h.run(40);
+    std::snprintf(want, sizeof(want), "%d", bi ? 40 - 63 : 40);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    bank.transportStop();
+    h.audio.pump(1);
+    h.run(40);
+    std::snprintf(want, sizeof(want), "%d", bi ? page - 63 : page);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), page);   // the page value was never written
+}
+
 TEST(macro_edit_takes_over_from_fx_override) {
     // User report: after an FX CC a set M1 during playback, M1 stayed yellow
     // and turning it did nothing until Stop. A hand edit (encoder, Up/Down,

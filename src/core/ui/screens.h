@@ -1027,6 +1027,7 @@ public:
     const char* name() const override { return "Synth"; }
     void start(int opt) override;   // opt 1..3 = slot (0: keep)
     void stop() override;
+    void update(uint32_t now) override;   // Macros page: an FX CC moved a value
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
@@ -1050,6 +1051,7 @@ public:
     int insFocus = 0;       // Insert: 0 the insert list (F1), 1..6 its settings (F2..F7)
     int slot = 0;           // 0..2
     int param = 0;          // Params page: F1..F6 (0 model .. 5 delay send)
+    uint32_t shownMacros_ = 0;   // a hash of what the Macros page shows
     int macro = 0;          // Macros page: M1..M6
     int section = 0;        // Edit: section index
     int row = 0;            // Edit: row in the section
