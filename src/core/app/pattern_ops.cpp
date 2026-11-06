@@ -166,6 +166,17 @@ void paste(Pattern& dst, const Pattern& clip, const SelRect& src, int dstStep, i
     }
 }
 
+void pasteFxColumn(Pattern& dst, const Pattern& clip, const SelRect& src, int dstStep, int dstTrack, int fromFx, int toFx) {
+    for (int ti = 0; ti <= src.t1 - src.t0 && dstTrack + ti < kTrackCount; ++ti) {
+        const int dlen = dst.tracks[dstTrack + ti].length();
+        for (int si = 0; si <= src.s1 - src.s0; ++si) {
+            const int ds = dstStep + si;
+            if (ds >= kStepCount || ds >= dlen) break;
+            dst.tracks[dstTrack + ti].steps[ds].fx[toFx] = clip.tracks[src.t0 + ti].steps[src.s0 + si].fx[fromFx];
+        }
+    }
+}
+
 void invert(Pattern& p, const SelRect& r, ColMode m) {
     if (!validRect(r)) return;
     for (int t = r.t0; t <= r.t1; ++t)

@@ -690,13 +690,19 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
                 const SelRect t = target();
                 const SelRect& src = a.clipRect();
                 const ColMode m = heldColMode(false);
-                pops::paste(a.pattern(), a.clipboard(), src, t.s0, t.t0, m, a.currentInstrument());
+                // Copied on one FX column, pasted on the other: only that FX crosses over.
+                const int from = a.clipColumn();
+                if ((from == 2 || from == 3) && (col == 2 || col == 3) && from != col &&
+                    (m == ColMode::All || m == ColMode::Fx1 || m == ColMode::Fx2))
+                    pops::pasteFxColumn(a.pattern(), a.clipboard(), src, t.s0, t.t0, from - 2, col - 2);
+                else
+                    pops::paste(a.pattern(), a.clipboard(), src, t.s0, t.t0, m, a.currentInstrument());
                 a.patternEdited();
                 step = t.s0;
                 track = t.t0;
                 if (m != ColMode::Pattern) advance(src.rows() - 1);
             } else {
-                a.copyToClipboard(target());
+                a.copyToClipboard(target(), col);
                 ui_.notify("Copied");
             }
             break;
