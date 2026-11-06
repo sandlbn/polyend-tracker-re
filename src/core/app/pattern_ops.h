@@ -39,6 +39,8 @@ void insertRows(Pattern& p, const SelRect& r);
 bool backspaceRows(Pattern& p, const SelRect& r);
 void paste(Pattern& dst, const Pattern& clip, const SelRect& src, int dstStep, int dstTrack, ColMode m,
            uint8_t curInstr);
+// One FX column of the copied cells into the other FX column (0 / 1 = FX 1 / 2); the rest stays.
+void pasteFxColumn(Pattern& dst, const Pattern& clip, const SelRect& src, int dstStep, int dstTrack, int fromFx, int toFx);
 void invert(Pattern& p, const SelRect& r, ColMode m);
 bool duplicate(Pattern& p);
 bool expand(Pattern& p);

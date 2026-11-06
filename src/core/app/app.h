@@ -287,7 +287,9 @@ public:
     bool redoEdit();
 
     // Clipboard (spec 06 §1.4 Copy / §1.11).
-    void copyToClipboard(const SelRect& r);
+    // col: the cursor's column at the copy (Pattern screen, 2 / 3 = FX 1 / 2), -1 none.
+    void copyToClipboard(const SelRect& r, int col = -1);
+    int clipColumn() const { return clipCol_; }
     bool clipboardValid() const { return clipValid_; }
     const SelRect& clipRect() const { return clipRect_; }
     const Pattern& clipboard() const { return *mem_.clipboard; }
@@ -801,6 +803,7 @@ private:
     bool unsaved_ = false, neverSaved_ = true;
     bool clipValid_ = false;
     SelRect clipRect_;
+    int8_t clipCol_ = -1;
     uint32_t lastAutosave_ = 0;
     uint32_t lastConfigSave_ = 0;
     volatile bool rendering_ = false;
