@@ -455,10 +455,11 @@ TEST(validation_ranges) {
     CHECK(patchParamInRange(kSynthEngineAcd, 9, 20000.0f));
     CHECK(!patchParamInRange(kSynthEngineAcd, 9, 20001.0f));
     CHECK(!patchParamInRange(kSynthEngineAcd, 0, NAN));
-    // 29 is ACD's [OT] Width (extension parameter, 0..1); 30 is past the end.
+    // 29 and 30 are ACD's [OT] Width and Spread (extension parameters, 0..1); 31 is past the end.
     CHECK(patchParamInRange(kSynthEngineAcd, 29, 0.0f));
     CHECK(!patchParamInRange(kSynthEngineAcd, 29, 1.5f));
-    CHECK(!patchParamInRange(kSynthEngineAcd, 30, 0.0f));
+    CHECK(patchParamInRange(kSynthEngineAcd, 30, 0.0f));
+    CHECK(!patchParamInRange(kSynthEngineAcd, 31, 0.0f));
     CHECK(!patchParamInRange(3, 0, 0.0f));
     // MINI_PLAN corrections.
     CHECK(patchParamInRange(kSynthEngineVap, 27, 37.5f));

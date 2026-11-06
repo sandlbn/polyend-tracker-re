@@ -1646,7 +1646,7 @@ TEST(wtfm_ratio_shows_its_value) {
     CHECK_STR(t, "1000 %");
 }
 
-// Stereo S3: Width is the last row of the Voice section (ACD, FAT, VAP, WTFM),
+// Stereo S3: Width and Spread are the last rows of the Voice section (ACD, FAT, VAP, WTFM),
 // FAT Stereo the last row of FAT's Osc section. The rows edit, show and reset
 // like any other; macros cannot target them; PERC has neither.
 TEST(width_and_stereo_rows) {
@@ -1664,11 +1664,13 @@ TEST(width_and_stereo_rows) {
             if (sec[i].macro < 0 && std::strcmp(sec[i].name, "Voice") == 0) voice = i;
         CHECK(voice >= 0);
         if (voice < 0) continue;
-        CHECK_EQ(int(sec[voice].params[sec[voice].count - 1]), wi);
+        CHECK_EQ(int(sec[voice].params[sec[voice].count - 1]), audio::synthSpreadParam(eng));   // Spread, last
+        CHECK_EQ(int(sec[voice].params[sec[voice].count - 2]), wi);
         h.tap(btn::F8);   // Edit view
         s.section = voice;
-        s.row = sec[voice].count - 1;
+        s.row = sec[voice].count - 2;
         CHECK(frameHas(h, "Width"));
+        CHECK(frameHas(h, "Spread"));
         CHECK(frameHas(h, "0 %"));
         h.enc(25);
         CHECK(audio::synthParamGet(a.synthPatch(1), wi) > 0.2f);

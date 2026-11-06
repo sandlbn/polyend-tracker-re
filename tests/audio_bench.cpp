@@ -26,6 +26,7 @@
 //             saturation, side-chain limiter, line-in with sends
 //   synth4    2.x synth framework: 4 voices of the internal test engine
 //   synth4w   synth4 with Width 1 (stereo S2 slot widener)
+//   synth4s   synth4 with Spread 1 (a stereo place per voice)
 //   synth4i   synth4 with the image's first effect as Synth 1's slot insert
 //             (images with slot inserts); synth.ins = synth4i - synth4, one
 //             insert incl. its SDRAM line copies
@@ -1308,6 +1309,19 @@ int main(int argc, char** argv) {
         r.eng->synth().patchChanged(0);
         for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
         report("synth4w", timeBlocks(r, 2000, lineNoise));
+    }
+    {   // synth4s: synth4 with the slot's [3.x] Spread at 1 (a place per voice)
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        rc.reverbSend = 40.0f;
+        synthParamSet(gSynthPatch, synthSpreadParam(kSynthEngineAcd), 1.0f);
+        r.eng->synth().setSlotRecord(0, rc);
+        r.eng->synth().patchChanged(0);
+        for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+        report("synth4s", timeBlocks(r, 2000, lineNoise));
     }
 #endif
     for (int i = 0; i < kBlock * 2; ++i) gLineNoise[i] = lineNoise[i];
