@@ -236,11 +236,12 @@ void SynthScreen::refreshBar() {
         }
         case View::Macros: {
             const SynthPatch& p = app_.synthPatch(slot);
+            const audio::SynthSlotView sv = app_.engine.synth().slotView(slot);
             for (int k = 0; k < audio::kSynthSeqMacros; ++k) {
                 char top[24];
                 std::snprintf(top, sizeof(top), "M%d %s", k + 1, shown(p.macros[k].name));
                 fit(top, kFont3, 92);
-                const int val = r.macros[k];
+                const int val = sv.overridden[k] ? sv.macro[k] : r.macros[k];   // as the bar: an FX CC override
                 if (p.macros[k].bipolar) std::snprintf(v, sizeof(v), "%d", val - 63);
                 else std::snprintf(v, sizeof(v), "%d", val);
                 b.set(k, top, v, !ro);
@@ -1128,6 +1129,20 @@ void SynthScreen::drawBrowser(Gfx& g) {
     v.ctx = this;
     wg::list(g, th, v);
     if (!browserCount) g.text(wg::kRightPopupX + 100, 60, kFont3, th.slot(slot::kBottomLabel), "No patches", IDisplay::kOptCenter);
+}
+
+void SynthScreen::update(uint32_t now) {
+    Screen::update(now);
+    if (view != View::Macros) return;
+    const SynthSlotRecord r = app_.synthSlot(slot);
+    const audio::SynthSlotView sv = app_.engine.synth().slotView(slot);
+    uint32_t shown = 0;
+    for (int k = 0; k < audio::kSynthSeqMacros; ++k)
+        shown = shown * 257u + (sv.overridden[k] ? 128u + sv.macro[k] : r.macros[k]);
+    if (shown != shownMacros_) {
+        shownMacros_ = shown;
+        ui_.dirty();
+    }
 }
 
 void SynthScreen::draw(Gfx& g) {
