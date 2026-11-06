@@ -63,6 +63,15 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     ext_.attach(mem_.extTracks, mem_.extTrackBlocks - 1, mem_.extMeta);
     // Compiled-in modules (synth engines, docs/PLAN_3X.md §7) before audio starts.
     mod::ModuleHost::instance().init();
+    // [I] #21: Modules/*.otm from the card, after the compiled-in ones and
+    // before the engine takes the master inserts. The sample memory holds one
+    // file at a time (nothing is loaded into it yet) and is cleared after.
+    if (hal_.modulePool && mem_.sampleBank) {
+        uint8_t* scratch = reinterpret_cast<uint8_t*>(mem_.sampleBank);
+        const uint32_t cap = mem_.sampleBankSamples * 2u < 256u * 1024u ? mem_.sampleBankSamples * 2u : 256u * 1024u;
+        mod::loadModuleFiles(*hal_.storage, *hal_.modulePool, scratch, cap, &moduleLoad_);
+        std::memset(scratch, 0, cap);
+    }
     // spec 04: delay/reverb memory and the sample pool are caller-provided (SDRAM).
     if (!engine.init(mem_.fxMemory, mem_.fxSamples, mem_.sampleBank, mem_.sampleBankSamples, instruments))
         return false;

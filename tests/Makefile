@@ -89,7 +89,7 @@ build: $(TEST_BINS)
 OT_VENDOR_FIXTURES ?= $(abspath $(CURDIR)/../../fixtures/vendor)
 
 run: $(TEST_BINS)
-	@mkdir -p $(OUT)/snapshots; set -e; for t in $(TEST_BINS); do OT_SNAPSHOT_DIR=$(abspath $(OUT))/snapshots OT_FIXTURES=$(CURDIR)/fixtures OT_VENDOR_FIXTURES=$(OT_VENDOR_FIXTURES) $$t; done
+	@mkdir -p $(OUT)/snapshots; set -e; for t in $(TEST_BINS); do OT_SNAPSHOT_DIR=$(abspath $(OUT))/snapshots OT_OTM_DIR=$(abspath ../build/$(PROFILE)/otm) OT_FIXTURES=$(CURDIR)/fixtures OT_VENDOR_FIXTURES=$(OT_VENDOR_FIXTURES) $$t; done
 
 # Audio render benchmark (tests/audio_bench.cpp): -O2, no sanitizers.
 BENCH_OUT := ../build/$(PROFILE)/bench

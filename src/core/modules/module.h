@@ -142,6 +142,10 @@ public:
     audio::IEffect* effectById(const char* id);
     // Host builds (tests): register one more module after init().
     bool addForTest(IModule& m);
+    // [I] A module loaded from the card (modules/module_files.h, fork #21),
+    // after init() and before the audio engine takes the master inserts: the
+    // same checks as init(); false = refused (refused() names it).
+    bool addLoaded(IModule& m);
     // Id of the last module refused at init ("" = none).
     const char* refused() const { return refused_; }
     // [3.x] Module memory in the SDRAM (docs/PLAN_TECHNO.md E1): `bytes` from

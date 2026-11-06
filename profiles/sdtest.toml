@@ -1,0 +1,21 @@
+# [I] Fork #21 device spike: the full profile without Tape, which loads from the card
+# instead (make otm OTM_MODULE=../opentracker-fx/modules/tape; copy it to Modules/).
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "sdtest"
+variant = "s"                 # image PolyendTrackerOTs<ver>.ptf (24 characters)
+display_name = "SD test"      # shown with the version: boot splash, Config, diag log
+flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+slot_inserts = false           # no synth slot inserts: the stack headroom has no room for their state
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "VAP1", path = "modules/vap" },
+    { id = "PRC1", path = "modules/perc" },
+    { id = "WTF1", path = "modules/wtfm" },
+    # FM4S (module engine 0x80) is in the IDM image, not here: its ~7 KB of flash
+    # go to the slot inserts.
+    # Effects (opentracker-fx, next to opentracker-synths): master inserts run in this order.
+    { id = "CHOR", path = "../opentracker-fx/modules/chorus" },
+    { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
+]
