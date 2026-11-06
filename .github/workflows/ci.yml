@@ -1,6 +1,6 @@
-# Host unit tests, headless simulator checks, the firmware build with the
-# flash / stack-headroom / libm checks, and the .ptf image as a downloadable
-# artifact.
+# Host unit tests, headless simulator checks, the FT81x emulator replay of the
+# display budget frames, the firmware build with the flash / stack-headroom /
+# libm checks, and the .ptf image as a downloadable artifact.
 # On pull requests also a memory report: flash, SRAM, SDRAM and stack
 # headroom of the PR against its base, in the run's summary.
 name: CI

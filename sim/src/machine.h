@@ -14,6 +14,7 @@
 #include "host_hal.h"
 #include "host_midi.h"
 #include "host_storage.h"
+#include "remote/display_tap.h"
 #include "sdl_audio.h"
 #include "sim_nvstore.h"
 #include "sim_usb_storage.h"
@@ -33,6 +34,7 @@ struct MachineOptions {
     int audioBuffer = 0;       // SDL device buffer in frames (0 = SdlAudio default)
     std::string audioOut;      // SDL output device name (empty = system default)
     bool usbStorage = true;    // false: HalRefs::usbStorage null (USB Storage mode "not available")
+    bool frames = false;       // headless --frames: record the display for "budget" (tools/eve_emu)
 };
 
 struct Machine {
@@ -78,6 +80,8 @@ struct Machine {
     std::vector<uint8_t> scratch;
     std::unique_ptr<ot::PerfPatternMemory> perfPatterns;
     SimNvStore nvstore;   // config EEPROM stand-in (sim: "<sd>.eeprom" next to the SD folder)
+    std::unique_ptr<ot::remote::DisplayTap> tap;   // --frames: the display recorder
+    std::vector<uint8_t> tapBuf;
 
     // demo state
     std::string demoLog[8];

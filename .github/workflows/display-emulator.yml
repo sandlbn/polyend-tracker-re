@@ -1,0 +1,110 @@
+# RAM_DL on Bridgetek's FT81x emulator: the display budget script's frames
+# replayed under Wine (`make -C sim eve-check`, tools/eve_emu). Fails on a
+# coprocessor fault, more than 2048 RAM_DL words, or a frame the UI's count
+# got wrong. The emulator DLL is downloaded at a pinned commit and checked
+# by SHA-256 (Bridgetek's licence: not redistributed here).
+# The sim-check job already holds every screen to the budget with the UI's own
+# count; this cross-checks that count on the chip model, so it runs only when
+# drawing code, fonts, the simulator or the replay tools change (and on v2 and
+# by hand).
+name: Display emulator
+
+on:
+  push:
+    branches: [v2]
+    paths:
+      - 'src/core/ui/**'
+      - 'src/core/remote/display_tap.*'
+      - 'src/core/hal_api.h'
+      - 'sim/**'
+      - 'tools/eve_emu/**'
+      - '.github/workflows/display-emulator.yml'
+  pull_request:
+    paths:
+      - 'src/core/ui/**'
+      - 'src/core/remote/display_tap.*'
+      - 'src/core/hal_api.h'
+      - 'sim/**'
+      - 'tools/eve_emu/**'
+      - '.github/workflows/display-emulator.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: display-emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  display-emulator:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
+    steps:
+      - uses: actions/checkout@v5
+      - name: Cache apt packages
+        # The package lists and .debs of the install below: a hit installs
+        # without the mirror (a stalled mirror has held this job for its
+        # whole limit).
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-cache
+          key: apt-${{ runner.os }}-emu-${{ hashFiles('.github/workflows/display-emulator.yml') }}
+          restore-keys: apt-${{ runner.os }}-emu-
+      - name: Install GCC 14, SDL2, Wine and MinGW
+        # Only what the replay needs: 64-bit Wine running a console program and
+        # the x86-64 MinGW compiler. No recommends (fonts, GStreamer, GL: most
+        # of Wine's ~200 packages and ~8 min). apt keeps its lists and .debs in
+        # ~/apt-cache: with a restored cache it installs from there, otherwise
+        # (or if that fails) update + install is tried up to three times, with
+        # timeouts that fit the step's limit.
+        timeout-minutes: 12
+        run: |
+          cache="$HOME/apt-cache"
+          mkdir -p "$cache/archives/partial" "$cache/lists/partial"
+          apt_opts="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          apt_opts="$apt_opts -o Dir::Cache::Archives=$cache/archives -o Dir::State::Lists=$cache/lists"
+          apt_opts="$apt_opts -o APT::Keep-Downloaded-Packages=true -o Binary::apt::APT::Keep-Downloaded-Packages=true"
+          pkgs="g++-14 libsdl2-dev pkg-config wine wine64 g++-mingw-w64-x86-64"
+          install() { sudo DEBIAN_FRONTEND=noninteractive timeout 120 apt-get $apt_opts install -y --no-install-recommends $pkgs; }
+          ok() { sudo chown -R "$(id -u):$(id -g)" "$cache"; exit 0; }   # actions/cache saves it as the runner user
+          if ls "$cache"/lists/*_Packages* > /dev/null 2>&1; then
+            install && ok
+            echo "::warning::install from the apt cache failed, updating"
+          fi
+          for attempt in 1 2 3; do
+            sudo timeout 120 apt-get $apt_opts update && install && ok
+            echo "::warning::apt attempt $attempt failed, retrying"
+          done
+          exit 1
+      - name: Cache the emulator download
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/eve_emu/*.dll
+            build/eve_emu/*.h
+          key: eve-emu-${{ hashFiles('tools/eve_emu/check.py') }}
+      - name: Emulator replay
+        run: |
+          set -o pipefail
+          wineboot --init > /dev/null 2>&1 || true
+          status=0
+          make -C sim -j"$(nproc)" eve-check CXX=g++-14 2>&1 | tee eve-check.log || status=$?
+          {
+            echo '### FT81x emulator replay'
+            echo '```'
+            sed -n '/^dir  *frame/,$p' eve-check.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" != 0 ]; then
+            # The sim's ALSA noise (no sound card on the runner) is not the error: the last lines are.
+            grep -v "^ALSA lib" eve-check.log | tail -15 | while IFS= read -r line; do echo "::error::${line}"; done
+            exit 1
+          fi
+      - name: Upload the frames
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eve-frames-${{ github.sha }}
+          path: build/sim/eve
+          if-no-files-found: ignore

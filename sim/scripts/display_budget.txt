@@ -187,6 +187,26 @@ fragcheck synth3-load-play
 tap F7
 tap PLAY
 wait 100
+# MIDI 1's Parameters page: CC A-F as six 131-item lists (~2,100 words with
+# CMD_TEXT rows: every frame faulted on 2.2.1-2.2.3).
+tap PATTERN
+wait 200
+press INSTR
+wait 400
+enc -70
+enc 51               # MIDI 1 (the list: Synth 1-3, samples 1-48, MIDI 1-16)
+release INSTR
+wait 100
+tap MASTER           # not from Pattern
+wait 200
+tap INSTRPARAMS
+wait 200
+budget-reset
+wait 300
+budget midi-cc 1900
+fragcheck midi-cc
+tap PATTERN
+wait 200
 # ROM font fallback (docs/OPTIMIZATION_2X.md OP-6): custom fonts unbound, as
 # after a failed font upload. Each screen must look the same with the ROM-font
 # runs drawn as CMD_TEXT and as VERTEX2II glyphs ("romcheck"), stay within the

@@ -13,6 +13,7 @@
 #include "canvas.h"
 #include "panel.h"
 #include "png.h"
+#include "ui/gfx.h"
 #include "ui/screens.h"
 
 namespace sim {
@@ -64,6 +65,63 @@ bool Headless::budget(const std::string& name, long maxWords, int line) {
                  ok ? "" : "  <-- OVER BUDGET");
     if (!ok) std::fprintf(stderr, "script:%d: display budget exceeded for %s\n", line, name.c_str());
     maxUpload = maxDl = budgetFrames = 0;
+    if (!framesDir.empty() && !saveFrame(name, line)) return false;
+    return ok;
+}
+
+// --frames: the current screen drawn once more with the fragment cache off
+// (the recorded stream has no RAM_G copies) into DIR/NAME.otf; DIR/index.txt
+// gets "NAME words" with the UI's RAM_DL count of that frame (driver font
+// setup not included). With custom fonts also DIR/NAME.text.otf: the same
+// screen with its text as CMD_TEXT (kCustomText, the guard lifted), the
+// pixel reference for the glyph runs.
+bool Headless::captureFrame(const std::string& path, int line) {
+    ot::remote::DisplayTap* t = m.tap.get();
+    ot::Ui& ui = m.app->ui;
+    const bool was = ui.fragments.enabled;
+    ui.fragments.enabled = false;
+    t->request();
+    t->arm();
+    ui.render();
+    ui.fragments.enabled = was;
+    bool got = t->ready() && !t->truncated();
+    if (got) {
+        FILE* f = std::fopen(path.c_str(), "wb");
+        got = f && std::fwrite(t->frame(), 1, t->frameBytes(), f) == t->frameBytes();
+        if (f) std::fclose(f);
+        if (!got) std::fprintf(stderr, "script:%d: cannot write %s\n", line, path.c_str());
+    } else {
+        std::fprintf(stderr, "script:%d: frame %s not recorded%s\n", line, path.c_str(),
+                     t->truncated() ? " (cut)" : "");
+    }
+    t->release();
+    return got;
+}
+
+bool Headless::saveFrame(const std::string& name, int line) {
+    if (!m.app || !m.tap) return true;
+    ot::Ui& ui = m.app->ui;
+    bool ok = captureFrame(framesDir + "/" + name + ".otf", line);
+    const uint32_t words = ui.lastDlWords();
+    if (ok && ot::customFontsBound() && ot::customTextMode() == ot::kCustomGlyphs) {
+        const uint32_t limit = ui.dlFrameLimit();
+        ui.setDlFrameLimit(0);
+        ot::setCustomTextMode(ot::kCustomText);
+        ok = captureFrame(framesDir + "/" + name + ".text.otf", line);
+        ot::setCustomTextMode(ot::kCustomGlyphs);
+        ui.setDlFrameLimit(limit);
+        // The display shows the last frame sent: leave it showing the
+        // screen as drawn (a following fragcheck reads the front buffer).
+        ui.render();
+        advance(20);
+    }
+    if (ok) {
+        if (FILE* ix = std::fopen((framesDir + "/index.txt").c_str(), "a")) {
+            std::fprintf(ix, "%s %u\n", name.c_str(), unsigned(words));
+            std::fclose(ix);
+        }
+    }
+    seenFrames = ui.frames();
     return ok;
 }
 
