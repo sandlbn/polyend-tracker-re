@@ -757,3 +757,26 @@ TEST(fx_copy_paste_the_column_is_forgotten_by_copy_pattern) {
     f.paste();
     CHECK_EQ(int(f.cell(0, 4).note), 60);   // the whole step
 }
+
+TEST(stop_clears_the_queued_pattern_on_f1) {
+    Harness h;
+    App& a = *h.app;
+    pe(h);
+    const int num = a.patternNumber();
+    char cur[8];
+    std::snprintf(cur, sizeof(cur), "%d", num);
+    h.tap(btn::Play);
+    h.audio.pump(4);
+    h.down(btn::F1);
+    h.tap(btn::Right);
+    h.up(btn::F1);
+    CHECK(a.seq.isPlaying());
+    CHECK(a.seq.queuedPattern() != 0);
+    h.tap(btn::Play);           // stop
+    CHECK(!a.seq.isPlaying());
+    CHECK_EQ(a.seq.queuedPattern(), 0);
+    for (int k = 0; k < 8; ++k) h.run(100);   // past several 200 ms blinks
+    CHECK_STR(a.ui.bar.label[0].bottom, cur);
+    CHECK_EQ(a.patternNumber(), num);
+    CHECK(!a.ui.bar.label[0].highlight);
+}
