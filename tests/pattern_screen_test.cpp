@@ -538,3 +538,159 @@ TEST(fx_help_ends_with_the_range) {
     CHECK(std::strstr(fxHelpText(uint8_t(FxId::BitDepth)), "From 4 to 16") != nullptr);
     CHECK(std::strstr(fxHelpText(uint8_t(FxId::None)), "From") == nullptr);   // no range
 }
+
+// Copy with the cursor on one FX column and Paste with it on the other: only the
+// FX crosses over (the note, the instrument and the source column stay). The same
+// column, and a copy from any other column, paste as always.
+namespace {
+struct FxPaste {
+    Harness h;
+    App& a;
+    PatternScreen& p;
+    FxPaste() : a(*h.app), p(pe(h)) {
+        h.tap(btn::Rec);
+        Step& s = cell(0, 0);
+        s.note = 60;
+        s.instrument = 3;
+        s.fx[0] = StepFx{18, 40};
+        s.fx[1] = StepFx{};
+    }
+    Step& cell(int t, int st) { return a.pattern().tracks[t].steps[st]; }
+    void paste() {
+        h.down(btn::Shift);
+        h.tap(btn::Copy);
+        h.up(btn::Shift);
+    }
+    bool same(const StepFx& x, int type, int value) { return x.type == type && x.value == value; }
+};
+}  // namespace
+
+TEST(fx_copy_paste_fx1_to_fx2_on_the_same_step) {
+    FxPaste f;
+    f.h.tap(btn::Fx1);
+    f.h.tap(btn::Copy);
+    f.h.tap(btn::Fx2);
+    f.paste();
+    CHECK(f.same(f.cell(0, 0).fx[1], 18, 40));
+    CHECK(f.same(f.cell(0, 0).fx[0], 18, 40));
+    CHECK_EQ(int(f.cell(0, 0).note), 60);
+    CHECK_EQ(int(f.cell(0, 0).instrument), 3);
+    // Undo takes it back.
+    CHECK(f.a.undoEdit());
+    CHECK(f.same(f.cell(0, 0).fx[1], 0, 0));
+}
+
+TEST(fx_copy_paste_fx2_to_fx1_and_with_the_key_held) {
+    {
+        FxPaste f;
+        f.cell(0, 0).fx[1] = StepFx{5, 9};
+        f.h.tap(btn::Fx2);
+        f.h.tap(btn::Copy);
+        f.h.tap(btn::Fx1);
+        f.paste();
+        CHECK(f.same(f.cell(0, 0).fx[0], 5, 9));
+        CHECK(f.same(f.cell(0, 0).fx[1], 5, 9));
+    }
+    {   // The target column's key held through the paste: the same.
+        FxPaste f;
+        f.h.tap(btn::Fx1);
+        f.h.tap(btn::Copy);
+        f.h.down(btn::Fx2);
+        f.paste();
+        f.h.up(btn::Fx2);
+        CHECK(f.same(f.cell(0, 0).fx[1], 18, 40));
+    }
+}
+
+TEST(fx_copy_paste_to_another_step_and_track_leaves_the_rest) {
+    FxPaste f;
+    f.cell(2, 5).note = 72;
+    f.cell(2, 5).fx[0] = StepFx{7, 7};
+    f.cell(2, 5).fx[1] = StepFx{9, 9};
+    f.h.tap(btn::Fx1);
+    f.h.tap(btn::Copy);
+    f.p.track = 2;
+    f.p.step = 5;
+    f.h.tap(btn::Fx2);
+    f.paste();
+    CHECK(f.same(f.cell(2, 5).fx[1], 18, 40));
+    CHECK(f.same(f.cell(2, 5).fx[0], 7, 7));
+    CHECK_EQ(int(f.cell(2, 5).note), 72);
+    // An empty source column clears the target: a paste overwrites.
+    FxPaste g;
+    g.cell(1, 1).fx[0] = StepFx{4, 4};
+    g.h.tap(btn::Fx2);
+    g.h.tap(btn::Copy);     // step 0's FX 2 is empty
+    g.p.track = 1;
+    g.p.step = 1;
+    g.h.tap(btn::Fx1);
+    g.paste();
+    CHECK(g.same(g.cell(1, 1).fx[0], 0, 0));
+}
+
+TEST(fx_copy_paste_a_selection_across) {
+    FxPaste f;
+    for (int s = 0; s < 3; ++s) f.cell(0, s).fx[0] = StepFx{uint8_t(10 + s), uint8_t(20 + s)};
+    f.cell(0, 3).fx[1] = StepFx{6, 6};
+    f.h.tap(btn::Fx1);
+    f.h.down(btn::Shift);
+    f.h.tap(btn::Down);
+    f.h.tap(btn::Down);
+    f.h.up(btn::Shift);
+    f.h.tap(btn::Copy);
+    f.h.tap(btn::Left);    // collapse the selection
+    f.p.step = 0;
+    f.h.tap(btn::Fx2);
+    f.paste();
+    for (int s = 0; s < 3; ++s) CHECK(f.same(f.cell(0, s).fx[1], 10 + s, 20 + s));
+    CHECK(f.same(f.cell(0, 3).fx[1], 6, 6));   // past the selection: untouched
+}
+
+TEST(fx_copy_paste_same_column_and_other_columns_as_before) {
+    {   // The same column: the whole step.
+        FxPaste f;
+        f.h.tap(btn::Fx1);
+        f.h.tap(btn::Copy);
+        f.p.step = 4;
+        f.paste();
+        CHECK_EQ(int(f.cell(0, 4).note), 60);
+        CHECK(f.same(f.cell(0, 4).fx[0], 18, 40));
+    }
+    {   // From the Note column: the whole step, on an FX column too.
+        FxPaste f;
+        f.h.tap(btn::Note);
+        f.h.tap(btn::Copy);
+        f.p.step = 4;
+        f.h.tap(btn::Fx2);
+        f.paste();
+        CHECK_EQ(int(f.cell(0, 4).note), 60);
+        CHECK(f.same(f.cell(0, 4).fx[0], 18, 40));
+        CHECK(f.same(f.cell(0, 4).fx[1], 0, 0));
+    }
+    {   // To the Note column from an FX column: the whole step.
+        FxPaste f;
+        f.h.tap(btn::Fx1);
+        f.h.tap(btn::Copy);
+        f.p.step = 4;
+        f.h.tap(btn::Note);
+        f.paste();
+        CHECK_EQ(int(f.cell(0, 4).note), 60);
+    }
+}
+
+TEST(fx_copy_paste_the_column_is_forgotten_by_copy_pattern) {
+    // Copy pattern (a menu copy, no cursor column) after an FX copy.
+    FxPaste f;
+    f.h.tap(btn::Fx1);
+    f.h.tap(btn::Copy);
+    SelRect all;
+    all.s0 = 0;
+    all.s1 = 15;
+    all.t0 = 0;
+    all.t1 = kTrackCount - 1;
+    f.a.copyToClipboard(all);
+    f.h.tap(btn::Fx2);
+    f.p.step = 4;
+    f.paste();
+    CHECK_EQ(int(f.cell(0, 4).note), 60);   // the whole step
+}

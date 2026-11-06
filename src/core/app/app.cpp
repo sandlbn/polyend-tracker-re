@@ -989,7 +989,8 @@ bool App::redoEdit() {
     return true;
 }
 
-void App::copyToClipboard(const SelRect& r) {
+void App::copyToClipboard(const SelRect& r, int col) {
+    clipCol_ = int8_t(col);
     *mem_.clipboard = pattern();
     clipRect_ = r;
     clipValid_ = true;
