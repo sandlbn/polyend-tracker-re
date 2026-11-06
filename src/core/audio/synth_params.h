@@ -44,6 +44,14 @@ int synthParamTotal(int32_t engine);
 int synthWidthParam(int32_t engine);
 // [OT] FAT Stereo (0..1, 0 = mono): the stack split between L and R.
 int synthFatStereoParam();
+// [3.x] Spread (0..1, 0 = every note in the middle) of an engine, -1 for none:
+// the extension parameter with kParamFlagSpread.
+int synthSpreadParam(int32_t engine);
+// [3.x] A note's place at Spread 1, -1 (left) .. 1 (right): by the note modulo 5,
+// so the notes of a major or minor triad never share a place at any root, and a
+// repeated note stays where it is; narrowing to the middle from C3 down to C2,
+// so a bass stays centred.
+float synthSpreadPlace(uint8_t note);
 const PatchParamRange* synthParamRange(int32_t engine, int index);
 // Stored value of parameter `index` (the default when absent or out of range).
 float synthParamGet(const SynthPatch& p, int index);

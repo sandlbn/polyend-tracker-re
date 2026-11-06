@@ -277,6 +277,41 @@ public:
 InsModule g_insMod;
 }  // namespace
 
+TEST(sidecar_slot_arp_gate_round_trip) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    for (int s = 0; s < kSynthSlotCount; ++s) CHECK_EQ(int(a.slotArpGate(s)), 100);
+    // At 100 nothing is kept: a project that never touched it has no chunk.
+    a.autosave();
+    if (h.fs.files.count(kWsSidecar))
+        for (const ot3::Chunk& c : chunks(h.fs.files[kWsSidecar])) CHECK(c.tag != ot3::kTagSlotArp);
+    a.setSlotArpGate(1, 35);
+    CHECK(a.sidecarDirty());
+    a.setSlotArpGate(2, 0);     // clamped to the range
+    CHECK_EQ(int(a.slotArpGate(2)), 1);
+    a.setSlotArpGate(2, 250);
+    CHECK_EQ(int(a.slotArpGate(2)), 100);
+    a.autosave();
+    int found = 0;
+    for (const ot3::Chunk& c : chunks(h.fs.files[kWsSidecar]))
+        if (c.tag == ot3::kTagSlotArp) {
+            ++found;
+            CHECK(c.len >= 2 && c.payload[0] == 1 && c.payload[1] == 35);
+            CHECK((c.flags & ot3::kFlagCritical) == 0);   // an older build drops it and still saves
+        }
+    CHECK_EQ(found, 1);
+    a.setSlotArpGate(1, 80);
+    CHECK(a.loadWorkspace());
+    CHECK_EQ(int(a.slotArpGate(1)), 35);
+    CHECK_EQ(int(a.slotArpGate(0)), 100);
+    // The sequencer reads the App's value.
+    CHECK_EQ(int(static_cast<ISequencerHost&>(a).synthArpGate(1)), 35);
+    // A new project starts at 100.
+    CHECK(a.newProject());
+    CHECK_EQ(int(a.slotArpGate(1)), 100);
+}
+
 TEST(sidecar_slot_insert_round_trip) {
     static bool done = false;
     if (!done) done = mod::ModuleHost::instance().addForTest(g_insMod);

@@ -98,5 +98,6 @@ struct PatchParamRange {
 };
 constexpr uint8_t kParamFlagNoRange = 1;     // range unknown: any finite value (WTFM 6, 7; U6)
 constexpr uint8_t kParamFlagInitAbsent = 2;  // Init patch leaves the entry absent
+constexpr uint8_t kParamFlagSpread = 4;      // [3.x] extension parameter: the slot's Spread (SynthBank)
 
 }  // namespace ot

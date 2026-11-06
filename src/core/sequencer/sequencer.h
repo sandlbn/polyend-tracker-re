@@ -250,6 +250,7 @@ private:
         int16_t rollBaseVol = 100;
         // arp
         bool arpActive = false;
+        bool arpGated = false;     // gateLimit is the slot's Arp Gate
         uint8_t arpDir = 0;
         uint16_t arpPeriod = 0;
         uint16_t arpCounter = 0;
@@ -311,7 +312,13 @@ private:
     void noteOffTrack(int t, NoteOffMode mode);
     void releaseAllNotes();
     void clearRoll(TrackState& tr) { tr.rollActive = false; tr.rollThisStep = false; }
-    void clearArp(TrackState& tr) { tr.arpActive = false; }
+    void clearArp(TrackState& tr) {
+        tr.arpActive = false;
+        if (!tr.sounding) endArpGate(tr);   // sounding: its gate still ends the note
+    }
+    void endArpGate(TrackState& tr);
+    int arpGateLimit(const TrackState& tr, uint8_t instr) const;
+    void setArpGate(TrackState& tr, int limit);
     void rollRetrigger(int t);
     void arpNext(int t);
     int rollVolume(const TrackState& tr) const;

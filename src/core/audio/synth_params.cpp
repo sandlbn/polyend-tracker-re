@@ -27,6 +27,22 @@ int synthWidthParam(int32_t engine) {
     return ne > 0 ? synthParamCount(engine) : -1;
 }
 
+int synthSpreadParam(int32_t engine) {
+    int ne = 0;
+    const PatchParamRange* x = patchEngineExtParams(engine, &ne);
+    for (int k = 0; k < ne; ++k)
+        if (x[k].flags & kParamFlagSpread) return synthParamCount(engine) + k;
+    return -1;
+}
+
+float synthSpreadPlace(uint8_t note) {
+    constexpr int kBassFrom = 36, kBassTo = 48;   // C2: centred; C3: the full place
+    const float place = 0.5f * float(note % 5) - 1.0f;
+    if (note >= kBassTo) return place;
+    if (note <= kBassFrom) return 0.0f;
+    return place * float(note - kBassFrom) / float(kBassTo - kBassFrom);
+}
+
 int synthFatStereoParam() { return synthParamCount(kSynthEngineFat) + 1; }
 
 const PatchParamRange* synthParamRange(int32_t engine, int index) {

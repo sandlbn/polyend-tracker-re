@@ -177,6 +177,78 @@ TEST(record_edits_apply_live) {
     (void)s;
 }
 
+TEST(macro_label_shows_the_fx_override) {
+    // User report: an FX CC moved M1 (its bar yellow) while the label under F1
+    // kept the page value. The label follows the bar, and Stop returns it.
+    Harness h;
+    App& a = *h.app;
+    openSlot(h, 1);
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    audio::SynthBank& bank = a.engine.synth();
+    SynthSlotRecord r = a.synthSlot(1);
+    r.macros[0] = 0;
+    a.setSynthSlotRecord(1, r);
+    h.audio.pump(1);
+    const int page = int(a.synthSlot(1).macros[0]);
+    char want[8];
+    bank.macroFx(1, 0, 100);
+    h.audio.pump(1);
+    h.run(40);
+    const bool bi = a.synthPatch(1).macros[0].bipolar;
+    std::snprintf(want, sizeof(want), "%d", bi ? 100 - 63 : 100);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    bank.macroFx(1, 0, 40);     // and it keeps moving, with no key pressed
+    h.audio.pump(1);
+    h.run(40);
+    std::snprintf(want, sizeof(want), "%d", bi ? 40 - 63 : 40);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    bank.transportStop();
+    h.audio.pump(1);
+    h.run(40);
+    std::snprintf(want, sizeof(want), "%d", bi ? page - 63 : page);
+    CHECK_STR(a.ui.bar.label[0].bottom, want);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), page);   // the page value was never written
+}
+
+TEST(macros_page_f7_is_the_arp_gate) {
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(65);
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    h.tap(btn::InstrParams);   // Synth Macros 2/2
+    SynthScreen& s = synth(a);
+    CHECK(s.view == SynthScreen::View::Macros);
+    CHECK_STR(a.ui.bar.label[6].top, "Arp Gate");
+    CHECK_STR(a.ui.bar.label[6].bottom, "100%");
+    const SynthSlotRecord r0 = a.synthSlot(1);
+    h.tap(btn::F7);
+    CHECK_EQ(s.macro, SynthScreen::kArpGateColumn);
+    h.tap(btn::Down);
+    h.tap(btn::Down);
+    CHECK_EQ(int(a.slotArpGate(1)), 98);
+    CHECK_STR(a.ui.bar.label[6].bottom, "98%");
+    // The up arrow stops at 100; Delete goes back; the other slots and the macros stay.
+    h.tap(btn::Up);
+    h.tap(btn::Up);
+    h.tap(btn::Up);
+    CHECK_EQ(int(a.slotArpGate(1)), 100);
+    h.tap(btn::Down);
+    h.tap(btn::Delete);
+    CHECK_EQ(int(a.slotArpGate(1)), 100);
+    CHECK_EQ(int(a.slotArpGate(0)), 100);
+    CHECK(std::memcmp(a.synthSlot(1).macros, r0.macros, sizeof r0.macros) == 0);
+    // Left leaves it; F1 selects a macro as before.
+    h.tap(btn::Left);
+    CHECK_EQ(s.macro, 5);
+    h.tap(btn::Right);
+    CHECK_EQ(s.macro, SynthScreen::kArpGateColumn);
+    h.tap(btn::Right);
+    CHECK_EQ(s.macro, SynthScreen::kArpGateColumn);
+    h.tap(btn::F1);
+    CHECK_EQ(s.macro, 0);
+}
+
 TEST(macro_edit_takes_over_from_fx_override) {
     // User report: after an FX CC a set M1 during playback, M1 stayed yellow
     // and turning it did nothing until Stop. A hand edit (encoder, Up/Down,
@@ -1574,7 +1646,7 @@ TEST(wtfm_ratio_shows_its_value) {
     CHECK_STR(t, "1000 %");
 }
 
-// Stereo S3: Width is the last row of the Voice section (ACD, FAT, VAP, WTFM),
+// Stereo S3: Width and Spread are the last rows of the Voice section (ACD, FAT, VAP, WTFM),
 // FAT Stereo the last row of FAT's Osc section. The rows edit, show and reset
 // like any other; macros cannot target them; PERC has neither.
 TEST(width_and_stereo_rows) {
@@ -1592,11 +1664,13 @@ TEST(width_and_stereo_rows) {
             if (sec[i].macro < 0 && std::strcmp(sec[i].name, "Voice") == 0) voice = i;
         CHECK(voice >= 0);
         if (voice < 0) continue;
-        CHECK_EQ(int(sec[voice].params[sec[voice].count - 1]), wi);
+        CHECK_EQ(int(sec[voice].params[sec[voice].count - 1]), audio::synthSpreadParam(eng));   // Spread, last
+        CHECK_EQ(int(sec[voice].params[sec[voice].count - 2]), wi);
         h.tap(btn::F8);   // Edit view
         s.section = voice;
-        s.row = sec[voice].count - 1;
+        s.row = sec[voice].count - 2;
         CHECK(frameHas(h, "Width"));
+        CHECK(frameHas(h, "Spread"));
         CHECK(frameHas(h, "0 %"));
         h.enc(25);
         CHECK(audio::synthParamGet(a.synthPatch(1), wi) > 0.2f);

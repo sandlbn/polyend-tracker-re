@@ -89,7 +89,8 @@ struct SynthDescriptor {
     uint8_t sectionCount;               // <= synthui::kMaxSections
     // [OT] extension parameters (patch field 16, model/synth_patch.h): index
     // paramCount + k, not macro targets. The first one, when present, is the
-    // slot's Width (SynthBank widens the slot bus); the rest are the engine's.
+    // slot's Width (SynthBank widens the slot bus); kParamFlagSpread marks the
+    // slot's Spread (SynthBank, a place per note); the rest are the engine's.
     uint8_t extCount;                   // <= kPatchExtMax
     const PatchParamRange* ext;         // extCount entries
     // [3.x] The name on the Synth page (model list, header, Model field) when

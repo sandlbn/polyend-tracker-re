@@ -276,6 +276,41 @@ int SynthBank::playable(int s) const {
     return poly < c ? poly : c;
 }
 
+// [3.x] Spread: in flash, not with render(): .fastrun comes out of the stack
+// headroom. Moves the note's mid to a side, ramping a change of the slot's
+// Spread across the block; L + R (mono, the sends) stays.
+__attribute__((noinline)) void SynthBank::spreadVoice(const Slot& sl, uint8_t note, float* l, float* r) {
+    const float place = 0.5f / 255.0f * synthSpreadPlace(note);
+    float sp = float(sl.spreadCur) * place;
+    const float d = float(int(sl.spreadTo) - int(sl.spreadCur)) * place * (1.0f / float(kBlock));
+    for (uint32_t i = 0; i < kBlock; ++i) {
+        const float m = sp * (l[i] + r[i]);
+        l[i] -= m;
+        r[i] += m;
+        sp += d;
+    }
+}
+
+// The start of a block, before sync(): what the last block reached, and the
+// target; an edit that sync() brings moves the target again.
+__attribute__((noinline)) void SynthBank::blockSync() {
+    if (spreadLive_) spreadSettle();
+    sync();
+}
+
+void SynthBank::spreadSettle() {
+    bool live = false;
+    for (int s = 0; s < kSynthSlots; ++s) {
+        Slot& sl = slots_[s];
+        const uint8_t reached = sl.spreadTo;
+        sl.spreadTo = playable(s) > 1 ? sl.spreadEnd : uint8_t(0);
+        // An idle slot has no note to ramp: the next one starts at its place.
+        sl.spreadCur = voicesOf(s) > 0 ? reached : sl.spreadTo;
+        live = live || sl.spreadCur || sl.spreadTo || sl.spreadEnd;
+    }
+    spreadLive_ = live;
+}
+
 float SynthBank::trackPeak(int t) {
     if (t < 0 || t >= kSynthTracks) return 0.0f;
     const float p = trackPeak_[t];
@@ -430,6 +465,12 @@ void SynthBank::reloadParams(int s, bool jump) {
     const int wi = synthWidthParam(sl.engineId);
     sl.widthEnd = wi >= 0 ? paramBase(sl, wi) : 0.0f;
     if (jump) sl.widthCur = sl.widthEnd;
+    // [3.x] Spread: read per note in render(), which ramps a change.
+    const int si = synthSpreadParam(sl.engineId);
+    sl.spreadEnd = si >= 0 ? uint8_t(std::lround(255.0f * paramBase(sl, si))) : uint8_t(0);
+    sl.spreadTo = playable(s) > 1 ? sl.spreadEnd : uint8_t(0);
+    if (jump) sl.spreadCur = sl.spreadTo;
+    spreadLive_ = spreadLive_ || sl.spreadEnd || sl.spreadCur;
     sl.volIdx = patchVolumeParam(sl.engineId);
     if (sl.volIdx >= 0 && sl.volIdx < n) {
         sl.volMin = t[sl.volIdx].min;
@@ -1147,7 +1188,7 @@ __attribute__((noinline)) void addTap(float* tl, float* tr, const float* vl, con
 
 OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float* mR, float* dsend, float* rsend,
                        int16_t* const stems[kSynthSlots], int tapTrack, float* tapL, float* tapR) {
-    sync();
+    blockSync();
     liveDrain();   // MIDI input (audio side only)
     if (flushDue_) flushDeferred();   // no note-on came first in this block
     // Records per slot (one pass).
@@ -1259,7 +1300,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             // [I] A note of the resample-tapped track does too: only its
             // own signal goes to the tap.
             const bool tapV = tapL && owner_[r] == tapTrack;
-            const bool own = tapV || V.sendD >= 0 || V.sendR >= 0 || V.pan >= 0;
+            const bool own = tapV || V.sendD >= 0 || V.sendR >= 0 || V.pan >= 0 || (sl.spreadCur | sl.spreadTo);
             float* vl = busL_;
             float* vr = busR_;
             if (own) {
@@ -1298,6 +1339,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                         vs_.f[1][i] *= pr;
                     }
                 }
+                if (sl.spreadCur | sl.spreadTo) spreadVoice(sl, V.v.note, vs_.f[0], vs_.f[1]);
                 // (A tapping engine sent this note's share through the tap.)
                 const float xd = V.sendD >= 0 && !tapped ? (0.5f * sendGain(V.sendD) - sl.mixD) * in.delayLevel : 0.0f;
                 const float xr = V.sendR >= 0 && !tapped ? (0.5f * sendGain(V.sendR) - sl.mixE) * in.reverbLevel : 0.0f;

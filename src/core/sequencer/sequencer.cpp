@@ -410,7 +410,10 @@ void Sequencer::processTrack(int t) {
     // (2) gate; MIDI notes on muted tracks are released.
     if (tr.sounding) {
         ++tr.gate;
-        if (tr.gateLimit != -1 && tr.gate >= tr.gateLimit) noteOffTrack(t, NoteOffMode::Off);
+        if (tr.gateLimit != -1 && tr.gate >= tr.gateLimit) {
+            noteOffTrack(t, NoteOffMode::Off);
+            if (!tr.arpActive) endArpGate(tr);   // the arp stopped: its last note is out
+        }
     }
     if (muted && (tr.midiCount || (tr.sounding && isSynth(tr.last.instr)))) noteOffTrack(t, NoteOffMode::Off);
     // (3) track 0 duties.
@@ -674,6 +677,7 @@ void Sequencer::handleNote(int t, Pending& p) {
         }
         triggerNote(t, rec, p.chord && !p.arpSetup, p.chordValue);
         tr.gateLimit = p.gateLimit;
+        tr.arpGated = false;
         tr.gate = 0;
         tr.sinceTrigger = 1;
         tr.last = rec;
@@ -686,6 +690,7 @@ void Sequencer::handleNote(int t, Pending& p) {
             tr.arpBase = uint8_t(rec.note);
             tr.arpPos = 0;
             tr.arpCounter = 0;
+            setArpGate(tr, arpGateLimit(tr, rec.instr));
         }
     } else if (isNoteOffSentinel(rec.note)) {
         noteOffTrack(t, NoteOffMode(rec.note));
@@ -846,6 +851,27 @@ void Sequencer::rollRetrigger(int t) {
     tr.gate = 0;
 }
 
+// [3.x] The microsteps an arp note of a synth slot stays on: its Arp Gate of
+// the arp period, always shorter than the period; -1 = until the next note.
+int Sequencer::arpGateLimit(const TrackState& tr, uint8_t instr) const {
+    if (!host_ || !isSynth(instr)) return -1;
+    const int gate = host_->synthArpGate(uint8_t(synthSlotOf(instr)));
+    if (gate >= 100) return -1;
+    return clampi((int(tr.arpPeriod) * gate + 50) / 100, 1, int(tr.arpPeriod) - 1);
+}
+
+void Sequencer::endArpGate(TrackState& tr) {
+    if (!tr.arpGated) return;
+    tr.gateLimit = -1;
+    tr.arpGated = false;
+}
+
+void Sequencer::setArpGate(TrackState& tr, int limit) {
+    if (limit >= 0) tr.gateLimit = int16_t(limit);
+    else if (tr.arpGated) tr.gateLimit = -1;
+    tr.arpGated = limit >= 0;
+}
+
 void Sequencer::arpNext(int t) {
     TrackState& tr = tracks_[t];
     if (!tr.arpMask) return;
@@ -870,8 +896,10 @@ void Sequencer::arpNext(int t) {
     tr.arpPos = uint8_t(np);
     NoteRec rec = tr.last;
     rec.note = int8_t(clampi(tr.arpBase + np, 0, 127));
-    noteOffTrack(t, NoteOffMode::Off);
+    const int limit = arpGateLimit(tr, rec.instr);
+    if (tr.sounding || !(limit >= 0 || tr.arpGated)) noteOffTrack(t, NoteOffMode::Off);   // a gated note is already off
     triggerNote(t, rec, false, 0);
+    setArpGate(tr, limit);
     tr.last = rec;
 }
 

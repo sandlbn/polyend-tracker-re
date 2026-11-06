@@ -57,6 +57,8 @@
 // synths alike; no release tail. (2x-05 §3.3's "release, cut on a double
 // Stop" is not used.)
 //
+// [3.x] Spread (patch, Poly 2 and up): each note at a place of its own, on the way
+// to the slot bus (synthSpreadPlace); L + R and the sends do not change.
 // Mixing: voices -> slot bus (stereo) -> slot gain (dB) -> pan as balance
 // (linear law, spec 04 §4.3) -> main bus; post-gain sends (L+R)/2 * SEND law
 // * Global Mixer delay / reverb level. The bus feeds the Synth k stem.
@@ -344,6 +346,9 @@ private:
         // [3.x] C1: the engine's descriptor has kSynthFlagNotePriority, and
         // its priority parameter (-1: Last).
         bool prio = false;
+        // [3.x] Spread, 0..255 (0 = every note in the middle): the patch value;
+        // what this block starts from and moves to (0 at Poly 1).
+        uint8_t spreadEnd = 0, spreadCur = 0, spreadTo = 0;
         int8_t prioIdx = -1;
         // [3.x] T0: the engine keeps state beyond a voice (kSynthFlagKitState:
         // PERC's, T-Type's kit).
@@ -354,6 +359,10 @@ private:
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;
+    void spreadVoice(const Slot& sl, uint8_t note, float* l, float* r);   // [3.x] Spread on a note's block
+    void spreadSettle();                                                  // [3.x] once per block
+    void blockSync();                                                     // [3.x] spreadSettle, then sync
+    bool spreadLive_ = false;                                             // a slot has or had a Spread
     void sync();   // main-loop changes -> audio state (start of noteOn / render)
     void noteOnNow(int track, const SynthNoteOn& n, bool forced = true);
     void flushDeferred();

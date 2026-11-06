@@ -268,16 +268,19 @@ void SynthScreen::refreshBar() {
         }
         case View::Macros: {
             const SynthPatch& p = app_.synthPatch(slot);
+            const audio::SynthSlotView sv = app_.engine.synth().slotView(slot);
             for (int k = 0; k < audio::kSynthSeqMacros; ++k) {
                 char top[24];
                 std::snprintf(top, sizeof(top), "M%d %s", k + 1, shown(p.macros[k].name));
                 fit(top, kFont3, 92);
-                const int val = r.macros[k];
+                const int val = sv.overridden[k] ? sv.macro[k] : r.macros[k];   // as the bar: an FX CC override
                 if (p.macros[k].bipolar) std::snprintf(v, sizeof(v), "%d", val - 63);
                 else std::snprintf(v, sizeof(v), "%d", val);
                 b.set(k, top, v, !ro);
             }
-            b.label[6].hidden = b.label[7].hidden = true;
+            std::snprintf(v, sizeof(v), "%d%%", int(app_.slotArpGate(slot)));
+            b.set(kArpGateColumn, "Arp Gate", v, !ro);
+            b.label[7].hidden = true;
             b.highlight(macro, !ro);
             break;
         }
@@ -382,6 +385,12 @@ void SynthScreen::resetSelected() {
             default: return;
         }
     } else if (view == View::Macros) {
+        if (macro == kArpGateColumn) {
+            app_.setSlotArpGate(slot, 100);
+            refreshBar();
+            ui_.dirty();
+            return;
+        }
         const int k = clampi(macro, 0, audio::kSynthSeqMacros - 1);
         r.macros[k] = audio::synthMacroDefault(app_.synthPatch(slot).macros[k].bipolar);
         app_.engine.synth().releaseMacro(slot, k);   // the hand edit wins over an FX CC
@@ -447,6 +456,12 @@ void SynthScreen::resetEditRow() {
 
 void SynthScreen::macroChange(int d) {
     if (!available()) return;
+    if (macro == kArpGateColumn) {
+        app_.setSlotArpGate(slot, int(app_.slotArpGate(slot)) + d);
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
     SynthSlotRecord r = app_.synthSlot(slot);
     const int k = clampi(macro, 0, audio::kSynthSeqMacros - 1);
     r.macros[k] = uint8_t(clampi(int(r.macros[k]) + d, 0, 127));
@@ -844,10 +859,10 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
             }
             break;
         case View::Macros:
-            if (id <= btn::F6) macro = id;
+            if (id <= btn::F7) macro = id;
             else if (id == btn::Up || id == btn::Down) macroChange(id == btn::Up ? 1 : -1);
             else if (id == btn::Delete) resetSelected();
-            else if (id == btn::Left || id == btn::Right) macro = clampi(macro + (id == btn::Right ? 1 : -1), 0, 5);
+            else if (id == btn::Left || id == btn::Right) macro = clampi(macro + (id == btn::Right ? 1 : -1), 0, kArpGateColumn);
             else if (id != btn::F7 && id != btn::F8) Screen::onButton(id, state);
             break;
         case View::Edit: {
@@ -1169,7 +1184,8 @@ void SynthScreen::drawMacros(Gfx& g) {
         // An FX CC override (sequencer) shows in yellow until Stop or a hand edit.
         barColumn(g, th, k, v, bi, !ro, kMacroBarH, sv.overridden[k] ? th.slot(slot::kYellow) : wg::kThemeColour);
     }
-    wg::panel(g, th, wg::columnX(6), wg::kPanelY, wg::columnW(2), kMacroBarH);
+    barColumn(g, th, kArpGateColumn, float(app_.slotArpGate(slot)) / 100.0f, false, !ro, kMacroBarH);
+    wg::panel(g, th, wg::columnX(7), wg::kPanelY, wg::columnW(), kMacroBarH);
     if (!ro) wg::focusFrame(g, th, wg::columnX(macro), 31, wg::columnX(macro) + wg::columnW(), wg::kPanelY + kMacroBarH - 1);
     // Legend (manual p.149): "Macro k   <name>" in two columns.
     wg::panel(g, th, 1, kLegendY, 797, wg::kPanelY + wg::kPanelH - kLegendY);
@@ -1303,6 +1319,20 @@ void SynthScreen::drawBrowser(Gfx& g) {
     v.ctx = this;
     wg::list(g, th, v);
     if (!browserCount) g.text(wg::kRightPopupX + 100, 60, kFont3, th.slot(slot::kBottomLabel), "No patches", IDisplay::kOptCenter);
+}
+
+void SynthScreen::update(uint32_t now) {
+    Screen::update(now);
+    if (view != View::Macros) return;
+    const SynthSlotRecord r = app_.synthSlot(slot);
+    const audio::SynthSlotView sv = app_.engine.synth().slotView(slot);
+    uint32_t shown = 0;
+    for (int k = 0; k < audio::kSynthSeqMacros; ++k)
+        shown = shown * 257u + (sv.overridden[k] ? 128u + sv.macro[k] : r.macros[k]);
+    if (shown != shownMacros_) {
+        shownMacros_ = shown;
+        ui_.dirty();
+    }
 }
 
 void SynthScreen::draw(Gfx& g) {

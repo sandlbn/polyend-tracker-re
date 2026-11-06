@@ -31,7 +31,7 @@ TEST(ext_param_tables) {
     for (int32_t e : kStereoEngines) {
         const int n = synthParamCount(e);
         CHECK(n > 0);
-        CHECK_EQ(synthParamTotal(e), n + (e == kSynthEngineFat ? 2 : 1));
+        CHECK_EQ(synthParamTotal(e), n + (e == kSynthEngineFat ? 3 : 2));   // Width, FAT Stereo, Spread
         CHECK_EQ(synthWidthParam(e), n);
         const PatchParamRange* r = synthParamRange(e, n);
         CHECK(r != nullptr);
