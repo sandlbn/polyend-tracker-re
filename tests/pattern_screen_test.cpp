@@ -449,6 +449,7 @@ TEST(tracks_13_16_window_and_tabs) {
     // Column mask: 8 tracks, first shown track at most 8.
     for (int i = 0; i < 4; ++i) h.tap(btn::Right);
     h.down(btn::Pattern);
+    h.tap(btn::Note);
     h.tap(btn::Fx1);
     h.up(btn::Pattern);
     CHECK(p.colMask != 0);

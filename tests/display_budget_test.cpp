@@ -640,6 +640,11 @@ TEST(overlay_matrix_pattern) {
     h.tap(btn::Fx1);
     h.up(btn::Pattern);
     r.measure("pattern dense 8-track view");
+    // Instr outside the mask would narrow it to one column (16 tracks): add it to the mask first.
+    h.down(btn::Pattern);
+    h.tap(btn::Note);
+    h.tap(btn::Instr);
+    h.up(btn::Pattern);
     h.tap(btn::Instr);
     h.down(btn::Instr);
     h.run(250);
@@ -683,7 +688,6 @@ TEST(overlay_matrix_pattern) {
 // glyphRun draws the grid cells as ROM-font VERTEX2II glyphs (handles 16-31),
 // so these frames also stay within Ui::kDlTargetWords without a guard cut.
 TEST(overlay_matrix_pattern_rom_fonts) {
-    Harness::dlOverflowFatal = false;   // TEMP
     WorstRig r(false);
     Harness& h = r.h;
     App& a = r.a;
@@ -701,8 +705,13 @@ TEST(overlay_matrix_pattern_rom_fonts) {
     r.measure("ROM fonts: pattern dense + Fx popup");
     h.up(btn::Fx1);
     h.tap(btn::Rec);
+    // One column is the 16-track view: too dense for the ROM fonts, the guard
+    // draws it in low detail.
+    Harness::dlOverflowFatal = false;
     h.down(btn::Pattern);
     h.tap(btn::Note);
+    r.measureFallback("ROM fonts: pattern dense 16-track view");
+    Harness::dlOverflowFatal = true;
     h.tap(btn::Fx1);
     h.up(btn::Pattern);
     r.measure("ROM fonts: pattern dense 8-track view");
