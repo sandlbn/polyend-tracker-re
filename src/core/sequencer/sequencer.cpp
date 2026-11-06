@@ -1178,6 +1178,8 @@ void Sequencer::stop() {
     armed_ = false;
     breakPending_ = breakPreloadDone_ = false;
     selection_ = false;
+    queueActive_ = queueReady_ = false;   // a queued pattern change ends with the playback
+    queued_ = 0;
     dropPreload();
     resetPositions(0);
     if (sink_) sink_->synthTransportStop();   // macro overrides -> page values
