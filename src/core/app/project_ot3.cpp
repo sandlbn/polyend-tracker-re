@@ -24,6 +24,29 @@ OT_SDRAM_BSS uint8_t g_opaque[kOpaqueMax];
 uint32_t g_opaqueLen = 0;
 bool g_opaqueLost = false;   // a foreign chunk did not fit: not kept
 
+#if OT_SLOT_INSERTS
+// Each slot's settings and Off of the inserts it had before, so picking one
+// again brings them back (not saved; a new or loaded project starts clean).
+// A ninth kind takes the last entry.
+struct InsertMemo {
+    char id[4];   // all zero = free
+    audio::EffectSettings set;
+    bool off;
+};
+constexpr int kInsertMemoMax = 8;
+OT_SDRAM_BSS InsertMemo g_insertMemo[kSynthSlotCount][kInsertMemoMax];
+
+InsertMemo* insertMemo(int s, const char* id, bool make) {
+    static const char kFree[4] = {};
+    for (InsertMemo& m : g_insertMemo[s])
+        if (std::memcmp(m.id, id, 4) == 0) return &m;
+    if (!make) return nullptr;
+    for (InsertMemo& m : g_insertMemo[s])
+        if (std::memcmp(m.id, kFree, 4) == 0) return &m;
+    return &g_insertMemo[s][kInsertMemoMax - 1];
+}
+#endif
+
 constexpr uint8_t kWriter[4] = {3, 0, 0, 0};
 
 bool isModuleTag(uint16_t t) { return t >= ot3::kTagModuleFirst && t <= ot3::kTagModuleLast; }
@@ -83,10 +106,21 @@ void App::setSlotInsertOff(int s, bool off) {
 
 void App::setSlotInsertKind(int s, const char* effectId) {
     if (s < 0 || s >= kSynthSlotCount) return;
+    if (const char* cur = slotInsertId(s)) {   // keep the one we leave
+        InsertMemo* m = insertMemo(s, cur, true);
+        std::memcpy(m->id, cur, 4);
+        m->set = slotInsert_[s].set;
+        m->off = slotInsert_[s].off;
+    }
     SlotInsertCfg c = {};
     if (effectId && effectId[0]) {
         std::memcpy(c.id, effectId, 4);
-        if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(c.id)) c.set = audio::effectDefaults(*fx);
+        if (const InsertMemo* m = insertMemo(s, c.id, false)) {
+            c.set = m->set;
+            c.off = m->off;
+        } else if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(c.id)) {
+            c.set = audio::effectDefaults(*fx);
+        }
     }
     if (std::memcmp(&c, &slotInsert_[s], sizeof c) != 0) sidecarDirty_ = true;
     slotInsert_[s] = c;
@@ -124,6 +158,9 @@ void App::resetSidecar() {
         applySlotInsert(s);
 #endif
     }
+#if OT_SLOT_INSERTS
+    std::memset(g_insertMemo, 0, sizeof(g_insertMemo));
+#endif
     mod::ModuleHost& h = mod::ModuleHost::instance();
     for (int i = 0; i < h.count(); ++i)
         if (mod::IProjectSection* sec = h.at(i)->section()) sec->reset();
