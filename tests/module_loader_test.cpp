@@ -197,6 +197,14 @@ IModule& fakeEnter(uint32_t entry) {
     return off < 24 ? static_cast<IModule&>(gLdA) : off < 48 ? static_cast<IModule&>(gLdB) : gLdDup;
 }
 void fakeSync(const void*, uint32_t len) { gSynced += len; }
+// The device's stack guard move (hal/stack_guard.h setModulePoolBytes).
+uint32_t gSizes[4];
+int gNSizes = 0;
+bool gResizeOk = true;
+bool fakeResize(uint32_t bytes) {
+    if (gNSizes < 4) gSizes[gNSizes++] = bytes;
+    return gResizeOk;
+}
 
 }  // namespace
 
@@ -213,7 +221,7 @@ TEST(card_modules_load_in_name_order) {
     fs.files["Modules/d.otm"] = other.file();      // another core
     fs.files["Modules/e.otm"] = a.file();           // lands at 48: the duplicate id
     fs.files["Modules/readme.txt"] = {1, 2, 3};    // not a module
-    const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter};
+    const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, &fakeResize};
     uint8_t scratch[256];
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 2);
@@ -234,15 +242,34 @@ TEST(card_modules_load_in_name_order) {
     CHECK(ModuleHost::instance().find("LDA1") == &gLdA);
     CHECK(ModuleHost::instance().find("LDB1") == &gLdB);
     CHECK_STR(ModuleHost::instance().refused(), "LDA1");
+    // The whole block while loading, then only what the modules took.
+    CHECK_EQ(gNSizes, 2);
+    CHECK_EQ(gSizes[0], uint32_t(sizeof(gPoolMem)));
+    CHECK_EQ(gSizes[1], 48u);
+}
+
+TEST(card_modules_wait_when_the_stack_has_no_room) {
+    MemStorage fs;
+    fs.files["Modules/a.otm"] = Built().file();
+    const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, &fakeResize};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    gNSizes = 0;
+    gResizeOk = false;
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
+    CHECK_EQ(r.n, 0);
+    CHECK(r.noRoom);
+    CHECK_EQ(gNSizes, 1);
+    gResizeOk = true;
 }
 
 TEST(card_modules_without_a_pool_or_folder) {
     MemStorage fs;
     uint8_t scratch[64];
     OtmLoadReport r;
-    const OtmPool none = {nullptr, 0, 0, kCore, nullptr, nullptr};
+    const OtmPool none = {nullptr, 0, 0, kCore, nullptr, nullptr, nullptr};
     CHECK_EQ(loadModuleFiles(fs, none, scratch, sizeof(scratch), &r), 0);
-    const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter};
+    const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, nullptr};
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);   // no Modules/
     CHECK_EQ(r.n, 0);
     fs.files["Modules/big.otm"] = Built().file();

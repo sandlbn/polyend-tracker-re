@@ -5,6 +5,7 @@
 #include <kinetis.h>
 
 #include "diag.h"
+#include "telemetry.h"   // diag::kStackPaint
 #if defined(OT_STACK_GUARD_TEST) && OT_STACK_GUARD_TEST
 #include <Arduino.h>
 #include "hal_api.h"
@@ -30,15 +31,68 @@ constexpr uint32_t kCoreFields = 0xFFFu;
 
 bool gArmed = false;
 bool gLockup = false;
+uint32_t gPoolBytes = 0;   // [I] module pool (fork #21)
+
+// The core's regions on both sides of the guard [lo, hi) (descriptors 1 and 2).
+void writeCoreRegions(uintptr_t lo, uintptr_t hi) {
+    MPU_RGD1_WORD0 = 0;                           // 0 .. guard - 1
+    MPU_RGD1_WORD1 = uint32_t(lo - 1) | 0x1Fu;
+    MPU_RGD1_WORD2 = kCoreAllAccess;
+    MPU_RGD1_WORD3 = 1;                           // valid
+    MPU_RGD2_WORD0 = uint32_t(hi);                // guard end .. 4 GB
+    MPU_RGD2_WORD1 = 0xFFFFFFFFu;
+    MPU_RGD2_WORD2 = kCoreAllAccess;
+    MPU_RGD2_WORD3 = 1;
+}
 
 }  // namespace
 
-uintptr_t stackGuardStart() {
+uintptr_t modulePoolBase() {
     const uintptr_t lo = reinterpret_cast<uintptr_t>(&_ebss) + kHeapReserveBytes;
     return (lo + kGranule - 1) & ~(kGranule - 1);
 }
 
+uint32_t modulePoolBytes() { return gPoolBytes; }
+
+uint32_t modulePoolMaxBytes() {
+    const uintptr_t top = reinterpret_cast<uintptr_t>(&_estack);
+    const uintptr_t need = modulePoolBase() + kStackGuardBytes + kStackFloorBytes;
+    return top > need ? uint32_t(top - need) & ~(kGranule - 1) : 0;
+}
+
+uintptr_t stackGuardStart() { return modulePoolBase() + gPoolBytes; }
+
 uintptr_t stackGuardEnd() { return stackGuardStart() + kStackGuardBytes; }
+
+bool setModulePoolBytes(uint32_t bytes) {
+    bytes = (bytes + kGranule - 1) & ~(kGranule - 1);
+    if (bytes == gPoolBytes) return true;
+    if (bytes > modulePoolMaxBytes()) return false;
+    const uintptr_t oldEnd = stackGuardEnd();
+    const uintptr_t lo = modulePoolBase() + bytes, hi = lo + kStackGuardBytes;
+    // The live stack (plus an audio interrupt's render below it) stays clear
+    // of the new guard: the main loop calls this shallow, far above the floor.
+    uint32_t sp;
+    __asm__ volatile("mov %0, sp" : "=r"(sp));
+    if (sp < hi + kStackFloorBytes / 2) return false;
+    __asm__ volatile("cpsid i" ::: "memory");
+    if (gArmed) {
+        // A write to a descriptor's address words may drop its valid bit, so
+        // descriptor 0 gives the core the whole map back while 1 and 2 are
+        // rewritten (the guard is open for these few instructions).
+        MPU_RGDAAC0 = (MPU_RGDAAC0 & ~kCoreFields) | kCoreAllAccess;
+        __asm__ volatile("dsb\n\tisb" ::: "memory");
+        writeCoreRegions(lo, hi);
+        MPU_RGDAAC0 = (MPU_RGDAAC0 & ~kCoreFields) | kCoreNoAccess;
+        __asm__ volatile("dsb\n\tisb" ::: "memory");
+    }
+    gPoolBytes = bytes;
+    __asm__ volatile("cpsie i" ::: "memory");
+    // Stack room the pool gave back: painted, so the high-water mark stays true.
+    for (uint32_t* p = reinterpret_cast<uint32_t*>(hi); p < reinterpret_cast<uint32_t*>(oldEnd); ++p)
+        *p = diag::kStackPaint;
+    return true;
+}
 
 void stackGuardInit(bool arm) {
     gLockup = (RCM_SRS1 & RCM_SRS1_LOCKUP) != 0;
@@ -58,14 +112,7 @@ void stackGuardInit(bool arm) {
     // (descriptors 1 and 2, unused so far), then the core's access through
     // descriptor 0 (the whole map, all masters) is taken away. The other bus
     // masters (DMA, USB, SDHC) keep descriptor 0.
-    MPU_RGD1_WORD0 = 0;                           // 0 .. guard - 1
-    MPU_RGD1_WORD1 = uint32_t(lo - 1) | 0x1Fu;
-    MPU_RGD1_WORD2 = kCoreAllAccess;
-    MPU_RGD1_WORD3 = 1;                           // valid
-    MPU_RGD2_WORD0 = uint32_t(hi);                // guard end .. 4 GB
-    MPU_RGD2_WORD1 = 0xFFFFFFFFu;
-    MPU_RGD2_WORD2 = kCoreAllAccess;
-    MPU_RGD2_WORD3 = 1;
+    writeCoreRegions(lo, hi);
     MPU_RGDAAC0 = (MPU_RGDAAC0 & ~kCoreFields) | kCoreNoAccess;
     MPU_CESR = 0xF8000001u;   // enabled; clears the sticky SPERR flags (write 1), so a fault names a fresh port
     __asm__ volatile("dsb\n\tisb" ::: "memory");
@@ -127,12 +174,12 @@ void stackGuardSelfTest(IStorage& fs) {
 }  // namespace hal
 }  // namespace ot
 
-// newlib's heap stops below the guard (replaces Teensy's weak _sbrk, which
+// newlib's heap stops below the module pool and the guard (replaces Teensy's weak _sbrk, which
 // stopped STACK_MARGIN below the live stack pointer).
 extern "C" void* _sbrk(int incr) {
     char* prev = __brkval;
     if (incr != 0) {
-        char* const limit = reinterpret_cast<char*>(ot::hal::stackGuardStart());
+        char* const limit = reinterpret_cast<char*>(ot::hal::modulePoolBase());   // [I] below the module pool
         if (incr < 0 ? prev + incr < reinterpret_cast<char*>(&_ebss) : prev + incr > limit) {
             errno = ENOMEM;
             return reinterpret_cast<void*>(-1);

@@ -817,7 +817,7 @@ private:
     uint8_t synthLiveNext_ = 0;
     float liveBend_ = 0.0f;         // last MIDI input pitch bend (semitones)
     char loadNotice_[64] = {};      // first problem of the last load (one notice)
-    mod::OtmLoadReport moduleLoad_;  // [I] #21: Modules/*.otm at boot
+    OT_APP_SDRAM_MEMBER(mod::OtmLoadReport, moduleLoad_);  // [I] #21: Modules/*.otm at boot
     uint8_t patDirty_[32] = {};
     bool projectDirty_ = false, namesDirty_ = false, configDirty_ = false, configForce_ = false;
     uint8_t recShadow_[12] = {};                  // project bytes 0x134..0x13F last synced

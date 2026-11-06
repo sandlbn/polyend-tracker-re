@@ -7,7 +7,12 @@
 // (SYSMPU) for the core's two bus masters, between a fixed heap reserve and
 // the stack:
 //
-//   _ebss | heap reserve (kHeapReserveBytes) | guard (kStackGuardBytes) | stack ... _estack
+//   _ebss | heap reserve (kHeapReserveBytes) | [module pool] | guard (kStackGuardBytes) | stack ... _estack
+//
+// [I] The module pool (fork #21, hal/module_pool.h) is code loaded from the
+// card. It borrows the bottom of the stack's room: setModulePoolBytes() moves
+// the guard up over it (or back down) while the audio is stopped, and never
+// leaves the stack less than kStackFloorBytes. Size 0 = the stock layout.
 //
 // - The heap stops at the guard: _sbrk (stack_guard.cpp) refuses to grow
 //   into it (ENOMEM), as Teensy's _sbrk did near the stack pointer.
@@ -31,10 +36,25 @@ namespace hal {
 constexpr uint32_t kHeapReserveBytes = 4096;   // measured heap use 0.2 KB (telemetry, 2026-10-20)
 constexpr uint32_t kStackGuardBytes = 8192;    // > the deepest frame (5,672 B, startOpenProject)
 
+// [I] The stack never gets less than this when the module pool grows
+// (measured peak 10.9 KB on v2 plus margin; fork #21, 2026-11-06).
+constexpr uint32_t kStackFloorBytes = 25 * 1024;
+
 // Lowest guard address (32-byte aligned, the SYSMPU granule) and the first
 // address above it, where the stack's room begins.
 uintptr_t stackGuardStart();
 uintptr_t stackGuardEnd();
+
+// [I] The module pool (fork #21): its fixed base (above the heap reserve,
+// 32-byte aligned), its size now, and the largest size the stack floor allows.
+uintptr_t modulePoolBase();
+uint32_t modulePoolBytes();
+uint32_t modulePoolMaxBytes();
+// Resizes the pool (rounded up to 32 B) and moves the guard with it. False,
+// and nothing changes, when the stack would drop below kStackFloorBytes or
+// the live stack pointer is too close to the new guard. Main loop, audio
+// stopped; the stack room it frees is painted for the high-water mark.
+bool setModulePoolBytes(uint32_t bytes);
 
 // Logs the previous reset's reason when it was a core lockup, then arms the
 // guard (SYSMPU regions) unless arm is false (/Firmware/ot_noguard.txt on the

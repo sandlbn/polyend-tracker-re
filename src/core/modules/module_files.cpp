@@ -41,9 +41,16 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
     OtmLoadReport& r = report ? *report : local;
     r.n = 0;
     r.used = 0;
+    r.noRoom = false;
     if (!pool.mem || !pool.cap || !pool.enter) return 0;
     Names names;
-    if (fs.listDir(kModulesDir, &collect, &names) < 0) return 0;
+    if (fs.listDir(kModulesDir, &collect, &names) < 0 || names.n == 0) return 0;
+    // The whole block while loading, then only what the modules took: the
+    // rest goes back to the stack.
+    if (pool.resize && !pool.resize(pool.cap)) {
+        r.noRoom = true;
+        return 0;
+    }
     // Name order, so the master inserts chain the same way on every boot.
     for (int i = 1; i < names.n; ++i)
         for (int j = i; j > 0 && std::strcmp(names.name[j - 1], names.name[j]) > 0; --j) {
@@ -94,6 +101,7 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         r.used = off + bytes;
         ++loaded;
     }
+    if (pool.resize) pool.resize(r.used);
     return loaded;
 }
 

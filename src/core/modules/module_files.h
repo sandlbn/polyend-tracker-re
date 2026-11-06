@@ -15,14 +15,17 @@ class IModule;
 
 // The block loaded modules run from, given by the device glue (HalRefs).
 struct OtmPool {
-    uint8_t* mem;       // the block (SRAM_L on the device)
+    uint8_t* mem;       // the block (the stack's bottom on the device, hal/stack_guard.h)
     uint32_t base;      // its address as the module code sees it (== mem on the device)
-    uint32_t cap;
+    uint32_t cap;       // the most it may grow to
     OtmCore core;       // what this core accepts, and its exports
     // After an image is written: make it executable (code cache, barriers).
     void (*sync)(const void* p, uint32_t len);
     // Calls the module's entry point (base + entryOffset, Thumb bit set).
     IModule& (*enter)(uint32_t entry);
+    // Optional: makes the first `bytes` of the block usable (the device moves
+    // the stack guard over them); false = no room. Null = always usable.
+    bool (*resize)(uint32_t bytes);
 };
 
 struct OtmLoadReport {
@@ -35,6 +38,7 @@ struct OtmLoadReport {
     Item items[kMax];
     int n = 0;
     uint32_t used = 0;      // pool bytes in use after loading
+    bool noRoom = false;    // the pool could not grow (the stack floor): nothing loaded
 };
 
 constexpr const char* kModulesDir = "Modules";

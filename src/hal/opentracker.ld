@@ -143,16 +143,6 @@ SECTIONS
 		*(.noinit*)
 	} > RAM
 
-	/* [I] Modules from the card (src/hal/module_pool.cpp, fork #21): the pool
-	 * the loaded code runs from, in SRAM_L (code bus) right after .data. It
-	 * must end below SRAM_U: code fetched over the boundary is not allowed. */
-	.otm_pool (NOLOAD) : ALIGN(8) {
-		__otm_pool_start = .;
-		*(.otm_pool*)
-		__otm_pool_end = .;
-	} > RAM
-	ASSERT(__otm_pool_end <= 0x20000000, "the module pool (.otm_pool) crosses into SRAM_U: shrink it or move .data")
-
 	.bss : {
 		. = ALIGN(4);
 		_sbss = .;

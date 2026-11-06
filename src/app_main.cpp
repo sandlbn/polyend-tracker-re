@@ -152,8 +152,10 @@ void logModuleLoad(const ot::mod::OtmLoadReport& r) {
         ot::hal::diagLogf("modules: %s %s", r.items[i].file,
                           r.items[i].refused ? "refused (id taken, api or attach)"
                                              : ot::mod::otmErrorText(r.items[i].error));
-    if (r.n) ot::hal::diagLogf("modules: pool %lu of %lu B used", static_cast<unsigned long>(r.used),
-                              static_cast<unsigned long>(ot::hal::modulePool()->cap));
+    if (r.noRoom) ot::hal::diagLog("modules: not loaded, no stack room for the pool");
+    if (r.n) ot::hal::diagLogf("modules: pool %lu of %lu B used, stack room %lu B", static_cast<unsigned long>(r.used),
+                              static_cast<unsigned long>(ot::hal::modulePool()->cap),
+                              static_cast<unsigned long>(ot::hal::stackSizeBytes()));
 }
 
 // Headphone-amp level (spec 01 §5.1 volume(v)); the stock boot value is not
