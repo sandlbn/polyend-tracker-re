@@ -20,4 +20,5 @@ modules = [
     { id = "CHOR", path = "../opentracker-fx/modules/chorus" },
     { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
     { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+    { id = "PHSR", path = "../opentracker-fx/modules/phaser" },   # slot insert only
 ]
