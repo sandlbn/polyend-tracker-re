@@ -31,6 +31,7 @@ enum : uint16_t {
     kTagInfo = 0x0001,        // u8 synthSlots, u8 rsv[3]
     kTagSlotEngine = 0x0007,  // SlotEngine (16 B)
     kTagSlotInsert = 0x0008,  // SlotInsert (16 B), not critical
+    kTagSlotArp = 0x0009,     // SlotArp (4 B), not critical
     kTagMods = 0x0010,        // n x ModEntry (8 B)
     kTagModuleFirst = 0x4000, // module chunks: ModuleChunkHeader + payload
     kTagModuleLast = 0x7FFF,
@@ -56,6 +57,13 @@ struct SlotInsert {   // kTagSlotInsert payload: a synth slot's insert effect
     uint8_t rsv2[4];
 };
 static_assert(sizeof(SlotInsert) == 16, "SlotInsert layout");
+
+struct SlotArp {   // kTagSlotArp payload: a synth slot's step FX Arp settings (a slot at 100 has none)
+    uint8_t slot;
+    uint8_t gate;           // Arp Gate, 1..99
+    uint8_t rsv[2];
+};
+static_assert(sizeof(SlotArp) == 4, "SlotArp layout");
 
 struct ModEntry {   // kTagMods entry
     char id[4];

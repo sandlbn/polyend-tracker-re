@@ -117,6 +117,9 @@ public:
     virtual bool noteInScale(uint8_t note) { (void)note; return true; }
     // Default instrument volume 0..100 (roll volume ramp base, spec 03 §3.5).
     virtual uint8_t instrumentVolume(uint8_t instrument) { (void)instrument; return 100; }
+    // [3.x] Synth slot's Arp Gate, 1..100: how much of the arp period a step FX
+    // Arp note stays on. 100 = until the next arp note. Read at each arp note.
+    virtual uint8_t synthArpGate(uint8_t slot) { (void)slot; return 100; }
     // Pattern edited by step entry / live recording (spec 03 §5).
     virtual void markPatternDirty() {}
     // External Start chooses song play when the Song screen is active (spec 03 §4.3).

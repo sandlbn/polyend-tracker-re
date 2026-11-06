@@ -75,6 +75,14 @@ void App::setSlotEngine(int s, int32_t engineId) {
     engine.synth().setSlotEngine(s, v);
 }
 
+void App::setSlotArpGate(int s, int gate) {
+    if (s < 0 || s >= kSynthSlotCount) return;
+    const uint8_t g = uint8_t(gate < 1 ? 1 : (gate > 100 ? 100 : gate));
+    if (slotArpGate_[s] == g) return;
+    slotArpGate_[s] = g;
+    sidecarDirty_ = true;
+}
+
 #if OT_SLOT_INSERTS
 audio::IEffect* App::slotInsertEffect(int s) const {
     const char* id = slotInsertId(s);
@@ -153,6 +161,7 @@ void App::resetSidecar() {
     for (int s = 0; s < kSynthSlotCount; ++s) {
         slotEngine_[s] = 0;
         engine.synth().setSlotEngine(s, 0);
+        slotArpGate_[s] = 100;
 #if OT_SLOT_INSERTS
         slotInsert_[s] = SlotInsertCfg{};
         applySlotInsert(s);
@@ -196,6 +205,12 @@ bool App::encodeSidecar(uint8_t* out, uint32_t cap, uint32_t* len) {
                 se.moduleVersion = h.at(i)->info().version;
             }
         w.chunk(ot3::kTagSlotEngine, 0, &se, sizeof se);
+        any = true;
+    }
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        if (slotArpGate_[s] >= 100) continue;
+        const ot3::SlotArp sa = {uint8_t(s), slotArpGate_[s], {0, 0}};
+        w.chunk(ot3::kTagSlotArp, 0, &sa, sizeof sa);
         any = true;
     }
 #if OT_SLOT_INSERTS
@@ -278,6 +293,11 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
                 slotEngine_[se.slot] = se.engineId;
                 engine.synth().setSlotEngine(se.slot, se.engineId);
             }
+            continue;
+        }
+        if (c.tag == ot3::kTagSlotArp && c.len >= 2) {
+            if (c.payload[0] < kSynthSlotCount && c.payload[1] >= 1 && c.payload[1] <= 100)
+                slotArpGate_[c.payload[0]] = c.payload[1];
             continue;
         }
 #if OT_SLOT_INSERTS
