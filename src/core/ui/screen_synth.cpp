@@ -1065,13 +1065,7 @@ void SynthScreen::insertKey(uint8_t id) {
     audio::IEffect* fx = app_.slotInsertEffect(slot);
     const int np = fx ? std::min(fx->paramCount(), audio::kEffectMaxParams) : 0;
     const bool list = insFocus == 0 || (fx && fx->param(insFocus - 1).names);
-    if (id == btn::F1) {
-        if (insFocus == 0) {   // pressed again: the next insert, wrapping (like Model)
-            const char* items[kInsertListMax];
-            const int n = insertList(items);
-            const int k = (std::max(insertIndex(app_, slot), 0) + 1) % n;
-            app_.setSlotInsertKind(slot, k ? mod::ModuleHost::instance().effectAt(k - 1)->id() : nullptr);
-        }
+    if (id == btn::F1) {   // focuses the list only: the wheel / arrows pick (no effect switched on by accident)
         insFocus = 0;
     } else if (id >= btn::F2 && id <= btn::F7) {
         if (int(id) <= np) insFocus = id;
