@@ -348,6 +348,7 @@ public:
     // Popups (spec 05 §5.3).
     void notify(const char* text, uint32_t ms = 2000);
     const char* notice() const { return note_; }   // the current notification text (tests)
+    const char* noticeShown() const { return noteUntil_ ? note_ : ""; }   // [I] on screen now ("" when none), remote status
     void ask(const char* title, const char* text, const char* l5, const char* l6, const char* l7, AskFn fn,
              void* ctx);
     bool askOpen() const { return askOpen_; }

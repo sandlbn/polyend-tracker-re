@@ -223,6 +223,17 @@ public:
         tapSource_ = source;
         tap_ = tap;
     }
+    // [I] Output level for remote status (drive mode): peak |sample| of the
+    // live output since the last take, 0..32767. Measured only while on.
+    void setOutputMeter(bool on) {
+        if (!on) outPeak_ = 0;
+        outMeter_ = on;
+    }
+    int takeOutputPeak() {
+        const int p = outPeak_;
+        outPeak_ = 0;
+        return p;
+    }
     // Recorder monitor (spec 22 §5): stock 0x153B4(0x56) writes table[0x56] =
     // 1.0 into the line-in MSUM inputs, so while the Recorder monitors, the
     // line input reaches the master at unity whatever the Global Mixer line
@@ -433,6 +444,8 @@ private:
     IResampleTap* volatile tap_ = nullptr;
     volatile uint8_t tapSource_ = 0;
     int8_t tapLast_ = -1;   // track tapped in the last block (audio context)
+    volatile bool outMeter_ = false;
+    volatile int outPeak_ = 0;
     bool lineMonitor_ = false;
     volatile float lineMonPeak_ = 0.0f;
     float tempo_ = 130.0f;

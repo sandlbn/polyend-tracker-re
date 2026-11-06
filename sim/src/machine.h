@@ -11,6 +11,8 @@
 
 #include "app/app.h"
 #include "app/storage_stream_reader.h"
+#include "remote/display_tap.h"
+#include "remote/remote.h"
 #include "host_hal.h"
 #include "host_midi.h"
 #include "host_storage.h"
@@ -33,6 +35,8 @@ struct MachineOptions {
     int audioBuffer = 0;       // SDL device buffer in frames (0 = SdlAudio default)
     std::string audioOut;      // SDL output device name (empty = system default)
     bool usbStorage = true;    // false: HalRefs::usbStorage null (USB Storage mode "not available")
+    bool serve = false;        // [I] act as a Tracker for tools/tracker_remote.py (pseudo-terminal)
+    bool mirror = false;       // [I] no app: the display shows a Tracker's frames (--mirror)
 };
 
 struct Machine {
@@ -66,6 +70,7 @@ struct Machine {
     } tone;
     ot::IAudioOut* audio = nullptr;
     bool demo = false;
+    bool mirror = false;   // [I] --mirror: no app, the display shows the Tracker's frames
 
     // App and its large buffers (SDRAM on the device).
     std::unique_ptr<ot::App> app;
@@ -78,6 +83,13 @@ struct Machine {
     std::vector<uint8_t> scratch;
     std::unique_ptr<ot::PerfPatternMemory> perfPatterns;
     SimNvStore nvstore;   // config EEPROM stand-in (sim: "<sd>.eeprom" next to the SD folder)
+    // [I] --serve: the device side of remote control on a pseudo-terminal.
+    std::unique_ptr<ot::remote::DeviceBridge> bridge;
+    std::unique_ptr<ot::remote::DisplayTap> tap;   // "@RC FRAME" (display command export)
+    std::vector<uint8_t> tapBuf;
+    int serveFd = -1;
+    bool openServe();
+    void serviceServe();
 
     // demo state
     std::string demoLog[8];

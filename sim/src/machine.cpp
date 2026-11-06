@@ -1,7 +1,13 @@
 // OpenTracker simulator -- the machine (see machine.h).
 #include "machine.h"
 
+#include <cerrno>
 #include <cstdio>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+
+#include <SDL.h>
 
 #include "canvas.h"
 
@@ -9,8 +15,9 @@ namespace sim {
 
 bool Machine::start(const MachineOptions& o, bool headless) {
     demo = o.demo;
+    mirror = o.mirror;
     display.setRomFontsOnly(o.romFonts);
-    if (o.busyDisplay) display.setBusyClock(&clock);
+    if (o.busyDisplay && !mirror) display.setBusyClock(&clock);
     clock.setVirtual(headless);
     if (!storage.init(o.sd)) {
         std::fprintf(stderr, "cannot use SD folder %s\n", o.sd.c_str());
@@ -27,7 +34,8 @@ bool Machine::start(const MachineOptions& o, bool headless) {
         sdlAudio.setDeviceName(o.audioOut);
         audio = &sdlAudio;
     }
-    if (demo) return true;
+    if (demo || mirror) return true;
+    if (o.serve && !openServe()) return false;
 
     sampleBank.assign(ot::kSampleBankBytes / 2, 0);
     fxMemory.assign(ot::audio::AudioEngine::kFxMemorySamples, 0);
@@ -50,12 +58,20 @@ bool Machine::start(const MachineOptions& o, bool headless) {
 
     ot::HalRefs h;
     h.display = &display;
+    if (bridge) {
+        tap.reset(new ot::remote::DisplayTap(display));
+        tapBuf.assign(ot::remote::kFrameBufBytes, 0);
+        tap->setBuffer(tapBuf.data(), uint32_t(tapBuf.size()));
+        bridge->setTap(tap.get());
+        h.display = tap.get();
+    }
     h.audio = audio;
     h.storage = &storage;
     h.streamReader = &streamReader;
     h.midi = &midi;
-    h.input = &input;
-    h.leds = &leds;
+    h.input = bridge ? &bridge->input() : static_cast<ot::IInput*>(&input);
+    h.leds = bridge ? &bridge->leds() : static_cast<ot::ILeds*>(&leds);
+    h.remote = bridge.get();
     h.clock = &clock;
     h.nvstore = &nvstore;
     // 2.x USB Storage mode (no real USB in the sim: the lock stub); null when
@@ -111,6 +127,7 @@ bool Machine::start(const MachineOptions& o, bool headless) {
 
 void Machine::step() {
     if (app) {
+        serviceServe();
         app->loop();
         // Display brightness follows the config like the device glue
         // (src/app_main.cpp applyBrightness, spec 05 §1.8).
@@ -119,9 +136,47 @@ void Machine::step() {
             appliedBrightness = level;
             display.setBacklight(ot::IDisplay::brightnessDuty(level));
         }
-    } else {
+    } else if (!mirror) {
         demoStep();
     }
+}
+
+bool Machine::openServe() {
+    serveFd = posix_openpt(O_RDWR | O_NOCTTY | O_NONBLOCK);
+    if (serveFd < 0 || grantpt(serveFd) != 0 || unlockpt(serveFd) != 0) {
+        std::fprintf(stderr, "serve: no pseudo-terminal\n");
+        return false;
+    }
+    termios t{};
+    if (tcgetattr(serveFd, &t) == 0) {
+        cfmakeraw(&t);
+        tcsetattr(serveFd, TCSANOW, &t);
+    }
+    ot::remote::DeviceBridge::Io io;
+    io.send = [](void* c, const char* line) {
+        const int fd = *static_cast<int*>(c);
+        std::string l = std::string(line) + "\r\n";
+        size_t off = 0;
+        while (off < l.size()) {
+            const ssize_t n = ::write(fd, l.data() + off, l.size() - off);
+            if (n > 0) off += size_t(n);
+            else if (n < 0 && errno != EAGAIN && errno != EINTR) return;   // nobody reads: dropped
+            else SDL_Delay(1);
+        }
+    };
+    io.ctx = &serveFd;
+    bridge.reset(new ot::remote::DeviceBridge(input, leds, io));
+    bridge->setEnabled(true);   // the sim stands for a Tracker with Config > USB > Remote control On
+    std::printf("serve: %s\n", ptsname(serveFd));
+    std::fflush(stdout);
+    return true;
+}
+
+void Machine::serviceServe() {
+    if (!bridge) return;
+    char buf[512];
+    for (ssize_t n; (n = ::read(serveFd, buf, sizeof buf)) > 0;) bridge->rx(buf, size_t(n), clock.millis());
+    bridge->tick(clock.millis(), true);
 }
 
 void Machine::shutdown() {
