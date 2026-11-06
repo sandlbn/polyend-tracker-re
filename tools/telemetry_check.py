@@ -22,8 +22,9 @@
       slot incl. its peak block)
       fails above N.
   telemetry_check.py size [--size-tool arm-none-eabi-size] [--nm-tool arm-none-eabi-nm] <firmware.elf>
-      Flash use = .text + .data (Berkeley size): fail above 720,000 B, warn above
-      600,000 B (docs/VERIFY_M1.md R4, docs/MINI_PLAN.md §5).
+      Flash use = .text + .data (Berkeley size): fail above 800,000 B, warn above
+      600,000 B (docs/VERIFY_M1.md R4, docs/MINI_PLAN.md §5; 3.x: 720,000 -> 800,000,
+      still under the stock image extent 877,664 B that check_image.py enforces).
       With nm (default: the size tool's sibling): no double-precision libm in the
       image, and the stack headroom _estack - _ebss: fail below 90 KiB
       (docs/OPTIMIZATION_2X.md OP-4 / OP-5).
@@ -74,7 +75,7 @@ DEVICE_CPI = 1.94
 # "<name> <value> ... limit <N>" lines of the engines, pswitch, the SD stream
 # and the module benches ("<module>.unit...", tests/bench_api.h).
 LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|stream)[\w.]*|[a-z][a-z0-9]*\.unit[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
-FLASH_FAIL = 720000
+FLASH_FAIL = 800000
 FLASH_WARN = 600000
 STACK_MIN = 90 * 1024
 # newlib double-precision libm entry points / kernels (the float ones end in f).
@@ -501,7 +502,9 @@ def selftest():
                         " 612000    6700  180000  798700   c2fec x.elf"], quiet=True)
     assert ok
     ok, flash = check_size([" 715000    6700  180000  901700   dc244 x.elf"], quiet=True)
-    assert not ok and flash == 721700
+    assert ok and flash == 721700
+    ok, flash = check_size([" 795000    6700  180000  981700   efac4 x.elf"], quiet=True)
+    assert not ok and flash == 801700
     nm = ["0006c138 T powf", "20030000 B _estack", "20017000 B _ebss", "0006b400 t helper"]
     ok, head = check_symbols(nm, quiet=True)
     assert ok and head == 0x19000, head

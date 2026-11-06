@@ -20,4 +20,7 @@ modules = [
     { id = "DIRT", path = "../opentracker-fx/modules/dirt" },
     { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
     { id = "TAPE", path = "../opentracker-fx/modules/tape" },
+    { id = "PHSR", path = "../opentracker-fx/modules/phaser" },   # slot insert only
+    { id = "TREM", path = "../opentracker-fx/modules/tremolo" },  # slot insert only
+    { id = "CRSH", path = "../opentracker-fx/modules/bitcrush" }, # slot insert only
 ]
