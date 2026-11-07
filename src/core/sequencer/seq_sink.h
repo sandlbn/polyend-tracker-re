@@ -80,6 +80,9 @@ public:
     // refused (an empty preset, out of range), the slot plays on as it was;
     // a repeat of the slot's current preset counts as taken.
     virtual bool synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; return false; }
+    // [OT] Whether synthPreset(slot, n) would take n (0 always): asked from
+    // the audio context, before the Z that sends it.
+    virtual bool synthPresetTakes(uint8_t n) { (void)n; return false; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
 };

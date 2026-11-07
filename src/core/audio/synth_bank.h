@@ -155,6 +155,10 @@ public:
     // False: refused (out of range, or an empty preset), nothing changes.
     void bindPresets(const SynthPatch* presets) { presets_ = presets; }
     bool presetSelect(int s, uint8_t n);
+    // [OT] Whether presetSelect would take n: 0, or a preset that holds a patch.
+    bool presetTakes(uint8_t n) const {
+        return n == 0 || (n <= kSynthPresetCount && presets_ && presets_[n - 1].engine != 0);
+    }
     uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.

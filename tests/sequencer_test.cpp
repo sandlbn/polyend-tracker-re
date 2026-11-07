@@ -75,6 +75,7 @@ struct FakeSink : ISequencerSink {
         ev.push_back(e);
         return ok;
     }
+    bool synthPresetTakes(uint8_t n) override { return n == 0 || !((emptyPresets >> n) & 1); }
     int transportStops = 0;
     void synthTransportStop() override { ++transportStops; }
     void resetAllVoiceFx() override { ev.push_back(base(Ev::ResetFx, -1)); }
@@ -1779,8 +1780,9 @@ TEST(song_advance_keeps_the_z_but_the_song_wrap_resets_it) {
     // Into position 1: no reset.
     CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}}));
     r.runUntil([&] { return r.seq.songPosition() == 0 && r.seq.step(0) == 1; });
-    // The song loops: own patch, then position 0's Z3 again.
-    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 0}, {1, 0}, {2, 0}, {0, 3}}));
+    // The song loops: own patches, except Synth 1, which position 0's
+    // step-0 Z3 sets again (no own patch in between).
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {1, 0}, {2, 0}, {0, 3}}));
 }
 
 TEST(queued_pattern_change_resets_to_own_immediate_switch_does_not) {
@@ -1854,4 +1856,80 @@ TEST(an_ignored_z_does_not_move_the_tracked_state) {
     const int ends = r.host.patternEnds;
     r.runUntil([&] { return r.host.patternEnds > ends; });
     CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 5}, {0, 3}, {1, 0}, {2, 0}}));
+}
+
+// --- [OT] a loop end leaves a slot to the Z that sets it on the next step
+
+namespace {
+using ZSeq = std::vector<std::pair<int, int>>;
+}  // namespace
+
+TEST(loop_wrap_leaves_a_slot_to_its_step_0_z) {
+    // Synth 1 has a Z1 on step 0 under a long note; Synth 3 a Z7 on step 1.
+    // At the wrap Synth 1 is not sent to its own patch first (it would bind
+    // for a block before the Z1); Synth 3 (and 2) still go back.
+    Rig r(120.0f);
+    shortPattern(r, 3);
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 1);
+    r.setNote(1, 1, 60, 66);
+    zA(r, 1, 1, 7);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 2; });
+    CHECK(zSeq(r) == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 1}, {2, 7}, {1, 0}, {2, 0}, {0, 1}, {2, 7}}));
+    // Every later wrap the same.
+    r.runUntil([&] { return r.host.patternEnds >= 2 && r.seq.step(0) == 2; });
+    CHECK_EQ(zSeq(r).size(), 13u);
+    r.seq.stop();
+}
+
+TEST(loop_wrap_leaves_a_slot_to_a_noteless_step_0_z_of_the_tracks_synth) {
+    // Track 0: Z2 without a note on step 0, Synth 2 note on step 2. The first
+    // pass has no synth for the Z; from the wrap on it sets Synth 2.
+    Rig r(120.0f);
+    shortPattern(r, 3);
+    zA(r, 0, 0, 2);
+    r.setNote(0, 2, 60, 65);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 1; });
+    CHECK(zSeq(r) == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 0}, {2, 0}, {1, 2}}));
+}
+
+TEST(loop_wrap_still_reverts_when_the_step_0_z_may_not_take) {
+    // An empty preset, a Chance on the step, a muted track: the Z may not
+    // set the slot, so the wrap sends the loop start's patch as before.
+    for (int k = 0; k < 3; ++k) {
+        Rig r(120.0f);
+        shortPattern(r, 3);
+        r.setNote(0, 0, 60, 64);
+        zA(r, 0, 0, 1);
+        if (k == 0) r.sink.emptyPresets = 1u << 1;
+        if (k == 1) r.fxB(0, 0, 4, 100);   // Chance 100
+        r.seq.play(0);
+        if (k == 2) r.project.setTrackMuted(0, true);
+        r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 1; });
+        const ZSeq v = zSeq(r);
+        if (k == 2) {
+            CHECK(v == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 0}, {1, 0}, {2, 0}}));
+        } else {
+            CHECK(v == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 1}, {0, 0}, {1, 0}, {2, 0}, {0, 1}}));
+        }
+    }
+}
+
+TEST(queued_change_leaves_a_slot_to_the_new_patterns_step_0_z) {
+    Rig r(120.0f);
+    r.host.fill = fillZ;   // pattern 2: Z3 for Synth 1 on step 0 (track 1)
+    shortPattern(r, 3);
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 5);
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 1; });
+    r.seq.queuePattern(+1);
+    r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 1; });
+    CHECK_EQ(int(r.seq.currentPatternNumber()), 2);
+    CHECK(zSeq(r) == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 5}, {1, 0}, {2, 0}, {0, 3}}));
+    // Pattern 2 loops back to the own patches: Synth 1 is again left to Z3.
+    r.runUntil([&] { return r.host.patternEnds >= 2 && r.seq.step(0) == 1; });
+    CHECK(zSeq(r) == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 5}, {1, 0}, {2, 0}, {0, 3}, {1, 0}, {2, 0}, {0, 3}}));
 }

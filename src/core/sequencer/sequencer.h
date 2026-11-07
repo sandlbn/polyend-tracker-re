@@ -309,10 +309,16 @@ private:
     uint8_t zStart(int s) const { return uint8_t(zState_[s] & 0x0F); }
     uint8_t zCur(int s) const { return uint8_t(zState_[s] >> 4); }
     void setZ(int s, uint8_t start, uint8_t cur) { zState_[s] = uint8_t((start & 0x0F) | (cur << 4)); }
-    // Slot s to preset n through the sink; a refused n puts it on its own patch.
-    void applyZ(int s, uint8_t n);
-    void zLoopBack();   // every slot to its loop-start preset
-    void zAllOwn();     // every slot, and its loop start, to the own patch
+    // Slot s to preset n through the sink; a refused n puts it on its own
+    // patch. send false: only the state moves (a Z on the next step sets the
+    // slot, so it never plays n for the blocks in between).
+    void applyZ(int s, uint8_t n, bool send = true);
+    // Every slot to its loop-start preset / every slot and its loop start to
+    // the own patch; `leave` (bit per slot) is only noted, not sent.
+    void zLoopBack(uint8_t leave);
+    void zAllOwn(uint8_t leave);
+    // Slots a Z on the step each track plays next will set (bit per slot).
+    uint8_t zNextStepSets() const;
 
     void triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue);
     void noteOffTrack(int t, NoteOffMode mode);

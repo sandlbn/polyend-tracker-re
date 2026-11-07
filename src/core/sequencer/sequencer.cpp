@@ -1045,7 +1045,7 @@ void Sequencer::patternEnd() {
         queued_ = 0;
         dropPreload();
         resetPositions(0);
-        zAllOwn();   // [OT] Z chase: step 0 of a new pattern, nothing before it
+        zAllOwn(zNextStepSets());   // [OT] Z chase: step 0 of a new pattern, nothing before it
         host_->onPatternEnd();
         host_->onPatternAdvanced();
         return;
@@ -1071,14 +1071,14 @@ void Sequencer::patternEnd() {
         // [OT] Z chase: the song's start is on the own patches; an advance
         // keeps what the last pattern left, and a loop of this pattern (Song
         // screen Loop Pattern) goes back to it.
-        if (songWrapped) zAllOwn();
+        if (songWrapped) zAllOwn(zNextStepSets());
         for (int s = 0; s < kSynthSlotCount; ++s) setZ(s, zCur(s), zCur(s));
         host_->onPatternEnd();
         if (!songWrapped) host_->onPatternAdvanced();
         return;
     }
     dropPreload();
-    zLoopBack();   // [OT] Z chase: the loop start's presets again
+    zLoopBack(zNextStepSets());   // [OT] Z chase: the loop start's presets again
     host_->onPatternEnd();
     host_->onPatternAdvanced();
 }
@@ -1187,8 +1187,8 @@ void Sequencer::playSelection(int stepStart, int stepEnd, int trackStart, int tr
     for (int s = 0; s < kSynthSlotCount; ++s) setZ(s, zCur(s), zCur(s));   // [OT] the loop goes back to the first row's chase
 }
 
-void Sequencer::applyZ(int s, uint8_t n) {
-    if (!sink_ || sink_->synthPreset(uint8_t(s), n)) {
+void Sequencer::applyZ(int s, uint8_t n, bool send) {
+    if (!send || !sink_ || sink_->synthPreset(uint8_t(s), n)) {   // unsent: the next step's Z sets the slot
         setZ(s, zStart(s), n);
         return;
     }
@@ -1196,15 +1196,47 @@ void Sequencer::applyZ(int s, uint8_t n) {
     setZ(s, zStart(s), 0);
 }
 
-void Sequencer::zLoopBack() {
-    for (int s = 0; s < kSynthSlotCount; ++s) applyZ(s, zStart(s));
+void Sequencer::zLoopBack(uint8_t leave) {
+    for (int s = 0; s < kSynthSlotCount; ++s) applyZ(s, zStart(s), !((leave >> s) & 1));
 }
 
-void Sequencer::zAllOwn() {
+void Sequencer::zAllOwn(uint8_t leave) {
     for (int s = 0; s < kSynthSlotCount; ++s) {
-        applyZ(s, 0);
+        applyZ(s, 0, !((leave >> s) & 1));
         setZ(s, 0, 0);
     }
+}
+
+// [OT] stepStart's Z rule on the step each track plays next. Only a Z sure
+// to be taken counts: not on a disabled or muted track, a track switching
+// data, a step with Chance, or a Z without a note while a delayed note may
+// still change the track's synth.
+uint8_t Sequencer::zNextStepSets() const {
+    if (!cur_ || !sink_) return 0;
+    uint8_t sets = 0;
+    for (int t = 0; t < kTracks; ++t) {
+        const TrackState& tr = tracks_[t];
+        if (!tr.enabled || isMuted(t) || pendImm_[t].load(std::memory_order_relaxed)) continue;
+        const Step& st = playTrack(t).steps[clampi(tr.step, 0, kStepCount - 1)];
+        StepFx col[2] = {st.fx[0], st.fx[1]};   // FX-B, FX-A
+        if (tr.inject.type != 0) {
+            for (auto& c : col)
+                if (!c.used()) { c = tr.inject; break; }
+        }
+        if (col[0].type == 4 || col[1].type == 4) continue;
+        const bool noNote = st.note < 0 || tr.skipStep == tr.step;
+        for (const auto& c : col) {
+            if (!isPresetCmd(c.type, c.value)) continue;
+            uint8_t in = st.instrument;
+            if (!isSynth(in) && noNote) {
+                if (tr.delayActive) continue;
+                if (isSynth(tr.last.instr)) in = tr.last.instr;
+            }
+            if (isSynth(in) && sink_->synthPresetTakes(presetCmdIndex(c.value)))
+                sets = uint8_t(sets | (1u << synthSlotOf(in)));
+        }
+    }
+    return sets;
 }
 
 void Sequencer::stop() {
