@@ -56,6 +56,9 @@ audio::PresetInsert* insertTable() { return g_ins; }
 }  // namespace presets
 
 const SynthPatch& App::synthPreset(int n) const { return g_table[validPreset(n) ? n - 1 : 0]; }
+#if OT_SLOT_INSERTS
+const audio::PresetInsert& App::synthPresetInsert(int n) const { return g_ins[validPreset(n) ? n - 1 : 0]; }
+#endif
 bool App::synthPresetUsed(int n) const { return validPreset(n) && g_table[n - 1].engine != 0; }
 bool App::synthPresetDirty() const { return g_presetDirty != 0; }
 int App::synthPresetActive(int s) const { return engine.synth().presetOf(s); }

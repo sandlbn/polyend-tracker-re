@@ -8,6 +8,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <string>
 #include <vector>
 
 #include "audio/audio_tables.h"
@@ -19,6 +20,7 @@
 #include "model/project.h"
 #include "modules/module.h"
 #include "modules/synth_models.h"
+#include "ui/screens.h"
 #include "ui_fakes.h"
 #if __has_include("ot_profile.h")
 #include "ot_profile.h"
@@ -162,6 +164,23 @@ void sound(Harness& h, int s) {
     h.audio.pump(8);
     h.app->engine.synth().auditionOff();
     h.audio.pump(1);
+}
+
+SynthScreen& synthScreen(App& a) { return *static_cast<SynthScreen*>(a.ui.screen(kModSynth)); }
+void openPresets(Harness& h, int slot) {
+    App& a = *h.app;
+    a.setCurrentInstrument(uint8_t(kFirstSynthInstrument + slot));
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    if (synthScreen(a).view != SynthScreen::View::Macros) h.tap(btn::InstrParams);
+    h.tap(btn::F8);
+}
+bool drawn(Harness& h, const char* q) {
+    h.app->ui.dirty();
+    h.run(40);
+    for (const std::string& l : h.disp.last)
+        if (l.find(q) != std::string::npos) return true;
+    return false;
 }
 
 }  // namespace
@@ -444,6 +463,24 @@ TEST(unknown_effect_id_is_kept_and_saved_but_not_bound) {
     CHECK(a.loadSynthPreset(0, 4));
     CHECK(a.slotInsertId(0) != nullptr && std::memcmp(a.slotInsertId(0), "QQQQ", 4) == 0);
     CHECK(a.slotInsertEffect(0) == nullptr);
+}
+
+TEST(presets_page_names_the_insert) {
+    Harness h;
+    App& a = *h.app;
+    IEffect* fx = anEffect();
+    if (!fx) return;
+    a.setSlotInsertKind(1, fx->id());
+    a.storeSynthPreset(1, 1);
+    a.setSlotInsertKind(1, nullptr);
+    a.storeSynthPreset(2, 1);
+    a.setSlotInsertKind(1, "QQQQ");
+    a.storeSynthPreset(3, 1);
+    openPresets(h, 1);
+    CHECK(synthScreen(a).view == SynthScreen::View::Presets);
+    CHECK(drawn(h, fx->name()));
+    CHECK(drawn(h, "no insert"));
+    CHECK(drawn(h, "QQQQ"));
 }
 
 #else

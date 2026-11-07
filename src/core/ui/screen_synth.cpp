@@ -1337,8 +1337,25 @@ void SynthScreen::drawPresets(Gfx& g) {
             return;
         }
         const int32_t e = s->app_.synthPreset(n).engine;
-        std::snprintf(out, size_t(cap), "%sP%d  %s", mark, n,
-                      audio::synthEngineFor(e) ? synthEngineDisplayName(e) : "not available");
+        const char* eng = audio::synthEngineFor(e) ? synthEngineDisplayName(e) : "not available";
+#if OT_SLOT_INSERTS
+        // [3.x] The insert it carries: its effect, an effect this build lacks
+        // by id, "no insert" when stored without one (old presets: nothing).
+        const audio::PresetInsert& pi = s->app_.synthPresetInsert(n);
+        char ins[8] = "";
+        const char* insText = ins;
+        if (pi.fx) {
+            insText = pi.fx->name();
+        } else if (pi.id[0] || pi.id[1] || pi.id[2] || pi.id[3]) {
+            for (int k = 0; k < 4; ++k) ins[k] = pi.id[k] >= 32 && pi.id[k] < 127 ? pi.id[k] : '?';
+            ins[4] = 0;
+        } else if (pi.flags & audio::kPresetInsertHas) {
+            insText = "no insert";
+        }
+        std::snprintf(out, size_t(cap), "%sP%d  %s%s%s", mark, n, eng, insText[0] ? "  " : "", insText);
+#else
+        std::snprintf(out, size_t(cap), "%sP%d  %s", mark, n, eng);
+#endif
     };
     v.ctx = this;
     wg::list(g, th, v);

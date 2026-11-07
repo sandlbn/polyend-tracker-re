@@ -527,6 +527,8 @@ public:
     // [3.x] Slot s's insert as a whole (a preset loaded into the slot): the
     // effect by id (all zero = none), its settings (clamped) and Off.
     void setSlotInsert(int s, const char* effectId, const audio::EffectSettings& set, bool off);
+    // [3.x] The insert preset n (1..8) carries (app/synth_presets.cpp).
+    const audio::PresetInsert& synthPresetInsert(int n) const;
     bool slotInsertOff(int s) const;
     const char* slotInsertId(int s) const;   // 4 characters, nullptr = none
     audio::IEffect* slotInsertEffect(int s) const;
