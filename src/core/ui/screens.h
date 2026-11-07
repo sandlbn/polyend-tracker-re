@@ -1046,7 +1046,7 @@ public:
 
     // Insert: [3.x] the slot's insert effect (Shift + Instrument Params; builds
     // with OT_SLOT_INSERTS).
-    enum class View : uint8_t { Params, Macros, Edit, Browser, Insert };
+    enum class View : uint8_t { Params, Macros, Edit, Browser, Insert, Presets };
     View view = View::Params;
     int insFocus = 0;       // Insert: 0 the insert list (F1), 1..6 its settings (F2..F7)
     int slot = 0;           // 0..2
@@ -1101,6 +1101,11 @@ private:
     void drawMacros(Gfx& g);
     void drawEdit(Gfx& g);
     void drawBrowser(Gfx& g);
+    void drawPresets(Gfx& g);
+    void presetKey(uint8_t id);
+    void endPresetPreview();
+    void loadPresetNow();
+    uint8_t previewPrev_ = 0;   // Presets: what the slot played before the held preview
 #if OT_SLOT_INSERTS
     void drawInsert(Gfx& g);
     void insertKey(uint8_t id);

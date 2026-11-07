@@ -207,3 +207,114 @@ TEST(new_fx_type_value_inside_its_range) {
     pops::writeFxType(p, r, 2, uint8_t(FxId::BitDepth));
     CHECK_EQ(int(p.tracks[0].steps[0].fx[fxSlotForColumn(2)].value), 4);
 }
+
+// --- Z, the synth preset command -----------------------------------------------
+
+namespace {
+const StepFx& fxAt(const Pattern& p, int col, int s = 0, int t = 0) { return p.tracks[t].steps[s].fx[fxSlotForColumn(col)]; }
+bool isZ(const StepFx& f, int n) { return f.type == 0 && f.value == kFxPresetCmdBase + n; }
+}  // namespace
+
+TEST(write_preset_fx_stores_type0_value_d0) {
+    Pattern p;
+    const SelRect r = rect(0, 0, 0, 0);
+    pops::writeFxType(p, r, 2, kFxSynthPreset);
+    CHECK(isZ(fxAt(p, 2), 0));
+    pops::writeFxValue(p, r, 2, 5);
+    CHECK(isZ(fxAt(p, 2), 5));
+    pops::writeFxValue(p, r, 2, 200);   // clamped to its range
+    CHECK(isZ(fxAt(p, 2), kSynthPresetCount));
+    pops::writeFxType(p, r, 2, kFxSynthPreset);   // the same type keeps its value
+    CHECK(isZ(fxAt(p, 2), kSynthPresetCount));
+    pops::writeFxType(p, r, 2, uint8_t(FxId::Volume));
+    CHECK_EQ(int(fxAt(p, 2).type), int(uint8_t(FxId::Volume)));
+    CHECK(fxAt(p, 2).value <= 100);
+    pops::writeFxType(p, r, 2, kFxSynthPreset);
+    pops::writeFxType(p, r, 2, 0);
+    CHECK(!isPresetCmd(fxAt(p, 2).type, fxAt(p, 2).value));
+}
+
+TEST(preset_value_step_and_pad_stay_0_to_8) {
+    Pattern p;
+    const SelRect r = rect(0, 0, 0, 0);
+    pops::writeFxType(p, r, 3, kFxSynthPreset);
+    pops::stepFxValue(p, r, 3, 3);
+    CHECK(isZ(fxAt(p, 3), 3));
+    pops::stepFxValue(p, r, 3, 50);
+    CHECK(isZ(fxAt(p, 3), 8));
+    pops::stepFxValue(p, r, 3, -50);
+    CHECK(isZ(fxAt(p, 3), 0));
+    CHECK_EQ(int(pops::fxValueFromPad(kFxSynthPreset, 2)), 2);
+    CHECK_EQ(int(pops::fxValueFromPad(kFxSynthPreset, 40)), 8);
+    // A selection steps its Z cells too.
+    pops::writeFxType(p, rect(0, 2, 0, 0), 3, kFxSynthPreset);
+    pops::stepFxValue(p, rect(0, 2, 0, 0), 3, 1);
+    CHECK(isZ(fxAt(p, 3, 2), 1));
+}
+
+TEST(step_fx_type_reaches_preset_after_break_and_wraps_to_none) {
+    Pattern p;
+    const SelRect r = rect(0, 0, 0, 0);
+    pops::writeFxType(p, r, 2, uint8_t(FxId::BreakPattern));
+    pops::stepFxType(p, r, 2, 1);
+    CHECK(isZ(fxAt(p, 2), 0));
+    CHECK_EQ(pops::fxOrderIndex(kFxSynthPreset), kFxListCount - 1);
+    pops::stepFxType(p, r, 2, 1);
+    CHECK_EQ(int(fxAt(p, 2).type), 0);
+    CHECK(!isPresetCmd(fxAt(p, 2).type, fxAt(p, 2).value));
+    pops::writeFxType(p, r, 2, kFxSynthPreset);
+    pops::stepFxType(p, r, 2, -1);
+    CHECK_EQ(int(fxAt(p, 2).type), int(uint8_t(FxId::BreakPattern)));
+}
+
+TEST(clear_cols_zeroes_preset_cmd_in_every_mode) {
+    for (ColMode m : {ColMode::All, ColMode::Fx1, ColMode::Fx2}) {
+        Pattern p;
+        for (int c = 2; c <= 3; ++c) {
+            pops::writeFxType(p, rect(0, 0, 0, 0), c, kFxSynthPreset);
+            pops::writeFxValue(p, rect(0, 0, 0, 0), c, 4);
+        }
+        pops::clearRect(p, rect(0, 0, 0, 0), m);
+        if (m != ColMode::Fx2) CHECK(!isPresetCmd(p.tracks[0].steps[0].fx[0].type, p.tracks[0].steps[0].fx[0].value));
+        if (m != ColMode::Fx1) CHECK(!isPresetCmd(p.tracks[0].steps[0].fx[1].type, p.tracks[0].steps[0].fx[1].value));
+    }
+    // Note mode on a sample step drops the FX types: no Z may appear or stay.
+    Pattern p;
+    p.tracks[0].steps[0].note = 60;
+    p.tracks[0].steps[0].fx[0] = StepFx{uint8_t(FxId::SlideUp), 210};
+    p.tracks[0].steps[0].fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 2)};
+    pops::clearRect(p, rect(0, 0, 0, 0), ColMode::Note);
+    CHECK(!isPresetCmd(p.tracks[0].steps[0].fx[0].type, p.tracks[0].steps[0].fx[0].value));
+    CHECK(!isPresetCmd(p.tracks[0].steps[0].fx[1].type, p.tracks[0].steps[0].fx[1].value));
+}
+
+TEST(fill_random_never_writes_preset) {
+    Pattern p;
+    pops::FillParams f;
+    f.scaleOrFx = -1;   // a random type
+    f.type = 2;
+    f.from = 0;
+    f.to = 255;
+    uint32_t seed = 12345;
+    pops::fill(p, rect(0, 127, 0, 0), 2, f, 60, 0,
+               [](void* c) { uint32_t& x = *static_cast<uint32_t*>(c); x = x * 1664525u + 1013904223u; return x >> 8; }, &seed);
+    for (int s = 0; s < 128; ++s) CHECK(!isPresetCmd(fxAt(p, 2, s).type, fxAt(p, 2, s).value));
+}
+
+TEST(fill_counts_a_z_step_as_having_fx) {
+    for (int where : {2, 3}) {   // Fx, No Fx
+        Pattern p;
+        pops::writeFxType(p, rect(1, 1, 0, 0), 2, kFxSynthPreset);
+        pops::writeFxValue(p, rect(1, 1, 0, 0), 2, 4);
+        pops::FillParams f;
+        f.where = int16_t(where);
+        f.scaleOrFx = 2;   // Volume
+        f.type = 0;
+        f.from = 30;
+        uint32_t seed = 1;
+        pops::fill(p, rect(0, 3, 0, 0), 2, f, 60, 0, [](void* c) { return ++*static_cast<uint32_t*>(c); }, &seed);
+        if (where == 3) CHECK(isZ(fxAt(p, 2, 1), 4));   // No Fx: the Z step is not touched
+        else CHECK(!isZ(fxAt(p, 2, 1), 4));             // Fx: it is the one step filled
+        if (where == 2) CHECK_EQ(int(fxAt(p, 2, 0).type), 0);
+    }
+}

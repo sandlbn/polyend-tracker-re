@@ -3,6 +3,7 @@
 // OpenTracker device glue: hands the HAL drivers and the SDRAM buffers to the
 // App (core stays free of hal headers; ARCHITECTURE.md rules).
 #include "app/app.h"
+#include "app/synth_presets.h"
 #include "hal/sd_stream_reader.h"
 #include "hal/audio_sgtl5000.h"
 #include "hal/board.h"
@@ -36,7 +37,7 @@ namespace {
 // from App (SRAM).
 constexpr uint32_t kPatSize = sizeof(ot::Pattern);          // 16 tracks, 12,304 B
 constexpr uint32_t kStockSize = sizeof(ot::PatternStock);   // 12 tracks, 9,228 B
-constexpr uint32_t kUndoSlots = 20;      // spec 05 §5.1 (a)
+constexpr uint32_t kUndoSlots = 18;      // spec 05 §5.1 (a) has 20: two make room for the synth presets
 constexpr uint32_t kFileUndoSlots = 10;  // spec 05 §5.1 (b)
 constexpr uint32_t kScratch = 0x10000;
 // Ext-track pool: 384 blocks (spec gap 9) + the pool-full write target.
@@ -61,7 +62,8 @@ constexpr uint32_t kOffScratch = align(kOffNums + 64);
 // Per-track pattern staging for the Performance screen (spec 12 §C.1).
 constexpr uint32_t kOffPerf = align(kOffScratch + kScratch);
 constexpr uint32_t kOffStems = align(kOffPerf + sizeof(ot::PerfPatternMemory));
-constexpr uint32_t kEnd = kOffStems + sizeof(ot::audio::StemBlock);   // WAV export stems (was SRAM)
+constexpr uint32_t kOffPresets = align(kOffStems + sizeof(ot::audio::StemBlock));   // WAV export stems (was SRAM)
+constexpr uint32_t kEnd = kOffPresets + sizeof(ot::SynthPatch) * ot::kSynthPresetCount;   // the project's synth presets
 static_assert(ot::board::kSdramSize == 16u * 1024u * 1024u, "spec 01 §2");
 static_assert(kEnd <= ot::board::kSdramSize, "SDRAM layout exceeds 16 MB");
 // M1 budget (docs/M1_PLAN.md §1): at least 150 KB stay free for M2/M3.
@@ -397,6 +399,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     mem.scratchBytes = kScratch;
     mem.perfPatterns = reinterpret_cast<PerfPatternMemory*>(sd + kOffPerf);
     mem.exportStems = reinterpret_cast<audio::StemBlock*>(sd + kOffStems);
+    presets::bind(reinterpret_cast<SynthPatch*>(sd + kOffPresets));
 
     HalRefs refs;
     refs.display = hal.display;

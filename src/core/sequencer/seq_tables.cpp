@@ -1,6 +1,8 @@
 // Sequencer constant tables (spec 03 §2.6, §3.5, §3.6).
 #include "sequencer/seq_tables.h"
 
+#include "model/fx.h"
+
 namespace ot {
 namespace seq {
 
@@ -57,7 +59,7 @@ uint16_t chordMask(uint8_t value) {
 namespace {
 // spec 03 §3.6 Range column, index = FX id.
 struct Range { uint8_t lo, hi; };
-const Range kRanges[43] = {
+const Range kRanges[kFxListCount] = {
     {0, 100},  // 0 None
     {0, 0},    // 1 Off
     {0, 100},  // 2 Micro-move
@@ -95,11 +97,12 @@ const Range kRanges[43] = {
     {0, 48},   // 40 Tune
     {0, 255},  // 41 Slide up
     {0, 255},  // 42 Slide down
+    {0, 8},    // 43 Synth preset (list only)
 };
 }  // namespace
 
-uint8_t fxMin(uint8_t type) { return type < 43 ? kRanges[type].lo : 0; }
-uint8_t fxMax(uint8_t type) { return type < 43 ? kRanges[type].hi : 255; }
+uint8_t fxMin(uint8_t type) { return type < kFxListCount ? kRanges[type].lo : 0; }
+uint8_t fxMax(uint8_t type) { return type < kFxListCount ? kRanges[type].hi : 255; }
 
 }  // namespace seq
 }  // namespace ot

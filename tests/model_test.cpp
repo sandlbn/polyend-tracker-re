@@ -173,3 +173,47 @@ TEST(pattern_names) {
     CHECK_EQ(std::strlen(n.get(6)), 30u);
     CHECK_STR(n.get(300), "");
 }
+
+TEST(preset_cmd_helpers) {
+    // A pattern's Z command is FX type 0 with value 0xD0 + n; id 43 exists only in the lists.
+    CHECK(!fxIdValid(kFxSynthPreset));
+    CHECK_EQ(kFxListCount, kFxCount + 1);
+    CHECK_EQ(int(fxInfo(kFxSynthPreset).symbol), int('Z'));
+    CHECK_EQ(int(kFxMenuOrder[kFxListCount - 1]), int(kFxSynthPreset));
+    CHECK_EQ(int(kFxMenuOrder[kFxCount - 1]), int(uint8_t(FxId::BreakPattern)));   // stock list unchanged
+    for (int n = 0; n <= kSynthPresetCount; ++n) {
+        const uint8_t v = uint8_t(kFxPresetCmdBase + n);
+        CHECK(isPresetCmd(0, v));
+        CHECK_EQ(int(presetCmdIndex(v)), n);
+        CHECK_EQ(int(fxLogicalType(0, v)), int(kFxSynthPreset));
+        CHECK_EQ(int(fxLogicalValue(0, v)), n);
+    }
+    CHECK(!isPresetCmd(0, uint8_t(kFxPresetCmdBase - 1)));
+    CHECK(!isPresetCmd(0, uint8_t(kFxPresetCmdBase + kSynthPresetCount + 1)));
+    CHECK(!isPresetCmd(uint8_t(FxId::SlideUp), kFxPresetCmdBase));   // a real Slide value
+    CHECK_EQ(int(fxLogicalType(uint8_t(FxId::SlideUp), 210)), int(uint8_t(FxId::SlideUp)));
+    CHECK_EQ(int(fxLogicalValue(uint8_t(FxId::SlideUp), 210)), 210);
+}
+
+TEST(step_clear_leaves_no_preset_cmd_behind) {
+    Step s;
+    s.fx[0] = StepFx{0, uint8_t(kFxPresetCmdBase + 3)};
+    s.fx[1] = StepFx{uint8_t(FxId::SlideUp), 210};   // cleared, 210 under type 0 would read as a Z
+    s.clear();
+    CHECK(!isPresetCmd(s.fx[0].type, s.fx[0].value));
+    CHECK(!isPresetCmd(s.fx[1].type, s.fx[1].value));
+    Step o;
+    o.fx[0] = StepFx{uint8_t(FxId::Volume), 77};
+    o.clear();
+    CHECK_EQ(int(o.fx[0].value), 77);   // any other value stays, as the stock clear leaves it
+}
+
+TEST(track_blank_counts_preset_cmds) {
+    Track t;
+    t.clear(15);
+    CHECK(t.blank());
+    t.steps[3].fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 1)};
+    CHECK(!t.blank());
+    t.steps[3].fx[1] = StepFx{0, 50};   // a stale value is still nothing
+    CHECK(t.blank());
+}

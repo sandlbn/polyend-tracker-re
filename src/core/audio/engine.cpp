@@ -443,6 +443,7 @@ void AudioEngine::synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) {
     NoteStamp st(inHook_ ? &prof_.synOn : nullptr);
     synth_.macroFx(slot, macro, value);
 }
+void AudioEngine::synthPreset(uint8_t slot, uint8_t n) { synth_.presetSelect(slot, n); }
 void AudioEngine::synthTransportStop() { synth_.transportStop(); }
 
 void AudioEngine::metronomeClick(bool accent, uint8_t velocity) {

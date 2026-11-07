@@ -645,6 +645,53 @@ void switchBench() {
 #endif
 }
 
+// preset / presetx: a Z in the audio block, 4 voices sounding. The same engine
+// ramps every parameter; another engine fades the voices and restarts. SDRAM
+// accesses: the reload reads each of the patch's parameters from SDRAM.
+SynthPatch gBenchPresets[2];
+void presetBench() {
+    for (int cross = 0; cross < 2; ++cross) {
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        r.eng->synth().setSlotRecord(0, rc);
+        gBenchPresets[0] = gSynthPatch;
+        gBenchPresets[1] = gSynthPatch;
+        if (cross) gBenchPresets[0].engine = kSynthEngineTest;
+        r.eng->synth().bindPresets(gBenchPresets);
+        for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+        int16_t out[kBlock * 2];
+        for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
+        const int n = 32 / (kScale > 4 ? 4 : kScale);
+        double steady = 0.0, sw = 0.0;
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd);
+        for (int k = 0; k < n; ++k) {
+            double t0 = nowUnits();
+            r.eng->renderLive(out);
+            steady += nowUnits() - t0;
+            r.eng->synth().presetSelect(0, 1);
+            t0 = nowUnits();
+            r.eng->renderLive(out);
+            sw += nowUnits() - t0;
+            gSink = out[k & 255];
+            r.eng->synth().presetSelect(0, 0);   // back, outside the timing
+            r.eng->renderLive(out);
+            if (cross)
+                for (int v = 0; v < 4; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(48 + 7 * v));
+        }
+        r.eng->synth().bindPresets(nullptr);
+        const double d = (sw - steady) / n + acc * kSdramCycles;
+#ifdef OT_BENCH_M4
+        std::printf("    %s  %8.1f  (Z block - steady block, est. cycles, limit %d)\n", cross ? "presetx.d" : "preset.d", d,
+                    cross ? 12000 : 16000);
+#else
+        std::printf("  (%s: Z block - steady %+.2f us)\n", cross ? "presetx" : "preset", d);
+#endif
+    }
+}
+
 // peak: song 5 replayed from its trace (tests/peak_trace.cpp, make -C tests
 // peak-trace) through AudioEngine::fillCallback, i.e. with the CPU meter,
 // the governor and the block profile (audio/block_profile.h) as on the
@@ -1333,6 +1380,7 @@ int main(int argc, char** argv) {
     mixBench(4, "mixwtfm", kSynthEngineWtfm);
 #endif
     switchBench();
+    presetBench();
 #ifdef OT_BENCH_M4
     peakBench(OT_BENCH_TRACE, 8100);   // song positions 0-2 (intro, groove, sixteen-track chords)
 #else
