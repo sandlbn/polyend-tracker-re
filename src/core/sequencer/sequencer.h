@@ -317,6 +317,7 @@ private:
     // the own patch; `leave` (bit per slot) is only noted, not sent.
     void zLoopBack(uint8_t leave);
     void zAllOwn(uint8_t leave);
+    void zFlush(uint8_t mask);   // the pending slots in mask to their tracked state
     // Slots a Z on the step each track plays next will set (bit per slot).
     uint8_t zNextStepSets() const;
 
@@ -400,6 +401,7 @@ private:
     int queued_ = 0;
     bool breakPending_ = false;
     bool breakPreloadDone_ = false;
+    uint8_t zPend_ = 0;   // [OT] bit s: slot s left to step 0's Z at a loop end (applyZ unsent)
 
     // clock
     uint32_t tick_ = 1;

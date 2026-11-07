@@ -2,6 +2,7 @@
 #include "test.h"
 
 #include <cstring>
+#include <memory>
 #include <vector>
 
 #include "model/pattern.h"
@@ -1896,8 +1897,9 @@ TEST(loop_wrap_leaves_a_slot_to_a_noteless_step_0_z_of_the_tracks_synth) {
 }
 
 TEST(loop_wrap_still_reverts_when_the_step_0_z_may_not_take) {
-    // An empty preset, a Chance on the step, a muted track: the Z may not
-    // set the slot, so the wrap sends the loop start's patch as before.
+    // An empty preset, a muted track: the Z may not set the slot, so the wrap
+    // sends the loop start's patch as before. A Chance that passes sets it
+    // with no revert first (one that fails: see the Chance test below).
     for (int k = 0; k < 3; ++k) {
         Rig r(120.0f);
         shortPattern(r, 3);
@@ -1911,6 +1913,8 @@ TEST(loop_wrap_still_reverts_when_the_step_0_z_may_not_take) {
         const ZSeq v = zSeq(r);
         if (k == 2) {
             CHECK(v == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 0}, {1, 0}, {2, 0}}));
+        } else if (k == 1) {
+            CHECK(v == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 1}, {1, 0}, {2, 0}, {0, 1}}));
         } else {
             CHECK(v == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 1}, {0, 0}, {1, 0}, {2, 0}, {0, 1}}));
         }
@@ -1956,4 +1960,116 @@ TEST(play_forgets_the_last_instrument_of_an_earlier_playback) {
     r.runUntil([&] { return r.seq.step(0) == 1; });
     CHECK(r.sink.of(Ev::SynthOn).empty());
     CHECK(r.sink.of(Ev::NoteOn).empty());
+}
+
+// --- [OT] a loop end: what step 0 really does -------------------------------------
+
+namespace {
+// What slot s plays now: the last accepted Z (-1: none sent).
+int slotNow(const Rig& r, int s) {
+    int n = -1;
+    for (const Ev& e : r.sink.ev)
+        if (e.kind == Ev::SynthPreset && e.a == s && e.c) n = e.b;
+    return n;
+}
+// The preset slot `slot` had when track t's k-th synth note-on (0-based) was sent.
+int presetAtOn(const Rig& r, int t, size_t k, int slot) {
+    int n = -1;
+    size_t seen = 0;
+    for (const Ev& e : r.sink.ev) {
+        if (e.kind == Ev::SynthPreset && e.a == slot && e.c) n = e.b;
+        if (e.kind == Ev::SynthOn && e.track == t && seen++ == k) return n;
+    }
+    return -2;
+}
+bool zAtTick(const Rig& r, uint64_t tick, int slot) {
+    for (const Ev& e : r.sink.ev)
+        if (e.kind == Ev::SynthPreset && e.tick == tick && e.a == slot) return true;
+    return false;
+}
+}  // namespace
+
+TEST(loop_wrap_with_a_delayed_note_into_step_0_still_lets_the_slot_go_back) {
+    // Track 1's step-0 Z has no note; the note micro-moved from step 4 fires
+    // first and makes it Synth 2's. Synth 1 still goes back.
+    Rig r(120.0f);
+    shortPattern(r, 3);
+    zA(r, 0, 0, 1);
+    r.setNote(0, 1, 60, 64);
+    r.setNote(1, 2, 60, 64);
+    zA(r, 1, 2, 3);
+    r.setNote(0, 3, 62, 65);
+    r.fxB(0, 3, 2, 100);   // micro-move into the next step's first micro
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 1; });
+    CHECK_EQ(slotNow(r, 0), 0);
+    CHECK_EQ(slotNow(r, 1), 1);
+}
+
+TEST(loop_wrap_with_an_immediate_track_switch_after_it_still_lets_the_slot_go_back) {
+    // The switch comes in after the wrap looked at step 0 (Z) and before
+    // step 0 starts: step 0 is the new pattern's, which has no Z.
+    Rig r(40.0f);
+    std::unique_ptr<PerfPatternMemory> mem(new PerfPatternMemory);
+    r.seq.setPerfPatternMemory(mem.get());
+    r.host.fill = [](uint8_t num, Pattern& p) {
+        if (num == 2) {
+            p.tracks[0].steps[0].note = 60;   // no Z
+            p.tracks[0].steps[0].instrument = 64;
+        }
+    };
+    shortPattern(r, 3);
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 1);
+    r.setNote(0, 2, 60, 64);
+    zA(r, 0, 2, 2);
+    r.seq.setPerformanceMode(true);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 1; });
+    CHECK(r.seq.step(0) == 0 && r.seq.microStep(0) == 1);   // step 0 not started yet
+    CHECK_EQ(slotNow(r, 0), 2);
+    CHECK(r.seq.setTrackPattern(0, 2, true));
+    r.runUntil([&] { return r.seq.step(0) == 1; });
+    CHECK_EQ(int(r.seq.trackPattern(0)), 2);
+    CHECK_EQ(slotNow(r, 0), 0);
+    CHECK_EQ(presetAtOn(r, 0, 2, 0), 0);   // the new step 0's note plays the loop start's
+}
+
+TEST(loop_wrap_a_step_0_note_before_the_tracks_z_plays_the_loop_start_every_time) {
+    Rig r(120.0f);
+    shortPattern(r, 3);
+    r.setNote(0, 0, 60, 64);
+    r.setNote(1, 0, 64, 64);
+    zA(r, 1, 0, 1);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 2 && r.seq.step(0) == 1; });
+    for (size_t k = 0; k < 3; ++k) {
+        CHECK_EQ(presetAtOn(r, 0, k, 0), 0);
+        CHECK_EQ(presetAtOn(r, 1, k, 0), 1);
+    }
+}
+
+TEST(loop_wrap_a_step_0_z_with_chance_keeps_its_preset_if_it_passes_and_goes_back_if_not) {
+    for (int pass = 0; pass < 2; ++pass) {
+        Rig r(120.0f);
+        r.seq.seedRandom(1);
+        shortPattern(r, 3);
+        r.setNote(0, 0, 60, 64);
+        r.fxB(0, 0, 4, pass ? 100 : 0);   // Chance 100 %: always; 0 %: (almost) never
+        zA(r, 0, 0, 1);
+        r.setNote(1, 0, 64, 64);          // another track's note on the slot
+        r.setNote(0, 2, 60, 64);
+        zA(r, 0, 2, 2);
+        r.seq.play(0);
+        r.runUntil([&] { return r.host.patternEnds >= 2 && r.seq.step(0) == 1; });
+        if (pass) {
+            CHECK_EQ(slotNow(r, 0), 1);
+            for (uint64_t t : r.host.endTicks) CHECK(!zAtTick(r, t, 0));   // no own patch in between
+            CHECK_EQ(presetAtOn(r, 1, 1, 0), 1);
+        } else {
+            CHECK_EQ(slotNow(r, 0), 0);
+            CHECK_EQ(presetAtOn(r, 1, 1, 0), 0);
+            CHECK_EQ(presetAtOn(r, 1, 2, 0), 0);
+        }
+    }
 }

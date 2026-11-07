@@ -363,6 +363,9 @@ void Sequencer::microStep() {
             stepEnd = true;
         }
     }
+    // [OT] Step 0 after a loop end has started on every track: a slot the
+    // loop end left to a Z that did not come goes back now.
+    if (zPend_) zFlush(zPend_);
     if (stepEnd) advanceMaster();
 }
 
@@ -534,7 +537,10 @@ void Sequencer::stepStart(int t) {
             if (isSynth(in) && sink_) {
                 const int slot = synthSlotOf(in);
                 const uint8_t n = presetCmdIndex(v);
-                if (sink_->synthPreset(uint8_t(slot), n)) setZ(slot, zStart(slot), n);   // a refused Z changes nothing
+                if (sink_->synthPreset(uint8_t(slot), n)) {   // a refused Z changes nothing
+                    setZ(slot, zStart(slot), n);
+                    zPend_ = uint8_t(zPend_ & ~(1u << slot));
+                }
             }
             continue;
         }
@@ -757,6 +763,7 @@ void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chord
             n.fxA = rec.fxA;
             n.fxB = rec.fxB;
             n.tickPeriodUs = tickPeriodUs();
+            if (zPend_ & (1u << n.slot)) zFlush(uint8_t(1u << n.slot));   // [OT] a note before the step's Z
             sink_->synthNoteOn(uint8_t(t), n);
         }
         tr.sounding = true;
@@ -1144,6 +1151,7 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
     tick_ = 1;
     masterMicro_ = 1;
     accUs_ = 0;  // OT: deterministic start phase
+    zPend_ = 0;
     breakPending_ = breakPreloadDone_ = false;
     stopAtStepEnd_ = false;
     dropPreload();
@@ -1195,12 +1203,19 @@ void Sequencer::playSelection(int stepStart, int stepEnd, int trackStart, int tr
 }
 
 void Sequencer::applyZ(int s, uint8_t n, bool send) {
+    if (!send && sink_ && zCur(s) != n) zPend_ = uint8_t(zPend_ | (1u << s));   // until that Z comes (zFlush)
     if (!send || !sink_ || sink_->synthPreset(uint8_t(s), n)) {   // unsent: the next step's Z sets the slot
         setZ(s, zStart(s), n);
         return;
     }
     if (n) sink_->synthPreset(uint8_t(s), 0);   // emptied since: the own patch
     setZ(s, zStart(s), 0);
+}
+
+void Sequencer::zFlush(uint8_t mask) {
+    zPend_ = uint8_t(zPend_ & ~mask);
+    for (int s = 0; s < kSynthSlotCount; ++s)
+        if ((mask >> s) & 1u) applyZ(s, zCur(s));
 }
 
 void Sequencer::zLoopBack(uint8_t leave) {
@@ -1214,10 +1229,12 @@ void Sequencer::zAllOwn(uint8_t leave) {
     }
 }
 
-// [OT] stepStart's Z rule on the step each track plays next. Only a Z sure
-// to be taken counts: not on a disabled or muted track, a track switching
-// data, a step with Chance, or a Z without a note while a delayed note may
-// still change the track's synth.
+// [OT] stepStart's Z rule on the step each track plays next. A Z likely to
+// be taken counts: not on a disabled or muted track, a track switching data,
+// or a Z without a note while a delayed note may still change the track's
+// synth. A Z that still does not come (a Chance that fails, a switch that
+// arrives later) leaves the slot pending: it goes back before a synth note
+// of it, or at the end of step 0's first micro (zFlush).
 uint8_t Sequencer::zNextStepSets() const {
     if (!cur_ || !sink_) return 0;
     uint8_t sets = 0;
@@ -1230,7 +1247,6 @@ uint8_t Sequencer::zNextStepSets() const {
             for (auto& c : col)
                 if (!c.used()) { c = tr.inject; break; }
         }
-        if (col[0].type == 4 || col[1].type == 4) continue;
         const bool noNote = st.note < 0 || tr.skipStep == tr.step;
         for (const auto& c : col) {
             if (!isPresetCmd(c.type, c.value)) continue;
@@ -1277,6 +1293,7 @@ void Sequencer::stop() {
     dropPreload();
     resetPositions(0);
     if (sink_) sink_->synthTransportStop();   // macro overrides -> page values
+    zPend_ = 0;
     sendRealtime(settings_.transportOut, 0xFC);
     if (host_->exportActive()) host_->finaliseExport();
 }
