@@ -605,3 +605,21 @@ TEST(own_mix_edit_while_the_stopped_chase_holds_a_preset_is_heard) {
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 1);
 }
+
+TEST(presets_page_shows_the_gain_a_preset_carries) {
+    Harness h;
+    App& a = *h.app;
+    mixed(a, 1, -4.5f, 0.0f, 0.0f, 0.0f);
+    a.storeSynthPreset(2, 1);
+    openPresets(h);
+    CHECK(drawn(h, "P2  ACD  -4.50 dB"));
+    // One saved without a mix shows none.
+    SynthPatch p = a.synthPreset(2);
+    p.mixCount = 0;
+    CHECK(a.saveProjectAs("Pg"));
+    h.fs.files[projPreset("Pg", 2)] = encoded(p);
+    CHECK(a.openProject("Projects", "Pg"));
+    openPresets(h);
+    CHECK(!drawn(h, "dB"));
+    CHECK(drawn(h, "P2  ACD"));
+}

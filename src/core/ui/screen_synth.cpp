@@ -1147,9 +1147,18 @@ void SynthScreen::drawPresets(Gfx& g) {
             std::snprintf(out, size_t(cap), "%sP%d  -", mark, n);
             return;
         }
-        const int32_t e = s->app_.synthPreset(n).engine;
-        std::snprintf(out, size_t(cap), "%sP%d  %s", mark, n,
-                      audio::synthEngineFor(e) ? patchEngineName(e) : "not available");
+        const SynthPatch& pr = s->app_.synthPreset(n);
+        const int32_t e = pr.engine;
+        // [OT] The gain it carries (Z plays the preset at its stored mix).
+        char gain[24] = "";
+        if (patchHasMix(pr)) {
+            const float db = patchMix(pr, kPatchMixGain);
+            char t[16];
+            synthui::gainText(db > 12.0f ? 12.0f : db, t, sizeof(t));
+            std::snprintf(gain, sizeof(gain), "  %s", t);
+        }
+        std::snprintf(out, size_t(cap), "%sP%d  %s%s", mark, n,
+                      audio::synthEngineFor(e) ? patchEngineName(e) : "not available", gain);
     };
     v.ctx = this;
     wg::list(g, th, v);
