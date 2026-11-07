@@ -538,6 +538,7 @@ void Sequencer::stepStart(int t) {
                 const int slot = synthSlotOf(in);
                 const uint8_t n = presetCmdIndex(v);
                 if (sink_->synthPreset(uint8_t(slot), n)) setZ(slot, zStart(slot), n);
+                else sink_->synthPreset(uint8_t(slot), zCur(slot));   // ignored: the slot stays where it should be
             }
             continue;
         }
@@ -1123,8 +1124,34 @@ void Sequencer::patternEnd() {
 }
 
 void Sequencer::zReturn(const uint8_t* n) {
-    for (int s = 0; s < kSynthSlotCount; ++s)
-        if (zCur(s) != n[s] && sink_ && sink_->synthPreset(uint8_t(s), n[s])) setZ(s, zStart(s), n[s]);
+    const uint8_t next = nextStepZ();
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        if (zCur(s) == n[s] || !sink_) continue;
+        // The step's Z follows within the step: going back first would bind
+        // the slot's patch for a block in between. An ignored Z (an empty
+        // preset) sends the tracked state then (stepStart).
+        if (((next >> s) & 1u) || sink_->synthPreset(uint8_t(s), n[s])) setZ(s, zStart(s), n[s]);
+    }
+}
+
+uint8_t Sequencer::nextStepZ() const {
+    // The rule of stepStart's FX pass, for the step each track starts next
+    // (muted / disabled tracks and Chance do not play a Z for sure: not counted).
+    uint8_t m = 0;
+    if (!cur_) return 0;
+    for (int t = 0; t < kTracks; ++t) {
+        const TrackState& tr = tracks_[t];
+        if (!tr.enabled || isMuted(t)) continue;
+        const Step& s = playTrack(t).steps[clampi(tr.step, 0, kStepCount - 1)];
+        if (s.fx[0].type == 4 || s.fx[1].type == 4) continue;   // Chance
+        for (int c = 0; c < 2; ++c) {
+            if (!isPresetCmd(s.fx[c].type, s.fx[c].value)) continue;
+            uint8_t in = s.instrument;
+            if (!isSynth(in) && s.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
+            if (isSynth(in)) m = uint8_t(m | (1u << synthSlotOf(in)));
+        }
+    }
+    return m;
 }
 
 void Sequencer::chaseStart(int startStep, bool afterCountIn) {
@@ -1144,10 +1171,12 @@ void Sequencer::chaseStart(int startStep, bool afterCountIn) {
         setZ(s, ok ? n : 0, ok ? n : 0);
     }
     // A no-note Z right at the start targets the synth the track played
-    // before it (only synth or not matters: a known kind keeps the record).
+    // before it in the song, not in an earlier run. A count-in keeps the
+    // record of a note played live during it (it still sounds).
+    if (afterCountIn) return;
     for (int t = 0; t < kTracks; ++t) {
-        TrackState& tr = tracks_[t];
-        if (last[t] != 0xFF && (isSynth(last[t]) || isSynth(tr.last.instr))) tr.last.instr = last[t];
+        tracks_[t].last = NoteRec{};
+        tracks_[t].last.instr = last[t] != 0xFF ? last[t] : 0;
     }
 }
 

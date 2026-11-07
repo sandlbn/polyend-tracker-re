@@ -1969,11 +1969,11 @@ TEST(song_advance_keeps_the_z_but_the_song_wrap_resets_it) {
     r.project.playlist[1] = 2;
     r.host.fill = [](uint8_t num, Pattern& p) {
         noteAt(p, 0, 0, 60, 64);
-        if (num == 1) zA(p, 0, 0, 3);
+        if (num == 1) zA(p, 0, 1, 3);   // not at step 0 (that one is never undone, see below)
     };
     r.host.loadPattern(1, *r.seq.currentPattern(), true);   // what playSong(0) plays
     r.seq.playSong(0);
-    r.runUntil([&] { return r.seq.step(0) == 1; });
+    r.runUntil([&] { return r.seq.step(0) == 2; });
     CHECK_EQ(presetNow(r, 0), 3);
     r.runUntil([&] { return r.host.patternEnds >= 1; });
     CHECK_EQ(r.seq.songPosition(), 1);
@@ -1983,7 +1983,7 @@ TEST(song_advance_keeps_the_z_but_the_song_wrap_resets_it) {
     CHECK_EQ(r.seq.songPosition(), 0);
     CHECK_EQ(presetNow(r, 0), 0);
     CHECK(zAtTick(r, r.host.endTicks[1], 0));
-    r.runUntil([&] { return r.seq.step(0) == 1; });
+    r.runUntil([&] { return r.seq.step(0) == 2; });
     CHECK_EQ(presetNow(r, 0), 3);
 }
 
@@ -2054,4 +2054,72 @@ TEST(an_ignored_z_does_not_move_the_tracked_state) {
     r.runUntil([&] { return r.host.patternEnds >= 1; });
     CHECK_EQ(presetNow(r, 0), 2);
     CHECK(!zAtTick(r, r.host.endTicks[0], 0));   // it never left its start state
+}
+
+// --- [3.x] Z chase at a wrap: a step-0 Z is not undone and redone ----------------
+
+TEST(a_step_0_z_keeps_its_preset_through_the_loop_wrap) {
+    // The revert at the pattern end and the step-0 Z 12 ticks later would put
+    // the slot on its own patch for a block (an engine change fades twice).
+    Rig r(120.0f);
+    for (auto& t : r.seq.currentPattern()->tracks) t.lastStep = 3;
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 1);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 2; });
+    CHECK_EQ(presetNow(r, 0), 1);
+    for (uint64_t t : r.host.endTicks) CHECK(!zAtTick(r, t));
+    for (const Ev& e : stepZ(r)) CHECK_EQ(e.b, 1);   // never back to own in between
+}
+
+TEST(a_step_0_z_keeps_its_preset_through_the_song_wrap_and_a_queued_change) {
+    for (int queued = 0; queued < 2; ++queued) {
+        Rig r(120.0f);
+        r.project.playlist[0] = 1;
+        r.host.fill = [](uint8_t, Pattern& p) {
+            noteAt(p, 0, 0, 60, 64);
+            zA(p, 0, 0, 2);
+        };
+        r.host.loadPattern(1, *r.seq.currentPattern(), true);
+        if (queued) r.seq.play(0);
+        else r.seq.playSong(0);
+        r.runUntil([&] { return r.seq.step(0) == 1; });
+        if (queued) r.seq.queuePattern(1);
+        r.runUntil([&] { return r.host.patternEnds >= 1; });
+        CHECK(!zAtTick(r, r.host.endTicks[0]));
+        r.runUntil([&] { return r.seq.step(0) == 1; });
+        CHECK_EQ(presetNow(r, 0), 2);
+        for (const Ev& e : stepZ(r)) CHECK_EQ(e.b, 2);
+    }
+}
+
+TEST(a_step_0_z_of_an_empty_preset_still_lets_the_slot_go_back) {
+    Rig r(120.0f);
+    for (auto& t : r.seq.currentPattern()->tracks) t.lastStep = 3;
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 1);
+    r.setNote(1, 2, 60, 64);
+    zA(r, 1, 2, 3);
+    r.sink.emptyPresets = uint16_t(1u << 1);   // the step-0 Z does nothing
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 3; });
+    CHECK_EQ(presetNow(r, 0), 3);
+    r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 1; });
+    CHECK_EQ(presetNow(r, 0), 0);   // back to its start state
+}
+
+TEST(a_start_forgets_the_last_instrument_of_the_previous_run) {
+    Rig r(120.0f);
+    for (auto& t : r.seq.currentPattern()->tracks) t.lastStep = 3;
+    r.setNote(0, 0, 60, 64);
+    r.seq.play(0);
+    runNotes(r, 0, 1);
+    r.seq.stop();
+    r.step(0, 0) = Step{};
+    zA(r, 0, 1, 2);   // no note, no synth before it in this run
+    r.sink.ev.clear();
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 2; });
+    CHECK(stepZ(r).empty() || presetNow(r, 0) == 0);
+    for (const Ev& e : r.sink.of(Ev::SynthPreset)) CHECK_EQ(e.b, 0);
 }

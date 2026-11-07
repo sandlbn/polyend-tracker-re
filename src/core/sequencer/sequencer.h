@@ -312,8 +312,10 @@ private:
     uint8_t zCur(int s) const { return uint8_t(zState_[s] >> 4); }
     void setZ(int s, uint8_t start, uint8_t cur) { zState_[s] = uint8_t((start & 0x0F) | (cur << 4)); }
     void chaseStart(int startStep, bool afterCountIn);
-    // Every slot to `n[s]` where the sequencer left it elsewhere.
+    // Every slot to `n[s]` where the sequencer left it elsewhere; a slot that
+    // a Z of the next step sets anyway is only tracked (no own patch for a block).
     void zReturn(const uint8_t* n);
+    uint8_t nextStepZ() const;   // bit s: a Z on the step each track plays next sets slot s
 
     void triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue);
     void noteOffTrack(int t, NoteOffMode mode);
