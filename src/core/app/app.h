@@ -524,6 +524,9 @@ public:
     void setSlotInsertKind(int s, const char* effectId);
     void setSlotInsertValue(int s, int i, uint8_t v);
     void setSlotInsertOff(int s, bool off);
+    // [3.x] Slot s's insert as a whole (a preset loaded into the slot): the
+    // effect by id (all zero = none), its settings (clamped) and Off.
+    void setSlotInsert(int s, const char* effectId, const audio::EffectSettings& set, bool off);
     bool slotInsertOff(int s) const;
     const char* slotInsertId(int s) const;   // 4 characters, nullptr = none
     audio::IEffect* slotInsertEffect(int s) const;

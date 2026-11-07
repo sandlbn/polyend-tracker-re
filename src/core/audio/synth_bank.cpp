@@ -116,6 +116,15 @@ void SynthBank::clearInsert(Ins& in) {
     in.quiet = 0;
 }
 
+// [3.x] Slot s's insert can still be heard: a voice of the slot, its engine's
+// slot effect or the insert itself rings.
+bool SynthBank::insAudible(int s) const {
+    if (insTailOf(s) || (tails_ & (1u << s))) return true;
+    for (const Voice& v : voices_)
+        if (v.state != kFree && v.v.slot == s) return true;
+    return false;
+}
+
 // The insert slot s should run -- its own, or [3.x] the one of the preset it
 // plays -- into the audio state (in sync(), after a main-loop change or a
 // rebind of the patch).
@@ -141,10 +150,12 @@ __attribute__((noinline)) void SynthBank::applyInsert(int s) {
         in.set = p.set;
         in.off = false;
         in.next = nullptr;
-    } else if (!in.fx) {
+    } else if (!in.fx || !insAudible(s)) {   // nothing bound, or [3.x] nothing it could still sound
         clearInsert(in);
         in.fx = fx;
         in.set = p.set;
+        in.next = nullptr;
+        insTails_ = uint8_t(insTails_ & ~(1u << s));
     } else {   // another kind: fade the bound one out first (rendered even on a silent slot)
         in.off = true;
         in.parked = false;

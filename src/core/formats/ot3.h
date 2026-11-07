@@ -32,6 +32,7 @@ enum : uint16_t {
     kTagSlotEngine = 0x0007,  // SlotEngine (16 B)
     kTagSlotInsert = 0x0008,  // SlotInsert (16 B), not critical
     kTagSlotArp = 0x0009,     // SlotArp (4 B), not critical
+    kTagPresetInsert = 0x000A, // PresetInsert (16 B), not critical
     kTagMods = 0x0010,        // n x ModEntry (8 B)
     kTagModuleFirst = 0x4000, // module chunks: ModuleChunkHeader + payload
     kTagModuleLast = 0x7FFF,
@@ -64,6 +65,19 @@ struct SlotArp {   // kTagSlotArp payload: a synth slot's step FX Arp settings (
     uint8_t rsv[2];
 };
 static_assert(sizeof(SlotArp) == 4, "SlotArp layout");
+
+// kTagPresetInsert payload: the insert a synth preset carries (one chunk per
+// preset that has insert data; a preset without one keeps the slot's insert).
+constexpr uint8_t kPresetInsertOff = 0x01;    // flags bit 0: the insert is Off (settings kept)
+constexpr uint8_t kPresetInsertNone = 0x02;   // flags bit 1: stored with no insert (it removes the slot's)
+struct PresetInsert {
+    uint8_t preset;         // 1..8
+    uint8_t flags;
+    char effectId[4];       // IEffect::id(); all zero with kPresetInsertNone
+    uint8_t set[6];         // its settings (audio::EffectSettings)
+    uint8_t rsv[4];
+};
+static_assert(sizeof(PresetInsert) == 16, "PresetInsert layout");
 
 struct ModEntry {   // kTagMods entry
     char id[4];

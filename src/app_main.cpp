@@ -63,7 +63,13 @@ constexpr uint32_t kOffScratch = align(kOffNums + 64);
 constexpr uint32_t kOffPerf = align(kOffScratch + kScratch);
 constexpr uint32_t kOffStems = align(kOffPerf + sizeof(ot::PerfPatternMemory));
 constexpr uint32_t kOffPresets = align(kOffStems + sizeof(ot::audio::StemBlock));   // WAV export stems (was SRAM)
+#if OT_SLOT_INSERTS
+// [3.x] The insert each synth preset carries (app/synth_presets.h), read by the synth bank.
+constexpr uint32_t kOffPresetIns = align(kOffPresets + sizeof(ot::SynthPatch) * ot::kSynthPresetCount);
+constexpr uint32_t kEnd = kOffPresetIns + sizeof(ot::audio::PresetInsert) * ot::kSynthPresetCount;
+#else
 constexpr uint32_t kEnd = kOffPresets + sizeof(ot::SynthPatch) * ot::kSynthPresetCount;   // the project's synth presets
+#endif
 static_assert(ot::board::kSdramSize == 16u * 1024u * 1024u, "spec 01 §2");
 static_assert(kEnd <= ot::board::kSdramSize, "SDRAM layout exceeds 16 MB");
 // M1 budget (docs/M1_PLAN.md §1): at least 150 KB stay free for M2/M3.
@@ -400,6 +406,9 @@ void otAppMain(ot::hal::HalSet& hal) {
     mem.perfPatterns = reinterpret_cast<PerfPatternMemory*>(sd + kOffPerf);
     mem.exportStems = reinterpret_cast<audio::StemBlock*>(sd + kOffStems);
     presets::bind(reinterpret_cast<SynthPatch*>(sd + kOffPresets));
+#if OT_SLOT_INSERTS
+    presets::bindInserts(reinterpret_cast<audio::PresetInsert*>(sd + kOffPresetIns));
+#endif
 
     HalRefs refs;
     refs.display = hal.display;

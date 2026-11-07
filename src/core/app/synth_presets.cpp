@@ -22,6 +22,14 @@ OT_SDRAM_BSS SynthPatch* g_table = g_hostPresets;
 OT_SDRAM_BSS SynthPatch* g_table;
 #endif
 OT_SDRAM_BSS uint8_t g_presetDirty;
+#if OT_SLOT_INSERTS
+#if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
+audio::PresetInsert g_hostInserts[kSynthPresetCount];
+OT_SDRAM_BSS audio::PresetInsert* g_ins = g_hostInserts;
+#else
+OT_SDRAM_BSS audio::PresetInsert* g_ins;
+#endif
+#endif
 bool validPreset(int n) { return n >= 1 && n <= kSynthPresetCount; }
 // The audio interrupt reads an entry whose engine is not 0 (a Z in the pattern):
 // the engine goes first when an entry is written, and last when it is filled.
@@ -41,6 +49,10 @@ namespace presets {
 void bind(SynthPatch* storage) { g_table = storage; }
 SynthPatch* table() { return g_table; }
 uint8_t& dirty() { return g_presetDirty; }
+#if OT_SLOT_INSERTS
+void bindInserts(audio::PresetInsert* storage) { g_ins = storage; }
+audio::PresetInsert* insertTable() { return g_ins; }
+#endif
 }  // namespace presets
 
 const SynthPatch& App::synthPreset(int n) const { return g_table[validPreset(n) ? n - 1 : 0]; }
@@ -59,6 +71,19 @@ void App::storeSynthPreset(int n, int s) {
     if (previewSlot_ == s) endSynthPreview();
     setEngine(g_table[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
+#if OT_SLOT_INSERTS
+    // [3.x] The slot's insert goes with the patch (none: the preset removes it).
+    audio::PresetInsert& pi = g_ins[n - 1];
+    pi = audio::PresetInsert{};
+    if (const char* id = slotInsertId(s)) {
+        std::memcpy(pi.id, id, 4);
+        pi.fx = slotInsertEffect(s);
+        pi.set = slotInsert_[s].set;
+        if (slotInsert_[s].off) pi.flags = audio::kPresetInsertOff;
+    }
+    pi.flags = uint8_t(pi.flags | audio::kPresetInsertHas);
+    sidecarDirty_ = true;
+#endif
     copyBehindEngine(g_table[n - 1], patches_[s]);
     setEngine(g_table[n - 1], patches_[s].engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
@@ -71,6 +96,10 @@ void App::clearSynthPreset(int n) {
     if (!synthPresetUsed(n)) return;
     setEngine(g_table[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
+#if OT_SLOT_INSERTS
+    g_ins[n - 1] = audio::PresetInsert{};
+    sidecarDirty_ = true;
+#endif
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
     chaseInvalidateAll();
@@ -90,6 +119,12 @@ bool App::loadSynthPreset(int s, int n) {
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
     setSynthSlotRecord(s, r);
     markSynthPatchDirty(s);   // also ends a running Z on this slot
+#if OT_SLOT_INSERTS
+    // [3.x] The preset's insert becomes the slot's (one saved before presets
+    // had inserts leaves it as it is).
+    const audio::PresetInsert& pi = g_ins[n - 1];
+    if (pi.flags & audio::kPresetInsertHas) setSlotInsert(s, pi.id, pi.set, (pi.flags & audio::kPresetInsertOff) != 0);
+#endif
     return true;
 }
 
@@ -98,6 +133,9 @@ void App::resetSynthPresets() {
     for (int s = 0; s < kSynthSlotCount; ++s)
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);
     std::memset(g_table, 0, sizeof(SynthPatch) * kSynthPresetCount);
+#if OT_SLOT_INSERTS
+    std::memset(static_cast<void*>(g_ins), 0, sizeof(audio::PresetInsert) * kSynthPresetCount);
+#endif
     g_presetDirty = 0;
     chaseInvalidateAll();
     chaseForget();

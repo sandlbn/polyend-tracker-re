@@ -2,7 +2,8 @@
 // (Z), it runs preset n's insert -- the one the slot had when the preset was
 // stored, or none if it had none. A preset saved before presets had inserts
 // keeps the slot's own insert. Z0, Stop or an edit of the slot's patch bring
-// the slot's own insert back, with its patch.
+// the slot's own insert back, with its patch. Store, Load and Clear carry
+// the insert; it is saved in project.ot3x, one chunk per preset.
 #include "test.h"
 
 #include <cmath>
@@ -13,9 +14,12 @@
 #include "audio/inserts.h"
 #include "audio/synth_bank.h"
 #include "audio/synth_params.h"
+#include "formats/ot3.h"
 #include "formats/patch_pb.h"
 #include "model/project.h"
+#include "modules/module.h"
 #include "modules/synth_models.h"
+#include "ui_fakes.h"
 #if __has_include("ot_profile.h")
 #include "ot_profile.h"
 #endif
@@ -126,6 +130,39 @@ double energy(const std::vector<float>& x, size_t from, size_t to) {
     return e;
 }
 #endif  // OT_MOD_ACD1
+
+// --- App level ---------------------------------------------------------------
+
+IEffect* anEffect(int i = 0) {
+    mod::ModuleHost& mh = mod::ModuleHost::instance();
+    return i < mh.effectCount() ? mh.effectAt(i) : nullptr;
+}
+
+std::vector<uint8_t> presetChunks(const std::vector<uint8_t>& f, std::vector<ot3::Chunk>* out) {
+    std::vector<uint8_t> keep = f;   // payload pointers point into it
+    ot3::Reader r;
+    if (r.open(keep.data(), uint32_t(keep.size()), ot3::kKindProjectSidecar) != ot3::Error::kOk) return keep;
+    ot3::Chunk c;
+    while (r.next(c))
+        if (c.tag == ot3::kTagPresetInsert) out->push_back(c);
+    return keep;
+}
+
+std::vector<uint8_t> sidecarImage(App& a) {
+    std::vector<uint8_t> buf(2 * ot3::kMaxFile);
+    uint32_t len = 0;
+    CHECK(a.encodeSidecar(buf.data(), uint32_t(buf.size()), &len));
+    buf.resize(len);
+    return buf;
+}
+
+// A note on slot s: the bank takes a Z at its next block with sound (here the note's).
+void sound(Harness& h, int s) {
+    h.app->engine.synth().auditionOn(s, 60);
+    h.audio.pump(8);
+    h.app->engine.synth().auditionOff();
+    h.audio.pump(1);
+}
 
 }  // namespace
 
@@ -243,6 +280,24 @@ TEST(same_kind_switch_only_updates_settings_other_kind_fades_first) {
     CHECK(b.blocks > 0);
 }
 
+TEST(a_silent_slot_switches_its_insert_at_once) {
+    // Nothing sounds on the slot: the next kind binds in the same block (a
+    // Z before the note of its step must not run that note through a fade).
+    Gain a("TGNA"), b("TGNB");
+    Rig r;
+    r.bank.setSlotInsert(0, &a, gainSet(50));
+    r.presetIns(1, &b, gainSet(100));
+    r.blocks(2);
+    CHECK(r.bank.slotInsert(0) == &a);
+    r.bank.presetSelect(0, 1);
+    r.on();   // the note's sync takes the switch first
+    CHECK(r.bank.slotInsert(0) == &b);
+    const int aRan = a.blocks;
+    r.blocks(2);
+    CHECK_EQ(a.blocks, aRan);
+    CHECK(b.blocks >= 2);
+}
+
 TEST(unresolved_effect_pointer_leaves_the_slot_dry) {
     Gain a("TGNA");
     Rig r;
@@ -257,6 +312,139 @@ TEST(unresolved_effect_pointer_leaves_the_slot_dry) {
 }
 
 #endif  // OT_MOD_ACD1
+
+TEST(store_captures_the_slot_insert_and_load_restores_it) {
+    Harness h;
+    App& a = *h.app;
+    IEffect* fx = anEffect();
+    CHECK(fx != nullptr);
+    if (!fx) return;
+    a.setSlotInsertKind(0, fx->id());
+    a.setSlotInsertValue(0, 1, 0);
+    const EffectSettings set = a.slotInsertSettings(0);
+    a.storeSynthPreset(1, 0);
+    a.setSlotInsertKind(0, nullptr);
+    a.storeSynthPreset(2, 0);   // stored with no insert
+    // Z1 runs the stored insert on slot 0, Z2 none.
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK(a.engine.synth().slotInsert(0) == fx);
+    a.engine.synth().presetSelect(0, 2);
+    sound(h, 0);
+    CHECK(a.engine.synth().slotInsert(0) == nullptr);
+    a.engine.synth().presetSelect(0, 0);
+    // Load: the slot's own insert becomes the preset's.
+    CHECK(a.loadSynthPreset(1, 1));
+    CHECK(a.slotInsertEffect(1) == fx);
+    CHECK(std::memcmp(a.slotInsertSettings(1).v, set.v, sizeof set.v) == 0);
+    CHECK(a.loadSynthPreset(1, 2));
+    CHECK(a.slotInsertId(1) == nullptr);
+}
+
+TEST(clear_drops_the_insert_and_dirties_the_sidecar) {
+    Harness h;
+    App& a = *h.app;
+    IEffect* fx = anEffect();
+    if (!fx) return;
+    a.setSlotInsertKind(0, fx->id());
+    a.storeSynthPreset(3, 0);
+    CHECK(a.sidecarDirty());
+    CHECK(a.saveProjectAs("Clr"));
+    CHECK(!a.sidecarDirty());
+    a.clearSynthPreset(3);
+    CHECK(a.sidecarDirty());
+    std::vector<ot3::Chunk> cs;
+    const std::vector<uint8_t> keep = presetChunks(sidecarImage(a), &cs);
+    CHECK(cs.empty());
+    // Stored again from a slot without an insert: it has none.
+    a.setSlotInsertKind(0, nullptr);
+    a.storeSynthPreset(3, 0);
+    a.setSlotInsertKind(1, fx->id());
+    CHECK(a.loadSynthPreset(1, 3));
+    CHECK(a.slotInsertId(1) == nullptr);
+}
+
+TEST(sidecar_round_trip_preserves_preset_inserts_and_old_projects_write_no_chunk) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    // Nothing stored: no preset chunk, and no sidecar file at all.
+    {
+        std::vector<ot3::Chunk> cs;
+        const std::vector<uint8_t> keep = presetChunks(sidecarImage(a), &cs);
+        CHECK(cs.empty());
+    }
+    IEffect* fx = anEffect();
+    if (!fx) return;
+    a.setSlotInsertKind(0, fx->id());
+    a.setSlotInsertOff(0, true);
+    const EffectSettings set = a.slotInsertSettings(0);
+    a.storeSynthPreset(1, 0);
+    a.setSlotInsertKind(0, nullptr);
+    a.storeSynthPreset(2, 0);
+    {
+        std::vector<ot3::Chunk> cs;
+        const std::vector<uint8_t> keep = presetChunks(sidecarImage(a), &cs);
+        CHECK_EQ(int(cs.size()), 2);
+        if (cs.size() == 2) {
+            CHECK_EQ(int(cs[0].payload[0]), 1);
+            CHECK(std::memcmp(cs[0].payload + 2, fx->id(), 4) == 0);
+            CHECK_EQ(int(cs[1].payload[0]), 2);
+            CHECK(cs[1].payload[1] & ot3::kPresetInsertNone);
+        }
+    }
+    CHECK(a.saveProjectAs("PIns"));
+    CHECK(h.fs.files.count("Projects/PIns/project.ot3x") == 1);
+    const std::vector<uint8_t> sidecar = h.fs.files["Projects/PIns/project.ot3x"];
+    CHECK(a.newProject());
+    CHECK(a.openProject("Projects", "PIns"));
+    CHECK(a.loadSynthPreset(2, 1));
+    CHECK(a.slotInsertEffect(2) == fx);
+    CHECK(a.slotInsertOff(2));
+    CHECK(std::memcmp(a.slotInsertSettings(2).v, set.v, sizeof set.v) == 0);
+    a.setSlotInsertKind(1, fx->id());
+    CHECK(a.loadSynthPreset(1, 2));
+    CHECK(a.slotInsertId(1) == nullptr);
+    // A project saved before presets had inserts (no chunk, here no file):
+    // its presets keep the slot's own insert, and it saves no chunk for them.
+    h.fs.files.erase("Projects/PIns/project.ot3x");
+    CHECK(a.openProject("Projects", "PIns"));
+    CHECK(a.synthPresetUsed(1));
+    a.setSlotInsertKind(1, fx->id());
+    CHECK(a.loadSynthPreset(1, 1));
+    CHECK(a.slotInsertEffect(1) == fx);
+    a.setSlotInsertKind(1, nullptr);
+    std::vector<ot3::Chunk> cs;
+    const std::vector<uint8_t> keep = presetChunks(sidecarImage(a), &cs);
+    CHECK(cs.empty());
+}
+
+TEST(unknown_effect_id_is_kept_and_saved_but_not_bound) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.setSlotInsertKind(0, "QQQQ");   // not in this build
+    a.storeSynthPreset(4, 0);
+    IEffect* fx = anEffect();
+    a.setSlotInsertKind(0, fx ? fx->id() : nullptr);
+    sound(h, 0);
+    CHECK(a.engine.synth().slotInsert(0) == fx);
+    a.engine.synth().presetSelect(0, 4);
+    sound(h, 0);
+    CHECK(a.engine.synth().slotInsert(0) == nullptr);   // dry while on preset 4
+    a.engine.synth().presetSelect(0, 0);
+    a.setSlotInsertKind(0, nullptr);
+    CHECK(a.saveProjectAs("Unk"));
+    CHECK(a.newProject());
+    CHECK(a.openProject("Projects", "Unk"));
+    std::vector<ot3::Chunk> cs;
+    const std::vector<uint8_t> keep = presetChunks(sidecarImage(a), &cs);
+    CHECK_EQ(int(cs.size()), 1);
+    if (!cs.empty()) CHECK(std::memcmp(cs[0].payload + 2, "QQQQ", 4) == 0);
+    CHECK(a.loadSynthPreset(0, 4));
+    CHECK(a.slotInsertId(0) != nullptr && std::memcmp(a.slotInsertId(0), "QQQQ", 4) == 0);
+    CHECK(a.slotInsertEffect(0) == nullptr);
+}
 
 #else
 TEST(preset_inserts_not_in_this_build) { CHECK(true); }

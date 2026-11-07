@@ -96,6 +96,9 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
     resetSynthPresets();
     engine.synth().bindPresets(presets::table());
+#if OT_SLOT_INSERTS
+    engine.synth().bindPresetInserts(presets::insertTable());
+#endif
     resetSynthChase();
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);

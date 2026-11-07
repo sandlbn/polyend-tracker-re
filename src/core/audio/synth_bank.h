@@ -531,6 +531,7 @@ private:
     static_assert(kSynthSlots == 3, "insTails() names each slot");
     bool insTailOf(int s) const { return ((insTails_ >> s) & 1u) != 0; }
     void applyInsert(int s);
+    bool insAudible(int s) const;
     bool runInsert(int s, bool voiced);
     void clearInsert(Ins& in);
 #else
