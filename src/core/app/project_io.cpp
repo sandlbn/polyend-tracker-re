@@ -1661,8 +1661,11 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
     if (haveFile) {
         const PatchStatus st = len > kPatchMaxFileSize ? PatchStatus::kTooLarge : decodePatch(buf, len, tmp);
         if (st == PatchStatus::kOk && tmp->engine == engine) {
+            // [OT] A preset's mix is not the slot's (kPatchMixField): the next
+            // save writes the slot's file again without it.
+            if (tmp->mixCount) patchDirty_[s] = true;
             patches_[s] = *tmp;
-            patches_[s].mixCount = 0;   // [OT] a preset's mix is not the slot's (kPatchMixField)
+            patches_[s].mixCount = 0;
             patchSrc_[s] = PatchSource::File;
             return true;
         }

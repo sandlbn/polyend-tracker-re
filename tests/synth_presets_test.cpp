@@ -559,6 +559,28 @@ TEST(a_slot_patch_file_with_a_mix_is_read_without_it) {
     CHECK(!hasField17(h.fs.files["Projects/Cp/1.patch"]));
 }
 
+TEST(a_slot_patch_file_with_a_mix_is_written_again_without_it) {
+    // Opened with no other edit: the next save drops field 17 from the slot's
+    // files too.
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    mixed(a, 1, -4.0f, 10.0f, 0.0f, 0.0f);
+    a.storeSynthPreset(1, 1);
+    CHECK(a.saveProjectAs("Cq"));
+    const std::vector<uint8_t> pre = h.fs.files[projPreset("Cq", 1)];
+    CHECK(hasField17(pre));
+    h.fs.files["Projects/Cq/1.patch"] = pre;
+    CHECK(a.openProject("Projects", "Cq"));
+    CHECK(hasField17(h.fs.files["Workspace/1.patch"]));   // the copy Open made
+    CHECK(a.synthPatchDirty(1));
+    CHECK(!a.synthPatchDirty(0));
+    CHECK(a.saveProject());
+    CHECK(!hasField17(h.fs.files["Workspace/1.patch"]));
+    CHECK(!hasField17(h.fs.files["Projects/Cq/1.patch"]));
+    CHECK(hasField17(h.fs.files[projPreset("Cq", 1)]));
+}
+
 TEST(own_mix_edit_on_a_mix_preset_is_heard) {
     Harness h;
     App& a = *h.app;
