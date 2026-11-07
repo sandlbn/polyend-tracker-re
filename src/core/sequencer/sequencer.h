@@ -313,8 +313,10 @@ private:
     void setZ(int s, uint8_t start, uint8_t cur) { zState_[s] = uint8_t((start & 0x0F) | (cur << 4)); }
     void chaseStart(int startStep, bool afterCountIn);
     // Every slot to `n[s]` where the sequencer left it elsewhere; a slot that
-    // a Z of the next step sets anyway is only tracked (no own patch for a block).
+    // a Z of the next step sets anyway is only tracked (no own patch for a
+    // block) and pending (zPend_) until that Z comes.
     void zReturn(const uint8_t* n);
+    void zFlush(uint8_t mask);   // the pending slots in mask to their tracked state
     uint8_t nextStepZ() const;   // bit s: a Z on the step each track plays next sets slot s
 
     void triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue);
@@ -403,6 +405,7 @@ private:
     int queued_ = 0;
     bool breakPending_ = false;
     bool breakPreloadDone_ = false;
+    uint8_t zPend_ = 0;   // [3.x] bit s: slot s's wrap return waits for step 0's Z (zReturn)
 
     // clock
     uint32_t tick_ = 1;
