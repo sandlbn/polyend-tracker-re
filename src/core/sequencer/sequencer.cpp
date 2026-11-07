@@ -55,6 +55,7 @@ void Sequencer::resetState() {
     songMode_ = perfMode_ = selection_ = false;
     tick_ = 1;
     masterMicro_ = 1;
+    for (auto& z : zState_) z = 0;
     masterStep_ = 0;
     accUs_ = 0;
     tempoOverride_ = stopAtStepEnd_ = false;
@@ -533,7 +534,11 @@ void Sequencer::stepStart(int t) {
         if (isPresetCmd(type, v)) {  // Z: an FX-only step uses the synth the track plays
             uint8_t in = p.rec.instr;
             if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-            if (isSynth(in) && sink_) sink_->synthPreset(uint8_t(synthSlotOf(in)), presetCmdIndex(v));
+            if (isSynth(in) && sink_) {
+                const int slot = synthSlotOf(in);
+                const uint8_t n = presetCmdIndex(v);
+                if (sink_->synthPreset(uint8_t(slot), n)) setZ(slot, zStart(slot), n);
+            }
             continue;
         }
         switch (type) {
@@ -1068,6 +1073,10 @@ void Sequencer::patternEnd() {
         queued_ = 0;
         dropPreload();
         resetPositions(0);
+        // [3.x] Another pattern from here: every synth slot on its own patch.
+        static constexpr uint8_t kOwn[kSynthSlotCount] = {};
+        zReturn(kOwn);
+        for (int z = 0; z < kSynthSlotCount; ++z) setZ(z, 0, zCur(z));
         host_->onPatternEnd();
         host_->onPatternAdvanced();
         return;
@@ -1090,13 +1099,56 @@ void Sequencer::patternEnd() {
         curPatternNum_ = num;
         project_->setCurrentPattern(num);
         resetPositions(0);
+        // [3.x] The song starts over as it started from its top (every slot
+        // on its own patch); the next position goes on from the last Z. Either
+        // way that is what a Loop Pattern returns to at this pattern's end.
+        if (songWrapped) {
+            static constexpr uint8_t kOwn[kSynthSlotCount] = {};
+            zReturn(kOwn);
+        }
+        for (int z = 0; z < kSynthSlotCount; ++z) setZ(z, zCur(z), zCur(z));
         host_->onPatternEnd();
         if (!songWrapped) host_->onPatternAdvanced();
         return;
     }
     dropPreload();
+    // [3.x] The pattern (or selection) plays again as it did the first time.
+    {
+        uint8_t start[kSynthSlotCount];
+        for (int z = 0; z < kSynthSlotCount; ++z) start[z] = zStart(z);
+        zReturn(start);
+    }
     host_->onPatternEnd();
     host_->onPatternAdvanced();
+}
+
+void Sequencer::zReturn(const uint8_t* n) {
+    for (int s = 0; s < kSynthSlotCount; ++s)
+        if (zCur(s) != n[s] && sink_ && sink_->synthPreset(uint8_t(s), n[s])) setZ(s, zStart(s), n[s]);
+}
+
+void Sequencer::chaseStart(int startStep, bool afterCountIn) {
+    // [3.x] A start plays the synth presets the song selected before it: the
+    // host reads the steps before the start (main loop). Step 0 of a pattern,
+    // or of the song's first position, has nothing before it; a count-in's
+    // start (audio context) is always step 0.
+    uint8_t z[kSynthSlotCount] = {};
+    uint8_t last[kTracks];
+    for (auto& l : last) l = 0xFF;
+    if (!afterCountIn && (startStep > 0 || (songMode_ && songPos_ > 0)))
+        host_->synthChase(songMode_, songPos_, curPatternNum_, startStep - 1, z, last);
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        const uint8_t n = z[s] <= kSynthPresetCount ? z[s] : 0;
+        const bool ok = sink_ && sink_->synthPreset(uint8_t(s), n);
+        if (!ok && n && sink_) sink_->synthPreset(uint8_t(s), 0);
+        setZ(s, ok ? n : 0, ok ? n : 0);
+    }
+    // A no-note Z right at the start targets the synth the track played
+    // before it (only synth or not matters: a known kind keeps the record).
+    for (int t = 0; t < kTracks; ++t) {
+        TrackState& tr = tracks_[t];
+        if (last[t] != 0xFF && (isSynth(last[t]) || isSynth(tr.last.instr))) tr.last.instr = last[t];
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,6 +1159,7 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
     if (!keepSongMode) songMode_ = false;
     if (!(afterCountIn && recording_ && settings_.preRoll == 1)) releaseAllNotes();
     if (sink_) sink_->resetAllVoiceFx();
+    chaseStart(clampi(startStep, 0, kStepCount - 1), afterCountIn);
     selection_ = false;
     masterStep_ = 0;
     // Pending immediate per-track switches take effect from the first step.

@@ -307,6 +307,13 @@ private:
     int preloadTracksPerBlock() const;
     void resetPositions(int startStep);
     void startPlayback(int startStep, bool keepSongMode, bool afterCountIn);
+    // [3.x] Z chase state (zState_).
+    uint8_t zStart(int s) const { return uint8_t(zState_[s] & 0x0F); }
+    uint8_t zCur(int s) const { return uint8_t(zState_[s] >> 4); }
+    void setZ(int s, uint8_t start, uint8_t cur) { zState_[s] = uint8_t((start & 0x0F) | (cur << 4)); }
+    void chaseStart(int startStep, bool afterCountIn);
+    // Every slot to `n[s]` where the sequencer left it elsewhere.
+    void zReturn(const uint8_t* n);
 
     void triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue);
     void noteOffTrack(int t, NoteOffMode mode);
@@ -399,6 +406,10 @@ private:
     uint32_t tick_ = 1;
     uint64_t tickCount_ = 0;
     uint8_t masterMicro_ = 1;
+    // [3.x] Z chase per synth slot (in the padding before masterStep_): low
+    // nibble = the preset the slot had when the pattern (or selection)
+    // started, high nibble = the preset the sequencer last gave it.
+    uint8_t zState_[kSynthSlotCount] = {};
     int32_t masterStep_ = 0;
     int16_t masterPos_ = 0;               // pattern position, wraps at baseLastIndex()
     float accUs_ = 0;
