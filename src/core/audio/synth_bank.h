@@ -145,6 +145,22 @@ struct SynthPerf {
     bool active() const { return cutoffOct != 0.0f || pan != 0 || dsend != 0 || rsend != 0; }
 };
 
+#if OT_SLOT_INSERTS
+// [3.x] The insert a synth preset carries (App::storeSynthPreset), one per
+// preset beside the preset table. kPresetInsertHas: while a slot plays the
+// preset it runs this insert -- fx, or none when fx is nullptr (no insert, or
+// an effect this build lacks: dry); without it the slot keeps its own insert
+// (a preset saved before presets had inserts). id: all zero = no insert.
+struct PresetInsert {
+    IEffect* fx;
+    EffectSettings set;
+    char id[4];
+    uint8_t flags;
+    uint8_t rsv;
+};
+enum : uint8_t { kPresetInsertHas = 1, kPresetInsertOff = 2 };
+#endif
+
 class SynthBank : public IVoicePool {
 public:
     SynthBank();
@@ -213,6 +229,11 @@ public:
     // kSynthSlots lines of kEffectWorkMax bytes in slow memory (SDRAM), before
     // audio starts; moved to the voice scratch once per block.
     void setInsertMemory(int16_t* lines) { insLines_ = lines; }
+    // [3.x] kSynthPresetCount entries beside the preset table (bindPresets),
+    // bound once: a slot on preset n runs preset n's insert when it has one,
+    // switched on the same block as the patch. setSlotInsert sets the slot's
+    // own insert, which comes back with its own patch.
+    void bindPresetInserts(const PresetInsert* ins) { presetIns_ = ins; }
     const IEffect* slotInsert(int s) const { return ins_[clampSlot(s)].fx; }
     bool slotInsertOff(int s) const { return ins_[clampSlot(s)].bypass; }
 #endif
@@ -500,6 +521,8 @@ private:
         bool bypass = false;
     };
     PendIns pendIns_[kSynthSlots];
+    PendIns ownIns_[kSynthSlots];       // audio side: the slot's own insert as last synced
+    const PresetInsert* presetIns_ = nullptr;
     volatile bool insDirty_[kSynthSlots] = {};
     int16_t* insLines_ = nullptr;
     uint8_t insTails_ = 0;              // bit s: slot s's insert rings
@@ -507,7 +530,7 @@ private:
     bool insTails() const { return insTails_ != 0 || insDirty_[0] || insDirty_[1] || insDirty_[2]; }
     static_assert(kSynthSlots == 3, "insTails() names each slot");
     bool insTailOf(int s) const { return ((insTails_ >> s) & 1u) != 0; }
-    void syncInsert(int s);
+    void applyInsert(int s);
     bool runInsert(int s, bool voiced);
     void clearInsert(Ins& in);
 #else

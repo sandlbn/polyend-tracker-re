@@ -116,14 +116,25 @@ void SynthBank::clearInsert(Ins& in) {
     in.quiet = 0;
 }
 
-// Main-loop insert changes -> audio state (in sync()).
-void SynthBank::syncInsert(int s) {
-    if (!insDirty_[s]) return;
-    insDirty_[s] = false;
-    const PendIns p = pendIns_[s];
+// The insert slot s should run -- its own, or [3.x] the one of the preset it
+// plays -- into the audio state (in sync(), after a main-loop change or a
+// rebind of the patch).
+__attribute__((noinline)) void SynthBank::applyInsert(int s) {
+    PendIns p = ownIns_[s];
+    const uint8_t z = slots_[s].preset;
+    if (z && presetIns_ && presets_ && presets_[z - 1].engine) {
+        const PresetInsert& pi = presetIns_[z - 1];
+        if (pi.flags & kPresetInsertHas) {
+            p.fx = pi.fx;
+            p.set = pi.set;
+            p.bypass = (pi.flags & kPresetInsertOff) != 0;
+        }
+    }
     IEffect* fx = p.fx;
     if (fx && fx->workBytes() && !insLines_) fx = nullptr;   // no memory for it: dry
     Ins& in = ins_[s];
+    if (fx == in.fx && !in.off && in.bypass == p.bypass && std::memcmp(&in.set, &p.set, sizeof p.set) == 0)
+        return;   // nothing changes (a rebind on the same insert)
     in.bypass = p.bypass;
     if (!p.bypass) in.parked = false;
     if (fx == in.fx) {   // the same kind: new settings (the effect ramps them)
@@ -361,7 +372,12 @@ void SynthBank::sync() {
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
 #if OT_SLOT_INSERTS
-        syncInsert(s);
+        bool insWant = false;
+        if (insDirty_[s]) {   // the slot's own insert, as the main loop set it
+            insDirty_[s] = false;
+            ownIns_[s] = pendIns_[s];
+            insWant = true;
+        }
 #endif
         for (int k = 0; k < kSynthSeqMacros; ++k) {
             if (!ovrRelease_[s][k]) continue;
@@ -398,7 +414,13 @@ void SynthBank::sync() {
         if (rebind_[s]) {
             rebind_[s] = false;
             bindEngine(s);
+#if OT_SLOT_INSERTS
+            insWant = true;   // a preset switch (Z, Z0, Stop, an edit) brings its insert
+#endif
         }
+#if OT_SLOT_INSERTS
+        if (insWant) applyInsert(s);
+#endif
     }
     if (aud_.req) {
         const uint8_t req = aud_.req;
