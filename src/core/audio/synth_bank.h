@@ -299,7 +299,7 @@ private:
         // end[] was moved since the last render and start[] already holds
         // the value at the next block start: render must not catch up first.
         bool fresh = false;
-        float gainLin = 0.0f;     // dbToGain(rec.gainDb), 0 at -96 dB
+        float gainLin = 0.0f;     // dbToGain(gain dB of mixOf / rec), 0 at -96 dB
         float mixL = 0.0f, mixR = 0.0f;   // gain x balance
         float mixD = 0.0f, mixE = 0.0f;   // 0.5 x SEND[delay / reverb send]
         float volMin = 0.0f, volMax = 2.0f;   // Volume parameter range
@@ -318,6 +318,13 @@ private:
         const uint8_t z = sl.preset;
         return z && presets_ && presets_[z - 1].engine ? &presets_[z - 1] : sl.patch;
     }
+    // [OT] The preset whose mix the slot plays (bound, holding a mix), else
+    // nullptr: the record's (gain, pan, sends).
+    const SynthPatch* mixOf(const Slot& sl) const {
+        return sl.bound && sl.bound != sl.patch && patchHasMix(*sl.bound) ? sl.bound : nullptr;
+    }
+    void applyMix(Slot& sl);
+    int baseSend(const Slot& sl, int which) const;
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;

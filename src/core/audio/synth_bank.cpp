@@ -227,21 +227,13 @@ void SynthBank::sync() {
             if (sl.rec.model != oldModel) rebind_[s] = true;
             for (int k = 0; k < kSynthSeqMacros; ++k) sl.page[k] = sl.rec.macros[k] > 127 ? 127 : sl.rec.macros[k];
             sl.macroDirty = true;
-            sl.gainLin = std::isfinite(sl.rec.gainDb) ? dbToGain(clampf(sl.rec.gainDb, -96.0f, 12.0f)) : 0.0f;
-            if (sl.rec.gainDb <= -96.0f) sl.gainLin = 0.0f;
-            // Balance (linear, spec 04 §4.3) and SEND law, cached per record;
-            // the send gains include the (L + R) / 2 of the mono effect input.
-            const float pan = std::isfinite(sl.rec.pan) ? clampf(sl.rec.pan, -100.0f, 100.0f) : 0.0f;
-            sl.mixL = sl.gainLin * (pan > 0.0f ? 1.0f - pan * 0.01f : 1.0f);
-            sl.mixR = sl.gainLin * (pan < 0.0f ? 1.0f + pan * 0.01f : 1.0f);
-            auto send = [](float v) { return std::isfinite(v) ? sendGain(int(clampf(v, 0.0f, 100.0f) + 0.5f)) : 0.0f; };
-            sl.mixD = 0.5f * send(sl.rec.delaySend);
-            sl.mixE = 0.5f * send(sl.rec.reverbSend);
+            applyMix(sl);
             }
         }
         if (rebind_[s]) {
             rebind_[s] = false;
             bindEngine(s);
+            applyMix(sl);   // [OT] a preset's mix comes and goes with its patch
         }
     }
     if (aud_.req) {
@@ -282,6 +274,31 @@ void SynthBank::bindEngine(int s) {
         if (e) e->slotReset(sl.scratch);
     }
     reloadParams(s, restart);
+}
+
+// The mixer gains of the mix the slot plays (mixOf), cached until it changes.
+// Balance (linear, spec 04 §4.3) and SEND law; the send gains include the
+// (L + R) / 2 of the mono effect input.
+void SynthBank::applyMix(Slot& sl) {
+    const SynthPatch* m = mixOf(sl);
+    const float gainDb = m ? patchMix(*m, kPatchMixGain) : sl.rec.gainDb;
+    sl.gainLin = std::isfinite(gainDb) ? dbToGain(clampf(gainDb, -96.0f, 12.0f)) : 0.0f;
+    if (gainDb <= -96.0f) sl.gainLin = 0.0f;
+    const float panIn = m ? patchMix(*m, kPatchMixPan) : sl.rec.pan;
+    const float pan = std::isfinite(panIn) ? clampf(panIn, -100.0f, 100.0f) : 0.0f;
+    sl.mixL = sl.gainLin * (pan > 0.0f ? 1.0f - pan * 0.01f : 1.0f);
+    sl.mixR = sl.gainLin * (pan < 0.0f ? 1.0f + pan * 0.01f : 1.0f);
+    auto send = [](float v) { return std::isfinite(v) ? sendGain(int(clampf(v, 0.0f, 100.0f) + 0.5f)) : 0.0f; };
+    sl.mixD = 0.5f * send(m ? patchMix(*m, kPatchMixDelay) : sl.rec.delaySend);
+    sl.mixE = 0.5f * send(m ? patchMix(*m, kPatchMixReverb) : sl.rec.reverbSend);
+}
+
+// [OT] Send of the mix the slot plays, 0..100 (kPatchMixDelay / kPatchMixReverb):
+// the base a track's Performance send adds to. In flash: only notes with one call it.
+__attribute__((noinline)) int SynthBank::baseSend(const Slot& sl, int which) const {
+    const SynthPatch* m = mixOf(sl);
+    const float v = m ? patchMix(*m, which) : (which == kPatchMixDelay ? sl.rec.delaySend : sl.rec.reverbSend);
+    return std::isfinite(v) ? int(clampf(v, 0.0f, 100.0f) + 0.5f) : 0;
 }
 
 float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*sl.bound, i); }
@@ -985,8 +1002,8 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             if (perfActive_ && seqTrack) {
                 const SynthPerf& pf = perf_[ot];
                 if (pf.pan) pan = clampi((pan >= 0 ? pan : 50) + pf.pan, 0, 100);
-                if (pf.dsend) sendD = clampi((sendD >= 0 ? sendD : int(clampf(sl.rec.delaySend, 0.0f, 100.0f) + 0.5f)) + pf.dsend, 0, 100);
-                if (pf.rsend) sendR = clampi((sendR >= 0 ? sendR : int(clampf(sl.rec.reverbSend, 0.0f, 100.0f) + 0.5f)) + pf.rsend, 0, 100);
+                if (pf.dsend) sendD = clampi((sendD >= 0 ? sendD : baseSend(sl, kPatchMixDelay)) + pf.dsend, 0, 100);
+                if (pf.rsend) sendR = clampi((sendR >= 0 ? sendR : baseSend(sl, kPatchMixReverb)) + pf.rsend, 0, 100);
             }
             const bool own = tapV || sendD >= 0 || sendR >= 0 || pan >= 0;
             float* vl = busL_;
