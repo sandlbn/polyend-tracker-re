@@ -1,4 +1,5 @@
 #include "app/app.h"
+#include "app/synth_presets.h"
 
 #include <cstdio>
 #include <cstring>
@@ -79,6 +80,8 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     engine.setExportScratch(mem_.exportStems);
     // Synth slots play the App's patches (2.x M3, audio/synth_bank.h).
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
+    resetSynthPresets();
+    engine.synth().bindPresets(presets::table());
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);
     for (auto& in : instruments) in.setDefault();
