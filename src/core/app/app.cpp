@@ -99,6 +99,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
 #if OT_SLOT_INSERTS
     engine.synth().bindPresetInserts(presets::insertTable());
 #endif
+    engine.synth().bindPresetMix(presets::mixTable());
     resetSynthChase();
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);

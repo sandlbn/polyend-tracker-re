@@ -33,6 +33,7 @@ enum : uint16_t {
     kTagSlotInsert = 0x0008,  // SlotInsert (16 B), not critical
     kTagSlotArp = 0x0009,     // SlotArp (4 B), not critical
     kTagPresetInsert = 0x000A, // PresetInsert (16 B), not critical
+    kTagPresetMix = 0x000B,   // PresetMix (20 B), not critical
     kTagMods = 0x0010,        // n x ModEntry (8 B)
     kTagModuleFirst = 0x4000, // module chunks: ModuleChunkHeader + payload
     kTagModuleLast = 0x7FFF,
@@ -78,6 +79,21 @@ struct PresetInsert {
     uint8_t rsv[4];
 };
 static_assert(sizeof(PresetInsert) == 16, "PresetInsert layout");
+
+// kTagPresetMix payload: the mix a synth preset carries (one chunk per
+// preset that has one; a preset without one keeps the slot's mix). The
+// values have the slot record's ranges (spec 21 §3.3); a chunk outside them
+// is ignored.
+struct PresetMix {
+    uint8_t preset;         // 1..8
+    uint8_t flags;          // 0
+    uint16_t rsv;
+    float gainDb;           // -96..12
+    float pan;              // -100..100
+    float reverbSend;       // 0..100
+    float delaySend;        // 0..100
+};
+static_assert(sizeof(PresetMix) == 20, "PresetMix layout");
 
 struct ModEntry {   // kTagMods entry
     char id[4];

@@ -30,6 +30,12 @@ OT_SDRAM_BSS audio::PresetInsert* g_ins = g_hostInserts;
 OT_SDRAM_BSS audio::PresetInsert* g_ins;
 #endif
 #endif
+#if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
+audio::PresetMix g_hostMix[kSynthPresetCount];
+OT_SDRAM_BSS audio::PresetMix* g_mix = g_hostMix;
+#else
+OT_SDRAM_BSS audio::PresetMix* g_mix;
+#endif
 bool validPreset(int n) { return n >= 1 && n <= kSynthPresetCount; }
 // The audio interrupt reads an entry whose engine is not 0 (a Z in the pattern):
 // the engine goes first when an entry is written, and last when it is filled.
@@ -53,6 +59,8 @@ uint8_t& dirty() { return g_presetDirty; }
 void bindInserts(audio::PresetInsert* storage) { g_ins = storage; }
 audio::PresetInsert* insertTable() { return g_ins; }
 #endif
+void bindMix(audio::PresetMix* storage) { g_mix = storage; }
+audio::PresetMix* mixTable() { return g_mix; }
 }  // namespace presets
 
 const SynthPatch& App::synthPreset(int n) const { return g_table[validPreset(n) ? n - 1 : 0]; }
@@ -85,8 +93,17 @@ void App::storeSynthPreset(int n, int s) {
         if (slotInsert_[s].off) pi.flags = audio::kPresetInsertOff;
     }
     pi.flags = uint8_t(pi.flags | audio::kPresetInsertHas);
-    sidecarDirty_ = true;
 #endif
+    // [3.x] And the slot's mix (gain, pan, sends).
+    const SynthSlotRecord own = project.synthSlot(s);
+    audio::PresetMix& pm = g_mix[n - 1];
+    pm = audio::PresetMix{};
+    pm.gainDb = own.gainDb;
+    pm.pan = own.pan;
+    pm.reverbSend = own.reverbSend;
+    pm.delaySend = own.delaySend;
+    pm.flags = audio::kPresetMixHas;
+    sidecarDirty_ = true;
     copyBehindEngine(g_table[n - 1], patches_[s]);
     setEngine(g_table[n - 1], patches_[s].engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
@@ -101,8 +118,9 @@ void App::clearSynthPreset(int n) {
     leaveSynthPreset(n);
 #if OT_SLOT_INSERTS
     g_ins[n - 1] = audio::PresetInsert{};
-    sidecarDirty_ = true;
 #endif
+    g_mix[n - 1] = audio::PresetMix{};
+    sidecarDirty_ = true;
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
     chaseInvalidateAll();
@@ -120,6 +138,15 @@ bool App::loadSynthPreset(int s, int n) {
     SynthSlotRecord r = project.synthSlot(s);
     std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
+    // [3.x] The preset's mix becomes the slot's (one saved before presets
+    // had a mix leaves it as it is).
+    const audio::PresetMix& pm = g_mix[n - 1];
+    if (pm.flags & audio::kPresetMixHas) {
+        r.gainDb = pm.gainDb;
+        r.pan = pm.pan;
+        r.reverbSend = pm.reverbSend;
+        r.delaySend = pm.delaySend;
+    }
     setSynthSlotRecord(s, r);
     markSynthPatchDirty(s);   // also ends a running Z on this slot
 #if OT_SLOT_INSERTS
@@ -139,6 +166,7 @@ void App::resetSynthPresets() {
 #if OT_SLOT_INSERTS
     std::memset(static_cast<void*>(g_ins), 0, sizeof(audio::PresetInsert) * kSynthPresetCount);
 #endif
+    std::memset(static_cast<void*>(g_mix), 0, sizeof(audio::PresetMix) * kSynthPresetCount);
     g_presetDirty = 0;
     chaseInvalidateAll();
     chaseForget();

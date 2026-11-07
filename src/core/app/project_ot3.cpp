@@ -212,6 +212,7 @@ void App::resetSidecar() {
     std::memset(g_insertMemo, 0, sizeof(g_insertMemo));
     std::memset(static_cast<void*>(presets::insertTable()), 0, sizeof(audio::PresetInsert) * kSynthPresetCount);
 #endif
+    std::memset(static_cast<void*>(presets::mixTable()), 0, sizeof(audio::PresetMix) * kSynthPresetCount);
     mod::ModuleHost& h = mod::ModuleHost::instance();
     for (int i = 0; i < h.count(); ++i)
         if (mod::IProjectSection* sec = h.at(i)->section()) sec->reset();
@@ -280,6 +281,19 @@ bool App::encodeSidecar(uint8_t* out, uint32_t cap, uint32_t* len) {
         any = true;
     }
 #endif
+    // [3.x] The mix of each used preset that has one.
+    for (int n = 1; n <= kSynthPresetCount; ++n) {
+        const audio::PresetMix& pm = presets::mixTable()[n - 1];
+        if (!(pm.flags & audio::kPresetMixHas) || !synthPresetUsed(n)) continue;
+        ot3::PresetMix pc{};
+        pc.preset = uint8_t(n);
+        pc.gainDb = pm.gainDb;
+        pc.pan = pm.pan;
+        pc.reverbSend = pm.reverbSend;
+        pc.delaySend = pm.delaySend;
+        w.chunk(ot3::kTagPresetMix, 0, &pc, sizeof pc);
+        any = true;
+    }
     // Module sections with data: MODS lists them, then one chunk each.
     struct Pending {
         uint16_t tag, version;
@@ -387,6 +401,26 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
             continue;
         }
 #endif
+        if (c.tag == ot3::kTagPresetMix && c.len >= sizeof(ot3::PresetMix)) {
+            // Read before the presets themselves (the load's order): no slot plays them yet.
+            ot3::PresetMix pc;
+            std::memcpy(&pc, c.payload, sizeof pc);
+            SynthSlotRecord chk;   // the record's ranges (NaN fails)
+            chk.gainDb = pc.gainDb;
+            chk.pan = pc.pan;
+            chk.reverbSend = pc.reverbSend;
+            chk.delaySend = pc.delaySend;
+            if (pc.preset >= 1 && pc.preset <= kSynthPresetCount && chk.valid()) {
+                audio::PresetMix& pm = presets::mixTable()[pc.preset - 1];
+                pm = audio::PresetMix{};
+                pm.gainDb = pc.gainDb;
+                pm.pan = pc.pan;
+                pm.reverbSend = pc.reverbSend;
+                pm.delaySend = pc.delaySend;
+                pm.flags = audio::kPresetMixHas;
+            }
+            continue;
+        }
         if (c.tag == ot3::kTagMods) {
             for (uint32_t o = 0; o + sizeof(ot3::ModEntry) <= c.len; o += sizeof(ot3::ModEntry)) {
                 const char* id = reinterpret_cast<const char*>(c.payload + o);

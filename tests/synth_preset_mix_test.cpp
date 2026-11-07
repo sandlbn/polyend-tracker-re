@@ -347,4 +347,187 @@ TEST(performance_sends_start_from_the_presets_sends) {
 }
 #endif  // OT_MOD_ACD1
 
+// --- App level ---------------------------------------------------------------
+
+std::vector<uint8_t> mixChunks(const std::vector<uint8_t>& f, std::vector<ot3::Chunk>* out) {
+    std::vector<uint8_t> keep = f;   // payload pointers point into it
+    ot3::Reader r;
+    if (r.open(keep.data(), uint32_t(keep.size()), ot3::kKindProjectSidecar) != ot3::Error::kOk) return keep;
+    ot3::Chunk c;
+    while (r.next(c))
+        if (c.tag == ot3::kTagPresetMix) out->push_back(c);
+    return keep;
+}
+
+std::vector<uint8_t> sidecarImage(App& a) {
+    std::vector<uint8_t> buf(2 * ot3::kMaxFile);
+    uint32_t len = 0;
+    CHECK(a.encodeSidecar(buf.data(), uint32_t(buf.size()), &len));
+    buf.resize(len);
+    return buf;
+}
+
+// A note on slot s: the bank takes a Z at its next block with sound (here the note's).
+void sound(Harness& h, int s) {
+    h.app->engine.synth().auditionOn(s, 60);
+    h.audio.pump(8);
+    h.app->engine.synth().auditionOff();
+    h.audio.pump(1);
+}
+
+void setMix(App& a, int s, float gainDb, float pan, float rev, float del) {
+    SynthSlotRecord r = a.synthSlot(s);
+    r.gainDb = gainDb;
+    r.pan = pan;
+    r.reverbSend = rev;
+    r.delaySend = del;
+    a.setSynthSlotRecord(s, r);
+}
+
+float gainOf(Harness& h, int s) { return h.app->engine.synth().slotGain(s); }
+
 }  // namespace
+
+TEST(store_captures_the_mix_z_plays_it_and_load_copies_it) {
+    Harness h;
+    App& a = *h.app;
+    setMix(a, 0, 3.0f, -40.0f, 25.0f, 60.0f);
+    a.storeSynthPreset(1, 0);
+    setMix(a, 0, -12.0f, 10.0f, 0.0f, 0.0f);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-12.0f), 1e-6);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(3.0f), 1e-6);
+    // The Mixer / Synth page values stay the slot's own.
+    CHECK_NEAR(a.synthSlot(0).gainDb, -12.0f, 1e-6);
+    CHECK_NEAR(a.synthSlot(0).pan, 10.0f, 1e-6);
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-12.0f), 1e-6);
+    // Load: the mix becomes the slot's own (an edit of the project).
+    CHECK(a.saveProjectAs("MixL"));
+    CHECK(!a.unsavedChanges());
+    const SynthSlotRecord before = a.synthSlot(1);
+    CHECK(a.loadSynthPreset(1, 1));
+    CHECK(a.unsavedChanges());
+    const SynthSlotRecord r = a.synthSlot(1);
+    CHECK_NEAR(r.gainDb, 3.0f, 1e-6);
+    CHECK_NEAR(r.pan, -40.0f, 1e-6);
+    CHECK_NEAR(r.reverbSend, 25.0f, 1e-6);
+    CHECK_NEAR(r.delaySend, 60.0f, 1e-6);
+    CHECK_EQ(r.polyphony, before.polyphony);   // polyphony stays the slot's
+    sound(h, 1);
+    CHECK_NEAR(gainOf(h, 1), dbToGain(3.0f), 1e-6);
+}
+
+TEST(load_of_a_preset_without_mix_keeps_the_own_mix) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(2, 0);
+    presets::mixTable()[1] = audio::PresetMix{};   // as saved before presets had a mix
+    setMix(a, 1, -20.0f, 30.0f, 10.0f, 5.0f);
+    CHECK(a.loadSynthPreset(1, 2));
+    const SynthSlotRecord r = a.synthSlot(1);
+    CHECK_NEAR(r.gainDb, -20.0f, 1e-6);
+    CHECK_NEAR(r.pan, 30.0f, 1e-6);
+    CHECK_NEAR(r.reverbSend, 10.0f, 1e-6);
+    CHECK_NEAR(r.delaySend, 5.0f, 1e-6);
+    a.engine.synth().presetSelect(1, 2);
+    sound(h, 1);
+    CHECK_NEAR(gainOf(h, 1), dbToGain(-20.0f), 1e-6);
+}
+
+TEST(clear_drops_the_mix_and_dirties_the_sidecar) {
+    Harness h;
+    App& a = *h.app;
+    setMix(a, 0, 6.0f, 0.0f, 0.0f, 0.0f);
+    a.storeSynthPreset(3, 0);
+    CHECK(a.sidecarDirty());
+    CHECK(a.saveProjectAs("ClrM"));
+    CHECK(!a.sidecarDirty());
+    a.clearSynthPreset(3);
+    CHECK(a.sidecarDirty());
+    CHECK(!(presets::mixTable()[2].flags & audio::kPresetMixHas));
+    std::vector<ot3::Chunk> cs;
+    const std::vector<uint8_t> keep = mixChunks(sidecarImage(a), &cs);
+    CHECK(cs.empty());
+}
+
+TEST(sidecar_round_trip_preserves_preset_mixes_and_old_projects_write_no_chunk) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    {
+        std::vector<ot3::Chunk> cs;
+        const std::vector<uint8_t> keep = mixChunks(sidecarImage(a), &cs);
+        CHECK(cs.empty());
+    }
+    setMix(a, 0, -4.5f, 70.0f, 15.0f, 35.0f);
+    a.storeSynthPreset(5, 0);
+    CHECK(a.synthPresetUsed(5));
+    {
+        std::vector<ot3::Chunk> cs;
+        const std::vector<uint8_t> keep = mixChunks(sidecarImage(a), &cs);
+        CHECK_EQ(int(cs.size()), 1);
+        if (cs.size() == 1) {
+            CHECK_EQ(int(cs[0].len), int(sizeof(ot3::PresetMix)));
+            CHECK_EQ(int(cs[0].payload[0]), 5);
+            CHECK(!(cs[0].flags & ot3::kFlagCritical));
+        }
+    }
+    CHECK(a.saveProjectAs("PMix"));
+    CHECK(h.fs.files.count("Projects/PMix/project.ot3x") == 1);
+    CHECK(a.newProject());
+    CHECK(!(presets::mixTable()[4].flags & audio::kPresetMixHas));
+    CHECK(a.openProject("Projects", "PMix"));
+    const audio::PresetMix& m = presets::mixTable()[4];
+    CHECK(m.flags & audio::kPresetMixHas);
+    CHECK_NEAR(m.gainDb, -4.5f, 1e-6);
+    CHECK_NEAR(m.pan, 70.0f, 1e-6);
+    CHECK_NEAR(m.reverbSend, 15.0f, 1e-6);
+    CHECK_NEAR(m.delaySend, 35.0f, 1e-6);
+    setMix(a, 0, -9.0f, 0.0f, 0.0f, 0.0f);
+    CHECK(a.loadSynthPreset(0, 5));
+    CHECK_NEAR(a.synthSlot(0).gainDb, -4.5f, 1e-6);
+    CHECK_NEAR(a.synthSlot(0).pan, 70.0f, 1e-6);
+    CHECK_NEAR(a.synthSlot(0).reverbSend, 15.0f, 1e-6);
+    CHECK_NEAR(a.synthSlot(0).delaySend, 35.0f, 1e-6);
+    // A project saved before presets had a mix (no chunk, here no file):
+    // its presets keep the slot's own mix, and it saves no chunk for them.
+    h.fs.files.erase("Projects/PMix/project.ot3x");
+    CHECK(a.openProject("Projects", "PMix"));
+    CHECK(a.synthPresetUsed(5));
+    CHECK(!(presets::mixTable()[4].flags & audio::kPresetMixHas));
+    setMix(a, 0, -9.0f, 0.0f, 0.0f, 0.0f);
+    CHECK(a.loadSynthPreset(0, 5));
+    CHECK_NEAR(a.synthSlot(0).gainDb, -9.0f, 1e-6);
+    std::vector<ot3::Chunk> cs;
+    const std::vector<uint8_t> keep = mixChunks(sidecarImage(a), &cs);
+    CHECK(cs.empty());
+}
+
+TEST(a_damaged_mix_chunk_is_ignored) {
+    // Values out of the record's ranges (or NaN): the preset keeps the own mix.
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.storeSynthPreset(1, 0);
+    a.storeSynthPreset(2, 0);
+    std::vector<uint8_t> f = sidecarImage(a);
+    std::vector<ot3::Chunk> cs;
+    std::vector<uint8_t> keep = mixChunks(f, &cs);
+    CHECK_EQ(int(cs.size()), 2);
+    if (cs.size() != 2) return;
+    // Patch the payloads in place: preset 1 a gain of 40 dB, preset 2 a NaN pan.
+    uint8_t* p1 = const_cast<uint8_t*>(cs[0].payload);
+    uint8_t* p2 = const_cast<uint8_t*>(cs[1].payload);
+    const float g = 40.0f, n = std::nanf("");
+    std::memcpy(p1 + offsetof(ot3::PresetMix, gainDb), &g, 4);
+    std::memcpy(p2 + offsetof(ot3::PresetMix, pan), &n, 4);
+    const uint32_t crc = crc32(keep.data(), keep.size() - 4);
+    std::memcpy(keep.data() + keep.size() - 4, &crc, 4);
+    CHECK(a.decodeSidecar(keep.data(), uint32_t(keep.size())));
+    CHECK(!(presets::mixTable()[0].flags & audio::kPresetMixHas));
+    CHECK(!(presets::mixTable()[1].flags & audio::kPresetMixHas));
+}
