@@ -461,6 +461,17 @@ PatchStatus decodePatch(const uint8_t* data, size_t len, SynthPatch* out) {
                 }
                 break;
             }
+            case kPatchMixField: {
+                // [OT] preset mix; entries past kPatchMixCount are dropped.
+                PB_EXPECT_WT(wt, kWtLen);
+                Reader s;
+                PB_TRY(readLen(r, &s));
+                if (out->mixCount < kPatchMixCount) {
+                    PB_TRY(decodeParam(s, &out->mix[out->mixCount]));
+                    ++out->mixCount;
+                }
+                break;
+            }
             default: {
                 PB_TRY(skipValue(r, wt));
                 size_t n = size_t(r.p - start);
@@ -495,7 +506,8 @@ void patchExtraPayload(uint8_t* out) {
 PatchStatus encodePatch(const SynthPatch& pt, uint8_t* out, size_t cap, size_t* written) {
     *written = 0;
     Writer w{out, out + cap};
-    if (pt.opaqueLen > kPatchOpaqueMax || pt.paramCount > kPatchMaxParams || pt.extCount > kPatchExtMax)
+    if (pt.opaqueLen > kPatchOpaqueMax || pt.paramCount > kPatchMaxParams || pt.extCount > kPatchExtMax ||
+        pt.mixCount > kPatchMixCount)
         return PatchStatus::kBadValue;
 
     // Unknown fields are flushed, in stored order, ahead of the first known
@@ -601,6 +613,19 @@ PatchStatus encodePatch(const SynthPatch& pt, uint8_t* out, size_t cap, size_t* 
             w.byte(5);
             w.tag(1, kWtFixed32);
             w.fixed32(pt.ext[i].bits);
+        } else {
+            w.byte(0);
+        }
+    }
+
+    // [OT] preset mix, every entry read or set (none: nothing written).
+    PB_TRY(flushOpaque(kPatchMixField));
+    for (int i = 0; i < pt.mixCount; ++i) {
+        w.tag(kPatchMixField, kWtLen);
+        if (pt.mix[i].present) {
+            w.byte(5);
+            w.tag(1, kWtFixed32);
+            w.fixed32(pt.mix[i].bits);
         } else {
             w.byte(0);
         }

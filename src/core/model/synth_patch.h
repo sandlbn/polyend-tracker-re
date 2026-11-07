@@ -38,6 +38,16 @@ constexpr int kPatchMacroPressure = 7;   // M8 "Pressure", stored only
 // it as an unknown field. Absent = default.
 constexpr int kPatchExtMax = 8;
 constexpr uint32_t kPatchExtField = 16;
+// [OT] The slot mix a synth preset carries: gain (dB), pan, reverb send and
+// delay send as in the slot record (spec 21 §3.3 units), in top-level field 17
+// (`repeated ParamValue ot_mix`, written after field 16, only when set). Only
+// preset files (presets/<n>.patch) carry it: the slot's own patch and library
+// patches never do (App strips it where a patch becomes the slot's). The Mini
+// skips the field; builds without it keep it as an unknown field. A mix is
+// there when all 4 entries hold a value.
+constexpr int kPatchMixCount = 4;
+constexpr uint32_t kPatchMixField = 17;
+enum PatchMixIndex : int { kPatchMixGain = 0, kPatchMixPan = 1, kPatchMixReverb = 2, kPatchMixDelay = 3 };
 
 struct PatchParam {
     uint32_t bits;   // IEEE-754 single, exactly as stored
@@ -73,6 +83,8 @@ struct SynthPatch {
     bool extraPresent;                  // field 9; always regenerated as the constant block
     uint8_t extCount;                   // number of ot_ext (field 16) entries
     PatchParam ext[kPatchExtMax];       // [OT] extension parameters (see kPatchExtField)
+    uint8_t mixCount;                   // number of ot_mix (field 17) entries
+    PatchParam mix[kPatchMixCount];     // [OT] preset mix (see kPatchMixField), PatchMixIndex order
     uint16_t opaqueLen;                 // bytes used in opaque[]
     uint8_t opaque[kPatchOpaqueMax];    // unknown top-level fields, raw (tag + payload), file order
 };
@@ -86,6 +98,20 @@ inline uint32_t patchFloatToBits(float f) {
     uint32_t b;
     std::memcpy(&b, &f, 4);
     return b;
+}
+
+// [OT] Preset mix helpers (kPatchMixField).
+inline bool patchHasMix(const SynthPatch& p) {
+    if (p.mixCount != kPatchMixCount) return false;
+    for (const PatchParam& m : p.mix)
+        if (!m.present) return false;
+    return true;
+}
+inline float patchMix(const SynthPatch& p, int i) { return patchBitsToFloat(p.mix[i].bits); }
+inline void patchSetMix(SynthPatch& p, float gainDb, float pan, float reverbSend, float delaySend) {
+    const float v[kPatchMixCount] = {gainDb, pan, reverbSend, delaySend};
+    for (int i = 0; i < kPatchMixCount; ++i) p.mix[i] = PatchParam{patchFloatToBits(v[i]), true};
+    p.mixCount = uint8_t(kPatchMixCount);
 }
 
 // Stored range and default of one engine parameter (spec 21 §8 with the
