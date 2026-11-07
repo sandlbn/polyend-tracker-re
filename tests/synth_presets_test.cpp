@@ -9,6 +9,8 @@
 
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
+#include "modules/synth_models.h"
+#include "ui/screens.h"
 #include "ui_fakes.h"
 
 using namespace ot;
@@ -184,4 +186,123 @@ TEST(foreign_engine_preset_survives_open_and_save) {
     CHECK(h.fs.files[projPreset("Far", 4)] == bytes);
     CHECK(!a.loadSynthPreset(0, 4));   // and it never replaces a slot's patch here
     CHECK(a.synthPatch(0).engine != 0x7F);
+}
+
+// --- The Presets page: Synth Macros F8 ------------------------------------------
+
+namespace {
+SynthScreen& screen(App& a) { return *static_cast<SynthScreen*>(a.ui.screen(kModSynth)); }
+// Slot 1 (0-based) on ACD, on its Presets page.
+void openPresets(Harness& h) {
+    App& a = *h.app;
+    if (a.synthSlot(1).model != uint32_t(SynthModel::ACD)) a.setSynthModel(1, int(SynthModel::ACD));
+    a.setCurrentInstrument(kFirstSynthInstrument + 1);
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    h.tap(btn::InstrParams);   // Synth Macros
+    h.tap(btn::F8);
+}
+bool drawn(Harness& h, const char* q) {
+    h.app->ui.dirty();
+    h.run(40);
+    for (const std::string& l : h.disp.last)
+        if (l.find(q) != std::string::npos) return true;
+    return false;
+}
+}  // namespace
+
+TEST(presets_view_from_macros_f8_and_back) {
+    Harness h;
+    App& a = *h.app;
+    openPresets(h);
+    CHECK(screen(a).view == SynthScreen::View::Presets);
+    CHECK(drawn(h, "Synth Presets"));
+    CHECK(drawn(h, "P1"));
+    CHECK(drawn(h, "P8"));
+    CHECK_STR(a.ui.bar.label[0].top, "Store");
+    CHECK_STR(a.ui.bar.label[1].top, "Load");
+    CHECK_STR(a.ui.bar.label[2].top, "Clear");
+    CHECK_STR(a.ui.bar.label[7].top, "Back");
+    h.tap(btn::F8);
+    CHECK(screen(a).view == SynthScreen::View::Macros);
+    h.tap(btn::F8);
+    h.tap(btn::InstrParams);
+    CHECK(screen(a).view == SynthScreen::View::Params);
+}
+
+TEST(store_load_clear_keys_with_confirmations) {
+    Harness h;
+    App& a = *h.app;
+    openPresets(h);
+    h.tap(btn::Down);          // P2
+    CHECK_EQ(screen(a).row, 1);
+    h.tap(btn::F1);            // empty: stores at once
+    CHECK(a.synthPresetUsed(2));
+    CHECK(drawn(h, "ACD"));
+    h.tap(btn::F1);            // used: asks, and No keeps it
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F7);
+    CHECK(!a.ui.askOpen());
+    h.tap(btn::F3);            // Clear asks too
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F7);
+    CHECK(a.synthPresetUsed(2));
+    h.tap(btn::F3);
+    h.tap(btn::F8);            // Yes
+    CHECK(!a.synthPresetUsed(2));
+    // Load on an empty row does nothing; on a used one the slot takes it.
+    h.tap(btn::F2);
+    CHECK(!a.ui.askOpen());
+    a.storeSynthPreset(3, 2);
+    h.tap(btn::Down);          // P3
+    const int32_t eng = a.synthPreset(3).engine;
+    h.tap(btn::F2);
+    CHECK_EQ(int(a.synthPatch(1).engine), int(eng));
+}
+
+TEST(preview_keys_switch_while_held_and_restore) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(1, 1);
+    openPresets(h);
+    h.down(btn::F5);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    h.up(btn::F5);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    // An empty row previews nothing.
+    h.tap(btn::Down);
+    h.down(btn::F6);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.up(btn::F6);
+}
+
+TEST(active_preset_marker_and_title_suffix) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(4, 1);
+    openPresets(h);
+    CHECK(!drawn(h, "* P4"));
+    a.engine.synth().presetSelect(1, 4);
+    h.audio.pump(1);
+    CHECK(drawn(h, "* P4"));
+    CHECK(drawn(h, " P4"));
+    h.tap(btn::InstrParams);   // Params page
+    CHECK(drawn(h, "(ACD) P4"));
+}
+
+TEST(unavailable_engine_row_text) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(1, 1);
+    CHECK(a.saveProjectAs("Una"));
+    SynthPatch p = a.synthPreset(1);
+    p.engine = 0x7F;
+    std::vector<uint8_t> bytes(kPatchMaxFileSize);
+    size_t n = 0;
+    CHECK(encodePatch(p, bytes.data(), bytes.size(), &n) == PatchStatus::kOk);
+    bytes.resize(n);
+    h.fs.files[projPreset("Una", 6)] = bytes;
+    CHECK(a.openProject("Projects", "Una"));
+    openPresets(h);
+    CHECK(drawn(h, "not available"));
 }
