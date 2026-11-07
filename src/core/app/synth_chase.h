@@ -2,7 +2,8 @@
 // position of the song, read from the patterns as written -- the last Z
 // before it in play order (mutes, Chance and random FX not followed). Used at
 // a play start (ISequencerHost::synthChase) and, while stopped, to play pads
-// and MIDI on the preset the cursor row has.
+// and MIDI on the preset the Play of the screen would start with (the Pattern
+// screen's cursor row, the Song screen's position).
 //
 // A summary per stored pattern keeps a whole pass cheap: what a full pass
 // leaves each slot on and which synth each track played last. A no-note Z

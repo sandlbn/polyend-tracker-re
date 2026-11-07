@@ -200,22 +200,25 @@ void App::chaseForget() {
 }
 
 void App::serviceSynthChase() {
-    // Stopped: the slots play what the Z up to the cursor row selected (in
-    // song mode after the playlist positions before the current one), so
-    // pads and MIDI sound as the song would there. Set again when that
-    // changes; a slot's patch edit meanwhile is heard on its own patch.
+    // Stopped: the slots play what the Play of the screen would start with,
+    // so pads and MIDI sound as the song would there: on the Song screen
+    // the playlist positions before its cursor (Play starts that position at
+    // step 0), elsewhere the current pattern up to and including the cursor
+    // row. Set again when that changes; a slot's patch edit meanwhile is
+    // heard on its own patch.
     chase::Memory& g = g_chase;
     const uint64_t ticks = seq.tickCount();
-    if (seq.isPlaying() || ticks != g.ticks) {   // the sequencer set the slots; Stop put them on their own
+    // The sequencer sets the slots (a count-in's start too); Stop put them on their own.
+    if (seq.isPlaying() || seq.isCountingIn() || ticks != g.ticks) {
         g.ticks = ticks;
         chaseForget();
         return;
     }
     if (rendering_ || usbActive_ || (jobBusy() && jobOp() != JobOp::Autosave)) return;
-    const int step = ui.patternCursorStep();
+    const uint8_t song = ui.active() == kModSong ? 1 : 0;
+    const int step = song ? -1 : ui.patternCursorStep();
     const uint8_t num = patternNumber();
-    const uint8_t pos = project.playlistPos;
-    const uint8_t song = seq.isSongMode() ? 1 : 0;
+    const uint8_t pos = song ? uint8_t(ui.songCursorPos()) : 0;
     if (g.keyValid && g.keyGen == g.gen && g.keyStep == step && g.keyPattern == num && g.keyPos == pos &&
         g.keySong == song) {
         chaseWarm(2);

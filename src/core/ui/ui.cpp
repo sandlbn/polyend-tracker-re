@@ -637,6 +637,12 @@ int Ui::patternCursorStep() const {
     return p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step);
 }
 
+int Ui::songCursorPos() const {
+    const auto* s = static_cast<const SongScreen*>(screen(kModSong));
+    if (!s) return 0;
+    return s->cursor < 0 ? 0 : (s->cursor >= kSongSlots ? kSongSlots - 1 : s->cursor);
+}
+
 void Ui::switchTo(int module, int opt) {
     // [I] Issue #52 (stock 1.9.2, checked on a Tracker): from the Pattern
     // screen with Rec off, Instrument Params, Sample Playback and Sample

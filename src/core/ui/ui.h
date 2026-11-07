@@ -323,6 +323,8 @@ public:
     Screen* screen(int module) const { return module >= 0 && module < kModCount ? screens_[module] : nullptr; }
     // [3.x] The Pattern screen's cursor row (0..kStepCount-1; 0 without the screen).
     int patternCursorStep() const;
+    // [3.x] The Song screen's playlist cursor (0 without the screen).
+    int songCursorPos() const;
     Screen* current() const { return screen(active_); }
 
     bool isDown(uint8_t id) const { return id < 64 && ((down_ >> id) & 1); }

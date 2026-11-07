@@ -276,3 +276,53 @@ TEST(warm_up_summarises_stale_patterns_in_the_background) {
     h.run(200);
     for (int n = 1; n <= kPatternCount; ++n) CHECK(a.synthChaseSummarised(n));
 }
+
+TEST(stopped_chase_follows_the_play_the_screen_would_start) {
+    // Pattern-screen Play is the current pattern from step 0, also after a
+    // song ran; the Song screen plays the song from its cursor.
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    a.project.playlist[0] = 2;
+    a.project.playlist[1] = 3;
+    putNote(storedStep(a, 2, 0, 0), 60, 64);
+    putZ(storedStep(a, 2, 0, 0), 1, 3);
+    a.project.playlistPos = 1;
+    a.togglePlay(true);
+    h.audio.pump(2);
+    h.run();
+    a.togglePlay(false);
+    CHECK(a.seq.isSongMode());   // left set by the song playback
+    h.tap(btn::Pattern);
+    cursorTo(h, 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);   // pattern mode: nothing before the cursor row
+    h.tap(btn::Song);
+    CHECK(a.ui.active() == kModSong);
+    SongScreen& ss = *static_cast<SongScreen*>(a.ui.screen(kModSong));
+    ss.cursor = 1;
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);   // position 0 before the Song cursor
+    ss.cursor = 0;
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+}
+
+TEST(stopped_chase_waits_during_a_count_in) {
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[1], 60, 64);
+    putZ(p.tracks[0].steps[1], 1, 4);
+    edited(a);
+    a.cfg.preRoll = 1;
+    a.applySequencerSettings();
+    a.seq.record();
+    CHECK(a.seq.isCountingIn());
+    cursorTo(h, 2);
+    h.run();
+    CHECK(a.seq.isCountingIn() || a.seq.isPlaying());
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    a.togglePlay(false);
+}
