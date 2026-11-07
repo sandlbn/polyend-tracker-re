@@ -702,7 +702,7 @@ bool App::patternHasData(int num) {
     auto hasData = [](const Track& t) {
         for (int s = 0; s < kStepCount; ++s) {
             const Step& st = t.steps[s];
-            if (st.note != kNoteEmpty || st.fx[0].type || st.fx[1].type) return true;
+            if (st.note != kNoteEmpty || st.fx[0].used() || st.fx[1].used()) return true;
         }
         return false;
     };
