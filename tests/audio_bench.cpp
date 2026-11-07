@@ -1289,6 +1289,23 @@ int main(int argc, char** argv) {
     }
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     clockStart();
+#ifdef OT_BENCH_SYNTHS_ONLY
+    // [I] make -C tests bench-m4-synth-hot: the component benches alone (the
+    // synth pack engines + every module's bench), profiled per translation
+    // block by tests/bench_m4/hot_plugin.c (#21 shared SRAM_L pool).
+    reportVoice("vapinit", vapVoice(false), 12000);
+    reportVoice("vapworst", vapVoice(true), 18000);
+    reportVoice("fatinit", fatVoice(false), 12000);
+    reportVoice("fatworst", fatVoice(true), 22000);
+    reportVoice("wtfminit", wtfmVoice(false), 12000);
+    reportVoice("wtfmworst", wtfmVoice(true), 32000);
+    reportVoice("dx7.a1", dx7Voice(0, false), 18000);
+    reportVoice("dx7.a32", dx7Voice(31, false), 18000);
+    reportVoice("dx7.a4w", dx7Voice(3, true), 22000);
+    reportVoice("dx7.max", dx7Voice(0, true), 18000);
+    components();
+    return 0;
+#endif
 #ifdef OT_BENCH_PEAK_ONLY
     // make -C tests bench-m4-hot: the song 5 replay alone, profiled per
     // translation block by tests/bench_m4/hot_plugin.c.

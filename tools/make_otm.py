@@ -2,14 +2,18 @@
 """[I] Build a module into a loadable .otm file.
 
   make_otm.py build --module DIR --obj-dir DIR --out FILE.otm --cxx CXX --cxxflags "FLAGS"
-                    [--exports src/core/modules/module_exports.txt]
-                    [--reference BASE --ref-out FILE.bin]
+                    [--exports src/core/modules/module_exports.txt] [--hot FILE]
+                    [--reference BASE --ref-out FILE.bin [--ref-fast FBASE --ref-fast-out FILE.bin]]
       Compiles the module's sources (DIR/module.toml) with the firmware's flags,
-      links them at address 0 with a stub per imported core function and writes
-      the .otm (src/core/modules/module_loader.h has the format). --reference also
-      links the module at BASE with export k at fake_export(k) and writes the
-      memory image (image + zeroed bss) that otmLoad must produce for that base:
-      tests/module_loader_test.cpp compares the two.
+      links them with a stub per imported core function and writes the .otm
+      (src/core/modules/module_loader.h has the format). --hot names the
+      functions of the fast part (mangled, one per line, '#' comments; written
+      by tools/synth_hot.py --emit-hot): linked at 0, the rest at kOtmMainLink;
+      without it everything is the main part, linked at 0. --reference also
+      links the module at BASE (the fast part at FBASE) with export k at
+      fake_export(k) and writes the memory image (main part + zeroed bss; the
+      fast part) that otmLoad must produce for those bases:
+      tests/module_loader_test.cpp compares them.
   make_otm.py abi-header --cxx CXX --cxxflags "FLAGS" --out FILE.h
       The core's side of the versioning (layout hash, target flags hash) as a
       header for the device build.
@@ -35,8 +39,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 EXPORTS = os.path.join(ROOT, "src/core/modules/module_exports.txt")
 
-MAGIC = 0x314D544F          # "OTM1"
-HEADER_BYTES = 48
+MAGIC = 0x324D544F          # "OTM2"
+HEADER_BYTES = 52
+MAIN_LINK = 0x00400000      # module_loader.h kOtmMainLink (main part's link address with a fast part)
+FIX_BRANCH, FIX_FAST = 254, 255
+MAX_EXPORTS = 253
 CORE_API = 1                # modules/module.h kModuleApi
 
 # The headers module code may include (modules/module.h): their preprocessed
@@ -90,8 +97,8 @@ def read_exports(path):
             line = line.split("#", 1)[0].strip()
             if line:
                 syms.append(line)
-    if len(syms) > 255:
-        fail("more than 255 exports")
+    if len(syms) > MAX_EXPORTS:
+        fail(f"more than {MAX_EXPORTS} exports")
     return syms
 
 
@@ -144,6 +151,37 @@ def undefined_symbols(ld, objs, entry, tmp):
         return sorted({s.name for s in st.iter_symbols() if s["st_shndx"] == "SHN_UNDEF" and s.name})
 
 
+def read_hot(path):
+    names = []
+    with open(path) as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                names.append(line)
+    return names
+
+
+def hot_patterns(objs, names):
+    """Linker input-section patterns for the fast part: the section holding
+    each named function (-ffunction-sections: .text.<name>; .fastrun code is
+    one section per file and moves as a whole)."""
+    want, found, pats = set(names), set(), []
+    for o in objs:
+        with open(o, "rb") as f:
+            elf = ELFFile(f)
+            st = elf.get_section_by_name(".symtab")
+            for sym in st.iter_symbols():
+                if sym.name not in want or sym["st_info"]["type"] != "STT_FUNC" or not isinstance(sym["st_shndx"], int):
+                    continue
+                sec = elf.get_section(sym["st_shndx"]).name
+                pat = f"*(.text.{sym.name})" if sec == f".text.{sym.name}" else f"*/{os.path.basename(o)}({sec})"
+                if pat not in pats:
+                    pats.append(pat)
+                found.add(sym.name)
+    missing = [n for n in names if n not in found]
+    return pats, missing
+
+
 def write_stubs(path, funcs):
     lines = ["    .syntax unified", "    .thumb", '    .section .text.otm_stubs,"ax",%progbits', "    .balign 4"]
     for s in funcs:
@@ -190,21 +228,34 @@ def build(args):
         data_imports = [s for s in undef if s not in called]
         imp_names = funcs + data_imports
 
+        fast = []
+        if args.hot:
+            fast, missing = hot_patterns(objs, read_hot(args.hot))
+            if missing:
+                print(f"make_otm: {m['id']}: {len(missing)} hot functions not in the module (inlined or renamed): "
+                      f"{' '.join(missing[:6])}{' ...' if len(missing) > 6 else ''}", file=sys.stderr)
+        main_link = MAIN_LINK if fast else 0
         elf0 = os.path.join(tmp, "m0.elf")
-        link(ld, allobjs, entry, funcs, data_imports, 0, lambda s: 0, elf0)
-        image, bss, align, entry_off, fixups, nexp = read_linked(elf0, entry, index)
+        link(ld, allobjs, entry, funcs, data_imports, 0, main_link, fast, lambda s: 0, elf0)
+        image, fast_bytes, bss, align, entry_off, fixups, nexp = read_linked(elf0, entry, index, main_link)
+        if fast and not fast_bytes:
+            fast, main_link = [], 0   # none of the hot functions made it: one part, as without --hot
+            link(ld, allobjs, entry, funcs, data_imports, 0, 0, [], lambda s: 0, elf0)
+            image, fast_bytes, bss, align, entry_off, fixups, nexp = read_linked(elf0, entry, index, 0)
         layout, abiflags = abi_hashes(args.cxx, args.cxxflags)
-        hdr = struct.pack("<IHHII8sIIIIII", MAGIC, HEADER_BYTES, m.get("api", CORE_API), layout, abiflags,
-                          m["id"].encode().ljust(8, b"\0"), len(image), bss, align, entry_off, len(fixups), nexp)
+        hdr = struct.pack("<IHHII8sIIIIIII", MAGIC, HEADER_BYTES, m.get("api", CORE_API), layout, abiflags,
+                          m["id"].encode().ljust(8, b"\0"), len(image), bss, align, entry_off, len(fixups), nexp,
+                          fast_bytes)
         body = hdr + image + b"".join(struct.pack("<I", x) for x in fixups)
         with open(args.out, "wb") as f:
             f.write(body + struct.pack("<I", zlib.crc32(body)))
-        print(f"{m['id']}: {args.out}: image {len(image)} B + bss {bss} B, {len(fixups)} fixups, "
-              f"imports {' '.join(imp_names) or '-'}")
+        print(f"{m['id']}: {args.out}: image {len(image)} B (fast part {fast_bytes} B) + bss {bss} B, "
+              f"{len(fixups)} fixups, imports {' '.join(imp_names) or '-'}")
         if args.reference is not None:
             base = int(args.reference, 0)
+            fbase = int(args.ref_fast, 0) if args.ref_fast else 0
             elfr = os.path.join(tmp, "mref.elf")
-            link(ld, allobjs, entry, funcs, data_imports, base, lambda s: fake_export(index[s]), elfr)
+            link(ld, allobjs, entry, funcs, data_imports, fbase, base, fast, lambda s: fake_export(index[s]), elfr)
             with open(elfr, "rb") as f:
                 e = ELFFile(f)
                 o = e.get_section_by_name(".otm")
@@ -214,21 +265,27 @@ def build(args):
                 # Memory as the linker laid it out, from base to the bss end
                 # (a gap before the bss shows up as a size mismatch).
                 gap = b["sh_addr"] - (o["sh_addr"] + len(img)) if b else 0
+                fs = e.get_section_by_name(".otm_fast")
+                fimg = fs.data() if fs is not None and fs["sh_type"] != "SHT_NOBITS" else b""
             with open(args.ref_out, "wb") as f:
                 f.write(img + bytes(gap + nb))
+            if args.ref_fast_out:
+                with open(args.ref_fast_out, "wb") as f:
+                    f.write(fimg + bytes(-len(fimg) % 4))
 
 
-def link(ld, objs, entry, funcs, data_imports, base, value, out):
-    """Links the module at base: stub words __imp_<f> and data imports at value(s)."""
+def link(ld, objs, entry, funcs, data_imports, fast_base, base, fast, value, out):
+    """Links the module: the fast part (input-section patterns `fast`) at
+    fast_base, the rest at base; stub words __imp_<f> and data imports at value(s)."""
     script = out + ".ld"
     with open(script, "w") as f:
         for s in funcs:
             f.write(f"__imp_{s} = {value(s):#x};\n")
         for s in data_imports:
             f.write(f"{s} = {value(s):#x};\n")
+        fast_sec = f"  .otm_fast {fast_base:#x} : {{ {' '.join(fast)} }}\n" if fast else ""
         f.write(f"""SECTIONS {{
-  . = {base:#x};
-  .otm : {{ *(.text.otm_stubs) *(.text .text.* .fastrun .fastrun.*) *(.rodata .rodata.*) *(.data .data.*) . = ALIGN(8); }}
+{fast_sec}  .otm {base:#x} : {{ *(.text.otm_stubs) *(.text .text.* .fastrun .fastrun.*) *(.rodata .rodata.*) *(.data .data.*) . = ALIGN(8); }}
   .otm_bss (NOLOAD) : ALIGN(8) {{ *(.bss .bss.* COMMON) }}
   /DISCARD/ : {{ *(.ARM.exidx* .ARM.extab* .comment .note*) }}
 }}
@@ -236,52 +293,102 @@ def link(ld, objs, entry, funcs, data_imports, base, value, out):
     run([ld, "-q", "--gc-sections", "--no-warn-rwx-segments", "-e", entry, "-T", script, *objs, "-o", out])
 
 
-def read_linked(path, entry, index):
-    """(image, bss bytes, align, entry offset, fixups, exports needed) of a link at 0."""
+def branch_offset(img, off):
+    """Displacement of the Thumb-2 BL / B.W at img[off] (module_loader.cpp branchOffset)."""
+    a, b = struct.unpack_from("<HH", img, off)
+    if (a & 0xF800) != 0xF000 or (b & 0xD000) not in (0xD000, 0x9000):
+        return None
+    s_, j1, j2 = (a >> 10) & 1, (b >> 13) & 1, (b >> 11) & 1
+    i1, i2 = ~(j1 ^ s_) & 1, ~(j2 ^ s_) & 1
+    v = s_ << 24 | i1 << 23 | i2 << 22 | (a & 0x3FF) << 12 | (b & 0x7FF) << 1
+    return v - (1 << 25) if s_ else v
+
+
+def read_linked(path, entry, index, main_link):
+    """(image, fast bytes, bss bytes, align, entry offset, fixups, exports needed)
+    of a link with the fast part at 0 and the main part at main_link."""
     ELFFile, _ = elftools()
     with open(path, "rb") as f:
         elf = ELFFile(f)
+        fs = elf.get_section_by_name(".otm_fast")
+        fimg = fs.data() if fs is not None else b""
+        fimg += bytes(-len(fimg) % 4)
+        fast_end = len(fimg)
         otm = elf.get_section_by_name(".otm")
-        image = otm.data()
+        mimg = otm.data()
+        if otm["sh_addr"] != main_link:
+            fail(f".otm linked at {otm['sh_addr']:#x}, not {main_link:#x}")
+        image = fimg + mimg
         b = elf.get_section_by_name(".otm_bss")
         bss = b["sh_size"] if b else 0
         # The loader zeroes the bss right after the image (otmLoad), and the
         # next module goes after image + bss: no gap between the two.
-        if b and b["sh_addr"] != len(image):
-            fail(f".otm_bss at {b['sh_addr']:#x}, not right after the {len(image)} B image")
+        if b and b["sh_addr"] != main_link + len(mimg):
+            fail(f".otm_bss at {b['sh_addr']:#x}, not right after the {len(mimg)} B main part")
         align = 8
         for sec in elf.iter_sections():
             if sec["sh_flags"] & 2 and sec["sh_addralign"] > align:   # SHF_ALLOC
                 align = sec["sh_addralign"]
+
+        def part(addr):   # (is fast, image offset) of a link address; None outside both parts
+            if fast_end and addr < fast_end:
+                return True, addr
+            if main_link <= addr < main_link + len(mimg) + bss + 1:
+                return False, fast_end + addr - main_link
+            if fast_end and addr == fast_end:   # one past the fast part's end
+                return True, addr
+            return None
+
         st = elf.get_section_by_name(".symtab")
         ent = next(s for s in st.iter_symbols() if s.name == entry)["st_value"]
-        rel = elf.get_section_by_name(".rel.otm")
+        ep = part(ent & ~1)
+        if ep is None:
+            fail("entry point outside the image")
+        entry_off = ep[1] | (ent & 1)
         fixups, nexp = [], 0
-        for r in (rel.iter_relocations() if rel else []):
-            t = r["r_info_type"]
-            if t in (R_ARM_NONE, R_ARM_THM_CALL, R_ARM_THM_JUMP24):
-                if t != R_ARM_NONE:
+        for rname in (".rel.otm_fast", ".rel.otm"):
+            rel = elf.get_section_by_name(rname)
+            for r in (rel.iter_relocations() if rel else []):
+                t = r["r_info_type"]
+                if t == R_ARM_NONE:
+                    continue
+                pl = part(r["r_offset"])
+                if pl is None:
+                    fail(f"relocation at {r['r_offset']:#x} outside the image")
+                p_fast, off = pl
+                if off + 4 > len(image) or off >= 1 << 24:
+                    fail(f"relocation at {off:#x} outside the image")
+                if t in (R_ARM_THM_CALL, R_ARM_THM_JUMP24):
                     s = st.get_symbol(r["r_info_sym"])
                     if s["st_shndx"] in ("SHN_ABS", "SHN_UNDEF"):
                         fail(f"a branch to {s.name} outside the image (no stub)")
-                continue
-            if t != R_ARM_ABS32:
-                fail(f"relocation type {t} at {r['r_offset']:#x} is not supported")
-            off = r["r_offset"]
-            if off + 4 > len(image) or off >= 1 << 24:
-                fail(f"relocation at {off:#x} outside the image")
-            s = st.get_symbol(r["r_info_sym"])
-            if s["st_shndx"] == "SHN_ABS":
-                name = s.name[len("__imp_"):] if s.name.startswith("__imp_") else s.name
-                if name not in index:
-                    fail(f"absolute symbol {s.name} is not an export")
-                kind = index[name]
-                # The link wrote S + A with S = 0: the word is the addend.
-                nexp = max(nexp, kind)
-            else:
-                kind = 0
-            fixups.append(off | kind << 24)
-    return image, bss, align, ent, sorted(fixups), nexp
+                    d = branch_offset(image, off)
+                    if d is None:
+                        fail(f"relocation type {t} at {off:#x} is not a BL / B.W")
+                    tp = part(r["r_offset"] + 4 + d)
+                    if tp is None:
+                        fail(f"a branch at {off:#x} lands outside the image")
+                    if tp[0] != p_fast:
+                        fixups.append(off | FIX_BRANCH << 24)   # crosses the parts
+                    continue
+                if t != R_ARM_ABS32:
+                    fail(f"relocation type {t} at {off:#x} is not supported")
+                s = st.get_symbol(r["r_info_sym"])
+                if s["st_shndx"] == "SHN_ABS":
+                    name = s.name[len("__imp_"):] if s.name.startswith("__imp_") else s.name
+                    if name not in index:
+                        fail(f"absolute symbol {s.name} is not an export")
+                    kind = index[name]
+                    # The link wrote S + A with S = 0: the word is the addend.
+                    nexp = max(nexp, kind)
+                else:
+                    word = struct.unpack_from("<I", image, off)[0]
+                    wp = part(word & ~1)
+                    if wp is None and fast_end:
+                        fail(f"the word at {off:#x} ({word:#x}) points outside the image")
+                    kind = FIX_FAST if wp and wp[0] else 0
+                fixups.append(off | kind << 24)
+    return image, fast_end, bss, align, entry_off, sorted(fixups), nexp
 
 
 def abi_header(args):
@@ -330,8 +437,11 @@ def main():
     b.add_argument("--cxx", required=True)
     b.add_argument("--cxxflags", required=True)
     b.add_argument("--exports", default=EXPORTS)
+    b.add_argument("--hot")
     b.add_argument("--reference")
     b.add_argument("--ref-out")
+    b.add_argument("--ref-fast")
+    b.add_argument("--ref-fast-out")
     a = sub.add_parser("abi-header")
     a.add_argument("--cxx", required=True)
     a.add_argument("--cxxflags", required=True)

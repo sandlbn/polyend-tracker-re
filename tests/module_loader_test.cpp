@@ -33,7 +33,7 @@ struct Built {
     std::vector<uint8_t> image{8, 0, 0, 0, 4, 0, 0, 0, 0xAA, 0xBB, 0xCC, 0xDD, 0, 0, 0, 0};
     std::vector<uint32_t> fixups{0u, 4u | 2u << 24, 12u | 3u << 24};
     Built() {
-        h = OtmHeader{kOtmMagic, kOtmHeaderBytes, 1, kLayout, kAbi, {'T', 'E', 'S', 'T'}, 16, 8, 8, 1, 3, 3};
+        h = OtmHeader{kOtmMagic, kOtmHeaderBytes, 1, kLayout, kAbi, {'T', 'E', 'S', 'T'}, 16, 8, 8, 1, 3, 3, 0};
     }
     std::vector<uint8_t> file() const {
         OtmHeader hh = h;
@@ -152,6 +152,120 @@ TEST(refuses_small_or_misaligned_blocks) {
     CHECK(load(f, dst, 24, 4) == OtmError::Align);    // the module wants 8
 }
 
+// A two-part image: a 12-byte fast part (word 0 = a main-part address, a
+// BL into the main part at 4, word 8 = a fast-part address) and an 8-byte
+// main part (word 12 = a fast-part address, a B.W back into the fast part at
+// 16). Fast part linked at 0, main part at kOtmMainLink.
+struct Built2 {
+    std::vector<uint8_t> image;
+    std::vector<uint32_t> fixups;
+    OtmHeader h;
+    static void bl(std::vector<uint8_t>& v, size_t at, int32_t off, bool link) {
+        const uint32_t u = uint32_t(off), s = (u >> 24) & 1u, i1 = (u >> 23) & 1u, i2 = (u >> 22) & 1u;
+        const uint32_t j1 = (~i1 ^ s) & 1u, j2 = (~i2 ^ s) & 1u;
+        const uint16_t a = uint16_t(0xF000u | s << 10 | ((u >> 12) & 0x3FFu));
+        const uint16_t b = uint16_t((link ? 0xD000u : 0x9000u) | j1 << 13 | j2 << 11 | ((u >> 1) & 0x7FFu));
+        v[at] = uint8_t(a), v[at + 1] = uint8_t(a >> 8), v[at + 2] = uint8_t(b), v[at + 3] = uint8_t(b >> 8);
+    }
+    Built2() {
+        image.assign(20, 0);
+        auto w = [&](size_t at, uint32_t x) { for (int i = 0; i < 4; ++i) image[at + i] = uint8_t(x >> (8 * i)); };
+        w(0, kOtmMainLink + 5);                                     // a main-part function (Thumb)
+        bl(image, 4, int32_t(kOtmMainLink + 4) - int32_t(4 + 4), true);   // BL main+4
+        w(8, 1);                                                    // the fast function at 0 (Thumb)
+        w(12, 9);                                                   // fast part + 8
+        bl(image, 16, int32_t(0) - int32_t(kOtmMainLink + 4 + 4), false); // B.W fast+0 (main part offset 4)
+        fixups = {0u, 4u | kOtmFixBranch << 24, 8u | kOtmFixFast << 24, 12u | kOtmFixFast << 24,
+                  16u | kOtmFixBranch << 24};
+        h = OtmHeader{kOtmMagic, kOtmHeaderBytes, 1, kLayout, kAbi, {'T', 'W', 'O'}, 20, 4, 8, 1, 5, 0, 12};
+    }
+    std::vector<uint8_t> file() const {
+        OtmHeader hh = h;
+        hh.nFixups = uint32_t(fixups.size());
+        std::vector<uint8_t> v(sizeof(hh));
+        std::memcpy(v.data(), &hh, sizeof(hh));
+        v.insert(v.end(), image.begin(), image.end());
+        for (uint32_t f : fixups) put32(v, f);
+        put32(v, crc32(v.data(), v.size()));
+        return v;
+    }
+};
+
+// The displacement of a BL / B.W, read back the way the CPU does.
+int32_t branchAt(const uint8_t* p) {
+    const uint32_t a = uint32_t(p[0] | p[1] << 8), b = uint32_t(p[2] | p[3] << 8);
+    const uint32_t s = (a >> 10) & 1u, i1 = ~(((b >> 13) & 1u) ^ s) & 1u, i2 = ~(((b >> 11) & 1u) ^ s) & 1u;
+    uint32_t v = s << 24 | i1 << 23 | i2 << 22 | (a & 0x3FFu) << 12 | (b & 0x7FFu) << 1;
+    if (s) v |= 0xFE000000u;
+    return int32_t(v);
+}
+
+TEST(two_parts_load_into_two_blocks) {
+    const std::vector<uint8_t> f = Built2().file();
+    uint8_t fast[16], mainb[32];
+    std::memset(fast, 0x55, sizeof(fast));
+    std::memset(mainb, 0x55, sizeof(mainb));
+    const uint32_t fb = 0x1FFFC000u, mb = 0x20010000u;
+    uint32_t entry = 0;
+    CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{fast, sizeof(fast), fb},
+                  OtmBlock{mainb, sizeof(mainb), mb}, &entry) == OtmError::None);
+    CHECK_EQ(entry, fb + 1);                        // entry offset 1: the fast part, Thumb
+    CHECK_EQ(word(fast + 0), mb + 5);               // main-part address
+    CHECK_EQ(int64_t(fb + 4 + 4) + branchAt(fast + 4), int64_t(mb + 4));   // BL lands on main + 4
+    CHECK_EQ(word(fast + 8), fb + 1);               // fast-part address
+    CHECK_EQ(fast[12], 0x55);                       // nothing past the fast part
+    CHECK_EQ(word(mainb + 0), fb + 9);              // main part offset 0 (image 12)
+    CHECK_EQ(int64_t(mb + 4 + 4) + branchAt(mainb + 4), int64_t(fb));   // B.W lands on fast + 0
+    CHECK_EQ(uint32_t(mainb[6] | mainb[7] << 8) & 0xD000u, 0x9000u);  // still a B.W, not a BL
+    for (int i = 8; i < 12; ++i) CHECK_EQ(mainb[i], 0);   // bss zeroed
+    CHECK_EQ(mainb[12], 0x55);
+}
+
+TEST(two_parts_in_one_block) {
+    const std::vector<uint8_t> f = Built2().file();
+    uint8_t dst[64];
+    std::memset(dst, 0x55, sizeof(dst));
+    const uint32_t base = 0x20010000u;
+    CHECK(load(f, dst, sizeof(dst), base) == OtmError::None);
+    // The fast part first, the main part at the next 8-byte boundary (16).
+    CHECK_EQ(word(dst + 0), base + 16 + 5);
+    CHECK_EQ(int64_t(base + 8) + branchAt(dst + 4), int64_t(base + 16 + 4));
+    CHECK_EQ(int64_t(base + 16 + 8) + branchAt(dst + 20), int64_t(base));
+    CHECK(load(f, dst, 16 + 8 + 3, base) == OtmError::TooBig);   // main 8 + bss 4 after the 16
+}
+
+TEST(two_parts_refusals) {
+    uint8_t a[16], b[32];
+    {
+        Built2 x;
+        x.fixups.push_back(8u | kOtmFixBranch << 24);   // not a BL / B.W there
+        const std::vector<uint8_t> f = x.file();
+        std::memset(a, 0x55, sizeof(a));
+        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 16, 0x1FFFC000u}, OtmBlock{b, 32, 0x20010000u},
+                      nullptr) == OtmError::BadFixup);
+        CHECK_EQ(a[0], 0x55);   // nothing written
+    }
+    {
+        Built2 x;
+        x.fixups.push_back(10u);   // a word across the parts' boundary (10..13)
+        const std::vector<uint8_t> f = x.file();
+        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 16, 0x1FFFC000u}, OtmBlock{b, 32, 0x20010000u},
+                      nullptr) == OtmError::BadFixup);
+    }
+    {
+        const std::vector<uint8_t> f = Built2().file();
+        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 8, 0x1FFFC000u}, OtmBlock{b, 32, 0x20010000u},
+                      nullptr) == OtmError::TooBig);   // fast part 12 > 8
+        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 16, 0x1FFFC004u}, OtmBlock{b, 32, 0x20010000u},
+                      nullptr) == OtmError::Align);
+    }
+    {
+        Built x;
+        x.fixups.push_back(0u | kOtmFixFast << 24);   // a fast-part fixup without a fast part
+        CHECK(load(x.file(), b, sizeof(b), 0) == OtmError::BadFixup);
+    }
+}
+
 // tools/make_otm.py --reference: the module linked by ld at kRefBase with
 // export k at fake_export(k); otmLoad at that base must give the same bytes.
 TEST(real_module_matches_the_linker) {
@@ -168,9 +282,9 @@ TEST(real_module_matches_the_linker) {
     }
     OtmHeader h;
     std::memcpy(&h, f.data(), sizeof(h));
-    std::vector<uint32_t> exports(255);
-    for (uint32_t k = 1; k <= 255; ++k) exports[k - 1] = 0x0E000000u + 16u * k + 1u;   // make_otm.py fake_export
-    const OtmCore core = {h.api, h.layoutHash, h.abiFlags, exports.data(), 255};
+    std::vector<uint32_t> exports(kOtmMaxExports);
+    for (uint32_t k = 1; k <= kOtmMaxExports; ++k) exports[k - 1] = 0x0E000000u + 16u * k + 1u;   // make_otm.py fake_export
+    const OtmCore core = {h.api, h.layoutHash, h.abiFlags, exports.data(), kOtmMaxExports};
     std::vector<uint8_t> dst(ref.size() + 64, 0x55);
     uint32_t entry = 0;
     CHECK(otmLoad(f.data(), uint32_t(f.size()), core, dst.data(), uint32_t(dst.size()), 0x1FFF8000u, &entry) ==
@@ -178,6 +292,35 @@ TEST(real_module_matches_the_linker) {
     CHECK_EQ(h.imageBytes + h.bssBytes, uint32_t(ref.size()));
     CHECK(std::memcmp(dst.data(), ref.data(), ref.size()) == 0);
     CHECK_EQ(entry & 1u, 1u);   // a Thumb function
+}
+
+// The same with a fast part: make otm OTM_MODULE=modules/fm4 OTM_SUFFIX=h
+// OTM_HOT=<fm4.hot> OTM_REF=0x20010000 OTM_REF_FAST=0x1fffc000.
+TEST(real_two_part_module_matches_the_linker) {
+    const char* dir = std::getenv("OT_OTM_DIR");
+    if (!dir) return;
+    const std::vector<uint8_t> f = readFile(std::string(dir) + "/fm4h.otm");
+    const std::vector<uint8_t> ref = readFile(std::string(dir) + "/fm4h.ref.bin");
+    const std::vector<uint8_t> refFast = readFile(std::string(dir) + "/fm4h.ref-fast.bin");
+    if (f.empty() || ref.empty() || refFast.empty()) {
+        std::printf("  (skipped: no fm4h.otm / .ref.bin / .ref-fast.bin in %s)\n", dir);
+        return;
+    }
+    OtmHeader h;
+    std::memcpy(&h, f.data(), sizeof(h));
+    CHECK(h.fastBytes > 0);
+    CHECK_EQ(h.fastBytes, uint32_t(refFast.size()));
+    std::vector<uint32_t> exports(kOtmMaxExports);
+    for (uint32_t k = 1; k <= kOtmMaxExports; ++k) exports[k - 1] = 0x0E000000u + 16u * k + 1u;
+    const OtmCore core = {h.api, h.layoutHash, h.abiFlags, exports.data(), kOtmMaxExports};
+    std::vector<uint8_t> fast(refFast.size(), 0x55), mainb(ref.size() + 64, 0x55);
+    uint32_t entry = 0;
+    CHECK(otmLoad(f.data(), uint32_t(f.size()), core, OtmBlock{fast.data(), uint32_t(fast.size()), 0x1FFFC000u},
+                  OtmBlock{mainb.data(), uint32_t(mainb.size()), 0x20010000u}, &entry) == OtmError::None);
+    CHECK_EQ(h.imageBytes - h.fastBytes + h.bssBytes, uint32_t(ref.size()));
+    CHECK(std::memcmp(mainb.data(), ref.data(), ref.size()) == 0);
+    CHECK(std::memcmp(fast.data(), refFast.data(), refFast.size()) == 0);
+    CHECK_EQ(entry & 1u, 1u);
 }
 
 // ---- Modules/*.otm from the card (modules/module_files.h) -------------------

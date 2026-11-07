@@ -1,0 +1,25 @@
+# [I] Measurement profile (#21 shared SRAM_L pool): all 15 synth modules, for
+# make -C tests bench-m4-synth-hot (hot code per synth). Not a device image.
+# Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
+name = "allsynths"
+variant = "z"
+display_name = "All synths"
+flash_modules_max = 400000
+
+modules = [
+    { id = "ACD1", path = "modules/acd" },
+    { id = "FAT1", path = "modules/fat" },
+    { id = "VAP1", path = "modules/vap" },
+    { id = "PRC1", path = "modules/perc" },
+    { id = "WTF1", path = "modules/wtfm" },
+    { id = "FM4S", path = "modules/fm4" },
+    { id = "JU6S", path = "modules/ju6" },
+    { id = "DTY1", path = "modules/dtype" },
+    { id = "CST1", path = "modules/cstype" },
+    { id = "ATY1", path = "modules/atype" },
+    { id = "TTY1", path = "modules/ttype" },
+    { id = "8TY1", path = "modules/eight" },
+    { id = "HND1", path = "modules/hand" },
+    { id = "BTY1", path = "modules/btype" },
+    { id = "ARC1", path = "modules/arc" },
+]

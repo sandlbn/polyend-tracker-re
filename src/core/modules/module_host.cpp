@@ -164,6 +164,24 @@ bool ModuleHost::addForTest(IModule& m) { return addLoaded(m); }
 bool ModuleHost::addLoaded(IModule& m) {
     if (!inited_) init();
     const ModuleInfo& in = m.info();
+#if defined(OT_POOL_TEST) && OT_POOL_TEST
+    // [I] measurement images: a card module replaces the compiled-in one with
+    // its id, so one image measures a synth from flash and from the pool.
+    for (int i = 0; i < n_; ++i) {
+        if (std::strncmp(mods_[i]->info().id, in.id, 4) != 0) continue;
+        IModule* old = mods_[i];
+        for (int k = i; k + 1 < n_; ++k) mods_[k] = mods_[k + 1];
+        --n_;
+        int w = 0;
+        for (int k = 0; k < nDesc_; ++k) {
+            bool mine = false;
+            for (int j = 0; const SynthDescriptor* d = old->synthDescriptor(j); ++j) mine |= d == desc_[k];
+            if (!mine) desc_[w++] = desc_[k];
+        }
+        nDesc_ = w;
+        break;
+    }
+#endif
     if (in.api != kModuleApi || n_ >= kMaxModules || find(in.id) || !descriptorsOk(m) || !effectsOk(m) ||
         !m.attach(*this)) {
         std::memcpy(refused_, in.id, sizeof(refused_));

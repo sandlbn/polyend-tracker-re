@@ -210,6 +210,21 @@ bench-m4-hot: $(BENCH_OUT)/audio_bench_m4_peak.elf $(BENCH_OUT)/hot_plugin.so $(
 	    -plugin $(BENCH_OUT)/hot_plugin.so,out=$(BENCH_OUT)/hot.txt -kernel $<
 	python3 -I bench_m4/hot_funcs.py $< $(BENCH_OUT)/hot.txt $(HOT_ARGS)
 
+# [I] Executed instructions per synth (#21 shared SRAM_L pool): the component
+# benches alone (OT_BENCH_SYNTHS_ONLY) under the hot plugin, with a link map
+# so tools/synth_hot.py can fold the functions into modules.
+# make -C tests bench-m4-synth-hot PROFILE=allsynths
+$(BENCH_OUT)/audio_bench_m4_synths.elf: $(M4_SRCS) $(M4_HDRS) peak_trace.h bench_m4/startup.c bench_m4/mps2.ld $(SRC)/hal/fast_mem.c
+	@mkdir -p $(dir $@)
+	$(M4_CC) $(M4_FLAGS) -c bench_m4/startup.c -o $(BENCH_OUT)/startup_m4.o
+	$(M4_CC) $(M4_FLAGS) -std=gnu11 -c $(SRC)/hal/fast_mem.c -o $(BENCH_OUT)/fast_mem_m4.o
+	$(M4_CXX) $(M4_FLAGS) -g -std=gnu++17 -fno-exceptions -fno-rtti -DOT_BENCH_M4 -DOT_BENCH_SYNTHS_ONLY -DOT_AUDIO_SDRAM_STATS \
+	    -I$(SRC)/core -I$(SRC) -I. $(MOD_INCS) $(MOD_DEFS) $(M4_SRCS) $(BENCH_OUT)/startup_m4.o $(BENCH_OUT)/fast_mem_m4.o -T bench_m4/mps2.ld \
+	    -nostartfiles --specs=nano.specs --specs=rdimon.specs -u _printf_float -Wl,--gc-sections -Wl,-Map,$(BENCH_OUT)/audio_bench_m4_synths.map -lm -o $@
+bench-m4-synth-hot: $(BENCH_OUT)/audio_bench_m4_synths.elf $(BENCH_OUT)/hot_plugin.so
+	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
+	    -plugin $(BENCH_OUT)/hot_plugin.so,out=$(BENCH_OUT)/synth_hot.txt -kernel $<
+
 clean:
 	rm -rf $(OUT) $(BENCH_OUT)
 

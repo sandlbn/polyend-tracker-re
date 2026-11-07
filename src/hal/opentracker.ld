@@ -139,6 +139,16 @@ SECTIONS
 		. = . + 4096;
 	} > FLASH
 
+	/* [I] #21 OT_POOL_TEST images: the block card modules' fast parts run
+	 * from (hal/module_pool.cpp), in SRAM_L. __otm_fast_bytes comes from the
+	 * Makefile (--defsym; 0 = no block, the layout unchanged). */
+	.otm_fast (NOLOAD) : {
+		. = ALIGN(__otm_fast_bytes > 0 ? 8 : 1);
+		__otm_fast_start = .;
+		. = . + __otm_fast_bytes;
+		__otm_fast_end = .;
+	} > RAM
+
 	.noinit (NOLOAD) : {
 		*(.noinit*)
 	} > RAM
@@ -182,6 +192,7 @@ SECTIONS
 	ASSERT(_edma <= 0x20030000, "OpenTracker: .dma overflows SRAM_U")
 	/* Leave room for the main stack (field builds ran with 25-53 KB headroom). */
 	ASSERT(__fastrun_end <= 0x20000000, "OpenTracker: .fastrun code must lie in SRAM_L (code bus)")
+	ASSERT(__otm_fast_end <= 0x20000000, "OpenTracker: the card modules' fast block must lie in SRAM_L")
 	ASSERT(_estack - _ebss >= 16384, "OpenTracker: less than 16 KB left for the stack")
 	_teensy_model_identifier = 0x22;
 }

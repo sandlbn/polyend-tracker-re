@@ -50,6 +50,15 @@ OT_FASTRUN ?= 1
 ifeq ($(OT_FASTRUN),0)
 BUILD     := $(BUILD)/nofastrun
 endif
+# [I] #21 shared-pool measurement images (profiles/pooltest.toml): 1 = a 12 KB
+# SRAM_L block for card modules' fast parts, card modules replace built-ins
+# with the same id, stack floor 15 KB, pool cap 48 KB, module log every 10 s.
+# Never for releases.
+OT_POOL_TEST ?= 0
+OTM_FAST_BYTES := $(if $(filter 1,$(OT_POOL_TEST)),12288,0)
+ifeq ($(OT_POOL_TEST),1)
+BUILD     := $(BUILD)/pooltest
+endif
 # USB Storage mode (docs/PLAN_2X.md, Tracker Mini manual §13.10): 1 = the USB
 # device adds a mass-storage interface (third_party/teensy3/usb_msc.h) next to
 # MIDI + Serial; 0 = the old MIDI + Serial descriptors exactly (fallback image).
@@ -78,14 +87,14 @@ CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
-             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
+             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_POOL_TEST=$(OT_POOL_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs $(MOD_INCS) -I$(BUILD)/otm-gen
 COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD
 CFLAGS    := $(COMMON) -std=gnu11
 CXXFLAGS  := $(COMMON) -std=gnu++17 -fno-exceptions -fno-rtti -felide-constructors -Wno-psabi
 # Own linker script: the Teensy one + the uncached `.dma` section (src/hal/opentracker.ld).
 LDSCRIPT  := src/hal/opentracker.ld
-LDFLAGS   := $(CPUFLAGS) -O2 -Wl,--gc-sections,--defsym=__rtc_localtime=0,--no-warn-rwx-segments -T$(LDSCRIPT) \
+LDFLAGS   := $(CPUFLAGS) -O2 -Wl,--gc-sections,--defsym=__rtc_localtime=0,--defsym=__otm_fast_bytes=$(OTM_FAST_BYTES),--no-warn-rwx-segments -T$(LDSCRIPT) \
              --specs=nano.specs -u _printf_float
 LIBS      := -lm -lstdc++
 
@@ -260,14 +269,18 @@ budget:
 
 # [I] A module as a file loadable from the card (tools/make_otm.py), compiled
 # with the firmware's flags. OTM_REF=<base> also writes <name>.ref.bin, the image
-# otmLoad must produce at that base (tests/module_loader_test.cpp).
+# otmLoad must produce at that base (tests/module_loader_test.cpp). OTM_HOT=<file>:
+# the fast part's functions (tools/synth_hot.py --emit-hot), OTM_REF_FAST=<base> its
+# reference base; OTM_SUFFIX names a variant (<name><suffix>.otm).
 OTM_NAME = $(notdir $(OTM_MODULE))
 otm:
 	@test -n "$(OTM_MODULE)" || { echo "make otm OTM_MODULE=<module path, e.g. ../opentracker-fx/modules/tape>"; exit 1; }
 	@mkdir -p $(BUILD)/otm
 	python3 -I tools/make_otm.py build --module $(MODULES_DIR)/$(OTM_MODULE) --obj-dir $(BUILD)/otm/obj/$(OTM_NAME) \
-	    --out $(BUILD)/otm/$(OTM_NAME).otm --cxx $(CXX) --cxxflags '$(CXXFLAGS)' \
-	    $(if $(OTM_REF),--reference $(OTM_REF) --ref-out $(BUILD)/otm/$(OTM_NAME).ref.bin)
+	    --out $(BUILD)/otm/$(OTM_NAME)$(OTM_SUFFIX).otm --cxx $(CXX) --cxxflags '$(CXXFLAGS)' \
+	    $(if $(OTM_HOT),--hot $(OTM_HOT)) \
+	    $(if $(OTM_REF),--reference $(OTM_REF) --ref-out $(BUILD)/otm/$(OTM_NAME)$(OTM_SUFFIX).ref.bin) \
+	    $(if $(OTM_REF_FAST),--ref-fast $(OTM_REF_FAST) --ref-fast-out $(BUILD)/otm/$(OTM_NAME)$(OTM_SUFFIX).ref-fast.bin)
 .PHONY: otm
 
 # [I] tools/make_otm.py against the linker (tools/make_otm_test.py): needs

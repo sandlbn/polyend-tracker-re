@@ -595,13 +595,14 @@ TEST(testsongs_table) {
     CHECK_EQ(ts::findSong(ts::SongId::FatOnly)->available, ts::kHasSynths && ts::kHas16Tracks);
     CHECK_EQ(ts::findSong(ts::SongId::WtfmOnly)->available, ts::kHasSynths && ts::kHas16Tracks);
     CHECK(ts::kHasSynths);
-    for (int i = 5; i < ts::kSongCount; ++i) CHECK_EQ(ts::songInfo(i).available, ts::kHasSynths && ts::kHas16Tracks);
+    for (int i = 5; i < ts::kSongCount; ++i)
+        if (!ts::isPoolSong(ts::songInfo(i).id)) CHECK_EQ(ts::songInfo(i).available, ts::kHasSynths && ts::kHas16Tracks);
     for (int i = 0; i < ts::kSongCount; ++i) CHECK(std::strlen(ts::songInfo(i).name) <= ot::mt::kNameMax);
 }
 
 TEST(testsongs_available_songs_open_round_trip_and_play) {
     for (int i = 0; i < ts::kSongCount; ++i)
-        if (ts::songInfo(i).available) checkSong(ts::songInfo(i).id, false);
+        if (ts::songInfo(i).available && !ts::isPoolSong(ts::songInfo(i).id)) checkSong(ts::songInfo(i).id, false);
 }
 
 // The stereo song's files are stock-format already (planar stereo .pti,
@@ -980,7 +981,7 @@ TEST(testsongs_render_hash_matches_golden) {
     int compared = 0;
     for (int i = 0; i < ts::kSongCount; ++i) {
         const ts::SongInfo& info = ts::songInfo(i);
-        if (!info.available) continue;
+        if (!info.available || ts::isPoolSong(info.id)) continue;
         std::unique_ptr<Harness> hp = deviceHarness();
         Harness& h = *hp;
         ts::GenOptions opt;

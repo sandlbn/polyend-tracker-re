@@ -26,6 +26,11 @@ struct OtmPool {
     // Optional: makes the first `bytes` of the block usable (the device moves
     // the stack guard over them); false = no room. Null = always usable.
     bool (*resize)(uint32_t bytes);
+    // Optional: the block fast parts run from (SRAM_L on the device); a fast
+    // part that doesn't fit goes in front of its main part in mem. Null = none.
+    uint8_t* fastMem = nullptr;
+    uint32_t fastBase = 0;
+    uint32_t fastCap = 0;
 };
 
 struct OtmLoadReport {
@@ -34,10 +39,13 @@ struct OtmLoadReport {
         char file[40];      // name in Modules/ (longer names are skipped)
         OtmError error;     // None = loaded and registered
         bool refused;       // loaded, but ModuleHost refused it (id taken, api, ...)
+        uint32_t fastBytes; // its fast part (0 = none)
+        bool fastInBlock;   // the fast part runs from the pool's fast block
     };
     Item items[kMax];
     int n = 0;
     uint32_t used = 0;      // pool bytes in use after loading
+    uint32_t fastUsed = 0;  // fast block bytes in use
     bool noRoom = false;    // the pool could not grow (the stack floor): nothing loaded
     int skipped = 0;        // .otm files past the first kMax in name order: not loaded
 };
