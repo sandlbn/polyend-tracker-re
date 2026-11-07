@@ -479,7 +479,7 @@ void Sequencer::stepStart(int t) {
     // (2) performance FX injection into the first empty column.
     if (tr.inject.type != 0) {
         for (int c = 0; c < 2; ++c) {
-            if (col[c]->type == 0) { *col[c] = tr.inject; break; }
+            if (!col[c]->used()) { *col[c] = tr.inject; break; }
         }
         // Table modes set or clear the injection every step (spec 12 §D).
         if (!(perfTrack(t) && isTableMode(tr.playMode))) tr.inject = StepFx{};
@@ -527,6 +527,12 @@ void Sequencer::stepStart(int t) {
     for (int c = 0; c < 2; ++c) {
         const uint8_t type = col[c]->type;
         const uint8_t v = col[c]->value;
+        if (isPresetCmd(type, v)) {  // Z: an FX-only step uses the synth the track plays
+            uint8_t in = p.rec.instr;
+            if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
+            if (isSynth(in) && sink_) sink_->synthPreset(uint8_t(synthSlotOf(in)), presetCmdIndex(v));
+            continue;
+        }
         switch (type) {
             case 1:  // Off
                 if (tr.rollActive && tr.rollCol == c) clearRoll(tr);
