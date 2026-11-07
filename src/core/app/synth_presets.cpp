@@ -3,7 +3,6 @@
 #include "app/synth_presets.h"
 
 #include <atomic>
-#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -91,10 +90,8 @@ bool App::loadSynthPreset(int s, int n) {
     std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
     if (patchHasMix(p)) {
         // [OT] The preset's mix becomes the slot's; a value the record cannot
-        // hold is held at its limit, one that is not a number keeps the slot's.
-        auto take = [](float v, float lo, float hi, float& out) {
-            if (std::isfinite(v)) out = v < lo ? lo : (v > hi ? hi : v);
-        };
+        // hold is held at its limit.
+        auto take = [](float v, float lo, float hi, float& out) { out = v < lo ? lo : (v > hi ? hi : v); };
         take(patchMix(p, kPatchMixGain), -96.0f, 12.0f, r.gainDb);
         take(patchMix(p, kPatchMixPan), -100.0f, 100.0f, r.pan);
         take(patchMix(p, kPatchMixReverb), 0.0f, 100.0f, r.reverbSend);

@@ -3,6 +3,7 @@
 // ot_mix`, 4 entries), written after the extension parameters (field 16) and
 // only when set. A patch without it encodes byte-exact as before; the Mini
 // skips the field, and a build without it keeps it as an unknown field.
+#include <cmath>
 #include <cstring>
 #include <vector>
 
@@ -129,6 +130,11 @@ TEST(mix_entries_past_four_are_dropped_and_a_partial_mix_is_none) {
     // An entry without its value: no mix either.
     patchSetMix(q, 0.0f, 0.0f, 0.0f, 0.0f);
     q.mix[2].present = false;
+    CHECK(!patchHasMix(q));
+    // Nor one that is not a number.
+    patchSetMix(q, 0.0f, INFINITY, 0.0f, 0.0f);
+    CHECK(!patchHasMix(q));
+    patchSetMix(q, 0.0f, 0.0f, 0.0f, NAN);
     CHECK(!patchHasMix(q));
     // More entries than the patch holds: refused.
     q.mixCount = kPatchMixCount + 1;

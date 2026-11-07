@@ -463,7 +463,7 @@ TEST(a_mix_out_of_the_record_range_loads_held_at_the_limits) {
     CHECK(a.newProject());
     a.storeSynthPreset(2, 1);
     SynthPatch p = a.synthPreset(2);
-    patchSetMix(p, 40.0f, -300.0f, NAN, 150.0f);
+    patchSetMix(p, 40.0f, -300.0f, -1.0f, 150.0f);
     CHECK(a.saveProjectAs("Rg"));
     h.fs.files[projPreset("Rg", 2)] = encoded(p);
     CHECK(a.openProject("Projects", "Rg"));
@@ -473,8 +473,16 @@ TEST(a_mix_out_of_the_record_range_loads_held_at_the_limits) {
     CHECK(r.valid());
     CHECK(r.gainDb == 12.0f);
     CHECK(r.pan == -100.0f);
-    CHECK(r.reverbSend == 33.0f);   // no value: the slot's
+    CHECK(r.reverbSend == 0.0f);
     CHECK(r.delaySend == 100.0f);
+    // A value that is not a number: no mix at all, the slot keeps its own.
+    patchSetMix(p, -3.0f, 10.0f, NAN, 20.0f);
+    h.fs.files[projPreset("Rg", 2)] = encoded(p);
+    CHECK(a.openProject("Projects", "Rg"));
+    CHECK(!patchHasMix(a.synthPreset(2)));
+    const SynthSlotRecord own = mixed(a, 1, -9.0f, 0.0f, 33.0f, 0.0f);
+    CHECK(a.loadSynthPreset(1, 2));
+    CHECK(a.synthSlot(1).gainDb == own.gainDb && a.synthSlot(1).reverbSend == own.reverbSend);
 }
 
 TEST(preset_files_keep_the_mix_through_save_and_open) {

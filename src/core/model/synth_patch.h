@@ -44,7 +44,7 @@ constexpr uint32_t kPatchExtField = 16;
 // preset files (presets/<n>.patch) carry it: the slot's own patch and library
 // patches never do (App strips it where a patch becomes the slot's). The Mini
 // skips the field; builds without it keep it as an unknown field. A mix is
-// there when all 4 entries hold a value.
+// there when all 4 entries hold a number.
 constexpr int kPatchMixCount = 4;
 constexpr uint32_t kPatchMixField = 17;
 enum PatchMixIndex : int { kPatchMixGain = 0, kPatchMixPan = 1, kPatchMixReverb = 2, kPatchMixDelay = 3 };
@@ -104,7 +104,7 @@ inline uint32_t patchFloatToBits(float f) {
 inline bool patchHasMix(const SynthPatch& p) {
     if (p.mixCount != kPatchMixCount) return false;
     for (const PatchParam& m : p.mix)
-        if (!m.present) return false;
+        if (!m.present || (m.bits & 0x7F800000u) == 0x7F800000u) return false;   // absent, inf or NaN
     return true;
 }
 inline float patchMix(const SynthPatch& p, int i) { return patchBitsToFloat(p.mix[i].bits); }

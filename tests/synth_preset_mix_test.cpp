@@ -150,6 +150,13 @@ TEST(preset_without_a_mix_keeps_the_records) {
     Rig d(kOther);
     notes(c, d);
     CHECK(same(c, d, 10));
+    // So is one with a value that is not a number.
+    Rig e(kOther);
+    e.withMix(1, Mix{-3.0f, NAN, 30.0f, 60.0f});
+    e.bank.presetSelect(0, 1);
+    Rig f(kOther);
+    notes(e, f);
+    CHECK(same(e, f, 10));
 }
 
 TEST(z0_stop_and_a_patch_edit_restore_the_records_mix) {
@@ -220,7 +227,7 @@ TEST(performance_sends_add_to_the_presets_sends) {
 TEST(a_mix_value_out_of_range_is_held_at_the_limit) {
     Rig a(Mix{12.0f, 100.0f, 100.0f, 0.0f});
     Rig b(kOwn);
-    b.withMix(1, Mix{40.0f, 300.0f, 1000.0f, NAN});
+    b.withMix(1, Mix{40.0f, 300.0f, 1000.0f, -5.0f});
     b.bank.presetSelect(0, 1);
     notes(a, b);
     CHECK(same(a, b, 6, false));
