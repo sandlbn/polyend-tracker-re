@@ -1,0 +1,33 @@
+# Synthwave: midnight violet with hot pink and electric cyan.
+# Built on the Original theme.
+base = original
+
+background = #151025
+title_bg = #30204A
+title_text = #FF65B3
+text = #F5E9FF
+dim = #A58ABF
+label_text = #36F9F6
+label_bg = #35204F
+panel = #211535
+panel2 = #35204F
+strip = #1A102D
+accent = #FF65B3
+good = #72F1B8
+alert = #FF4365
+yellow = #FFE27A
+orange = #FF9E64
+cyan = #36F9F6
+note = #36F9F6
+instrument = #FFE27A
+fx1 = #FF65B3
+fx2 = #B388FF
+note_empty = #1A464F
+instrument_empty = #4A3D2C
+fx1_empty = #4B2548
+fx2_empty = #382C59
+grid_bg = #19112C
+grid_beat = #302044
+grid_muted = #231837
+wave = #36F9F6
+focus_fill = #54306D

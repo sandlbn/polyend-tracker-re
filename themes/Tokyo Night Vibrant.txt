@@ -1,0 +1,33 @@
+# Tokyo Night Vibrant: brighter Tokyo skyline blues and violet.
+# Palette source: https://github.com/tokyo-night/tokyo-night-vscode-theme
+base = original
+
+background = #171927
+title_bg = #2A3050
+title_text = #E6ECFF
+text = #DCE5FF
+dim = #A6B4DE
+label_text = #F2C97C
+label_bg = #2A3050
+panel = #20243A
+panel2 = #303757
+strip = #121522
+accent = #C8A8FF
+good = #B5EF80
+alert = #FF849C
+yellow = #F2C97C
+orange = #FFAC78
+cyan = #88E4FF
+note = #B5EF80
+instrument = #F2C97C
+fx1 = #C8A8FF
+fx2 = #8AADFF
+note_empty = #39452D
+instrument_empty = #514632
+fx1_empty = #42375B
+fx2_empty = #31466A
+grid_bg = #1C2033
+grid_beat = #303957
+grid_muted = #252B43
+wave = #88E4FF
+focus_fill = #4B4A75

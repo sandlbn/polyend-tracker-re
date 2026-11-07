@@ -1,0 +1,35 @@
+# Monokai Light: warm ivory with Monokai's bright syntax colors.
+# Built on the Monochrome theme.
+base = monochrome
+
+background = #FAF9F5
+title_bg = #E7E5DC
+title_text = #3E3D32
+text = #49483E
+dim = #74715F
+label_text = #49483E
+label_bg = #E1DED3
+panel = #F0EEE6
+panel2 = #E5E2D8
+strip = #ECEAE1
+accent = #C91559
+good = #598700
+alert = #C91559
+yellow = #947700
+orange = #B65D00
+cyan = #007E96
+note = #598700
+instrument = #947700
+fx1 = #C91559
+fx2 = #007E96
+note_empty = #B8C49A
+instrument_empty = #C9BE98
+fx1_empty = #D7ABB9
+fx2_empty = #A7C8CE
+grid_bg = #F7F5EE
+grid_beat = #E7E4D9
+grid_muted = #EEEBE1
+grid_header = #49483E
+grid_cursor_alt = #3E3D32
+wave = #007E96
+focus_fill = #DDD8CB

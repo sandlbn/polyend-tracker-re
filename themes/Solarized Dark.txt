@@ -1,0 +1,33 @@
+# Solarized Dark: blue-green shadows with balanced color accents.
+# Built on the Original theme.
+base = original
+
+background = #002B36
+title_bg = #073642
+title_text = #EEE8D5
+text = #93A1A1
+dim = #657B83
+label_text = #93A1A1
+label_bg = #073642
+panel = #00333F
+panel2 = #073642
+strip = #00252F
+accent = #268BD2
+good = #859900
+alert = #DC322F
+yellow = #B58900
+orange = #CB4B16
+cyan = #2AA198
+note = #2AA198
+instrument = #B58900
+fx1 = #D33682
+fx2 = #6C71C4
+note_empty = #174D4B
+instrument_empty = #51472C
+fx1_empty = #56384C
+fx2_empty = #3D4160
+grid_bg = #002B36
+grid_beat = #073642
+grid_muted = #00313C
+wave = #2AA198
+focus_fill = #175A67

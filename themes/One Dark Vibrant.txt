@@ -1,0 +1,33 @@
+# One Dark Vibrant: brighter take on One Dark Pro's slate, blue, and purple.
+# Palette source: https://github.com/Binaryify/OneDark-Pro
+base = original
+
+background = #222831
+title_bg = #343B49
+title_text = #F2F7FF
+text = #E8EFFA
+dim = #AFBED0
+label_text = #F5D58B
+label_bg = #343B49
+panel = #2A303B
+panel2 = #394252
+strip = #1B2029
+accent = #D58DF4
+good = #A8E88A
+alert = #FA7785
+yellow = #F5D58B
+orange = #F1AD72
+cyan = #70D6E3
+note = #A8E88A
+instrument = #F5D58B
+fx1 = #D58DF4
+fx2 = #79BEFF
+note_empty = #344A38
+instrument_empty = #514833
+fx1_empty = #473454
+fx2_empty = #304C66
+grid_bg = #252C36
+grid_beat = #374252
+grid_muted = #2D3641
+wave = #70D6E3
+focus_fill = #4B5169
