@@ -75,6 +75,36 @@ TEST(fx_value_text_transforms) {
         for (int v = 0; v < 256; v += 17) CHECK(cell(FxId(t), uint8_t(v)).size() == 4);
 }
 
+TEST(z_cell_text_and_help_range) {
+    char b[8];
+    fxCellText(0, uint8_t(kFxPresetCmdBase + 3), b);
+    CHECK_STR(b, "Z  3");
+    fxCellText(0, kFxPresetCmdBase, b);
+    CHECK_STR(b, "Z  0");
+    fxCellText(0, 50, b);
+    CHECK_STR(b, "----");
+    CHECK(std::strlen(fxDescription(kFxSynthPreset)) > 10);
+    CHECK(std::strstr(fxHelpText(kFxSynthPreset), "From") != nullptr);
+}
+
+TEST(z_from_a_pad_and_the_last_fx_type_stays_a_stored_type) {
+    Harness h;
+    App& a = *h.app;
+    pe(h);
+    const uint8_t last = a.project.u8(pf::kLastFxType);
+    h.tap(btn::Rec);
+    h.tap(btn::Fx1);
+    h.down(btn::Fx1);
+    h.pad(43);
+    h.up(btn::Fx1);
+    const StepFx& f = a.pattern().tracks[0].steps[0].fx[fxSlotForColumn(2)];
+    CHECK(isPresetCmd(f.type, f.value));
+    CHECK_EQ(int(a.project.u8(pf::kLastFxType)), int(last));   // other firmware reads this byte
+    pe(h).step = 0;
+    h.pad(5);   // value
+    CHECK_EQ(int(f.value), kFxPresetCmdBase + 5);
+}
+
 TEST(grid_cell_text_two_digit_instrument) {
     Harness h;
     App& a = *h.app;

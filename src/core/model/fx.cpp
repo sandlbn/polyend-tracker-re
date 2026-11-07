@@ -4,7 +4,7 @@
 namespace ot {
 
 namespace {
-const FxInfo kFxTable[kFxCount] = {
+const FxInfo kFxTable[kFxListCount] = {
     {'-', "None", 0, 100, 0},
     {'!', "Off", 0, 0, 0},
     {'m', "Micro-move", 0, 100, 0},
@@ -48,14 +48,15 @@ const FxInfo kFxTable[kFxCount] = {
     {'U', "Tune", 0, 48, 0},             // displayed -24..24
     {'F', "Slide Up", 0, 255, 0},
     {'J', "Slide Down", 0, 255, 0},
+    {'Z', "Synth Preset", 0, 8, 0},
 };
 }  // namespace
 
-const uint8_t kFxMenuOrder[kFxCount] = {
+const uint8_t kFxMenuOrder[kFxListCount] = {
     0, 1, 18, 31, 34, 19, 15, 17, 2, 20, 4, 3, 21, 5, 6, 16, 7, 26, 22, 25, 23, 24,
-    35, 36, 33, 38, 27, 29, 28, 30, 32, 39, 40, 41, 42, 8, 9, 10, 11, 12, 37, 14, 13,
+    35, 36, 33, 38, 27, 29, 28, 30, 32, 39, 40, 41, 42, 8, 9, 10, 11, 12, 37, 14, 13, 43,
 };
 
-const FxInfo& fxInfo(uint8_t id) { return kFxTable[id < kFxCount ? id : 0]; }
+const FxInfo& fxInfo(uint8_t id) { return kFxTable[id < kFxListCount ? id : 0]; }
 
 }  // namespace ot

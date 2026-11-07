@@ -15,7 +15,7 @@ using namespace ot;
 namespace {
 
 struct Ev {
-    enum Kind { NoteOn, NoteOff, ApplyFx, ResetFx, Click, Midi } kind;
+    enum Kind { NoteOn, NoteOff, ApplyFx, ResetFx, Click, Midi, SynthOn, SynthOff, SynthPreset } kind;
     int track;
     int a, b, c;          // NoteOn: note, instr, volume; NoteOff: mode; ApplyFx: slot,type,value; Midi: bytes
     int len;
@@ -56,6 +56,23 @@ struct FakeSink : ISequencerSink {
         e.a = slot; e.b = type; e.c = value;
         ev.push_back(e);
     }
+    void synthNoteOn(uint8_t track, const SynthNoteOn& n) override {
+        Ev e = base(Ev::SynthOn, track);
+        e.a = n.note; e.b = n.slot;
+        ev.push_back(e);
+    }
+    void synthNoteOff(uint8_t track, NoteOffMode mode) override {
+        Ev e = base(Ev::SynthOff, track);
+        e.a = int(mode);
+        ev.push_back(e);
+    }
+    void synthPreset(uint8_t slot, uint8_t n) override {
+        Ev e = base(Ev::SynthPreset, -1);
+        e.a = slot; e.b = n;
+        ev.push_back(e);
+    }
+    int transportStops = 0;
+    void synthTransportStop() override { ++transportStops; }
     void resetAllVoiceFx() override { ev.push_back(base(Ev::ResetFx, -1)); }
     void engineBlockUpdate(float bpm) override { ++blockUpdates; lastTempo = bpm; }
     void metronomeClick(bool accent, uint8_t vel) override {
@@ -1441,4 +1458,142 @@ TEST(tracks16_track16_perf_length_keeps_song_advance) {
     CHECK_EQ(r.host.endTicks.size(), 1u);
     if (!r.host.endTicks.empty()) CHECK_EQ(r.host.endTicks[0], uint64_t(12 + (4 * 48 - 1) * 12));
     CHECK_EQ(r.seq.patternPosition(), 0);
+}
+
+// --- [OT] Z, the synth preset command ------------------------------------------
+
+namespace {
+void runNotes(Rig& r, int t, size_t ons) {
+    r.runUntil([&] { return r.sink.of(Ev::SynthOn, t).size() >= ons; }, 20000);
+}
+void zA(Rig& r, int t, int s, int n) { r.fxA(t, s, 0, kFxPresetCmdBase + n); }
+void zB(Rig& r, int t, int s, int n) { r.fxB(t, s, 0, kFxPresetCmdBase + n); }
+}  // namespace
+
+TEST(preset_fx_fires_before_the_note_of_its_step) {
+    for (int col = 0; col < 2; ++col) {
+        Rig r(120.0f);
+        r.setNote(0, 0, 60, 65);   // Synth 2
+        if (col) zA(r, 0, 0, 3);
+        else zB(r, 0, 0, 3);
+        r.seq.play(0);
+        runNotes(r, 0, 1);
+        int preset = -1, on = -1;
+        for (size_t i = 0; i < r.sink.ev.size(); ++i) {
+            if (r.sink.ev[i].kind == Ev::SynthPreset && preset < 0) preset = int(i);
+            if (r.sink.ev[i].kind == Ev::SynthOn && on < 0) on = int(i);
+        }
+        CHECK(preset >= 0 && on > preset);
+        if (preset >= 0) {
+            CHECK_EQ(r.sink.ev[size_t(preset)].a, 1);
+            CHECK_EQ(r.sink.ev[size_t(preset)].b, 3);
+            CHECK_EQ(r.sink.ev[size_t(preset)].tick, r.sink.ev[size_t(on)].tick);
+        }
+    }
+}
+
+TEST(preset_fx_on_an_empty_step_targets_the_tracks_last_synth) {
+    Rig r(120.0f);
+    r.setNote(0, 0, 60, 66);   // Synth 3
+    zA(r, 0, 1, 4);            // no note
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 2; });
+    auto z = r.sink.of(Ev::SynthPreset);
+    CHECK_EQ(z.size(), 1u);
+    if (!z.empty()) {
+        CHECK_EQ(z[0].a, 2);
+        CHECK_EQ(z[0].b, 4);
+    }
+    // No synth played yet on that track: nothing to switch.
+    Rig e(120.0f);
+    zA(e, 0, 0, 4);
+    e.seq.play(0);
+    e.runUntil([&] { return e.seq.step(0) == 2; });
+    CHECK(e.sink.of(Ev::SynthPreset).empty());
+}
+
+TEST(preset_fx_on_a_sample_or_midi_step_is_a_noop) {
+    for (int instr : {0, 48}) {
+        Rig r(120.0f);
+        r.setNote(0, 0, 60, instr);
+        zA(r, 0, 0, 2);
+        r.seq.play(0);
+        r.runUntil([&] { return r.seq.step(0) == 2; });
+        CHECK(r.sink.of(Ev::SynthPreset).empty());
+    }
+}
+
+TEST(preset_fx_a_wins_over_b) {
+    Rig r(120.0f);
+    r.setNote(0, 0, 60, 64);
+    zB(r, 0, 0, 1);
+    zA(r, 0, 0, 2);
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 2; });
+    auto z = r.sink.of(Ev::SynthPreset);
+    CHECK(!z.empty());
+    if (!z.empty()) CHECK_EQ(z.back().b, 2);
+}
+
+TEST(preset_fx_skipped_by_failed_chance_and_muted_track) {
+    {
+        Rig r(120.0f);
+        r.setNote(0, 0, 60, 64);
+        r.fxB(0, 0, 4, 0);   // Chance 0
+        zA(r, 0, 0, 2);
+        r.seq.play(0);
+        r.runUntil([&] { return r.seq.step(0) == 2; });
+        CHECK(r.sink.of(Ev::SynthPreset).empty());
+    }
+    {
+        Rig r(120.0f);
+        r.setNote(0, 0, 60, 64);
+        zA(r, 0, 0, 2);
+        r.project.setTrackMuted(0, true);
+        r.seq.play(0);
+        r.runUntil([&] { return r.seq.step(0) == 2; });
+        CHECK(r.sink.of(Ev::SynthPreset).empty());
+    }
+}
+
+TEST(preset_fx_is_never_forwarded_as_apply_fx) {
+    Rig r(120.0f);
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 2);
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 2; });
+    CHECK(r.sink.of(Ev::ApplyFx, 0).empty());
+    CHECK_EQ(r.sink.of(Ev::SynthPreset).size(), 1u);
+}
+
+TEST(perf_injection_does_not_overwrite_a_preset_cmd) {
+    Rig r(120.0f);
+    r.setNote(0, 0, 60, 64);
+    zB(r, 0, 0, 2);   // the first column the injection would take
+    r.seq.setPerfInjectedFx(0, uint8_t(FxId::Volume), 50);
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 2; });
+    CHECK_EQ(r.sink.of(Ev::SynthPreset).size(), 1u);
+}
+
+TEST(preset_fx_only_stop_ends_it) {
+    // Nothing tells the synth to go back at a pattern's end: only Stop does.
+    Rig r(120.0f);
+    r.setNote(0, 0, 60, 64);
+    zA(r, 0, 0, 2);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 2; });
+    CHECK_EQ(r.sink.transportStops, 0);
+    r.seq.stop();
+    CHECK_EQ(r.sink.transportStops, 1);
+}
+
+TEST(recording_leaves_a_z_only_step_alone) {
+    Rig r(40.0f);
+    zA(r, 0, 2, 3);   // track 1, step 3 holds only a Z: not free, like a step with any FX
+    r.seq.record();
+    r.runUntil([&] { return r.seq.step(0) == 2 && r.seq.microStep(0) >= 10; });
+    CHECK_EQ(r.seq.liveNoteOn(60, 127, 0, 3), 1);   // the next free track
+    CHECK(isPresetCmd(r.step(0, 2).fx[1].type, r.step(0, 2).fx[1].value));
+    CHECK_EQ(int(r.step(0, 2).note), int(kNoteEmpty));
 }
