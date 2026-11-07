@@ -3,6 +3,7 @@
 #include "app/synth_presets.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -54,6 +55,9 @@ void App::storeSynthPreset(int n, int s) {
     setEngine(g_presets[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
     copyBehindEngine(g_presets[n - 1], patches_[s]);
+    // [OT] The slot's mix goes with the preset (the slot keeps its own).
+    const SynthSlotRecord r = project.synthSlot(s);
+    patchSetMix(g_presets[n - 1], r.gainDb, r.pan, r.reverbSend, r.delaySend);
     setEngine(g_presets[n - 1], patches_[s].engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     ++chase::mem().presetSerial;   // [OT] the stopped Z chase applies again
@@ -64,6 +68,7 @@ void App::clearSynthPreset(int n) {
     if (!synthPresetUsed(n)) return;
     setEngine(g_presets[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
+    g_presets[n - 1].mixCount = 0;
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     ++chase::mem().presetSerial;
     unsaved_ = true;
@@ -81,8 +86,20 @@ bool App::loadSynthPreset(int s, int n) {
         synthEngineId(SynthModel(project.synthSlot(s).model)) != p.engine)
         return false;
     std::memcpy(&patches_[s], &p, sizeof(SynthPatch));
+    patches_[s].mixCount = 0;   // [OT] the slot's own patch never carries a mix
     SynthSlotRecord r = project.synthSlot(s);
     std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
+    if (patchHasMix(p)) {
+        // [OT] The preset's mix becomes the slot's; a value the record cannot
+        // hold is held at its limit, one that is not a number keeps the slot's.
+        auto take = [](float v, float lo, float hi, float& out) {
+            if (std::isfinite(v)) out = v < lo ? lo : (v > hi ? hi : v);
+        };
+        take(patchMix(p, kPatchMixGain), -96.0f, 12.0f, r.gainDb);
+        take(patchMix(p, kPatchMixPan), -100.0f, 100.0f, r.pan);
+        take(patchMix(p, kPatchMixReverb), 0.0f, 100.0f, r.reverbSend);
+        take(patchMix(p, kPatchMixDelay), 0.0f, 100.0f, r.delaySend);
+    }
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
     setSynthSlotRecord(s, r);
     markSynthPatchDirty(s);   // also ends a running Z on this slot

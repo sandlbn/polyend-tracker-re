@@ -63,6 +63,7 @@ const SynthPatch* App::readSynthLibraryPatch(int s, const char* name) {
     if (readWholeFile(fs(), path, buf, kPatchMaxFileSize + 1, &got) != FmtStatus::Ok || got > kPatchMaxFileSize)
         return nullptr;
     if (decodePatch(buf, got, tmp) != PatchStatus::kOk || tmp->engine != synthEngineId(m)) return nullptr;
+    tmp->mixCount = 0;   // [OT] a preset's mix (a copied preset file) is not the slot's
     return tmp;
 }
 
@@ -99,9 +100,18 @@ void App::endSynthPreview() {
 
 void App::setSynthSlotRecord(int s, const SynthSlotRecord& r) {
     if (s < 0 || s >= kSynthSlotCount) return;
+    const SynthSlotRecord was = project.synthSlot(s);
     project.setSynthSlot(s, r);
-    engine.synth().setSlotRecord(s, project.synthSlot(s));   // main-loop setter: applies at the next block
+    const SynthSlotRecord now = project.synthSlot(s);
+    engine.synth().setSlotRecord(s, now);   // main-loop setter: applies at the next block
     markProjectDirty();
+    // [OT] An edit of the slot's own mix is heard as a patch edit is: a slot on
+    // a preset that carries a mix goes back to its own patch and mix (the
+    // stopped chase leaves it there until its inputs change).
+    const int z = engine.synth().presetOf(s);
+    if (z && patchHasMix(synthPreset(z)) &&
+        (was.gainDb != now.gainDb || was.pan != now.pan || was.reverbSend != now.reverbSend || was.delaySend != now.delaySend))
+        engine.synth().patchChanged(s);
 }
 
 void App::setSynthModel(int s, int model) {

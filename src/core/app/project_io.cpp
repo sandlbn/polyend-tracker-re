@@ -374,7 +374,8 @@ bool writePatchAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_
 // Extra field (written last by writePatchAtomic) and has the full expected
 // size: it re-encodes to exactly its own `len` bytes (encBuf: scratch of
 // kPatchMaxFileSize bytes). A file cut right after Extra loses only the [OT]
-// extension parameters (field 16, after Extra): it plays mono.
+// fields after it: the extension parameters (field 16: it plays mono) and a
+// preset's mix (field 17: the preset keeps the slot's).
 bool completePatch(const uint8_t* b, uint32_t len, SynthPatch* scratchPatch, uint8_t* encBuf) {
     if (!len || decodePatch(b, len, scratchPatch) != PatchStatus::kOk || !scratchPatch->extraPresent) return false;
     size_t n = 0;
@@ -1661,6 +1662,7 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
         const PatchStatus st = len > kPatchMaxFileSize ? PatchStatus::kTooLarge : decodePatch(buf, len, tmp);
         if (st == PatchStatus::kOk && tmp->engine == engine) {
             patches_[s] = *tmp;
+            patches_[s].mixCount = 0;   // [OT] a preset's mix is not the slot's (kPatchMixField)
             patchSrc_[s] = PatchSource::File;
             return true;
         }
@@ -1675,6 +1677,7 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
         if (readWholeFile(fs(), path, mem_.scratch, kPatchMaxFileSize + 1, &got) == FmtStatus::Ok && got <= kPatchMaxFileSize &&
             decodePatch(mem_.scratch, got, tmp) == PatchStatus::kOk && tmp->engine == engine) {
             patches_[s] = *tmp;
+            patches_[s].mixCount = 0;
             patchSrc_[s] = PatchSource::Library;
             return true;
         }
