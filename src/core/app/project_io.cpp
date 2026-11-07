@@ -894,6 +894,9 @@ void App::jobEnd() {
     void* ctx = pj_.ctx;
     lastJobOk_ = ok;
     lastJobErrors_ = pj_.loadErrors;
+    // [OT] A job other than the autosave may have written the store directly
+    // (load, import): every Z chase summary is rebuilt from what it left.
+    if (pj_.op != JobOp::Autosave) chase::invalidateAll();
     pj_ = ProjectJob{};
     g_prof.running = false;
     if (popup) ui.progressDone();
@@ -1601,7 +1604,7 @@ bool App::loadPatternBytes(int num, const uint8_t* file, uint32_t len, uint8_t* 
     ctx.beatSliceReference = project.beatSliceReference();
     Track* ext = reinterpret_cast<Track*>(mem_.scratch + kExtOff);
     PatternLoadInfo li;
-    clearExtTracks(num);
+    clearExtTracks(num);   // also drops the Z chase summary
     PatternStock& st = storedStock(num);
     decodePattern16(file, len, st, ext, &ctx, &li);
     bool fit = true;

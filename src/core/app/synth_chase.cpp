@@ -1,0 +1,166 @@
+// [OT] Z chase (see synth_chase.h).
+#include "app/synth_chase.h"
+
+#include <cstring>
+
+#include "app/app.h"
+#include "model/fx.h"
+#include "sdram_bss.h"
+
+namespace ot {
+namespace chase {
+
+namespace {
+OT_SDRAM_BSS Memory g_chase;
+
+bool synthInstr(uint8_t in) { return isSynthInstrument(in); }
+}  // namespace
+
+Memory& mem() { return g_chase; }
+
+void scan(const Track* const tracks[kTrackCount], int from, int toInclusive, uint16_t used, State& io,
+          Summary* sum) {
+    uint8_t touched = 0;   // slots an effective Z set
+    bool unresolved = false;
+    if (from < 0) from = 0;
+    if (toInclusive > kStepCount - 1) toInclusive = kStepCount - 1;
+    for (int s = from; s <= toInclusive; ++s) {
+        for (int t = 0; t < kTrackCount; ++t) {
+            const Track* tr = tracks[t];
+            if (!tr) continue;
+            const Step& st = tr->steps[s];
+            for (int c = 0; c < kFxPerStep; ++c) {   // fx[0] = FX-B first, then FX-A (stepStart)
+                const StepFx& f = st.fx[c];
+                if (!isPresetCmd(f.type, f.value)) continue;
+                const uint8_t n = presetCmdIndex(f.value);
+                if (n && !((used >> n) & 1)) continue;   // an empty preset: the slot plays on
+                uint8_t in = st.instrument;
+                if (!synthInstr(in) && st.note < 0) {
+                    if (io.last[t] == kNone) {
+                        // Before this track's first note: depends on what came before.
+                        if (sum) unresolved = true;
+                        continue;
+                    }
+                    if (synthInstr(io.last[t])) in = io.last[t];
+                }
+                if (!synthInstr(in)) continue;
+                const int slot = synthSlotOf(in);
+                io.preset[slot] = n;
+                touched = uint8_t(touched | (1u << slot));
+            }
+            if (st.note >= 0) io.last[t] = st.instrument;
+        }
+    }
+    if (!sum) return;
+    sum->flags = uint8_t(kValid | (touched ? kHasZ : 0) | (unresolved ? kUnresolved : 0));
+    for (int k = 0; k < kSynthSlotCount; ++k) sum->zOut[k] = (touched >> k) & 1 ? io.preset[k] : kNone;
+    for (int t = 0; t < kTrackCount; ++t) sum->last[t] = io.last[t];
+}
+
+void apply(const Summary& sum, State& io) {
+    if (sum.flags & kHasZ)
+        for (int k = 0; k < kSynthSlotCount; ++k)
+            if (sum.zOut[k] != kNone) io.preset[k] = sum.zOut[k];
+    for (int t = 0; t < kTrackCount; ++t)
+        if (sum.last[t] != kNone) io.last[t] = sum.last[t];
+}
+
+void resetAll() { std::memset(&g_chase, 0, sizeof(g_chase)); }
+
+void invalidate(int num) {
+    if (num >= 1 && num <= kPatternCount) g_chase.pat[num - 1].flags = 0;
+    ++g_chase.patSerial;
+}
+
+void invalidateAll() {
+    for (auto& p : g_chase.pat) p.flags = 0;
+    ++g_chase.patSerial;
+}
+
+uint32_t playlistHash(const uint8_t* playlist, int n) {
+    uint32_t h = 2166136261u;
+    for (int i = 0; i < n; ++i) h = (h ^ playlist[i]) * 16777619u;
+    return h ^ uint32_t(n);
+}
+
+}  // namespace chase
+
+// ---------------------------------------------------------------------------
+// App side
+
+uint16_t App::chaseUsed() {
+    uint16_t used = 0;
+    for (int n = 1; n <= kSynthPresetCount; ++n)
+        if (synthPresetUsed(n)) used = uint16_t(used | (1u << n));
+    chase::Memory& m = chase::mem();
+    if (used != m.used) {   // what a Z does changed: every summary is stale
+        m.used = used;
+        chase::invalidateAll();
+    }
+    return used;
+}
+
+const chase::Summary& App::chaseSummary(int num, uint16_t used) {
+    chase::Summary& sum = chase::mem().pat[num - 1];
+    if (sum.flags & chase::kValid) return sum;
+    chase::State st;
+    chase::startState(st);
+    const Track* tracks[kTrackCount] = {};
+    const bool present = patternPresent(num);   // else it plays as the default pattern: empty
+    if (present)
+        for (int t = 0; t < kTrackCount; ++t) tracks[t] = findStoredTrack(num, t);
+    chase::scan(tracks, 0, present ? storedStock(num).tracks[0].lastStep : -1, used, st, &sum);
+    return sum;
+}
+
+void App::chasePrefix(int pos, uint16_t used, chase::State& io) {
+    chase::Memory& m = chase::mem();
+    if (pos > kSongSlots) pos = kSongSlots;
+    const uint32_t hash = chase::playlistHash(project.playlist, pos);
+    if (m.prefixValid && m.prefixPos == pos && m.prefixHash == hash && m.prefixSerial == m.patSerial &&
+        m.prefixUsed == used) {
+        io = m.prefix;
+        return;
+    }
+    chase::startState(io);
+    for (int i = 0; i < pos; ++i) {
+        const int num = project.playlist[i];
+        if (num < 1 || num > kPatternCount) continue;   // an empty entry plays nothing
+        const chase::Summary& sum = chaseSummary(num, used);
+        if (!(sum.flags & chase::kUnresolved)) {
+            chase::apply(sum, io);
+            continue;
+        }
+        const Track* tracks[kTrackCount];
+        for (int t = 0; t < kTrackCount; ++t) tracks[t] = findStoredTrack(num, t);
+        chase::scan(tracks, 0, storedStock(num).tracks[0].lastStep, used, io);   // unresolved: present
+    }
+    m.prefix = io;
+    m.prefixPos = uint8_t(pos);
+    m.prefixHash = hash;
+    m.prefixSerial = m.patSerial;
+    m.prefixUsed = used;
+    m.prefixValid = 1;
+}
+
+void App::chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::State& io) {
+    const uint16_t used = chaseUsed();
+    if (songMode) chasePrefix(songPos, used, io);
+    else chase::startState(io);
+    if (lastStepInclusive < 0) return;
+    const Pattern& p = pattern();
+    const Track* tracks[kTrackCount];
+    for (int t = 0; t < kTrackCount; ++t) tracks[t] = &p.tracks[t];
+    chase::scan(tracks, 0, lastStepInclusive, used, io);
+}
+
+void App::synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                     uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) {
+    (void)pattern;   // the sequencer's current buffer, which pattern() is
+    chase::State st;
+    chaseAt(songMode, songPos, lastStepInclusive, st);
+    for (int s = 0; s < kSynthSlotCount; ++s) preset[s] = st.preset[s];
+    for (int t = 0; t < kTrackCount; ++t) lastInstr[t] = st.last[t];
+}
+
+}  // namespace ot

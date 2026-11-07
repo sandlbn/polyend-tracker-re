@@ -56,6 +56,7 @@ void App::storeSynthPreset(int n, int s) {
     copyBehindEngine(g_presets[n - 1], patches_[s]);
     setEngine(g_presets[n - 1], patches_[s].engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
+    ++chase::mem().presetSerial;   // [OT] the stopped Z chase applies again
     unsaved_ = true;
 }
 
@@ -64,6 +65,7 @@ void App::clearSynthPreset(int n) {
     setEngine(g_presets[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
+    ++chase::mem().presetSerial;
     unsaved_ = true;
 }
 
@@ -93,6 +95,7 @@ void App::resetSynthPresets() {
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);
     std::memset(g_presets, 0, sizeof(g_presets));
     g_presetDirty = 0;
+    ++chase::mem().presetSerial;
 }
 
 }  // namespace ot

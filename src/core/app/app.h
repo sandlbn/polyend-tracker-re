@@ -13,6 +13,7 @@
 #include "app/pattern_ops.h"
 #include "app/project_io.h"
 #include "app/stream_policy.h"
+#include "app/synth_chase.h"
 #include "app/undo.h"
 #include "audio/engine.h"
 #include "hal_api.h"
@@ -590,6 +591,10 @@ public:
         engine.noteSeqWork(audio::kSeqLiveRecord);
     }
     bool songScreenActive() override { return ui.active() == kModSong; }
+    // [OT] Z chase (app/synth_chase.cpp): the store and the current pattern
+    // read the way the sequencer plays them. Main loop only.
+    void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                    uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) override;
 
     // Paths
     void workspacePath(char* out, int cap, const char* rel) const;
@@ -694,6 +699,11 @@ private:
     void loadPresetUnit(int n, uint32_t& cost);
     void leaveSynthPreset(int n);
     void resetSynthPresets();
+    // Z chase internals (synth_chase.cpp).
+    uint16_t chaseUsed();
+    const chase::Summary& chaseSummary(int num, uint16_t used);
+    void chasePrefix(int pos, uint16_t used, chase::State& io);
+    void chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::State& io);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);
