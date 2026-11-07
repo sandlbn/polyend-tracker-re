@@ -75,6 +75,9 @@ public:
     // FX CC a..f (macro 0..5) on a synth step: override of the slot's page
     // value until Stop.
     virtual void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) { (void)slot; (void)macro; (void)value; }
+    // [3.x] Z: slot plays preset n (1..8) or its own patch (0) until the next
+    // Z or Stop. Runs before the same step's synthNoteOn.
+    virtual void synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
 };
