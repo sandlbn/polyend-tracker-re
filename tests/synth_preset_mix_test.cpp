@@ -368,3 +368,22 @@ TEST(performance_sends_add_to_the_own_mix_that_wins) {
     b.block();
     CHECK(same(a, b, 10));
 }
+
+TEST(performance_sends_use_the_mix_the_slot_took_at_its_z) {
+    // The base sends are taken with the mix at the Z: a preset entry written
+    // later (a store into it) is not read while the slot plays it.
+    SynthPerf pf;
+    pf.dsend = 10;
+    pf.rsend = -10;
+    Rig a(kPre);
+    Rig b(kOwn);
+    b.withMix(1, kPre);
+    b.bank.presetSelect(0, 1);
+    a.bank.setTrackPerf(0, pf);
+    b.bank.setTrackPerf(0, pf);
+    notes(a, b, 0);
+    CHECK(same(a, b, 2));
+    b.presets[0].mix[kPatchMixDelay].bits = patchFloatToBits(0.0f);
+    b.presets[0].mix[kPatchMixReverb].bits = patchFloatToBits(100.0f);
+    CHECK(same(a, b, 6));
+}

@@ -309,6 +309,7 @@ private:
         float gainLin = 0.0f;     // dbToGain(gain dB of mixOf / rec), 0 at -96 dB
         float mixL = 0.0f, mixR = 0.0f;   // gain x balance
         float mixD = 0.0f, mixE = 0.0f;   // 0.5 x SEND[delay / reverb send]
+        uint8_t baseD = 0, baseE = 0;     // [OT] delay / reverb send 0..100 (mixOf / rec): the base of a Performance send
         float volMin = 0.0f, volMax = 2.0f;   // Volume parameter range
         // mixer ramps
         Ramp gl, gr, sd, sr;
@@ -331,7 +332,6 @@ private:
         return sl.bound && sl.bound != sl.patch && !sl.ownMix && patchHasMix(*sl.bound) ? sl.bound : nullptr;
     }
     void applyMix(Slot& sl);
-    int baseSend(const Slot& sl, int which) const;
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;

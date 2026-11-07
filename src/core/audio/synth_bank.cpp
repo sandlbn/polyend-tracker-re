@@ -300,17 +300,15 @@ void SynthBank::applyMix(Slot& sl) {
     const float pan = std::isfinite(panIn) ? clampf(panIn, -100.0f, 100.0f) : 0.0f;
     sl.mixL = sl.gainLin * (pan > 0.0f ? 1.0f - pan * 0.01f : 1.0f);
     sl.mixR = sl.gainLin * (pan < 0.0f ? 1.0f + pan * 0.01f : 1.0f);
-    auto send = [](float v) { return std::isfinite(v) ? sendGain(int(clampf(v, 0.0f, 100.0f) + 0.5f)) : 0.0f; };
-    sl.mixD = 0.5f * send(m ? patchMix(*m, kPatchMixDelay) : sl.rec.delaySend);
-    sl.mixE = 0.5f * send(m ? patchMix(*m, kPatchMixReverb) : sl.rec.reverbSend);
-}
-
-// [OT] Send of the mix the slot plays, 0..100 (kPatchMixDelay / kPatchMixReverb):
-// the base a track's Performance send adds to. In flash: only notes with one call it.
-__attribute__((noinline)) int SynthBank::baseSend(const Slot& sl, int which) const {
-    const SynthPatch* m = mixOf(sl);
-    const float v = m ? patchMix(*m, which) : (which == kPatchMixDelay ? sl.rec.delaySend : sl.rec.reverbSend);
-    return std::isfinite(v) ? int(clampf(v, 0.0f, 100.0f) + 0.5f) : 0;
+    // [OT] The sends as 0..100 too: the base a track's Performance send adds
+    // to (render reads these, never the preset).
+    auto pct = [](float v) { return std::isfinite(v) ? int(clampf(v, 0.0f, 100.0f) + 0.5f) : 0; };
+    const int d = pct(m ? patchMix(*m, kPatchMixDelay) : sl.rec.delaySend);
+    const int e = pct(m ? patchMix(*m, kPatchMixReverb) : sl.rec.reverbSend);
+    sl.baseD = uint8_t(d);
+    sl.baseE = uint8_t(e);
+    sl.mixD = 0.5f * sendGain(d);
+    sl.mixE = 0.5f * sendGain(e);
 }
 
 float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*sl.bound, i); }
@@ -1015,8 +1013,8 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             if (perfActive_ && seqTrack) {
                 const SynthPerf& pf = perf_[ot];
                 if (pf.pan) pan = clampi((pan >= 0 ? pan : 50) + pf.pan, 0, 100);
-                if (pf.dsend) sendD = clampi((sendD >= 0 ? sendD : baseSend(sl, kPatchMixDelay)) + pf.dsend, 0, 100);
-                if (pf.rsend) sendR = clampi((sendR >= 0 ? sendR : baseSend(sl, kPatchMixReverb)) + pf.rsend, 0, 100);
+                if (pf.dsend) sendD = clampi((sendD >= 0 ? sendD : int(sl.baseD)) + pf.dsend, 0, 100);
+                if (pf.rsend) sendR = clampi((sendR >= 0 ? sendR : int(sl.baseE)) + pf.rsend, 0, 100);
             }
             const bool own = tapV || sendD >= 0 || sendR >= 0 || pan >= 0;
             float* vl = busL_;
