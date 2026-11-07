@@ -177,6 +177,7 @@ void App::resetSynthChase() {
     std::memset(&g_chase, 0, sizeof g_chase);   // every slot on its own patch, as the engine starts
     g_chase.stale = 1;
     g_chase.ticks = seq.tickCount();
+    g_chase.stops = seq.stopCount();
 }
 
 void App::chaseInvalidate(int num) {
@@ -194,9 +195,10 @@ void App::chaseInvalidateAll() {
 
 void App::chaseTouch() { ++g_chase.gen; }
 
-void App::chaseForget() {
+void App::chaseForget(int slot) {
     g_chase.keyValid = 0;
-    std::memset(g_chase.applied, 0xFF, sizeof g_chase.applied);
+    if (slot < 0) std::memset(g_chase.applied, 0xFF, sizeof g_chase.applied);
+    else if (slot < kSynthSlotCount) g_chase.applied[slot] = 0xFF;
 }
 
 void App::serviceSynthChase() {
@@ -208,9 +210,12 @@ void App::serviceSynthChase() {
     // heard on its own patch.
     chase::Memory& g = g_chase;
     const uint64_t ticks = seq.tickCount();
-    // The sequencer sets the slots (a count-in's start too); Stop put them on their own.
-    if (seq.isPlaying() || seq.isCountingIn() || ticks != g.ticks) {
+    // The sequencer sets the slots (a count-in's start too); a stop from
+    // anywhere (MIDI Stop while armed or stopped too) put them on their own.
+    const uint8_t stops = seq.stopCount();
+    if (seq.isPlaying() || seq.isCountingIn() || ticks != g.ticks || stops != g.stops) {
         g.ticks = ticks;
+        g.stops = stops;
         chaseForget();
         return;
     }

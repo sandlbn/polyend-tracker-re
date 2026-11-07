@@ -6,8 +6,12 @@
 #include "test.h"
 
 #include <cstring>
+#include <string>
+#include <vector>
 
+#include "formats/patch_pb.h"
 #include "model/fx.h"
+#include "modules/synth_models.h"
 #include "ui/screens.h"
 #include "ui_fakes.h"
 
@@ -325,4 +329,91 @@ TEST(stopped_chase_waits_during_a_count_in) {
     CHECK(a.seq.isCountingIn() || a.seq.isPlaying());
     CHECK_EQ(a.synthPresetActive(0), 0);
     a.togglePlay(false);
+}
+
+namespace {
+// The slot's patch as a library patch Patches/<model>/<name>.patch.
+void libraryPatch(Harness& h, int s, const char* name) {
+    const SynthPatch& p = h.app->synthPatch(s);
+    std::vector<uint8_t> buf(kPatchMaxFileSize);
+    size_t n = 0;
+    CHECK(encodePatch(p, buf.data(), buf.size(), &n) == PatchStatus::kOk);
+    buf.resize(n);
+    const std::string dir = std::string("Patches/") + synthEngineFolder(p.engine);
+    h.fs.dirs.insert("Patches");
+    h.fs.dirs.insert(dir);
+    h.fs.files[dir + "/" + name + ".patch"] = buf;
+}
+}  // namespace
+
+TEST(stopped_chase_sets_the_slots_again_after_a_midi_stop_while_armed) {
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[4], 60, 64);
+    putZ(p.tracks[0].steps[4], 1, 3);
+    edited(a);
+    cursorTo(h, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.seq.settings().clockIn = 1;       // USB clock: Play waits for a Start
+    a.seq.settings().transportIn = 1;
+    a.togglePlay(false);
+    CHECK(a.seq.isArmed());
+    CHECK(!a.seq.isPlaying());
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.seq.midiRealtimeIn(MidiPortId::kUsb, 0xFC);   // Stop: every slot to its own patch
+    CHECK(!a.seq.isArmed());
+    h.audio.pump(2);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    // And a MIDI Stop while stopped.
+    a.seq.midiRealtimeIn(MidiPortId::kUsb, 0xFC);
+    h.audio.pump(2);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+}
+
+TEST(stopped_chase_sets_a_slot_again_after_its_patch_preview_ends) {
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    for (int n = 1; n <= kSynthPresetCount; ++n) CHECK(a.synthPresetUsed(n));
+    libraryPatch(h, 0, "Prev");
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[4], 60, 64);
+    putZ(p.tracks[0].steps[4], 1, 2);
+    edited(a);
+    cursorTo(h, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK(a.previewSynthLibraryPatch(0, "Prev"));
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);   // the preview is heard
+    a.endSynthPreview();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    // Synth 2 on preset 4 too; a preview on it ends slot 0's: only the
+    // slot that preview left is set again.
+    putNote(p.tracks[1].steps[5], 60, 65);
+    putZ(p.tracks[1].steps[5], 1, 4);
+    edited(a);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPresetActive(1), 4);
+    libraryPatch(h, 1, "Prev2");
+    CHECK(a.previewSynthLibraryPatch(0, "Prev"));
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK_EQ(a.synthPresetActive(1), 4);
+    CHECK(a.previewSynthLibraryPatch(1, "Prev2"));
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPresetActive(1), 0);   // its preview is heard
+    a.endSynthPreview();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPresetActive(1), 4);
 }

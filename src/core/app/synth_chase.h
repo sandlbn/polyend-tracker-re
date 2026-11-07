@@ -56,6 +56,7 @@ struct Memory {
     uint8_t warmNext;             // next pattern index the warm-up looks at
     uint8_t stale;                // a summary may be stale (the warm-up has work)
     uint64_t ticks;               // the sequencer's tick count at the last pass
+    uint8_t stops;                // and its stop count
 };
 
 Memory& mem();

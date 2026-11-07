@@ -1322,6 +1322,7 @@ void Sequencer::stop() {
     dropPreload();
     resetPositions(0);
     if (sink_) sink_->synthTransportStop();   // macro overrides -> page values
+    stops_ = uint8_t(stops_ + 1);              // [3.x] the stopped chase sets the slots again
     sendRealtime(settings_.transportOut, 0xFC);
     if (host_->exportActive()) host_->finaliseExport();
 }
