@@ -15,7 +15,12 @@
 namespace ot {
 
 namespace {
-OT_SDRAM_BSS SynthPatch g_presets[kSynthPresetCount];
+#if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
+SynthPatch g_hostPresets[kSynthPresetCount];
+OT_SDRAM_BSS SynthPatch* g_table = g_hostPresets;
+#else
+OT_SDRAM_BSS SynthPatch* g_table;
+#endif
 OT_SDRAM_BSS uint8_t g_presetDirty;
 bool validPreset(int n) { return n >= 1 && n <= kSynthPresetCount; }
 // The audio interrupt reads an entry whose engine is not 0 (a Z in the pattern):
@@ -33,12 +38,13 @@ void copyBehindEngine(SynthPatch& to, const SynthPatch& from) {
 }  // namespace
 
 namespace presets {
-SynthPatch* table() { return g_presets; }
+void bind(SynthPatch* storage) { g_table = storage; }
+SynthPatch* table() { return g_table; }
 uint8_t& dirty() { return g_presetDirty; }
 }  // namespace presets
 
-const SynthPatch& App::synthPreset(int n) const { return g_presets[validPreset(n) ? n - 1 : 0]; }
-bool App::synthPresetUsed(int n) const { return validPreset(n) && g_presets[n - 1].engine != 0; }
+const SynthPatch& App::synthPreset(int n) const { return g_table[validPreset(n) ? n - 1 : 0]; }
+bool App::synthPresetUsed(int n) const { return validPreset(n) && g_table[n - 1].engine != 0; }
 bool App::synthPresetDirty() const { return g_presetDirty != 0; }
 int App::synthPresetActive(int s) const { return engine.synth().presetOf(s); }
 
@@ -51,17 +57,17 @@ void App::leaveSynthPreset(int n) {
 void App::storeSynthPreset(int n, int s) {
     if (!validPreset(n) || s < 0 || s >= kSynthSlotCount) return;
     if (previewSlot_ == s) endSynthPreview();
-    setEngine(g_presets[n - 1], 0);   // no Z can select it from here on
+    setEngine(g_table[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
-    copyBehindEngine(g_presets[n - 1], patches_[s]);
-    setEngine(g_presets[n - 1], patches_[s].engine);
+    copyBehindEngine(g_table[n - 1], patches_[s]);
+    setEngine(g_table[n - 1], patches_[s].engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
 }
 
 void App::clearSynthPreset(int n) {
     if (!synthPresetUsed(n)) return;
-    setEngine(g_presets[n - 1], 0);   // no Z can select it from here on
+    setEngine(g_table[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
@@ -70,7 +76,7 @@ void App::clearSynthPreset(int n) {
 bool App::loadSynthPreset(int s, int n) {
     if (s < 0 || s >= kSynthSlotCount || !synthPresetUsed(n)) return false;
     if (previewSlot_ == s) endSynthPreview();
-    const SynthPatch& p = g_presets[n - 1];
+    const SynthPatch& p = g_table[n - 1];
     if (!audio::synthEngineFor(p.engine)) return false;   // an engine this build does not have
     if (p.engine != slotEngineId(s)) setSynthEngine(s, p.engine);
     if (slotEngineId(s) != p.engine) return false;
@@ -84,10 +90,10 @@ bool App::loadSynthPreset(int s, int n) {
 }
 
 void App::resetSynthPresets() {
-    for (SynthPatch& p : g_presets) setEngine(p, 0);
+    for (int n = 0; n < kSynthPresetCount; ++n) setEngine(g_table[n], 0);
     for (int s = 0; s < kSynthSlotCount; ++s)
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);
-    std::memset(g_presets, 0, sizeof(g_presets));
+    std::memset(g_table, 0, sizeof(SynthPatch) * kSynthPresetCount);
     g_presetDirty = 0;
 }
 

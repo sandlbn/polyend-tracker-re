@@ -35,7 +35,7 @@ bool Machine::start(const MachineOptions& o, bool headless) {
     seqBuffers.reset(new ot::Pattern[3]);   // current, preload, switch stage
     extTracks.assign(ot::ExtTrackPool::kDefaultBlocks + 1, ot::Track{});
     extMeta.assign(ot::ExtTrackPool::metaBytes(ot::ExtTrackPool::kDefaultBlocks), 0);
-    undo.reset(new ot::Pattern[20]);
+    undo.reset(new ot::Pattern[18]);
     fileUndo.reset(new ot::Pattern[10]);
     clipboard.reset(new ot::Pattern[1]);
     scratch.assign(64 * 1024, 0);
@@ -87,7 +87,7 @@ bool Machine::start(const MachineOptions& o, bool headless) {
     m.extMeta = extMeta.data();
     m.undo = undo.get();
     m.undoNums = undoNums;
-    m.undoSlots = 20;      // spec 05 §5.1
+    m.undoSlots = 18;      // as the device (app_main.cpp)
     m.fileUndo = fileUndo.get();
     m.fileUndoNums = fileUndoNums;
     m.fileUndoSlots = 10;  // spec 05 §5.1 (b)
