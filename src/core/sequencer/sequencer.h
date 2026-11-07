@@ -306,6 +306,13 @@ private:
     int preloadTracksPerBlock() const;
     void resetPositions(int startStep);
     void startPlayback(int startStep, bool keepSongMode, bool afterCountIn);
+    uint8_t zStart(int s) const { return uint8_t(zState_[s] & 0x0F); }
+    uint8_t zCur(int s) const { return uint8_t(zState_[s] >> 4); }
+    void setZ(int s, uint8_t start, uint8_t cur) { zState_[s] = uint8_t((start & 0x0F) | (cur << 4)); }
+    // Slot s to preset n through the sink; a refused n puts it on its own patch.
+    void applyZ(int s, uint8_t n);
+    void zLoopBack();   // every slot to its loop-start preset
+    void zAllOwn();     // every slot, and its loop start, to the own patch
 
     void triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue);
     void noteOffTrack(int t, NoteOffMode mode);
@@ -392,6 +399,9 @@ private:
     uint32_t tick_ = 1;
     uint64_t tickCount_ = 0;
     uint8_t masterMicro_ = 1;
+    // [OT] Z chase per synth slot, a nibble each: low = the preset a loop
+    // end goes back to, high = the preset the slot is on now (0 = own).
+    uint8_t zState_[kSynthSlotCount] = {};
     int32_t masterStep_ = 0;
     int16_t masterPos_ = 0;               // pattern position, wraps at baseLastIndex()
     float accUs_ = 0;

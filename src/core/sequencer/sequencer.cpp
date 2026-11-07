@@ -56,6 +56,7 @@ void Sequencer::resetState() {
     tick_ = 1;
     masterMicro_ = 1;
     masterStep_ = 0;
+    for (auto& z : zState_) z = 0;
     accUs_ = 0;
     tempoOverride_ = stopAtStepEnd_ = false;
     swingOn_ = swingPhase_ = false;
@@ -530,7 +531,11 @@ void Sequencer::stepStart(int t) {
         if (isPresetCmd(type, v)) {  // Z: an FX-only step uses the synth the track plays
             uint8_t in = p.rec.instr;
             if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-            if (isSynth(in) && sink_) sink_->synthPreset(uint8_t(synthSlotOf(in)), presetCmdIndex(v));
+            if (isSynth(in) && sink_) {
+                const int slot = synthSlotOf(in);
+                const uint8_t n = presetCmdIndex(v);
+                if (sink_->synthPreset(uint8_t(slot), n)) setZ(slot, zStart(slot), n);   // a refused Z changes nothing
+            }
             continue;
         }
         switch (type) {
@@ -1040,6 +1045,7 @@ void Sequencer::patternEnd() {
         queued_ = 0;
         dropPreload();
         resetPositions(0);
+        zAllOwn();   // [OT] Z chase: step 0 of a new pattern, nothing before it
         host_->onPatternEnd();
         host_->onPatternAdvanced();
         return;
@@ -1062,11 +1068,17 @@ void Sequencer::patternEnd() {
         curPatternNum_ = num;
         project_->setCurrentPattern(num);
         resetPositions(0);
+        // [OT] Z chase: the song's start is on the own patches; an advance
+        // keeps what the last pattern left, and a loop of this pattern (Song
+        // screen Loop Pattern) goes back to it.
+        if (songWrapped) zAllOwn();
+        for (int s = 0; s < kSynthSlotCount; ++s) setZ(s, zCur(s), zCur(s));
         host_->onPatternEnd();
         if (!songWrapped) host_->onPatternAdvanced();
         return;
     }
     dropPreload();
+    zLoopBack();   // [OT] Z chase: the loop start's presets again
     host_->onPatternEnd();
     host_->onPatternAdvanced();
 }
@@ -1105,6 +1117,22 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
         clearRoll(tr);
         clearArp(tr);
     }
+    // [OT] Z chase: the slots start on what the Z before the start position
+    // left them on. A start at the very beginning has nothing before it, and
+    // the count-in start (audio context) never asks the host.
+    uint8_t z[kSynthSlotCount] = {};
+    uint8_t li[kTracks];
+    for (auto& l : li) l = 0xFF;
+    if (!afterCountIn && (startStep > 0 || (songMode_ && songPos_ > 0)))
+        host_->synthChase(songMode_, songPos_, curPatternNum_, clampi(startStep, 0, kStepCount - 1) - 1, z, li);
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        applyZ(s, z[s] <= kSynthPresetCount ? z[s] : 0);
+        // A pattern-mode loop goes to step 0, where no Z has played yet
+        // (playSelection sets its own loop start).
+        setZ(s, songMode_ ? zCur(s) : 0, zCur(s));
+    }
+    for (int t = 0; t < kTracks; ++t)
+        if (li[t] != 0xFF) tracks_[t].last.instr = li[t];
     playing_ = true;
     tick_ = 1;
     masterMicro_ = 1;
@@ -1156,6 +1184,27 @@ void Sequencer::playSelection(int stepStart, int stepEnd, int trackStart, int tr
     selTrackStart_ = uint8_t(clampi(trackStart, 0, kTracks - 1));
     selTrackEnd_ = uint8_t(clampi(trackEnd, selTrackStart_, kTracks - 1));
     for (int t = 0; t < kTracks; ++t) tracks_[t].enabled = t >= selTrackStart_ && t <= selTrackEnd_;
+    for (int s = 0; s < kSynthSlotCount; ++s) setZ(s, zCur(s), zCur(s));   // [OT] the loop goes back to the first row's chase
+}
+
+void Sequencer::applyZ(int s, uint8_t n) {
+    if (!sink_ || sink_->synthPreset(uint8_t(s), n)) {
+        setZ(s, zStart(s), n);
+        return;
+    }
+    if (n) sink_->synthPreset(uint8_t(s), 0);   // emptied since: the own patch
+    setZ(s, zStart(s), 0);
+}
+
+void Sequencer::zLoopBack() {
+    for (int s = 0; s < kSynthSlotCount; ++s) applyZ(s, zStart(s));
+}
+
+void Sequencer::zAllOwn() {
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        applyZ(s, 0);
+        setZ(s, 0, 0);
+    }
 }
 
 void Sequencer::stop() {

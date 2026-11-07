@@ -66,12 +66,13 @@ void SynthBank::patchChanged(int s) {
     slots_[s].preset = 0;   // an edit is heard, on the patch being edited
     rebind_[s] = true;
 }
-void SynthBank::presetSelect(int s, uint8_t n) {
-    if (s < 0 || s >= kSynthSlots || n > kSynthPresetCount) return;
-    if (n && (!presets_ || presets_[n - 1].engine == 0)) return;   // empty: the slot plays on
-    if (slots_[s].preset == n) return;                             // a repeated Z costs nothing
+bool SynthBank::presetSelect(int s, uint8_t n) {
+    if (s < 0 || s >= kSynthSlots || n > kSynthPresetCount) return false;
+    if (n && (!presets_ || presets_[n - 1].engine == 0)) return false;   // empty: the slot plays on
+    if (slots_[s].preset == n) return true;                              // a repeated Z costs nothing
     slots_[s].preset = n;
     rebind_[s] = true;
+    return true;
 }
 
 void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {

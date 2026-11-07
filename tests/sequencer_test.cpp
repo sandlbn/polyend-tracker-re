@@ -66,10 +66,14 @@ struct FakeSink : ISequencerSink {
         e.a = int(mode);
         ev.push_back(e);
     }
-    void synthPreset(uint8_t slot, uint8_t n) override {
+    // Bit n set: preset n is empty, its Z is refused (the synth bank's answer).
+    uint16_t emptyPresets = 0;
+    bool synthPreset(uint8_t slot, uint8_t n) override {
         Ev e = base(Ev::SynthPreset, -1);
-        e.a = slot; e.b = n;
+        const bool ok = n == 0 || !((emptyPresets >> n) & 1);
+        e.a = slot; e.b = n; e.c = ok;
         ev.push_back(e);
+        return ok;
     }
     int transportStops = 0;
     void synthTransportStop() override { ++transportStops; }
@@ -121,6 +125,7 @@ struct FakeHost : ISequencerHost {
         for (auto& t : dst.tracks) t.lastStep = 3;   // 4-step patterns
         dst.tracks[0].steps[0].note = int8_t(number * 10 % 128);
         dst.tracks[0].steps[0].instrument = 0;
+        if (fill) fill(number, dst);
     }
     void onStepChanged() override { ++stepChanges; }
     std::vector<uint64_t> endTicks;
@@ -131,6 +136,26 @@ struct FakeHost : ISequencerHost {
     void onPatternAdvanced() override { ++patternAdvances; }
     void markPatternDirty() override { ++dirty; }
     bool songScreenActive() override { return songScreen; }
+    // Z chase: what the host answers, and what it was asked.
+    uint8_t chasePreset[kSynthSlotCount] = {};
+    uint8_t chaseLast[kTrackCount] = {};
+    bool chaseAnswer = false;   // false: leave the defaults alone
+    int chaseCalls = 0;
+    bool chaseSong = false;
+    int chasePos = -1, chasePattern = -1, chaseLastStep = -2;
+    void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                    uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) override {
+        ++chaseCalls;
+        chaseSong = songMode;
+        chasePos = songPos;
+        chasePattern = pattern;
+        chaseLastStep = lastStepInclusive;
+        if (!chaseAnswer) return;
+        for (int s = 0; s < kSynthSlotCount; ++s) preset[s] = chasePreset[s];
+        for (int t = 0; t < kTrackCount; ++t) lastInstr[t] = chaseLast[t];
+    }
+    // Extra content of a loaded pattern (Z chase tests): called after the default fill.
+    void (*fill)(uint8_t number, Pattern& dst) = nullptr;
 };
 
 struct Rig {
@@ -1477,6 +1502,7 @@ TEST(preset_fx_fires_before_the_note_of_its_step) {
         if (col) zA(r, 0, 0, 3);
         else zB(r, 0, 0, 3);
         r.seq.play(0);
+        r.sink.ev.clear();   // the start's resets to the own patch
         runNotes(r, 0, 1);
         int preset = -1, on = -1;
         for (size_t i = 0; i < r.sink.ev.size(); ++i) {
@@ -1497,6 +1523,7 @@ TEST(preset_fx_on_an_empty_step_targets_the_tracks_last_synth) {
     r.setNote(0, 0, 60, 66);   // Synth 3
     zA(r, 0, 1, 4);            // no note
     r.seq.play(0);
+    r.sink.ev.clear();   // the start's resets to the own patch
     r.runUntil([&] { return r.seq.step(0) == 2; });
     auto z = r.sink.of(Ev::SynthPreset);
     CHECK_EQ(z.size(), 1u);
@@ -1508,6 +1535,7 @@ TEST(preset_fx_on_an_empty_step_targets_the_tracks_last_synth) {
     Rig e(120.0f);
     zA(e, 0, 0, 4);
     e.seq.play(0);
+    e.sink.ev.clear();   // the start's resets to the own patch
     e.runUntil([&] { return e.seq.step(0) == 2; });
     CHECK(e.sink.of(Ev::SynthPreset).empty());
 }
@@ -1518,6 +1546,7 @@ TEST(preset_fx_on_a_sample_or_midi_step_is_a_noop) {
         r.setNote(0, 0, 60, instr);
         zA(r, 0, 0, 2);
         r.seq.play(0);
+        r.sink.ev.clear();   // the start's resets to the own patch
         r.runUntil([&] { return r.seq.step(0) == 2; });
         CHECK(r.sink.of(Ev::SynthPreset).empty());
     }
@@ -1529,6 +1558,7 @@ TEST(preset_fx_a_wins_over_b) {
     zB(r, 0, 0, 1);
     zA(r, 0, 0, 2);
     r.seq.play(0);
+    r.sink.ev.clear();   // the start's resets to the own patch
     r.runUntil([&] { return r.seq.step(0) == 2; });
     auto z = r.sink.of(Ev::SynthPreset);
     CHECK(!z.empty());
@@ -1542,6 +1572,7 @@ TEST(preset_fx_skipped_by_failed_chance_and_muted_track) {
         r.fxB(0, 0, 4, 0);   // Chance 0
         zA(r, 0, 0, 2);
         r.seq.play(0);
+        r.sink.ev.clear();   // the start's resets to the own patch
         r.runUntil([&] { return r.seq.step(0) == 2; });
         CHECK(r.sink.of(Ev::SynthPreset).empty());
     }
@@ -1551,6 +1582,7 @@ TEST(preset_fx_skipped_by_failed_chance_and_muted_track) {
         zA(r, 0, 0, 2);
         r.project.setTrackMuted(0, true);
         r.seq.play(0);
+        r.sink.ev.clear();   // the start's resets to the own patch
         r.runUntil([&] { return r.seq.step(0) == 2; });
         CHECK(r.sink.of(Ev::SynthPreset).empty());
     }
@@ -1561,6 +1593,7 @@ TEST(preset_fx_is_never_forwarded_as_apply_fx) {
     r.setNote(0, 0, 60, 64);
     zA(r, 0, 0, 2);
     r.seq.play(0);
+    r.sink.ev.clear();   // the start's resets to the own patch
     r.runUntil([&] { return r.seq.step(0) == 2; });
     CHECK(r.sink.of(Ev::ApplyFx, 0).empty());
     CHECK_EQ(r.sink.of(Ev::SynthPreset).size(), 1u);
@@ -1572,17 +1605,30 @@ TEST(perf_injection_does_not_overwrite_a_preset_cmd) {
     zB(r, 0, 0, 2);   // the first column the injection would take
     r.seq.setPerfInjectedFx(0, uint8_t(FxId::Volume), 50);
     r.seq.play(0);
+    r.sink.ev.clear();   // the start's resets to the own patch
     r.runUntil([&] { return r.seq.step(0) == 2; });
     CHECK_EQ(r.sink.of(Ev::SynthPreset).size(), 1u);
 }
 
-TEST(preset_fx_only_stop_ends_it) {
-    // Nothing tells the synth to go back at a pattern's end: only Stop does.
+TEST(preset_fx_pattern_loop_returns_to_own_and_stop_still_resets) {
+    // The loop end of a pattern played from step 0 is step 0 again, where no
+    // Z has played yet: the slot goes back to its own patch. Stop still ends
+    // the rest (macro overrides) through synthTransportStop.
     Rig r(120.0f);
-    r.setNote(0, 0, 60, 64);
-    zA(r, 0, 0, 2);
+    r.setNote(0, 1, 60, 64);
+    zA(r, 0, 1, 2);
     r.seq.play(0);
-    r.runUntil([&] { return r.host.patternEnds >= 2; });
+    r.sink.ev.clear();
+    r.runUntil([&] { return r.host.patternEnds >= 1 && r.seq.step(0) == 2; });
+    auto z = r.sink.of(Ev::SynthPreset);
+    CHECK_EQ(z.size(), 5u);   // Z2, the loop's three resets, Z2 again
+    if (z.size() == 5u) {
+        CHECK(z[0].a == 0 && z[0].b == 2);
+        CHECK(z[1].a == 0 && z[1].b == 0);
+        CHECK(z[2].a == 1 && z[2].b == 0);
+        CHECK(z[3].a == 2 && z[3].b == 0);
+        CHECK(z[4].a == 0 && z[4].b == 2);
+    }
     CHECK_EQ(r.sink.transportStops, 0);
     r.seq.stop();
     CHECK_EQ(r.sink.transportStops, 1);
@@ -1596,4 +1642,216 @@ TEST(recording_leaves_a_z_only_step_alone) {
     CHECK_EQ(r.seq.liveNoteOn(60, 127, 0, 3), 1);   // the next free track
     CHECK(isPresetCmd(r.step(0, 2).fx[1].type, r.step(0, 2).fx[1].value));
     CHECK_EQ(int(r.step(0, 2).note), int(kNoteEmpty));
+}
+
+// --- [OT] Z chase: the slots start on what the Z before the start left them on
+
+namespace {
+// The SynthPreset events as "slot:n" pairs, for compact checks.
+std::vector<std::pair<int, int>> zSeq(const Rig& r) {
+    std::vector<std::pair<int, int>> v;
+    for (const auto& e : r.sink.ev)
+        if (e.kind == Ev::SynthPreset) v.push_back({e.a, e.b});
+    return v;
+}
+bool startsWith(const std::vector<std::pair<int, int>>& v, std::initializer_list<std::pair<int, int>> w) {
+    if (v.size() < w.size()) return false;
+    size_t i = 0;
+    for (const auto& p : w)
+        if (v[i++] != p) return false;
+    return true;
+}
+void shortPattern(Rig& r, int last) {
+    for (auto& t : r.seq.currentPattern()->tracks) t.lastStep = uint8_t(last);
+}
+}  // namespace
+
+TEST(play_from_step_0_sends_every_slot_to_own_before_any_note) {
+    Rig r(120.0f);
+    r.setNote(0, 0, 60, 64);
+    r.seq.play(0);
+    CHECK_EQ(r.host.chaseCalls, 0);
+    // Before any block: every slot on its own patch.
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}}));
+    CHECK(r.sink.of(Ev::SynthOn).empty());
+}
+
+TEST(play_song_from_a_later_position_applies_the_host_chase) {
+    Rig r(120.0f);
+    r.project.playlist[0] = 2;
+    r.project.playlist[1] = 3;
+    r.host.chaseAnswer = true;
+    r.host.chasePreset[0] = 3;
+    r.host.chasePreset[2] = 5;
+    for (auto& l : r.host.chaseLast) l = 0xFF;
+    r.host.chaseLast[1] = 66;   // track 1 last played Synth 3 before this position
+    r.seq.playSong(1);
+    CHECK_EQ(r.host.chaseCalls, 1);
+    CHECK(r.host.chaseSong);
+    CHECK_EQ(r.host.chasePos, 1);
+    CHECK_EQ(r.host.chasePattern, 3);
+    CHECK_EQ(r.host.chaseLastStep, -1);   // the whole pattern before, none of this one
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 3}, {1, 0}, {2, 5}}));
+    // A Z without a note at step 0 uses the instrument the chase found.
+    zA(r, 1, 0, 4);
+    r.runUntil([&] { return r.seq.step(0) == 1; });
+    auto v = zSeq(r);
+    CHECK_EQ(v.size(), 4u);
+    if (v.size() == 4u) CHECK(v[3] == std::make_pair(2, 4));
+}
+
+TEST(play_selection_applies_the_chase_at_its_first_step_and_the_loop_reapplies_it) {
+    Rig r(120.0f);
+    r.host.chaseAnswer = true;
+    r.host.chasePreset[0] = 2;
+    for (auto& l : r.host.chaseLast) l = 0xFF;
+    r.setNote(0, 3, 60, 64);
+    zA(r, 0, 3, 5);
+    r.seq.playSelection(2, 3, 0, kTrackCount - 1, true);
+    CHECK_EQ(r.host.chaseCalls, 1);
+    CHECK(!r.host.chaseSong);
+    CHECK_EQ(r.host.chaseLastStep, 1);   // steps 0..1 come before the selection
+    CHECK(startsWith(zSeq(r), {{0, 2}, {1, 0}, {2, 0}}));
+    r.runUntil([&] { return r.host.patternEnds >= 1; });
+    // Z5 at step 3, then the loop goes back to the state at step 2.
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 2}, {1, 0}, {2, 0}, {0, 5}, {0, 2}, {1, 0}, {2, 0}}));
+}
+
+TEST(pattern_loop_wrap_returns_every_slot_to_the_start_state) {
+    {
+        Rig r(120.0f);
+        shortPattern(r, 3);
+        r.setNote(0, 1, 60, 64);
+        zA(r, 0, 1, 3);
+        r.setNote(1, 2, 60, 66);
+        zB(r, 1, 2, 7);
+        r.seq.play(0);
+        r.runUntil([&] { return r.host.patternEnds >= 1; });
+        CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {2, 7}, {0, 0}, {1, 0}, {2, 0}}));
+    }
+    {
+        // A pattern-mode start mid-pattern: the loop goes to step 0, where no
+        // Z has played yet, not to the state at the start step.
+        Rig r(120.0f);
+        shortPattern(r, 3);
+        r.host.chaseAnswer = true;
+        r.host.chasePreset[1] = 4;
+        for (auto& l : r.host.chaseLast) l = 0xFF;
+        r.seq.play(2);
+        CHECK_EQ(r.host.chaseLastStep, 1);
+        r.runUntil([&] { return r.host.patternEnds >= 1; });
+        CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 4}, {2, 0}, {0, 0}, {1, 0}, {2, 0}}));
+    }
+}
+
+namespace {
+// Pattern 2: Z3 for Synth 1 at step 0 (track 1); 3: Z4 at step 1; others plain.
+void fillZ(uint8_t number, Pattern& dst) {
+    Step& a = dst.tracks[1].steps[0];
+    Step& b = dst.tracks[1].steps[1];
+    if (number == 2) {
+        a.note = 60;
+        a.instrument = 64;
+        a.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 3)};
+    } else if (number == 3) {
+        b.note = 60;
+        b.instrument = 64;
+        b.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 4)};
+    } else if (number == 4) {   // Z3, then Z5 (empty in the sink) on the next step
+        a.note = 60;
+        a.instrument = 64;
+        a.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 3)};
+        b.note = 62;
+        b.instrument = 64;
+        b.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 5)};
+    }
+}
+}  // namespace
+
+TEST(song_advance_keeps_the_z_but_the_song_wrap_resets_it) {
+    Rig r(120.0f);
+    r.host.fill = fillZ;
+    r.project.playlist[0] = 2;
+    r.project.playlist[1] = 5;   // no Z
+    r.seq.playSong(0);
+    CHECK_EQ(r.host.chaseCalls, 0);
+    r.runUntil([&] { return r.seq.songPosition() == 1 && r.seq.step(0) == 2; });
+    // Into position 1: no reset.
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}}));
+    r.runUntil([&] { return r.seq.songPosition() == 0 && r.seq.step(0) == 1; });
+    // The song loops: own patch, then position 0's Z3 again.
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 0}, {1, 0}, {2, 0}, {0, 3}}));
+}
+
+TEST(queued_pattern_change_resets_to_own_immediate_switch_does_not) {
+    {
+        Rig r(120.0f);
+        r.host.fill = fillZ;
+        shortPattern(r, 3);
+        r.setNote(0, 0, 60, 64);
+        zA(r, 0, 0, 3);
+        r.seq.play(0);
+        r.runUntil([&] { return r.seq.step(0) == 1; });
+        r.seq.queuePattern(+4);   // pattern 5: no Z
+        r.runUntil([&] { return r.host.patternEnds >= 1; });
+        CHECK_EQ(int(r.seq.currentPatternNumber()), 5);
+        CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 0}, {1, 0}, {2, 0}}));
+    }
+    {
+        Rig r(120.0f);
+        r.host.fill = fillZ;
+        r.setNote(0, 0, 60, 64);
+        zA(r, 0, 0, 3);
+        r.seq.play(0);
+        r.runUntil([&] { return r.seq.step(0) == 1; });
+        r.seq.switchPatternNow(5);
+        r.runUntil([&] { return r.seq.currentPatternNumber() == 5 && r.seq.step(0) == 2; });
+        // The switch keeps Z3; only the loop end of pattern 5 goes back to own.
+        CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}}));
+        r.runUntil([&] { return r.host.patternEnds >= 1; });
+        CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 0}, {1, 0}, {2, 0}}));
+    }
+}
+
+TEST(loop_pattern_from_the_song_screen_resets_to_that_patterns_start_state) {
+    Rig r(120.0f);
+    r.host.fill = fillZ;
+    r.project.playlist[0] = 2;   // Z3 at step 0
+    r.project.playlist[1] = 3;   // Z4 at step 1
+    r.seq.playSong(0);
+    r.runUntil([&] { return r.seq.songPosition() == 1 && r.seq.step(0) == 2; });
+    r.seq.setSongMode(false);   // Song screen: loop this pattern
+    const int ends = r.host.patternEnds;
+    r.runUntil([&] { return r.host.patternEnds > ends && r.seq.step(0) == 2; });
+    CHECK_EQ(int(r.seq.currentPatternNumber()), 3);
+    // Pattern 3 started on Z3 (from position 0): its loop goes back to Z3.
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 4}, {0, 3}, {1, 0}, {2, 0}, {0, 4}}));
+}
+
+TEST(count_in_start_never_calls_the_host) {
+    Rig r(120.0f);
+    r.host.chaseAnswer = true;
+    r.host.chasePreset[0] = 6;
+    r.seq.settings().preRoll = 1;
+    r.seq.record();
+    r.runUntil([&] { return r.seq.isPlaying(); });
+    CHECK(r.seq.isPlaying());
+    CHECK_EQ(r.host.chaseCalls, 0);
+    CHECK(startsWith(zSeq(r), {{0, 0}, {1, 0}, {2, 0}}));
+}
+
+TEST(an_ignored_z_does_not_move_the_tracked_state) {
+    // Z5 names an empty preset: the slot stays on Z3, and so does the state
+    // the next pattern starts from (seen when that pattern loops).
+    Rig r(120.0f);
+    r.host.fill = fillZ;
+    r.sink.emptyPresets = 1u << 5;
+    r.project.playlist[0] = 4;   // Z3, Z5
+    r.project.playlist[1] = 5;   // no Z
+    r.seq.playSong(0);
+    r.runUntil([&] { return r.seq.songPosition() == 1 && r.seq.step(0) == 1; });
+    r.seq.setSongMode(false);
+    const int ends = r.host.patternEnds;
+    r.runUntil([&] { return r.host.patternEnds > ends; });
+    CHECK(zSeq(r) == (std::vector<std::pair<int, int>>{{0, 0}, {1, 0}, {2, 0}, {0, 3}, {0, 5}, {0, 3}, {1, 0}, {2, 0}}));
 }

@@ -152,8 +152,9 @@ public:
     // [OT] Z: the table of kSynthPresetCount presets (engine 0 = empty), bound
     // once. presetSelect(s, n) makes slot s play preset n (1..), or its own
     // patch (0), until the next select, an edit of its patch, or Stop.
+    // False: refused (out of range, or an empty preset), nothing changes.
     void bindPresets(const SynthPatch* presets) { presets_ = presets; }
-    void presetSelect(int s, uint8_t n);
+    bool presetSelect(int s, uint8_t n);
     uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
