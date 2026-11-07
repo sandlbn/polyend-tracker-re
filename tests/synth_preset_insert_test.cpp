@@ -1,8 +1,8 @@
 // [3.x] A synth preset carries the slot insert: while a slot plays preset n
 // (Z), it runs preset n's insert -- the one the slot had when the preset was
 // stored, or none if it had none. A preset saved before presets had inserts
-// keeps the slot's own insert. Z0, Stop or an edit of the slot's patch bring
-// the slot's own insert back, with its patch. Store, Load and Clear carry
+// keeps the slot's own insert. Z0, Stop, an edit of the slot's patch or of
+// its own insert (App) bring the slot's own insert back, with its patch. Store, Load and Clear carry
 // the insert; it is saved in project.ot3x, one chunk per preset.
 #include "test.h"
 
@@ -16,6 +16,7 @@
 #include "audio/synth_bank.h"
 #include "audio/synth_params.h"
 #include "formats/ot3.h"
+#include "model/fx.h"
 #include "formats/patch_pb.h"
 #include "model/project.h"
 #include "modules/module.h"
@@ -166,6 +167,12 @@ void sound(Harness& h, int s) {
     h.audio.pump(1);
 }
 
+// The Pattern screen's cursor row (the stopped chase reads up to it).
+void cursorTo(Harness& h, int step) {
+    static_cast<PatternScreen*>(h.app->ui.screen(kModPattern))->step = step;
+}
+void putZ(Step& s, int n) { s.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + n)}; }   // FX-A
+
 SynthScreen& synthScreen(App& a) { return *static_cast<SynthScreen*>(a.ui.screen(kModSynth)); }
 void openPresets(Harness& h, int slot) {
     App& a = *h.app;
@@ -241,7 +248,7 @@ TEST(own_insert_edit_while_on_a_preset_waits_for_z0) {
     r.bank.presetSelect(0, 1);
     r.blocks(6);
     CHECK(r.bank.slotInsert(0) == &b);
-    r.bank.setSlotInsert(0, &c, gainSet(20));   // the slot's own insert edited
+    r.bank.setSlotInsert(0, &c, gainSet(20));   // the bank's own insert set (the App also calls patchChanged)
     r.blocks(6);
     CHECK(r.bank.slotInsert(0) == &b);
     r.bank.presetSelect(0, 0);
@@ -358,6 +365,74 @@ TEST(store_captures_the_slot_insert_and_load_restores_it) {
     CHECK(std::memcmp(a.slotInsertSettings(1).v, set.v, sizeof set.v) == 0);
     CHECK(a.loadSynthPreset(1, 2));
     CHECK(a.slotInsertId(1) == nullptr);
+}
+
+TEST(own_insert_edit_while_the_stopped_chase_holds_a_preset_is_heard) {
+    // Like a patch edit: the slot goes to its own patch and insert, and the
+    // chase leaves it there until its inputs change.
+    Harness h;
+    App& a = *h.app;
+    IEffect* fx = anEffect();
+    CHECK(fx != nullptr);
+    if (!fx || fx->paramCount() < 1) return;
+    SynthBank& b = a.engine.synth();
+    a.setSlotInsertKind(0, fx->id());
+    a.storeSynthPreset(1, 0);        // presets 1 and 2: the insert, on
+    a.storeSynthPreset(2, 0);
+    a.setSlotInsertOff(0, true);     // own: the same insert, off
+    Pattern& p = a.pattern();
+    p.tracks[0].steps[0].note = 60;
+    p.tracks[0].steps[0].instrument = uint8_t(kFirstSynthInstrument);
+    putZ(p.tracks[0].steps[0], 1);
+    putZ(p.tracks[0].steps[4], 2);   // no note: track 1's Synth 1
+    a.patternEdited();
+    cursorTo(h, 2);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK(b.slotInsert(0) == fx);
+    CHECK(!b.slotInsertOff(0));
+    // A value of the own insert.
+    const uint8_t v0 = a.slotInsertSettings(0).v[0];
+    a.setSlotInsertValue(0, 0, uint8_t(v0 ? 0 : fx->param(0).max));
+    h.run();
+    sound(h, 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK(b.slotInsert(0) == fx);
+    CHECK(b.slotInsertOff(0));       // the own insert, as it is set
+    // The cursor moves to another preset: the chase takes the slot there.
+    cursorTo(h, 5);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK(!b.slotInsertOff(0));
+    // Own insert on/off.
+    a.setSlotInsertOff(0, false);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    a.setSlotInsertOff(0, true);
+    cursorTo(h, 3);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    // Own insert kind, and a whole own insert set at once.
+    a.setSlotInsertKind(0, nullptr);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK(b.slotInsert(0) == nullptr);
+    cursorTo(h, 6);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK(b.slotInsert(0) == fx);
+    a.setSlotInsert(0, fx->id(), a.slotInsertSettings(0), true);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK(b.slotInsert(0) == fx);
+    CHECK(b.slotInsertOff(0));
 }
 
 TEST(clear_drops_the_insert_and_dirties_the_sidecar) {

@@ -122,13 +122,21 @@ void App::applySlotInsert(int s) {
     engine.synth().setSlotInsert(s, slotInsertEffect(s), slotInsert_[s].set, slotInsert_[s].off);
 }
 
+// [3.x] An edit of the slot's own insert is heard as a patch edit is: a slot
+// on a preset goes back to its own patch and insert (SynthBank::patchChanged);
+// the stopped chase leaves it there until its inputs change.
+void App::ownInsertEdited(int s) {
+    applySlotInsert(s);
+    engine.synth().patchChanged(s);
+}
+
 bool App::slotInsertOff(int s) const { return s >= 0 && s < kSynthSlotCount && slotInsertId(s) && slotInsert_[s].off; }
 
 void App::setSlotInsertOff(int s, bool off) {
     if (!slotInsertId(s) || slotInsert_[s].off == off) return;
     slotInsert_[s].off = off;
     sidecarDirty_ = true;
-    applySlotInsert(s);
+    ownInsertEdited(s);
 }
 
 void App::setSlotInsertKind(int s, const char* effectId) {
@@ -144,9 +152,11 @@ void App::setSlotInsertKind(int s, const char* effectId) {
             c.set = audio::effectDefaults(*fx);
         }
     }
-    if (std::memcmp(&c, &slotInsert_[s], sizeof c) != 0) sidecarDirty_ = true;
+    const bool changed = std::memcmp(&c, &slotInsert_[s], sizeof c) != 0;
+    if (changed) sidecarDirty_ = true;
     slotInsert_[s] = c;
-    applySlotInsert(s);
+    if (changed) ownInsertEdited(s);
+    else applySlotInsert(s);
 }
 
 void App::setSlotInsert(int s, const char* effectId, const audio::EffectSettings& set, bool off) {
@@ -159,9 +169,11 @@ void App::setSlotInsert(int s, const char* effectId, const audio::EffectSettings
         c.off = off;
         clampSettings(c.id, c.set);
     }
-    if (std::memcmp(&c, &slotInsert_[s], sizeof c) != 0) sidecarDirty_ = true;
+    const bool changed = std::memcmp(&c, &slotInsert_[s], sizeof c) != 0;
+    if (changed) sidecarDirty_ = true;
     slotInsert_[s] = c;
-    applySlotInsert(s);
+    if (changed) ownInsertEdited(s);
+    else applySlotInsert(s);
 }
 
 void App::setSlotInsertValue(int s, int i, uint8_t v) {
@@ -172,7 +184,7 @@ void App::setSlotInsertValue(int s, int i, uint8_t v) {
     if (slotInsert_[s].set.v[i] == c) return;
     slotInsert_[s].set.v[i] = c;
     sidecarDirty_ = true;
-    applySlotInsert(s);
+    ownInsertEdited(s);
 }
 #endif
 

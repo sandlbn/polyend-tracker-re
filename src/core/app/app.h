@@ -811,6 +811,7 @@ private:
     };
     SlotInsertCfg slotInsert_[kSynthSlotCount] = {};
     void applySlotInsert(int s);
+    void ownInsertEdited(int s);
 #endif
     bool sidecarDirty_ = false;
     bool sidecarReadOnly_ = false;   // newer format / damaged chunk: never re-saved
