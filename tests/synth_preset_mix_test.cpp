@@ -375,6 +375,11 @@ void sound(Harness& h, int s) {
     h.audio.pump(1);
 }
 
+void cursorTo(Harness& h, int step) {
+    static_cast<PatternScreen*>(h.app->ui.screen(kModPattern))->step = step;
+}
+void putZ(Step& s, int n) { s.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + n)}; }   // FX-A
+
 void setMix(App& a, int s, float gainDb, float pan, float rev, float del) {
     SynthSlotRecord r = a.synthSlot(s);
     r.gainDb = gainDb;
@@ -436,6 +441,93 @@ TEST(load_of_a_preset_without_mix_keeps_the_own_mix) {
     a.engine.synth().presetSelect(1, 2);
     sound(h, 1);
     CHECK_NEAR(gainOf(h, 1), dbToGain(-20.0f), 1e-6);
+}
+
+TEST(own_mix_edit_on_a_mix_preset_is_heard_on_the_presets_patch) {
+    // While playing (here a Z of the bank): the slot stays on the preset's
+    // patch, its level follows the edit; the next Z takes the edit back.
+    Harness h;
+    App& a = *h.app;
+    SynthBank& b = a.engine.synth();
+    setMix(a, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+    a.storeSynthPreset(1, 0);
+    setMix(a, 0, -10.0f, 0.0f, 0.0f, 0.0f);
+    b.presetSelect(0, 1);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
+    setMix(a, 0, -6.0f, 0.0f, 0.0f, 0.0f);   // Mixer / Synth page
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
+    b.presetSelect(0, 1);   // the next Z
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
+    // Not the mix (the macros, the name): the preset's mix stays.
+    SynthSlotRecord r = a.synthSlot(0);
+    r.macros[0] = uint8_t(r.macros[0] ^ 1);
+    a.setSynthSlotRecord(0, r);
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
+}
+
+TEST(own_mix_edit_while_the_stopped_chase_holds_a_preset_is_heard) {
+    // The slot stays on the preset the chase gave it, with the own mix,
+    // until the chase sets it again (its inputs change).
+    Harness h;
+    App& a = *h.app;
+    setMix(a, 0, 0.0f, 0.0f, 0.0f, 0.0f);
+    a.storeSynthPreset(1, 0);   // presets 1 and 2 at 0 dB
+    a.storeSynthPreset(2, 0);
+    setMix(a, 0, -10.0f, 0.0f, 0.0f, 0.0f);
+    Pattern& p = a.pattern();
+    p.tracks[0].steps[0].note = 60;
+    p.tracks[0].steps[0].instrument = uint8_t(kFirstSynthInstrument);
+    putZ(p.tracks[0].steps[0], 1);
+    putZ(p.tracks[0].steps[4], 2);
+    a.patternEdited();
+    cursorTo(h, 2);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
+    setMix(a, 0, -6.0f, 0.0f, 0.0f, 0.0f);
+    h.run();
+    sound(h, 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
+    // Pan, reverb and delay send edits too (heard: the sends feed the buses).
+    for (int k = 0; k < 3; ++k) {
+        SynthSlotRecord r = a.synthSlot(0);
+        if (k == 0) r.pan = 20.0f;
+        if (k == 1) r.reverbSend = 30.0f;
+        if (k == 2) r.delaySend = 40.0f;
+        a.setSynthSlotRecord(0, r);
+        h.run();
+        sound(h, 0);
+        CHECK_EQ(a.synthPresetActive(0), 1);
+        CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
+    }
+    // The cursor moves to another preset: the chase takes the slot there, with its mix.
+    cursorTo(h, 5);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
+}
+
+TEST(own_mix_edit_on_a_preset_without_mix_keeps_the_preset) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(1, 0);
+    presets::mixTable()[0] = audio::PresetMix{};   // saved before presets had a mix
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    setMix(a, 0, -3.0f, 0.0f, 0.0f, 0.0f);
+    sound(h, 0);
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-3.0f), 1e-6);
 }
 
 TEST(clear_drops_the_mix_and_dirties_the_sidecar) {

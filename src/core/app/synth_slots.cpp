@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include "app/app.h"
+#include "app/synth_presets.h"
 #include "modules/synth_models.h"
 #include "audio/synth_params.h"
 #include "formats/file_io.h"
@@ -96,8 +97,20 @@ void App::endSynthPreview() {
 
 void App::setSynthSlotRecord(int s, const SynthSlotRecord& r) {
     if (s < 0 || s >= kSynthSlotCount) return;
+    const SynthSlotRecord old = project.synthSlot(s);
     project.setSynthSlot(s, r);
-    engine.synth().setSlotRecord(s, project.synthSlot(s));   // main-loop setter: applies at the next block
+    const SynthSlotRecord now = project.synthSlot(s);
+    // [3.x] An edit of the slot's own mix is heard at once: a slot on a
+    // preset that carries a mix keeps the preset's patch and insert and plays
+    // with its own mix until the next Z (SynthBank::ownMixWins).
+    const int z = engine.synth().presetOf(s);
+    if (z && (presets::mixTable()[z - 1].flags & audio::kPresetMixHas) &&
+        (std::memcmp(&old.gainDb, &now.gainDb, sizeof now.gainDb) != 0 ||
+         std::memcmp(&old.pan, &now.pan, sizeof now.pan) != 0 ||
+         std::memcmp(&old.reverbSend, &now.reverbSend, sizeof now.reverbSend) != 0 ||
+         std::memcmp(&old.delaySend, &now.delaySend, sizeof now.delaySend) != 0))
+        engine.synth().ownMixWins(s);
+    engine.synth().setSlotRecord(s, now);   // main-loop setter: applies at the next block
     markProjectDirty();
 }
 
