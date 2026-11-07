@@ -45,6 +45,7 @@ void SynthBank::reset() {
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
         sl.p.held = SynthHeld{};
+        if (sl.preset) rebind_[s] = true;
         sl.preset = 0;
         for (auto& o : sl.ovr) o = -1;
         sl.macroDirty = true;
@@ -416,7 +417,8 @@ void SynthBank::sync() {
 void SynthBank::bindEngine(int s) {
     Slot& sl = slots_[s];
     const SynthPatch* patch = patchOf(sl);
-    const int32_t id = sl.preset ? patch->engine : engineFor(s, sl.rec);   // a preset brings its engine
+    sl.bound = patch;
+    const int32_t id = patch != sl.patch ? patch->engine : engineFor(s, sl.rec);   // a preset brings its engine
     ISynthEngine* e = id ? synthEngineFor(id) : nullptr;
     if (e && override_) e = override_;
     sl.mismatch = !patch || patch->engine != id;
@@ -437,7 +439,7 @@ void SynthBank::bindEngine(int s) {
     reloadParams(s, restart);
 }
 
-float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*patchOf(sl), i); }
+float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*sl.bound, i); }
 
 void SynthBank::reloadParams(int s, bool jump) {
     Slot& sl = slots_[s];
@@ -452,7 +454,7 @@ void SynthBank::reloadParams(int s, bool jump) {
     sl.prio = d && (d->flags & mod::kSynthFlagNotePriority);
     sl.prioIdx = sl.prio ? d->priorityParam : int8_t(-1);
     sl.kit = d && (d->flags & mod::kSynthFlagKitState);
-    if (!patchOf(sl) || sl.mismatch) {
+    if (!sl.bound || sl.mismatch) {
         p.count = 0;
         p.moving = false;
         ++p.serial;
@@ -491,7 +493,7 @@ void SynthBank::reloadParams(int s, bool jump) {
     }
     // Compile the macro targets (empty targets -1 inside count are skipped).
     for (int k = 0; k < kSynthSeqMacros; ++k) {
-        const PatchMacro& m = patchOf(sl)->macros[k];
+        const PatchMacro& m = sl.bound->macros[k];
         for (int j = 0, c = synthMacroTargets(m); j < c; ++j) {
             const int i = m.targets[j].param;
             const float a = patchBitsToFloat(m.targets[j].amountBits);
@@ -499,7 +501,7 @@ void SynthBank::reloadParams(int s, bool jump) {
             sl.tgt[sl.ntgt++] = Slot::Tgt{uint8_t(i), uint8_t(k), a * (t[i].max - t[i].min)};
         }
     }
-    const PatchMacro& m7 = patchOf(sl)->macros[kPatchMacroVelocity];
+    const PatchMacro& m7 = sl.bound->macros[kPatchMacroVelocity];
     for (int j = 0, c = synthMacroTargets(m7); j < c; ++j) {
         const int i = m7.targets[j].param;
         const float a = patchBitsToFloat(m7.targets[j].amountBits);
@@ -515,13 +517,13 @@ void SynthBank::reloadParams(int s, bool jump) {
 // targeted parameters; untargeted ones keep the patch value.
 void SynthBank::applyMacros(int s) {
     Slot& sl = slots_[s];
-    if (!patchOf(sl) || sl.mismatch || (!sl.macroDirty)) return;
+    if (!sl.bound || sl.mismatch || (!sl.macroDirty)) return;
     sl.macroDirty = false;
     uint8_t val[kSynthSeqMacros];
     float m[kSynthSeqMacros];
     for (int k = 0; k < kSynthSeqMacros; ++k) {
         val[k] = sl.ovr[k] >= 0 ? uint8_t(sl.ovr[k]) : sl.page[k];
-        m[k] = synthMacroM(val[k], patchOf(sl)->macros[k].bipolar);
+        m[k] = synthMacroM(val[k], sl.bound->macros[k].bipolar);
         sl.applied[k] = val[k];
     }
     if (sl.ntgt == 0 && sl.ntgt7 == 0) return;

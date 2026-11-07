@@ -315,6 +315,7 @@ private:
     struct Slot {
         SynthSlotRecord rec;
         const SynthPatch* patch = nullptr;
+        const SynthPatch* bound = nullptr;   // patchOf() at the last bind: all of a reload reads this one
         ISynthEngine* eng = nullptr;   // nullptr: silent (unavailable / mismatch / poly 0 still loads)
         int32_t engineId = 0;
         bool mismatch = false;
@@ -363,8 +364,11 @@ private:
         SynthSlotScratch scratch;
     };
 
+    // What the slot should play now: one read of `preset`, which the main loop
+    // can zero at any time, and an emptied entry is the slot's own patch.
     const SynthPatch* patchOf(const Slot& sl) const {
-        return sl.preset && presets_ ? &presets_[sl.preset - 1] : sl.patch;
+        const uint8_t z = sl.preset;
+        return z && presets_ && presets_[z - 1].engine ? &presets_[z - 1] : sl.patch;
     }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;

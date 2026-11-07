@@ -1803,3 +1803,13 @@ TEST(preset_fx_only_stop_ends_it) {
     r.seq.stop();
     CHECK_EQ(r.sink.transportStops, 1);
 }
+
+TEST(recording_leaves_a_z_only_step_alone) {
+    Rig r(40.0f);
+    zA(r, 0, 2, 3);   // track 1, step 3 holds only a Z: not free, like a step with any FX
+    r.seq.record();
+    r.runUntil([&] { return r.seq.step(0) == 2 && r.seq.microStep(0) >= 10; });
+    CHECK_EQ(r.seq.liveNoteOn(60, 127, 0, 3), 1);   // the next free track
+    CHECK(isPresetCmd(r.step(0, 2).fx[1].type, r.step(0, 2).fx[1].value));
+    CHECK_EQ(int(r.step(0, 2).note), int(kNoteEmpty));
+}
