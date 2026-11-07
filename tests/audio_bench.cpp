@@ -648,7 +648,17 @@ void switchBench() {
 // preset / presetx: a Z in the audio block, 4 voices sounding. The same engine
 // ramps every parameter; another engine fades the voices and restarts. SDRAM
 // accesses: the reload reads each of the patch's parameters from SDRAM.
+// [3.x] The preset carries a mix (another gain and pan; the sends of the
+// slot, so the delay and reverb do not start or stop with the Z): the
+// slot's mixer targets are computed again and ramp.
 SynthPatch gBenchPresets[2];
+audio::PresetMix gBenchPresetMix[kSynthPresetCount];
+void benchPresetMix() {
+    gBenchPresetMix[0] = audio::PresetMix{};
+    gBenchPresetMix[0].gainDb = -3.0f;
+    gBenchPresetMix[0].pan = 30.0f;
+    gBenchPresetMix[0].flags = audio::kPresetMixHas;
+}
 void presetBench() {
     for (int cross = 0; cross < 2; ++cross) {
         Rig r;
@@ -661,12 +671,15 @@ void presetBench() {
         gBenchPresets[1] = gSynthPatch;
         if (cross) gBenchPresets[0].engine = kSynthEngineTest;
         r.eng->synth().bindPresets(gBenchPresets);
+        benchPresetMix();
+        r.eng->synth().bindPresetMix(gBenchPresetMix);
         for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
         int16_t out[kBlock * 2];
         for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
         const int n = 32 / (kScale > 4 ? 4 : kScale);
         double steady = 0.0, sw = 0.0;
-        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd);
+        // The patch reload, and the preset's mix entry (5 words) read once.
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 5.0;
         for (int k = 0; k < n; ++k) {
             double t0 = nowUnits();
             r.eng->renderLive(out);
@@ -681,6 +694,7 @@ void presetBench() {
             if (cross)
                 for (int v = 0; v < 4; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(48 + 7 * v));
         }
+        r.eng->synth().bindPresetMix(nullptr);
         r.eng->synth().bindPresets(nullptr);
         const double d = (sw - steady) / n + acc * kSdramCycles;
 #ifdef OT_BENCH_M4
@@ -696,7 +710,8 @@ void presetBench() {
 // presetins: [3.x] a Z that also switches the slot insert, 4 voices sounding:
 // the slot's own insert fades out, then the preset's starts fresh (its SDRAM
 // line zeroed). The worst of the Z block and the 5 after it, against a steady
-// block with the own insert; SDRAM accesses counted as in synth4i.
+// block with the own insert; SDRAM accesses counted as in synth4i. The
+// preset carries a mix too (as preset.d).
 audio::PresetInsert gBenchPresetIns[kSynthPresetCount];
 void presetInsBench() {
     mod::ModuleHost& mh = mod::ModuleHost::instance();
@@ -721,6 +736,8 @@ void presetInsBench() {
     }
     gBenchPresetIns[0].flags = audio::kPresetInsertHas;
     r.eng->synth().bindPresetInserts(gBenchPresetIns);
+    benchPresetMix();
+    r.eng->synth().bindPresetMix(gBenchPresetMix);
     r.eng->synth().setInsertMemory(lines);
     r.eng->synth().setSlotInsert(0, own, audio::effectDefaults(*own));
     for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
@@ -728,7 +745,7 @@ void presetInsBench() {
     for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
     const int n = 16 / (kScale > 4 ? 4 : kScale);
     double steady = 0.0, sw = 0.0;
-    const double acc = 2.0 * synthParamTotal(kSynthEngineAcd);   // the patch reload (as preset.d)
+    const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 5.0;   // the patch reload and the mix (as preset.d)
     for (int k = 0; k < n; ++k) {
         gSdramAccesses = 0;
         double t0 = nowUnits();
@@ -749,6 +766,7 @@ void presetInsBench() {
         for (int b = 0; b < 8; ++b) r.eng->renderLive(out);
     }
     r.eng->synth().bindPresetInserts(nullptr);
+    r.eng->synth().bindPresetMix(nullptr);
     r.eng->synth().bindPresets(nullptr);
     r.eng->synth().setSlotInsert(0, nullptr, audio::EffectSettings{});
     for (int b = 0; b < 8; ++b) r.eng->renderLive(out);   // the own insert faded out: none bound
