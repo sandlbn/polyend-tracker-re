@@ -692,6 +692,76 @@ void presetBench() {
     }
 }
 
+#if OT_SLOT_INSERTS
+// presetins: [3.x] a Z that also switches the slot insert, 4 voices sounding:
+// the slot's own insert fades out, then the preset's starts fresh (its SDRAM
+// line zeroed). The worst of the Z block and the 5 after it, against a steady
+// block with the own insert; SDRAM accesses counted as in synth4i.
+audio::PresetInsert gBenchPresetIns[kSynthPresetCount];
+void presetInsBench() {
+    mod::ModuleHost& mh = mod::ModuleHost::instance();
+    audio::IEffect* own = mh.effectAt(0);
+    audio::IEffect* next = mh.effectCount() > 1 ? mh.effectAt(1) : nullptr;
+    if (!own) return;
+    static int16_t lines[kSynthSlots * audio::kEffectWorkMax / 2];
+    Rig r;
+    r.synth(4);
+    SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+    rc.model = uint32_t(SynthModel::ACD);
+    rc.polyphony = 4;
+    r.eng->synth().setSlotRecord(0, rc);
+    gBenchPresets[0] = gSynthPatch;
+    gBenchPresets[1] = gSynthPatch;
+    r.eng->synth().bindPresets(gBenchPresets);
+    gBenchPresetIns[0] = audio::PresetInsert{};
+    gBenchPresetIns[0].fx = next;
+    if (next) {
+        gBenchPresetIns[0].set = audio::effectDefaults(*next);
+        std::memcpy(gBenchPresetIns[0].id, next->id(), 4);
+    }
+    gBenchPresetIns[0].flags = audio::kPresetInsertHas;
+    r.eng->synth().bindPresetInserts(gBenchPresetIns);
+    r.eng->synth().setInsertMemory(lines);
+    r.eng->synth().setSlotInsert(0, own, audio::effectDefaults(*own));
+    for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+    int16_t out[kBlock * 2];
+    for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
+    const int n = 16 / (kScale > 4 ? 4 : kScale);
+    double steady = 0.0, sw = 0.0;
+    const double acc = 2.0 * synthParamTotal(kSynthEngineAcd);   // the patch reload (as preset.d)
+    for (int k = 0; k < n; ++k) {
+        gSdramAccesses = 0;
+        double t0 = nowUnits();
+        r.eng->renderLive(out);
+        steady += nowUnits() - t0 + gSdramAccesses * kSdramCycles;
+        r.eng->synth().presetSelect(0, 1);
+        double worst = 0.0;
+        for (int b = 0; b < 6; ++b) {
+            gSdramAccesses = 0;
+            t0 = nowUnits();
+            r.eng->renderLive(out);
+            const double c = nowUnits() - t0 + gSdramAccesses * kSdramCycles;
+            if (c > worst) worst = c;
+        }
+        sw += worst;
+        gSink = out[k & 255];
+        r.eng->synth().presetSelect(0, 0);   // back to the own insert, outside the timing
+        for (int b = 0; b < 8; ++b) r.eng->renderLive(out);
+    }
+    r.eng->synth().bindPresetInserts(nullptr);
+    r.eng->synth().bindPresets(nullptr);
+    r.eng->synth().setSlotInsert(0, nullptr, audio::EffectSettings{});
+    for (int b = 0; b < 8; ++b) r.eng->renderLive(out);   // the own insert faded out: none bound
+    const double d = (sw - steady) / n + acc * kSdramCycles;
+#ifdef OT_BENCH_M4
+    std::printf("    presetins.d %8.1f  (Z + insert switch, worst block - steady block, est. cycles, %s -> %s, limit 16000)\n",
+                d, own->name(), next ? next->name() : "none");
+#else
+    std::printf("  (presetins: Z + insert switch, worst block - steady %+.2f us)\n", d);
+#endif
+}
+#endif
+
 // peak: song 5 replayed from its trace (tests/peak_trace.cpp, make -C tests
 // peak-trace) through AudioEngine::fillCallback, i.e. with the CPU meter,
 // the governor and the block profile (audio/block_profile.h) as on the
@@ -1381,6 +1451,9 @@ int main(int argc, char** argv) {
 #endif
     switchBench();
     presetBench();
+#if OT_SLOT_INSERTS
+    presetInsBench();
+#endif
 #ifdef OT_BENCH_M4
     peakBench(OT_BENCH_TRACE, 8100);   // song positions 0-2 (intro, groove, sixteen-track chords)
 #else
