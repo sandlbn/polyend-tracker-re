@@ -154,7 +154,7 @@ public:
     // Voice starts per block before note-ons wait one block (see above);
     // 0 = no limit (tests). Default kStartsPerBlock.
     static constexpr int kStartsPerBlock = 3;
-    void setStartsPerBlock(int n) { startCap_ = n < 0 ? 0 : n; }
+    void setStartsPerBlock(int n) { startCap_ = uint8_t(n < 0 ? 0 : (n > 255 ? 255 : n)); }
     int queuedNotes() const { return nDefer_; }
     // Block profile of the live block being rendered (block_profile.h):
     // event counts and per-slot engine cycles; nullptr = off.
@@ -171,6 +171,12 @@ public:
     // The patch's values / macros / engine changed: re-read at the next block
     // (parameter edits apply live; a new engine restarts the slot).
     void patchChanged(int s);
+    // [3.x] Z: the table of kSynthPresetCount presets (engine 0 = empty), bound
+    // once. presetSelect(s, n) makes slot s play preset n (1..), or its own
+    // patch (0), until the next select, an edit of its patch, or Stop.
+    void bindPresets(const SynthPatch* presets) { presets_ = presets; }
+    void presetSelect(int s, uint8_t n);
+    uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
     void setSlotRecord(int s, const SynthSlotRecord& r);
@@ -312,6 +318,7 @@ private:
         ISynthEngine* eng = nullptr;   // nullptr: silent (unavailable / mismatch / poly 0 still loads)
         int32_t engineId = 0;
         bool mismatch = false;
+        volatile uint8_t preset = 0;   // [3.x] Z: 1.. plays that preset, 0 the slot's patch
         SynthParams p;
         // macro state
         uint8_t page[kSynthSeqMacros] = {};
@@ -356,6 +363,9 @@ private:
         SynthSlotScratch scratch;
     };
 
+    const SynthPatch* patchOf(const Slot& sl) const {
+        return sl.preset && presets_ ? &presets_[sl.preset - 1] : sl.patch;
+    }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;
@@ -397,9 +407,10 @@ private:
     Voice voices_[kSynthMaxVoices];
     Pending pend_[kPending];
     Deferred defer_[kSynthTracks + 1];   // MIDI input tracks never wait
-    int nDefer_ = 0;
-    int startCap_ = kStartsPerBlock;
-    int starts_ = 0;              // voice starts in the current block
+    const SynthPatch* presets_ = nullptr;
+    uint8_t nDefer_ = 0;
+    uint8_t startCap_ = kStartsPerBlock;
+    uint8_t starts_ = 0;          // voice starts in the current block
     bool flushDue_ = false;       // a render ended since the queue was filled
     bool recApplied_[kSynthSlots] = {};   // slots_[s].rec has been applied (sync)
     Slot slots_[kSynthSlots];

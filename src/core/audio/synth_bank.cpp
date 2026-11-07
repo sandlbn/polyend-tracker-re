@@ -8,6 +8,7 @@
 #include "audio/ring_io.h"
 #include "fastrun.h"
 #include "formats/patch_pb.h"
+#include "model/fx.h"
 #include "modules/module.h"
 #include "modules/synth_descriptor.h"
 #include "modules/synth_models.h"
@@ -44,6 +45,7 @@ void SynthBank::reset() {
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
         sl.p.held = SynthHeld{};
+        sl.preset = 0;
         for (auto& o : sl.ovr) o = -1;
         sl.macroDirty = true;
         sl.ntouched = 0;
@@ -73,11 +75,21 @@ void SynthBank::reset() {
 void SynthBank::bindPatch(int s, const SynthPatch* p) {
     if (s < 0 || s >= kSynthSlots) return;
     slots_[s].patch = p;
+    slots_[s].preset = 0;
     rebind_[s] = true;
 }
 
 void SynthBank::patchChanged(int s) {
-    if (s >= 0 && s < kSynthSlots) rebind_[s] = true;
+    if (s < 0 || s >= kSynthSlots) return;
+    slots_[s].preset = 0;   // an edit is heard, on the patch being edited
+    rebind_[s] = true;
+}
+void SynthBank::presetSelect(int s, uint8_t n) {
+    if (s < 0 || s >= kSynthSlots || n > kSynthPresetCount) return;
+    if (n && (!presets_ || presets_[n - 1].engine == 0)) return;   // empty: the slot plays on
+    if (slots_[s].preset == n) return;                             // a repeated Z costs nothing
+    slots_[s].preset = n;
+    rebind_[s] = true;
 }
 
 void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
@@ -403,10 +415,11 @@ void SynthBank::sync() {
 
 void SynthBank::bindEngine(int s) {
     Slot& sl = slots_[s];
-    const int32_t id = engineFor(s, sl.rec);
+    const SynthPatch* patch = patchOf(sl);
+    const int32_t id = sl.preset ? patch->engine : engineFor(s, sl.rec);   // a preset brings its engine
     ISynthEngine* e = id ? synthEngineFor(id) : nullptr;
     if (e && override_) e = override_;
-    sl.mismatch = !sl.patch || sl.patch->engine != id;
+    sl.mismatch = !patch || patch->engine != id;
     if (sl.mismatch) e = nullptr;
     const bool restart = e != sl.eng || id != sl.engineId;
     if (restart) {
@@ -424,7 +437,7 @@ void SynthBank::bindEngine(int s) {
     reloadParams(s, restart);
 }
 
-float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*sl.patch, i); }
+float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*patchOf(sl), i); }
 
 void SynthBank::reloadParams(int s, bool jump) {
     Slot& sl = slots_[s];
@@ -439,7 +452,7 @@ void SynthBank::reloadParams(int s, bool jump) {
     sl.prio = d && (d->flags & mod::kSynthFlagNotePriority);
     sl.prioIdx = sl.prio ? d->priorityParam : int8_t(-1);
     sl.kit = d && (d->flags & mod::kSynthFlagKitState);
-    if (!sl.patch || sl.mismatch) {
+    if (!patchOf(sl) || sl.mismatch) {
         p.count = 0;
         p.moving = false;
         ++p.serial;
@@ -478,7 +491,7 @@ void SynthBank::reloadParams(int s, bool jump) {
     }
     // Compile the macro targets (empty targets -1 inside count are skipped).
     for (int k = 0; k < kSynthSeqMacros; ++k) {
-        const PatchMacro& m = sl.patch->macros[k];
+        const PatchMacro& m = patchOf(sl)->macros[k];
         for (int j = 0, c = synthMacroTargets(m); j < c; ++j) {
             const int i = m.targets[j].param;
             const float a = patchBitsToFloat(m.targets[j].amountBits);
@@ -486,7 +499,7 @@ void SynthBank::reloadParams(int s, bool jump) {
             sl.tgt[sl.ntgt++] = Slot::Tgt{uint8_t(i), uint8_t(k), a * (t[i].max - t[i].min)};
         }
     }
-    const PatchMacro& m7 = sl.patch->macros[kPatchMacroVelocity];
+    const PatchMacro& m7 = patchOf(sl)->macros[kPatchMacroVelocity];
     for (int j = 0, c = synthMacroTargets(m7); j < c; ++j) {
         const int i = m7.targets[j].param;
         const float a = patchBitsToFloat(m7.targets[j].amountBits);
@@ -502,13 +515,13 @@ void SynthBank::reloadParams(int s, bool jump) {
 // targeted parameters; untargeted ones keep the patch value.
 void SynthBank::applyMacros(int s) {
     Slot& sl = slots_[s];
-    if (!sl.patch || sl.mismatch || (!sl.macroDirty)) return;
+    if (!patchOf(sl) || sl.mismatch || (!sl.macroDirty)) return;
     sl.macroDirty = false;
     uint8_t val[kSynthSeqMacros];
     float m[kSynthSeqMacros];
     for (int k = 0; k < kSynthSeqMacros; ++k) {
         val[k] = sl.ovr[k] >= 0 ? uint8_t(sl.ovr[k]) : sl.page[k];
-        m[k] = synthMacroM(val[k], sl.patch->macros[k].bipolar);
+        m[k] = synthMacroM(val[k], patchOf(sl)->macros[k].bipolar);
         sl.applied[k] = val[k];
     }
     if (sl.ntgt == 0 && sl.ntgt7 == 0) return;
@@ -1084,10 +1097,15 @@ void SynthBank::macroFx(int slot, int macro, uint8_t value) {
 void SynthBank::transportStop() {
     // The sequencer's notes are no longer held (no return to them later).
     for (int t = 0; t < kSynthTracks; ++t) holdClear(t);
-    for (auto& sl : slots_) {
+    for (int s = 0; s < kSynthSlots; ++s) {
+        Slot& sl = slots_[s];
         for (auto& o : sl.ovr) {
             if (o >= 0) sl.macroDirty = true;
             o = -1;
+        }
+        if (sl.preset) {   // Z lasts until Stop
+            sl.preset = 0;
+            rebind_[s] = true;
         }
     }
 }
