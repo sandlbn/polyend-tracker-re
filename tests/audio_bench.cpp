@@ -1277,6 +1277,10 @@ bool memCheck() {
 
 }  // namespace
 
+#ifdef OT_BENCH_SYNTH_MODES
+void synthModesBench();   // bench_m4/synth_modes.cpp
+#endif
+
 int main(int argc, char** argv) {
     (void)argc;
     (void)argv;
@@ -1289,6 +1293,12 @@ int main(int argc, char** argv) {
     }
     std::setvbuf(stdout, nullptr, _IONBF, 0);
     clockStart();
+#ifdef OT_BENCH_SYNTH_MODES
+    // [I] make -C tests bench-m4-synth-modes: every mode of every synth, one
+    // phase each (bench_m4/synth_modes.cpp, #21 shared SRAM_L pool).
+    synthModesBench();
+    return 0;
+#endif
 #ifdef OT_BENCH_SYNTHS_ONLY
     // [I] make -C tests bench-m4-synth-hot: the component benches alone (the
     // synth pack engines + every module's bench), profiled per translation

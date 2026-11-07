@@ -225,11 +225,29 @@ bench-m4-synth-hot: $(BENCH_OUT)/audio_bench_m4_synths.elf $(BENCH_OUT)/hot_plug
 	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
 	    -plugin $(BENCH_OUT)/hot_plugin.so,out=$(BENCH_OUT)/synth_hot.txt -kernel $<
 
+# [I] Every mode of every synth, one phase each (bench_m4/synth_modes.cpp, #21): the
+# plugin starts a new count at each otHotPhase(); synth_modes.txt names the phases.
+# make -C tests bench-m4-synth-modes PROFILE=allsynths, then
+# tools/synth_hot.py <elf> <hot> --modes <names> [--emit-hot DIR]
+$(BENCH_OUT)/audio_bench_m4_modes.elf: $(M4_SRCS) $(M4_HDRS) bench_m4/synth_modes.cpp bench_m4/startup.c bench_m4/mps2.ld $(SRC)/hal/fast_mem.c
+	@mkdir -p $(dir $@)
+	$(M4_CC) $(M4_FLAGS) -c bench_m4/startup.c -o $(BENCH_OUT)/startup_m4.o
+	$(M4_CC) $(M4_FLAGS) -std=gnu11 -c $(SRC)/hal/fast_mem.c -o $(BENCH_OUT)/fast_mem_m4.o
+	$(M4_CXX) $(M4_FLAGS) -g -std=gnu++17 -fno-exceptions -fno-rtti -DOT_BENCH_M4 -DOT_BENCH_SYNTH_MODES -DOT_AUDIO_SDRAM_STATS \
+	    -I$(SRC)/core -I$(SRC) -I. $(MOD_INCS) $(MOD_DEFS) $(M4_SRCS) bench_m4/synth_modes.cpp $(BENCH_OUT)/startup_m4.o \
+	    $(BENCH_OUT)/fast_mem_m4.o -T bench_m4/mps2.ld -nostartfiles --specs=nano.specs --specs=rdimon.specs -u _printf_float \
+	    -Wl,--gc-sections -lm -o $@
+bench-m4-synth-modes: $(BENCH_OUT)/audio_bench_m4_modes.elf $(BENCH_OUT)/hot_plugin.so
+	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
+	    -plugin $(BENCH_OUT)/hot_plugin.so,out=$(BENCH_OUT)/synth_modes_hot.txt,phase=$$($(CROSS)nm $< | awk '$$3 == "otHotPhase" {print $$1}') \
+	    -kernel $< > $(BENCH_OUT)/synth_modes.txt
+	@grep -c '^hotphase' $(BENCH_OUT)/synth_modes.txt
+
 clean:
 	rm -rf $(OUT) $(BENCH_OUT)
 
 -include $(CORE_OBJS:.o=.d) $(MOD_OBJS:.o=.d) $(TEST_BINS:=.d)
-.PHONY: all build run clean bench bench-m4 audio-tables peak-trace bench-m4-hot
+.PHONY: all build run clean bench bench-m4 audio-tables peak-trace bench-m4-hot bench-m4-synth-modes
 
 # USB mass-storage endpoint driver (usb_msc_driver_test.cpp): the device's
 # third_party/teensy3/usb_msc_impl.h against a simulated USB controller.
