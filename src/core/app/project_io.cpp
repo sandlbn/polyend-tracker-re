@@ -6,6 +6,7 @@
 #include <new>
 
 #include "app/app.h"
+#include "app/synth_presets.h"
 #include "app/project_fields.h"
 #include "app/project_io.h"
 #include "app/stream_policy.h"
@@ -187,6 +188,9 @@ struct SlotScan {
     uint8_t patTmp[(kPatternCount + 8) / 8];   // pattern_NN.mtp.tmp (interrupted write)
     // Synth slot patches in the folder root (spec 21 §2): N.patch, N.patch.tmp.
     bool patch[kSynthSlotCount], patchTmp[kSynthSlotCount];
+    // [3.x] presets/<n>.patch (n = 1..8), .patch.tmp; presetsDir: the folder exists.
+    bool preset[kSynthPresetCount], presetTmp[kSynthPresetCount];
+    bool presetsDir;
     bool namesFile;
     bool collect;      // collect instrument file names into `names`
     bool workspace;    // Workspace naming (instrument_NN.pti)
@@ -258,13 +262,24 @@ int patchFileSlot(const char* n, bool* tmp) {
 }
 bool scanRootFn(const IStorage::DirEntry& e, void* ctx) {
     auto* s = static_cast<SlotScan*>(ctx);
-    if (e.isDir) return true;
+    if (e.isDir) {
+        if (eqNoCase(e.name, "presets")) s->presetsDir = true;
+        return true;
+    }
     bool tmp = false;
     const int k = patchFileSlot(e.name, &tmp);
     if (k < 0) return true;
     (tmp ? s->patchTmp : s->patch)[k] = true;
     s->patBytes += e.size;
     ++s->files;
+    return true;
+}
+bool scanPresetFn(const IStorage::DirEntry& e, void* ctx) {
+    auto* s = static_cast<SlotScan*>(ctx);
+    const char* n = e.name;
+    if (e.isDir || n[0] < '1' || n[0] > char('0' + kSynthPresetCount)) return true;
+    if (eqNoCase(n + 1, ".patch")) s->preset[n[0] - '1'] = true;
+    else if (eqNoCase(n + 1, ".patch.tmp")) s->presetTmp[n[0] - '1'] = true;
     return true;
 }
 inline bool bitOf(const uint8_t* b, int n) { return (b[n >> 3] >> (n & 7)) & 1; }
@@ -292,6 +307,10 @@ void scanSlots(IStorage& f, const char* dir, SlotScan& s, bool workspace = false
         f.listDir(p, scanPatFn, &s);
         // Folder root: the synth slot patches (N.patch).
         f.listDir(dir, scanRootFn, &s);
+        if (s.presetsDir) {
+            std::snprintf(p, sizeof(p), "%s/presets", dir);
+            f.listDir(p, scanPresetFn, &s);
+        }
     }
 }
 
@@ -310,6 +329,11 @@ bool writeAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_t len
 }
 
 void sidecarPath(char* out, size_t cap, const char* dir) { std::snprintf(out, cap, "%s/project.ot3x", dir); }
+
+// n = 1..8.
+void presetPath(char* out, size_t cap, const char* dir, int n, const char* suffix = "") {
+    std::snprintf(out, cap, "%s/presets/%d.patch%s", dir, n, suffix);
+}
 
 void patchPath(char* out, size_t cap, const char* dir, int s, const char* suffix = "") {
     std::snprintf(out, cap, "%s/%d.patch%s", dir, s, suffix);
@@ -559,6 +583,7 @@ bool App::newProject() {
     std::memset(extKeep_, 0, sizeof(extKeep_));
     loadNotice_[0] = 0;
     resetSidecar();
+    resetSynthPresets();
     setPresent(1, true);
     assemblePattern(1, pattern());
     attachSequencer();
@@ -619,6 +644,7 @@ enum Stage : uint8_t {
     kSDirs, kSPatterns, kSNames, kSCleanList, kSClean, kSInstr, kSFinish,
     kLPatch, kAPatch, kSPatch,   // Tracker Mini synth slot patches (spec 21 §7)
     kLSidecar, kASidecar, kSSidecar,   // 3.x project.ot3x (app/project_ot3.cpp)
+    kLPresets, kAPresets, kSPresets,   // 3.x presets/<n>.patch (app/synth_presets.cpp)
 };
 // Patterns of a Workspace load that were not in the 16-track layout: the
 // autosave rewrites them as 0x3030 (not "unsaved": the content is the same).
@@ -1688,6 +1714,47 @@ bool App::savePatch(int s, const char* dir) {
 // decodes the copied bytes; a Workspace load reads Workspace/N.patch. An
 // orphan N.patch.tmp that is complete stands in for a missing file (and is
 // renamed back in the Workspace); any other leftover .tmp is deleted.
+// Preset n (1..8) into memory. Open copies its file to the Workspace first; a
+// file that does not decode leaves the entry empty and stays on the card.
+void App::loadPresetUnit(int n, uint32_t& cost) {
+    if (!g_scan.preset[n - 1] && !g_scan.presetTmp[n - 1]) return;
+    IStorage& f = g_pfs;
+    const char* dir = pj_.fromProject ? pj_.dir : kWorkspace;
+    char src[340], tmp[340], dst[340];
+    presetPath(src, sizeof(src), dir, n);
+    presetPath(tmp, sizeof(tmp), dir, n, ".tmp");
+    presetPath(dst, sizeof(dst), kWorkspace, n);
+    if (pj_.fromProject) f.mkdir("Workspace/presets");
+    uint8_t* b = mem_.scratch;
+    constexpr uint32_t kCap = kPatchMaxFileSize + 1;
+    uint32_t len = 0;
+    bool have = false;
+    if (g_scan.preset[n - 1]) {
+        if (pj_.fromProject) {
+            have = copySmallFile(f, src, dst, b, kExtOff, kCap, len, cost) == 1;
+            if (len > kCap) len = kCap;
+        } else {
+            have = readWholeFile(f, src, b, kCap, &len) == FmtStatus::Ok;
+        }
+        if (!have) ++pj_.loadErrors;
+        if (g_scan.presetTmp[n - 1] && !pj_.fromProject) f.remove(tmp);   // the old file is intact
+    } else {
+        auto* chk = reinterpret_cast<SynthPatch*>(mem_.scratch + kPatchOff);
+        if (readWholeFile(f, tmp, b, kCap, &len) == FmtStatus::Ok && len <= kPatchMaxFileSize &&
+            completePatch(b, len, chk, mem_.scratch + kOutOff)) {
+            have = pj_.fromProject ? writeWholeFile(f, dst, b, len) == FmtStatus::Ok : f.rename(tmp, src);
+        } else if (!pj_.fromProject) {
+            f.remove(tmp);
+        }
+    }
+    SynthPatch& p = presets::table()[n - 1];
+    if (have && (len > kPatchMaxFileSize || decodePatch(b, len, &p) != PatchStatus::kOk)) {
+        std::memset(&p, 0, sizeof(p));
+        if (!loadNotice_[0]) std::snprintf(loadNotice_, sizeof(loadNotice_), "Preset %d is damaged", n);
+    }
+    cost += kJobSmallCost + len;
+}
+
 void App::loadPatchUnit(int s, uint32_t& cost) {
     IStorage& f = g_pfs;
     const char* dir = pj_.fromProject ? pj_.dir : kWorkspace;
@@ -1778,6 +1845,7 @@ bool App::jobUnit(uint32_t& cost) {
             std::memset(g_upgrade, 0, sizeof(g_upgrade));
             loadNotice_[0] = 0;
             resetSidecar();
+            resetSynthPresets();
             for (int s = 0; s < kSynthSlotCount; ++s) {
                 patchDirty_[s] = false;
                 patchSrc_[s] = PatchSource::None;
@@ -1860,6 +1928,14 @@ bool App::jobUnit(uint32_t& cost) {
             // Synth slot patches (spec 21 §7.2), after project.mt (records).
             if (pj_.idx < kSynthSlotCount) {
                 loadPatchUnit(pj_.idx++, cost);
+                return true;
+            }
+            pj_.stage = kLPresets;
+            pj_.idx = 1;
+            return true;
+        case kLPresets:
+            if (pj_.idx <= kSynthPresetCount) {
+                loadPresetUnit(pj_.idx++, cost);
                 return true;
             }
             pj_.stage = kLPatterns;
@@ -2139,7 +2215,8 @@ bool App::jobUnit(uint32_t& cost) {
             int k = pj_.idx;
             while (k < kSynthSlotCount && !patchDirty_[k]) ++k;
             if (k >= kSynthSlotCount) {
-                pj_.stage = kAFinish;
+                pj_.stage = kAPresets;
+                pj_.idx = 1;
                 return true;
             }
             pj_.idx = k + 1;
@@ -2148,6 +2225,32 @@ bool App::jobUnit(uint32_t& cost) {
                 patchDirty_[k] = true;
                 ++pj_.loadErrors;
             }
+            cost += kJobSmallCost + kPatchMaxFileSize / 4;
+            return true;
+        }
+        case kAPresets: {
+            // Workspace/presets/<n>.patch of each changed preset.
+            int n = pj_.idx;
+            uint8_t& dirty = presets::dirty();
+            while (n <= kSynthPresetCount && !((dirty >> (n - 1)) & 1)) ++n;
+            if (n > kSynthPresetCount) {
+                pj_.stage = kAFinish;
+                return true;
+            }
+            pj_.idx = n + 1;
+            presetPath(dst, sizeof(dst), kWorkspace, n);
+            bool ok = true;
+            if (synthPresetUsed(n)) {
+                f.mkdir("Workspace/presets");
+                uint8_t* out = mem_.scratch + kOutOff;
+                size_t len = 0;
+                ok = encodePatch(presets::table()[n - 1], out, kPatchMaxFileSize, &len) == PatchStatus::kOk &&
+                     writePatchAtomic(f, dst, out, uint32_t(len), out + kPatchMaxFileSize);
+            } else if (f.exists(dst)) {
+                ok = f.remove(dst);
+            }
+            if (ok) dirty = uint8_t(dirty & ~(1u << (n - 1)));
+            else ++pj_.loadErrors;
             cost += kJobSmallCost + kPatchMaxFileSize / 4;
             return true;
         }
@@ -2308,8 +2411,37 @@ bool App::jobUnit(uint32_t& cost) {
                 cost += kJobSmallCost + kPatchMaxFileSize / 4;
                 return true;
             }
-            pj_.stage = kSSidecar;
+            pj_.stage = kSPresets;
+            pj_.idx = 1;
+            pj_.phase = 0;
             return true;
+        case kSPresets: {
+            // The Workspace's presets go with the project; a cleared one leaves it.
+            const int n = pj_.idx;
+            if (n > kSynthPresetCount) {
+                pj_.stage = kSSidecar;
+                return true;
+            }
+            presetPath(src, sizeof(src), kWorkspace, n);
+            presetPath(dst, sizeof(dst), pj_.dir, n);
+            if (pj_.phase == 0 && !f.exists(src)) {
+                if (f.exists(dst)) f.remove(dst);
+                cost += kJobProbeCost;
+                ++pj_.idx;
+                return true;
+            }
+            if (pj_.phase == 0) {
+                std::snprintf(dst, sizeof(dst), "%s/presets", pj_.dir);
+                f.mkdir(dst);
+                presetPath(dst, sizeof(dst), pj_.dir, n);
+            }
+            bool failed = false;
+            if (jobCopyUnit(src, dst, cost, &failed)) {
+                if (failed) ++pj_.loadErrors;
+                ++pj_.idx;
+            }
+            return true;
+        }
         case kSSidecar: {
             // The Workspace sidecar (or none) goes with the project.
             sidecarPath(src, sizeof(src), kWorkspace);
@@ -2460,7 +2592,7 @@ bool App::startAutosave() {
     lastAutosave_ = millis();
     bool any = projectDirty_ || namesDirty_;
     for (int s = 0; s < kSynthSlotCount && !any; ++s) any = patchDirty_[s];
-    any = any || sidecarDirty();
+    any = any || sidecarDirty() || synthPresetDirty();
     for (int i = 0; i < 32 && !any; ++i) any = patDirty_[i] != 0;
     for (int i = 0; i < kSampleInstrumentCount && !any; ++i) any = instrHeaderDirty_[i] || instrSampleDirty_[i];
     // The edited pattern may differ from the store without a dirty mark yet.

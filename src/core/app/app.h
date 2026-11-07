@@ -444,6 +444,14 @@ public:
     SynthPatch& synthPatch(int s) { return patches_[s < 0 || s >= kSynthSlotCount ? 0 : s]; }
     const SynthPatch& synthPatch(int s) const { return patches_[s < 0 || s >= kSynthSlotCount ? 0 : s]; }
     PatchSource synthPatchSource(int s) const { return s >= 0 && s < kSynthSlotCount ? patchSrc_[s] : PatchSource::None; }
+    // [3.x] The project's synth presets (app/synth_presets.cpp), n = 1..8.
+    const SynthPatch& synthPreset(int n) const;
+    bool synthPresetUsed(int n) const;
+    bool synthPresetDirty() const;
+    int synthPresetActive(int s) const;       // what Z left slot s on, 0 = its own patch
+    void storeSynthPreset(int n, int s);      // slot s's patch into preset n
+    bool loadSynthPreset(int s, int n);       // preset n into slot s, its engine too
+    void clearSynthPreset(int n);
     void markSynthPatchDirty(int s) {
         if (s < 0 || s >= kSynthSlotCount) return;
         patchDirty_[s] = true;
@@ -721,6 +729,9 @@ private:
     bool loadPatternBytes(int num, const uint8_t* file, uint32_t len, uint8_t* out, bool* upgrade);
     bool savePatternUnit(int num);
     void loadPatchUnit(int s, uint32_t& cost);
+    void loadPresetUnit(int n, uint32_t& cost);
+    void leaveSynthPreset(int n);
+    void resetSynthPresets();
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);
