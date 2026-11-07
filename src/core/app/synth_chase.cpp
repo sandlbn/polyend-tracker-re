@@ -157,6 +157,12 @@ void App::chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::Stat
 void App::serviceSynthChase() {
     if (seq.isPlaying() || rendering_ || usbActive_ || (jobBusy() && jobOp() != JobOp::Autosave)) return;
     chase::Memory& m = chase::mem();
+    if (seq.isCountingIn()) {
+        // The count-in's start puts the slots on their own patches (audio
+        // context), and a Stop zeroes them: applied again once it is over.
+        m.stopped.valid = 0;
+        return;
+    }
     const uint16_t used = chaseUsed();   // first: may drop every summary
     chase::StopKey k;
     std::memset(&k, 0, sizeof(k));
@@ -165,10 +171,14 @@ void App::serviceSynthChase() {
     k.stopSerial = m.stopSerial;
     k.ticks = uint32_t(seq.tickCount());   // any playback since, also one too short to be seen
     k.used = used;
-    k.cursor = int16_t(ui.patternCursorStep());
+    // What Play would start on: the Song screen plays the song from its
+    // cursor (F2), a position at its step 0, so the positions before it; any
+    // other screen the current pattern alone, up to the pattern cursor.
+    const int songPos = ui.songCursorPos();
+    k.songMode = songPos >= 0 ? 1 : 0;
+    k.pos = uint8_t(k.songMode ? songPos : 0);
+    k.cursor = int16_t(k.songMode ? -1 : ui.patternCursorStep());
     k.pattern = patternNumber();
-    k.songMode = seq.isSongMode() ? 1 : 0;
-    k.pos = project.playlistPos;
     k.playlistHash = k.songMode ? chase::playlistHash(project.playlist, k.pos) : 0;
     k.valid = 1;
     if (std::memcmp(&k, &m.stopped, sizeof(k)) == 0) {
@@ -178,7 +188,7 @@ void App::serviceSynthChase() {
     m.stopped = k;
     chase::State st;
     const int last = pattern().tracks[0].lastStep;
-    chaseAt(k.songMode != 0, k.pos, k.cursor > last ? last : k.cursor, st);
+    chaseAt(k.songMode != 0, k.pos, k.cursor > last ? last : k.cursor, st);   // -1: none of the pattern
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().presetSelect(s, st.preset[s]);
 }
 

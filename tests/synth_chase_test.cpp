@@ -207,6 +207,11 @@ namespace {
 void cursor(App& a, int step) {
     static_cast<PatternScreen*>(a.ui.screen(kModPattern))->step = step;
 }
+// The Song screen shown, its cursor on playlist position pos.
+void songCursor(App& a, int pos) {
+    if (a.ui.active() != kModSong) a.ui.switchTo(kModSong);
+    static_cast<SongScreen*>(a.ui.screen(kModSong))->cursor = pos;
+}
 }  // namespace
 
 TEST(stopped_pads_and_midi_play_the_chase_at_the_cursor_and_stop_reapplies_it) {
@@ -231,21 +236,22 @@ TEST(stopped_pads_and_midi_play_the_chase_at_the_cursor_and_stop_reapplies_it) {
     cursor(a, 6);
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
-    // Song mode: the positions before the playlist position come first.
-    note(stored(a, 2, 3, 0), 65);
-    z(stored(a, 2, 3, 0), 1, 5);
-    a.project.playlist[0] = 2;
-    a.project.playlist[1] = 1;
-    a.project.playlistPos = 1;
-    a.seq.setSongMode(true);
-    h.run();
-    CHECK_EQ(a.synthPresetActive(1), 5);
-    CHECK_EQ(a.synthPresetActive(0), 2);
     // A pad on Synth 1 plays the chased preset: the slot is on it while stopped.
     a.setCurrentInstrument(64);
     h.push(InputEvent::kPadDown, 10);
     CHECK_EQ(a.synthPresetActive(0), 2);
     h.push(InputEvent::kPadUp, 10);
+    // The Song screen: the positions before its cursor, from that position's
+    // step 0 (the pattern cursor's Z2 is not part of it).
+    note(stored(a, 2, 3, 0), 65);
+    z(stored(a, 2, 3, 0), 1, 5);
+    a.project.playlist[0] = 2;
+    a.project.playlist[1] = 1;
+    a.project.playlistPos = 1;
+    songCursor(a, 1);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 5);
+    CHECK_EQ(a.synthPresetActive(0), 0);
     // Stop zeroes the slots' presets; the next pass puts the chase back.
     a.togglePlay(true);   // Shift+Play from position 1
     CHECK(a.seq.isPlaying());
@@ -256,9 +262,93 @@ TEST(stopped_pads_and_midi_play_the_chase_at_the_cursor_and_stop_reapplies_it) {
     CHECK_EQ(a.synthPresetActive(1), 0);
     h.run();
     CHECK_EQ(a.synthPresetActive(1), 5);
-    a.seq.setSongMode(false);
+    a.ui.switchTo(kModPattern);
     h.run();
     CHECK_EQ(a.synthPresetActive(1), 0);
+}
+
+TEST(stopped_chase_is_the_song_screen_cursor_else_the_pattern_from_step_0) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {2, 5});
+    note(stored(a, 2, 3, 0), 65);   // position 0: Synth 2 on Z5
+    z(stored(a, 2, 3, 0), 1, 5);
+    note(stored(a, 3, 0, 0), 64);   // position 1: Synth 1 on Z2
+    z(stored(a, 3, 0, 0), 1, 2);
+    a.project.playlist[0] = 2;
+    a.project.playlist[1] = 3;
+    a.project.playlist[2] = 4;
+    cursor(a, 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    // A song played from position 2 and stopped: the Pattern screen still
+    // auditions the pattern alone (what Play plays), not the song before it.
+    a.project.playlistPos = 2;
+    a.togglePlay(true);
+    CHECK(a.seq.isPlaying());
+    a.togglePlay(false);
+    h.run();
+    CHECK_EQ(int(a.patternNumber()), 4);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    // The Song screen: what F2 plays from its cursor, the positions before it.
+    songCursor(a, 1);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 5);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    songCursor(a, 2);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 5);
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    songCursor(a, 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    // The Song screen starts a position at its step 0: the current pattern's
+    // Z under the pattern cursor does not count there, and does on the
+    // Pattern screen.
+    note(a.pattern().tracks[0].steps[0], 66);
+    z(a.pattern().tracks[0].steps[0], 1, 2);
+    a.patternEdited();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(2), 0);
+    a.ui.switchTo(kModPattern);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(2), 2);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+}
+
+TEST(stopped_chase_waits_while_the_count_in_runs) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {2});
+    note(a.pattern().tracks[0].steps[4], 64);
+    z(a.pattern().tracks[0].steps[4], 1, 2);
+    a.patternEdited();
+    cursor(a, 3);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    a.seq.settings().preRoll = 1;
+    a.seq.record();
+    CHECK(a.seq.isCountingIn());
+    cursor(a, 4);   // the chase there is Z2, but the count-in start owns the slots
+    h.run();
+    CHECK(a.seq.isCountingIn());
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    a.seq.stop();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    // A count-in stopped where it started: Stop zeroed the slots, the chase
+    // goes back on.
+    a.seq.record();
+    h.run();
+    a.seq.stop();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
 }
 
 TEST(warm_up_summarises_stale_patterns_in_the_background) {

@@ -1,7 +1,9 @@
 // [OT] Z chase: which synth preset each slot is on at a pattern position,
 // read from the pattern data the way the sequencer plays it (sequencer.cpp
 // stepStart). Used at Play from a later position (ISequencerHost::synthChase)
-// and while stopped, so pads and MIDI play what the song plays at the cursor.
+// and while stopped, so pads and MIDI play what Play would start on: the
+// pattern alone up to the pattern cursor, or on the Song screen the song
+// positions before its cursor.
 //
 // Play order: song mode, playlist positions 0..pos-1 whole (an entry 0 is
 // skipped), then the pattern's steps; within a step tracks 0..15, each FX-B
