@@ -161,6 +161,21 @@ struct PresetInsert {
 enum : uint8_t { kPresetInsertHas = 1, kPresetInsertOff = 2 };
 #endif
 
+// [3.x] The mix a synth preset carries (App::storeSynthPreset), one per
+// preset beside the preset table: the slot record's gain, pan and sends
+// when the preset was stored. kPresetMixHas: while a slot plays the preset
+// it plays with this mix; without it the slot keeps its own (a preset saved
+// before presets had a mix).
+struct PresetMix {
+    float gainDb;
+    float pan;
+    float reverbSend;
+    float delaySend;
+    uint8_t flags;
+    uint8_t rsv[3];
+};
+enum : uint8_t { kPresetMixHas = 1 };
+
 class SynthBank : public IVoicePool {
 public:
     SynthBank();
@@ -194,6 +209,21 @@ public:
     void bindPresets(const SynthPatch* presets) { presets_ = presets; }
     bool presetSelect(int s, uint8_t n);
     uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
+    // [3.x] kSynthPresetCount entries beside the preset table, bound once: a
+    // slot on preset n plays with preset n's mix when it has one (ramped on
+    // the block of the switch, as a record change). setSlotRecord sets the
+    // slot's own mix, which comes back with its own patch.
+    void bindPresetMix(const PresetMix* mix) { presetMix_ = mix; }
+    // [3.x] An edit of the slot's own mix while it plays a preset's: the own
+    // mix wins (the record's gain, pan and sends) and the slot stays on the
+    // preset's patch and insert, until the next presetSelect (a Z, Z0, the
+    // stopped chase), Stop, an edit of its patch or a reset. Main loop,
+    // before the setSlotRecord that carries the edit.
+    void ownMixWins(int s) {
+        if (s >= 0 && s < kSynthSlots) ownMix_[s] = true;
+    }
+    // The gain the slot plays with (linear; its own or its preset's).
+    float slotGain(int s) const { return slots_[clampSlot(s)].gainLin; }
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
     void setSlotRecord(int s, const SynthSlotRecord& r);
@@ -383,6 +413,9 @@ private:
         // [3.x] T0: the engine keeps state beyond a voice (kSynthFlagKitState:
         // PERC's, T-Type's kit).
         bool kit = false;
+        // [3.x] The delay / reverb send the slot plays with (0..100, its
+        // record's or its preset's): Performance send offsets add to it.
+        uint8_t sendD = 0, sendR = 0;
         SynthSlotScratch scratch;
     };
 
@@ -434,6 +467,7 @@ private:
     Pending pend_[kPending];
     Deferred defer_[kSynthTracks + 1];   // MIDI input tracks never wait
     const SynthPatch* presets_ = nullptr;
+    const PresetMix* presetMix_ = nullptr;   // [3.x] bindPresetMix
     uint8_t nDefer_ = 0;
     uint8_t startCap_ = kStartsPerBlock;
     uint8_t starts_ = 0;          // voice starts in the current block
@@ -452,15 +486,18 @@ private:
     uint8_t heldSlot_[kSynthAllTracks];
     uint8_t heldSeq_[kSynthAllTracks];
     uint8_t heldNext_ = 0;
+    // [3.x] ownMixWins (in the padding before perfWord_). One byte per slot:
+    // the main loop sets it, a Z (also from the sequencer) clears it.
+    volatile bool ownMix_[kSynthSlots] = {};
     // Performance FX per track (setTrackPerf), one word each: bytes 0..3 =
     // filter value (-100..100, x 477 / 5000 octaves), pan, delay and reverb
     // send offsets (int8). Packed: the stack headroom has no room for more.
     uint32_t perfWord_[kSynthTracks] = {};
     volatile uint8_t perfActive_ = 0;         // tracks with a non-zero perfWord_
+    uint8_t tails_ = 0;                       // bit s: slot s's slotPost reported a tail
     uint32_t serial_ = 0;
     uint32_t steals_ = 0;
     int activeVoices_ = 0;                    // records not free
-    uint8_t tails_ = 0;                       // bit s: slot s's slotPost reported a tail
     const Governor* gov_ = nullptr;
     BlockProfile* prof_ = nullptr;
     ISynthEngine* override_ = nullptr;
@@ -487,7 +524,8 @@ private:
     uint8_t liveSeen_[kSynthLiveTracks] = {};   // audio side: last serial
     uint8_t liveSerial_[kSynthLiveTracks] = {}; // main loop: last serial
     void liveDrain();
-    static float perfNote(uint32_t w, const SynthSlotRecord& rec, int8_t& pan, int8_t& sendD, int8_t& sendR);
+    static float perfNote(uint32_t w, const Slot& sl, int8_t& pan, int8_t& sendD, int8_t& sendR);
+    void applyMix(int s);   // [3.x] gainLin .. sendR from the record or the bound preset's mix
     bool livePending() const {
         for (int k = 0; k < kSynthLiveTracks; ++k)
             if (uint8_t(live_[k]) != liveSeen_[k]) return true;
