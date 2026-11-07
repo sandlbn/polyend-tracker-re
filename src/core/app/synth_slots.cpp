@@ -105,13 +105,13 @@ void App::setSynthSlotRecord(int s, const SynthSlotRecord& r) {
     const SynthSlotRecord now = project.synthSlot(s);
     engine.synth().setSlotRecord(s, now);   // main-loop setter: applies at the next block
     markProjectDirty();
-    // [OT] An edit of the slot's own mix is heard as a patch edit is: a slot on
-    // a preset that carries a mix goes back to its own patch and mix (the
-    // stopped chase leaves it there until its inputs change).
+    // [OT] An edit of the slot's own mix is heard: a slot on a preset that
+    // carries a mix keeps the preset's patch and plays its own mix until the
+    // next preset change (a repeated Z, also the stopped chase's, keeps it).
     const int z = engine.synth().presetOf(s);
     if (z && patchHasMix(synthPreset(z)) &&
         (was.gainDb != now.gainDb || was.pan != now.pan || was.reverbSend != now.reverbSend || was.delaySend != now.delaySend))
-        engine.synth().patchChanged(s);
+        engine.synth().ownMixWins(s);
 }
 
 void App::setSynthModel(int s, int model) {

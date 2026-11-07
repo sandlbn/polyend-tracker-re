@@ -526,6 +526,7 @@ TEST(a_preset_saved_without_a_mix_keeps_the_slots_on_load) {
     CHECK(a.engine.synth().presetSelect(1, 1));
     mixed(a, 1, -3.0f, 60.0f, 15.0f, 25.0f);
     CHECK_EQ(a.synthPresetActive(1), 1);
+    CHECK(!a.engine.synth().ownMixWon(1));
     // The file stays as it was when nothing changed it.
     CHECK(a.saveProject());
     CHECK(h.fs.files[projPreset("Old", 1)] == bytes);
@@ -563,25 +564,51 @@ TEST(own_mix_edit_on_a_mix_preset_is_heard) {
     App& a = *h.app;
     CHECK(a.newProject());
     a.storeSynthPreset(1, 0);
+    a.storeSynthPreset(2, 0);
     audio::SynthBank& b = a.engine.synth();
     CHECK(b.presetSelect(0, 1));
-    // An edit that is not the mix (a macro page value) keeps the preset.
+    // An edit that is not the mix (a macro page value) keeps the preset's mix.
     SynthSlotRecord r = a.synthSlot(0);
     r.macros[0] = uint8_t(r.macros[0] == 10 ? 11 : 10);
     a.setSynthSlotRecord(0, r);
     CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK(!b.ownMixWon(0));
     a.setSynthSlotRecord(0, r);   // unchanged
-    CHECK_EQ(a.synthPresetActive(0), 1);
-    // Gain, pan or a send: back on the slot's own patch and mix.
+    CHECK(!b.ownMixWon(0));
+    // Gain, pan or a send: the preset's patch plays on, at the slot's own mix.
     float SynthSlotRecord::*fields[4] = {&SynthSlotRecord::gainDb, &SynthSlotRecord::pan, &SynthSlotRecord::reverbSend,
                                          &SynthSlotRecord::delaySend};
     for (auto f : fields) {
+        CHECK(b.presetSelect(0, 2));   // a preset change ends the last one
         CHECK(b.presetSelect(0, 1));
+        CHECK(!b.ownMixWon(0));
         SynthSlotRecord e = a.synthSlot(0);
         e.*f += 1.0f;
         a.setSynthSlotRecord(0, e);
-        CHECK_EQ(a.synthPresetActive(0), 0);
+        CHECK_EQ(a.synthPresetActive(0), 1);
+        CHECK(b.ownMixWon(0));
+        CHECK(b.presetSelect(0, 1));   // the same Z again keeps it
+        CHECK(b.ownMixWon(0));
     }
+    // The next Z to another preset, or back to this one after it, ends it.
+    CHECK(b.presetSelect(0, 2));
+    CHECK(!b.ownMixWon(0));
+    mixed(a, 0, -7.0f, 0.0f, 0.0f, 0.0f);
+    CHECK(b.ownMixWon(0));
+    CHECK(b.presetSelect(0, 1));
+    CHECK(!b.ownMixWon(0));
+    // So does Stop.
+    mixed(a, 0, -8.0f, 0.0f, 0.0f, 0.0f);
+    CHECK(b.ownMixWon(0));
+    b.transportStop();
+    CHECK(!b.ownMixWon(0));
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    // And an edit of the slot's patch (it plays its own patch and mix).
+    CHECK(b.presetSelect(0, 1));
+    mixed(a, 0, -9.0f, 0.0f, 0.0f, 0.0f);
+    a.markSynthPatchDirty(0);
+    CHECK(!b.ownMixWon(0));
+    CHECK_EQ(a.synthPresetActive(0), 0);
 }
 
 TEST(own_mix_edit_while_the_stopped_chase_holds_a_preset_is_heard) {
@@ -600,10 +627,16 @@ TEST(own_mix_edit_while_the_stopped_chase_holds_a_preset_is_heard) {
     mixed(a, 0, -2.0f, 0.0f, 0.0f, 0.0f);   // the Mixer's Synth 1 fader
     h.run();
     h.run();
-    CHECK_EQ(a.synthPresetActive(0), 0);    // heard on the own mix
-    cursorTo(a, 3);                          // the chase's inputs change: back on it
+    CHECK_EQ(a.synthPresetActive(0), 1);    // the preset's patch, at the own mix
+    CHECK(a.engine.synth().ownMixWon(0));
+    cursorTo(a, 3);                          // the chase applies again: the same Z keeps it
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK(a.engine.synth().ownMixWon(0));
+    a.storeSynthPreset(1, 0);                // the preset changes: the chase puts it back on
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 1);
+    CHECK(!a.engine.synth().ownMixWon(0));
 }
 
 TEST(presets_page_shows_the_gain_a_preset_carries) {

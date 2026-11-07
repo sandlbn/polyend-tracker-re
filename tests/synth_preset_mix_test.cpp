@@ -1,8 +1,10 @@
 // Z with a preset that carries a slot mix (gain, pan, reverb / delay send):
 // the slot plays at the preset's mix with its patch, exactly as if its own
 // record held those values. Z0, Stop, an edit of the patch or a reset bring
-// the record's mix back; a preset without a mix keeps the record's. The
-// Performance sends of a track add to the mix the slot plays.
+// the record's mix back; a preset without a mix keeps the record's. An edit
+// of the slot's own mix wins over the preset's (the preset's patch plays on)
+// until the next preset change. The Performance sends of a track add to the
+// mix the slot plays.
 #include "test.h"
 
 #include <cmath>
@@ -238,4 +240,131 @@ TEST(a_mix_value_out_of_range_is_held_at_the_limit) {
     a.note(0, 64);
     b.note(0, 64);
     CHECK(same(a, b, 6, false));
+}
+
+namespace {
+// Another sound in preset 1 (one parameter off its default): the test hears
+// which patch plays.
+void otherSound(SynthPatch& p) {
+    for (int i = 1; i < synthParamCount(p.engine); ++i) {
+        const PatchParamRange* r = synthParamRange(p.engine, i);
+        if (!r || (r->flags & kParamFlagNoRange) || !(r->max > r->min)) continue;
+        const float v = r->def == r->max ? r->min : r->max;
+        if (synthParamSet(p, i, v)) return;
+    }
+}
+}  // namespace
+
+TEST(own_mix_wins_on_a_mix_preset_keeps_its_patch) {
+    // a: preset 1's sound without a mix, at the record kOther; b: the same
+    // sound with the mix kPre, then the record edited to kOther.
+    Rig a(kOther);
+    Rig b(kOwn);
+    otherSound(a.presets[0]);
+    otherSound(b.presets[0]);
+    b.withMix(1, kPre);
+    CHECK(a.bank.presetSelect(0, 1));
+    CHECK(b.bank.presetSelect(0, 1));
+    notes(a, b);
+    CHECK(!same(a, b, 3, false));
+    b.bank.setSlotRecord(0, recOf(kOther));
+    b.bank.ownMixWins(0);
+    CHECK(b.bank.ownMixWon(0));
+    a.block();   // the ramp block
+    b.block();
+    CHECK_EQ(int(b.bank.presetOf(0)), 1);
+    CHECK(same(a, b, 8));
+    CHECK(b.bank.presetSelect(0, 1));   // a repeated Z keeps it
+    CHECK(b.bank.ownMixWon(0));
+    CHECK(same(a, b, 4));
+}
+
+TEST(the_next_z_stop_and_a_patch_edit_end_own_mix_wins) {
+    for (int way = 0; way < 5; ++way) {
+        Rig a(kPre);
+        Rig b(kOwn);
+        b.withMix(1, kPre);
+        b.withMix(2, kOther);
+        CHECK(b.bank.presetSelect(0, 1));
+        notes(a, b);
+        b.bank.setSlotRecord(0, recOf(kOwn));   // unchanged record: the flag alone
+        b.bank.ownMixWins(0);
+        b.block();
+        a.block();
+        CHECK(!same(a, b, 3, false));
+        if (way == 0) {   // to another preset and back
+            b.bank.presetSelect(0, 2);
+            CHECK(!b.bank.ownMixWon(0));
+            b.block();
+            b.bank.presetSelect(0, 1);
+        }
+        if (way == 1) {   // Z0, then the preset again
+            b.bank.presetSelect(0, 0);
+            CHECK(!b.bank.ownMixWon(0));
+            b.block();
+            b.bank.presetSelect(0, 1);
+        }
+        if (way == 2) {
+            b.bank.transportStop();
+            CHECK(!b.bank.ownMixWon(0));
+            b.block();
+            b.bank.presetSelect(0, 1);
+        }
+        if (way == 3) {
+            b.bank.patchChanged(0);
+            CHECK(!b.bank.ownMixWon(0));
+            b.block();
+            b.bank.presetSelect(0, 1);
+        }
+        if (way == 4) {
+            b.bank.reset();
+            CHECK(!b.bank.ownMixWon(0));
+            b.bank.setSlotRecord(0, recOf(kOwn));
+            b.block();
+            b.bank.presetSelect(0, 1);
+            a.bank.reset();
+            a.bank.setSlotRecord(0, recOf(kPre));
+            a.block();
+            a.note();
+            b.note();
+        }
+        if (way != 4) a.block();
+        a.bank.patchChanged(0);   // the same rebind in both
+        a.block();
+        b.block();
+        CHECK_EQ(int(b.bank.presetOf(0)), 1);
+        CHECK(same(a, b, 6, false));
+    }
+}
+
+TEST(z_from_a_mix_preset_to_one_without_brings_the_records_mix) {
+    Rig a(kOwn);
+    Rig b(kOwn);
+    b.withMix(1, kPre);
+    b.bank.presetSelect(0, 1);
+    notes(a, b);
+    CHECK(!same(a, b, 3, false));
+    b.bank.presetSelect(0, 2);   // no mix stored
+    a.bank.patchChanged(0);
+    b.block();
+    a.block();
+    CHECK(same(a, b, 6, false));
+}
+
+TEST(performance_sends_add_to_the_own_mix_that_wins) {
+    SynthPerf pf;
+    pf.dsend = 10;
+    pf.rsend = 15;
+    Rig a(kOther);
+    Rig b(kOwn);
+    b.withMix(1, kPre);
+    b.bank.presetSelect(0, 1);
+    a.bank.setTrackPerf(0, pf);
+    b.bank.setTrackPerf(0, pf);
+    notes(a, b, 0);
+    b.bank.setSlotRecord(0, recOf(kOther));
+    b.bank.ownMixWins(0);
+    a.block();
+    b.block();
+    CHECK(same(a, b, 10));
 }

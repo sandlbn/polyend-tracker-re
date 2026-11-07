@@ -160,6 +160,12 @@ public:
         return n == 0 || (n <= kSynthPresetCount && presets_ && presets_[n - 1].engine != 0);
     }
     uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
+    // [OT] An edit of the slot's own mix (gain, pan, sends) while it plays a
+    // preset that carries one: the record's mix plays from the next block, the
+    // preset's patch plays on. Ends with the next preset change (presetSelect
+    // of another n, Z0, Stop, patchChanged, reset). Main loop.
+    void ownMixWins(int s);
+    bool ownMixWon(int s) const { return slots_[clampSlot(s)].ownMix; }
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
     void setSlotRecord(int s, const SynthSlotRecord& r);
@@ -278,6 +284,7 @@ private:
         int32_t engineId = 0;
         bool mismatch = false;
         volatile uint8_t preset = 0;   // [OT] Z: 1.. plays that preset, 0 the slot's patch
+        volatile bool ownMix = false;  // [OT] ownMixWins(): the record's mix over the preset's
         SynthParams p;
         // macro state
         uint8_t page[kSynthSeqMacros] = {};
@@ -318,10 +325,10 @@ private:
         const uint8_t z = sl.preset;
         return z && presets_ && presets_[z - 1].engine ? &presets_[z - 1] : sl.patch;
     }
-    // [OT] The preset whose mix the slot plays (bound, holding a mix), else
-    // nullptr: the record's (gain, pan, sends).
+    // [OT] The preset whose mix the slot plays (bound, holding a mix, and no
+    // own-mix edit since its Z), else nullptr: the record's (gain, pan, sends).
     const SynthPatch* mixOf(const Slot& sl) const {
-        return sl.bound && sl.bound != sl.patch && patchHasMix(*sl.bound) ? sl.bound : nullptr;
+        return sl.bound && sl.bound != sl.patch && !sl.ownMix && patchHasMix(*sl.bound) ? sl.bound : nullptr;
     }
     void applyMix(Slot& sl);
     int baseSend(const Slot& sl, int which) const;
@@ -377,6 +384,7 @@ private:
     // before its data is read, so a later write is seen at the next block).
     volatile bool rebind_[kSynthSlots] = {};  // engine / patch must be re-read
     volatile bool recDirty_[kSynthSlots] = {};
+    volatile bool mixDirty_[kSynthSlots] = {};   // [OT] ownMixWins(): applyMix again
     volatile bool ovrRelease_[kSynthSlots][kSynthSeqMacros] = {};   // releaseMacro()
     SynthSlotRecord pendRec_[kSynthSlots];
     struct Audition {
