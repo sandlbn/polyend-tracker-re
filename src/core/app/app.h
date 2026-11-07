@@ -749,7 +749,8 @@ private:
     void chaseInvalidate(int num);
     void chaseInvalidateAll();
     void chaseTouch();
-    void chaseForget(int slot = -1);   // -1: every slot
+    void chaseForget();
+    void chaseReapply(int s);          // stopped: slot s to what the stopped chase gave it
     void serviceSynthChase();   // loop(): stopped, the slots follow the cursor's chase
     void chaseWarm(int maxScans);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);

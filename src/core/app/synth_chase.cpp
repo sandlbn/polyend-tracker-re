@@ -195,10 +195,19 @@ void App::chaseInvalidateAll() {
 
 void App::chaseTouch() { ++g_chase.gen; }
 
-void App::chaseForget(int slot) {
+void App::chaseForget() {
     g_chase.keyValid = 0;
-    if (slot < 0) std::memset(g_chase.applied, 0xFF, sizeof g_chase.applied);
-    else if (slot < kSynthSlotCount) g_chase.applied[slot] = 0xFF;
+    std::memset(g_chase.applied, 0xFF, sizeof g_chase.applied);
+}
+
+void App::chaseReapply(int s) {
+    // Stopped, the slot back from something that took it off its preset (a
+    // Load Patch preview): at once to what the stopped chase gave it, so an
+    // edit right after it (a load) is heard on its patch as any other.
+    chase::Memory& g = g_chase;
+    if (s < 0 || s >= kSynthSlotCount || !g.keyValid || g.applied[s] == 0xFF) return;
+    if (seq.isPlaying() || seq.isCountingIn() || seq.tickCount() != g.ticks || seq.stopCount() != g.stops) return;
+    engine.synth().presetSelect(s, g.applied[s]);
 }
 
 void App::serviceSynthChase() {

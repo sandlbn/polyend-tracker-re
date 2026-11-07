@@ -417,3 +417,32 @@ TEST(stopped_chase_sets_a_slot_again_after_its_patch_preview_ends) {
     CHECK_EQ(a.synthPresetActive(0), 2);
     CHECK_EQ(a.synthPresetActive(1), 4);
 }
+
+TEST(a_patch_load_from_the_preview_is_heard_on_the_loaded_patch) {
+    // Confirm in Load Patch: the preview ends, then the load (an edit of the
+    // slot's patch) -- heard on that patch until the chase's inputs change.
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    libraryPatch(h, 0, "Prev");
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[4], 60, 64);
+    putZ(p.tracks[0].steps[4], 1, 2);
+    edited(a);
+    cursorTo(h, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK(a.previewSynthLibraryPatch(0, "Prev"));
+    h.run();
+    a.endSynthPreview();
+    CHECK(a.loadSynthLibraryPatch(0, "Prev"));
+    h.run();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    cursorTo(h, 3);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);   // before the Z
+    cursorTo(h, 5);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+}
