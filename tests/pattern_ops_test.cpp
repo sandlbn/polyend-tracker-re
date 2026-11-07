@@ -300,3 +300,21 @@ TEST(fill_random_never_writes_preset) {
                [](void* c) { uint32_t& x = *static_cast<uint32_t*>(c); x = x * 1664525u + 1013904223u; return x >> 8; }, &seed);
     for (int s = 0; s < 128; ++s) CHECK(!isPresetCmd(fxAt(p, 2, s).type, fxAt(p, 2, s).value));
 }
+
+TEST(fill_counts_a_z_step_as_having_fx) {
+    for (int where : {2, 3}) {   // Fx, No Fx
+        Pattern p;
+        pops::writeFxType(p, rect(1, 1, 0, 0), 2, kFxSynthPreset);
+        pops::writeFxValue(p, rect(1, 1, 0, 0), 2, 4);
+        pops::FillParams f;
+        f.where = int16_t(where);
+        f.scaleOrFx = 2;   // Volume
+        f.type = 0;
+        f.from = 30;
+        uint32_t seed = 1;
+        pops::fill(p, rect(0, 3, 0, 0), 2, f, 60, 0, [](void* c) { return ++*static_cast<uint32_t*>(c); }, &seed);
+        if (where == 3) CHECK(isZ(fxAt(p, 2, 1), 4));   // No Fx: the Z step is not touched
+        else CHECK(!isZ(fxAt(p, 2, 1), 4));             // Fx: it is the one step filled
+        if (where == 2) CHECK_EQ(int(fxAt(p, 2, 0).type), 0);
+    }
+}

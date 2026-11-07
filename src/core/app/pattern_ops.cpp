@@ -390,8 +390,8 @@ void fill(Pattern& p, const SelRect& r, int col, const FillParams& f, uint8_t ro
             switch (f.where) {
                 case 0: sel = st.note >= 0; break;
                 case 1: sel = st.note < 0; break;
-                case 2: sel = st.fx[0].type != 0 || st.fx[1].type != 0; break;
-                case 3: sel = st.fx[0].type == 0 && st.fx[1].type == 0; break;
+                case 2: sel = st.fx[0].used() || st.fx[1].used(); break;
+                case 3: sel = !st.fx[0].used() && !st.fx[1].used(); break;
                 case 4: sel = int(rnd(rndCtx) % 128) < param; break;
                 case 5: sel = param > 0 && row % param == 0; break;
                 case 6: {

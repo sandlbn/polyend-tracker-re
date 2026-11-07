@@ -149,7 +149,7 @@ public:
     // The patch's values / macros / engine changed: re-read at the next block
     // (parameter edits apply live; a new engine restarts the slot).
     void patchChanged(int s);
-    // [3.x] Z: the table of kSynthPresetCount presets (engine 0 = empty), bound
+    // [OT] Z: the table of kSynthPresetCount presets (engine 0 = empty), bound
     // once. presetSelect(s, n) makes slot s play preset n (1..), or its own
     // patch (0), until the next select, an edit of its patch, or Stop.
     void bindPresets(const SynthPatch* presets) { presets_ = presets; }
@@ -268,10 +268,11 @@ private:
     struct Slot {
         SynthSlotRecord rec;
         const SynthPatch* patch = nullptr;
+        const SynthPatch* bound = nullptr;   // patchOf() at the last bind: all of a reload reads this one
         ISynthEngine* eng = nullptr;   // nullptr: silent (unavailable / mismatch / poly 0 still loads)
         int32_t engineId = 0;
         bool mismatch = false;
-        volatile uint8_t preset = 0;   // [3.x] Z: 1.. plays that preset, 0 the slot's patch
+        volatile uint8_t preset = 0;   // [OT] Z: 1.. plays that preset, 0 the slot's patch
         SynthParams p;
         // macro state
         uint8_t page[kSynthSeqMacros] = {};
@@ -306,8 +307,11 @@ private:
         SynthSlotScratch scratch;
     };
 
+    // What the slot should play now: one read of `preset`, which the main loop
+    // can zero at any time, and an emptied entry is the slot's own patch.
     const SynthPatch* patchOf(const Slot& sl) const {
-        return sl.preset && presets_ ? &presets_[sl.preset - 1] : sl.patch;
+        const uint8_t z = sl.preset;
+        return z && presets_ && presets_[z - 1].engine ? &presets_[z - 1] : sl.patch;
     }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;

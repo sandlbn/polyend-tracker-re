@@ -1366,7 +1366,7 @@ void Sequencer::sendPitchBendFx(uint8_t instr, uint8_t value) {
 // ---------------------------------------------------------------------------
 
 bool Sequencer::cellFree(const Step& s) {
-    return (s.note == kNoteEmpty || s.note <= -5) && s.fx[0].type == 0 && s.fx[1].type == 0;
+    return (s.note == kNoteEmpty || s.note <= -5) && !s.fx[0].used() && !s.fx[1].used();
 }
 
 bool Sequencer::liveTargetStep(int t, int& target) const {

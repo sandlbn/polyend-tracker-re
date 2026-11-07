@@ -752,6 +752,7 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
     if (ui_.picker.isOpen()) return;
     if (id == btn::InstrParams) {
         if (state != kPress) return;
+        if (view == View::Presets && previewKey_ >= 0) endPresetPreview();
         audition(false, 0);
         if (view == View::Browser) closeBrowser();   // Cancel, back to page 1/2
         else view = view == View::Params ? View::Macros : View::Params;
@@ -1148,17 +1149,18 @@ void SynthScreen::drawPresets(Gfx& g) {
         }
         const int32_t e = s->app_.synthPreset(n).engine;
         std::snprintf(out, size_t(cap), "%sP%d  %s", mark, n,
-                      audio::synthEngineFor(e) ? synthEngineDisplayName(e) : "not available");
+                      audio::synthEngineFor(e) ? patchEngineName(e) : "not available");
     };
     v.ctx = this;
     wg::list(g, th, v);
 }
 
-// Back to what the slot played before the held preview.
+// Back to what the slot played before the held preview, unless a Z or Stop
+// has moved it since.
 void SynthScreen::endPresetPreview() {
     previewKey_ = -1;
     app_.engine.synth().auditionOff();
-    app_.engine.synth().presetSelect(slot, previewPrev_);
+    if (app_.synthPresetActive(slot) == row + 1) app_.engine.synth().presetSelect(slot, previewPrev_);
 }
 
 void SynthScreen::loadPresetNow() {
@@ -1172,6 +1174,11 @@ void SynthScreen::loadPresetNow() {
 }
 
 void SynthScreen::presetKey(uint8_t id) {
+    // A held preview: only leaving the page counts (a question would swallow the release).
+    if (previewKey_ >= 0) {
+        if (id != btn::F8) return;
+        endPresetPreview();
+    }
     const int n = row + 1;
     const bool used = app_.synthPresetUsed(n);
     switch (id) {

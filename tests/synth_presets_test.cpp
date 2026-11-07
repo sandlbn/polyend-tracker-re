@@ -7,9 +7,9 @@
 #include <string>
 #include <vector>
 
+#include "audio/synth_engine.h"
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
-#include "modules/synth_models.h"
 #include "ui/screens.h"
 #include "ui_fakes.h"
 
@@ -18,6 +18,12 @@ using namespace ot;
 namespace {
 std::string wsPreset(int n) { return "Workspace/presets/" + std::to_string(n) + ".patch"; }
 std::string projPreset(const char* name, int n) { return std::string("Projects/") + name + "/presets/" + std::to_string(n) + ".patch"; }
+// A Mini model other than ACD that this build has (profiles differ).
+int otherModel() {
+    for (int m = 0; m < kSynthModelCount; ++m)
+        if (SynthModel(m) != SynthModel::ACD && audio::synthEngineFor(synthEngineId(SynthModel(m)))) return m;
+    return 0;
+}
 bool anyUnder(Harness& h, const std::string& prefix) {
     for (const auto& kv : h.fs.files)
         if (kv.first.compare(0, prefix.size(), prefix) == 0) return true;
@@ -127,11 +133,12 @@ TEST(load_preset_into_a_slot_takes_its_engine_and_patch) {
     Harness h;
     App& a = *h.app;
     CHECK(a.newProject());
-    a.storeSynthPreset(1, 2);   // slot 3: VAP by default
+    a.setSynthModel(2, otherModel());
+    a.storeSynthPreset(1, 2);
     const int32_t eng = a.synthPatch(2).engine;
     CHECK(a.synthPatch(0).engine != eng);
     CHECK(a.loadSynthPreset(0, 1));
-    CHECK_EQ(int(a.slotEngineId(0)), int(eng));
+    CHECK_EQ(int(a.synthPatch(0).engine), int(eng));
     CHECK_EQ(int(a.synthPatch(0).engine), int(eng));
     CHECK(a.synthPatchDirty(0));
     const SynthSlotRecord rec = a.synthSlot(0);
@@ -253,6 +260,7 @@ TEST(store_load_clear_keys_with_confirmations) {
     // Load on an empty row does nothing; on a used one the slot takes it.
     h.tap(btn::F2);
     CHECK(!a.ui.askOpen());
+    a.setSynthModel(2, otherModel());
     a.storeSynthPreset(3, 2);
     h.tap(btn::Down);          // P3
     const int32_t eng = a.synthPreset(3).engine;
@@ -305,4 +313,65 @@ TEST(unavailable_engine_row_text) {
     CHECK(a.openProject("Projects", "Una"));
     openPresets(h);
     CHECK(drawn(h, "not available"));
+}
+
+TEST(a_preset_of_an_absent_module_never_replaces_a_slots_patch) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.storeSynthPreset(1, 0);
+    CHECK(a.saveProjectAs("Abs"));
+    SynthPatch p = a.synthPreset(1);
+    p.engine = 0xF7;   // a module id, not in this build
+    std::vector<uint8_t> bytes(kPatchMaxFileSize);
+    size_t n = 0;
+    CHECK(encodePatch(p, bytes.data(), bytes.size(), &n) == PatchStatus::kOk);
+    bytes.resize(n);
+    h.fs.files[projPreset("Abs", 2)] = bytes;
+    CHECK(a.openProject("Projects", "Abs"));
+    const int32_t was = a.synthPatch(0).engine;
+    CHECK(!a.loadSynthPreset(0, 2));
+    CHECK_EQ(int(a.synthPatch(0).engine), int(was));
+}
+
+TEST(held_preview_ends_with_the_page_and_blocks_other_keys) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(1, 1);
+    openPresets(h);
+    h.down(btn::F5);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    h.tap(btn::F3);            // no question may swallow the F5 release
+    CHECK(!a.ui.askOpen());
+    h.tap(btn::F8);            // leaving the page ends the preview
+    CHECK(screen(a).view == SynthScreen::View::Macros);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.up(btn::F5);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.tap(btn::F8);
+    h.down(btn::F6);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    h.tap(btn::InstrParams);
+    CHECK(screen(a).view == SynthScreen::View::Params);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.up(btn::F6);
+}
+
+TEST(held_preview_does_not_undo_a_stop_or_a_z) {
+    Harness h;
+    App& a = *h.app;
+    a.storeSynthPreset(1, 1);
+    a.storeSynthPreset(2, 1);
+    a.engine.synth().presetSelect(1, 2);
+    openPresets(h);
+    h.down(btn::F5);           // P1, over the Z's P2
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    a.engine.synth().transportStop();
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.up(btn::F5);             // not back on P2: Stop ended that
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.down(btn::F5);
+    a.engine.synth().presetSelect(1, 2);   // a Z during the hold stays
+    h.up(btn::F5);
+    CHECK_EQ(a.synthPresetActive(1), 2);
 }

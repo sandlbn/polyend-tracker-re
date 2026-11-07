@@ -186,7 +186,7 @@ struct SlotScan {
     uint8_t patTmp[(kPatternCount + 8) / 8];   // pattern_NN.mtp.tmp (interrupted write)
     // Synth slot patches in the folder root (spec 21 §2): N.patch, N.patch.tmp.
     bool patch[kSynthSlotCount], patchTmp[kSynthSlotCount];
-    // [3.x] presets/<n>.patch (n = 1..8), .patch.tmp; presetsDir: the folder exists.
+    // [OT] presets/<n>.patch (n = 1..8), .patch.tmp; presetsDir: the folder exists.
     bool preset[kSynthPresetCount], presetTmp[kSynthPresetCount];
     bool presetsDir;
     bool namesFile;
@@ -638,7 +638,7 @@ enum Stage : uint8_t {
     kABegin, kAPatterns, kANames, kAInstr, kAProject, kAFinish,
     kSDirs, kSPatterns, kSNames, kSCleanList, kSClean, kSInstr, kSFinish,
     kLPatch, kAPatch, kSPatch,   // Tracker Mini synth slot patches (spec 21 §7)
-    kLPresets, kAPresets, kSPresets,   // 3.x presets/<n>.patch (app/synth_presets.cpp)
+    kLPresets, kAPresets, kSPresets,   // [OT] presets/<n>.patch (app/synth_presets.cpp)
 };
 // Patterns of a Workspace load that were not in the 16-track layout: the
 // autosave rewrites them as 0x3030 (not "unsaved": the content is the same).

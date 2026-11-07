@@ -9,7 +9,6 @@
 #include "formats/patch_pb.h"
 #include "model/fx.h"
 #include "model/project.h"
-#include "modules/synth_models.h"
 
 using namespace ot;
 using namespace ot::audio;
@@ -202,4 +201,17 @@ TEST(no_preset_table_ignores_the_command) {
     SynthBank b;
     b.presetSelect(0, 1);
     CHECK_EQ(int(b.presetOf(0)), 0);
+}
+
+TEST(an_emptied_entry_plays_the_own_patch) {
+    // Clear racing a Z: the Z was accepted, the entry went empty before the bind.
+    Rig r;
+    r.bank.presetSelect(0, 1);
+    r.presets[0].engine = 0;
+    r.block();
+    CHECK_EQ(int(r.bank.params(0).engine), int(kSynthEngineAcd));
+    CHECK_NEAR(r.end0(), r.lo, 1e-4f);
+    r.note();
+    r.block();
+    CHECK_EQ(r.bank.voicesOf(0), 1);   // not silent
 }
