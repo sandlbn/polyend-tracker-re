@@ -326,6 +326,23 @@ TEST(arp_down_and_needs_chord) {
     CHECK_EQ(r.sink.of(Ev::NoteOn, 1).size(), 1u);
 }
 
+TEST(stop_cancels_a_queued_pattern) {
+    // User report: a pattern queued while playing kept F1 blinking after Stop,
+    // with no way to clear it. Stop drops it, and the next play stays put.
+    Rig r(120.0f);
+    r.seq.play(0);
+    r.blocks(4);
+    const int num = r.seq.currentPatternNumber();
+    r.seq.queuePattern(+1);
+    CHECK(r.seq.queuedPattern() != 0);
+    r.seq.stop();
+    CHECK_EQ(r.seq.queuedPattern(), 0);
+    r.seq.play(0);
+    r.runUntil([&] { return r.host.patternEnds >= 1; });
+    CHECK_EQ(r.seq.queuedPattern(), 0);
+    CHECK_EQ(r.seq.currentPatternNumber(), num);
+}
+
 TEST(chance_probability) {
     Rig r(800.0f);
     for (int s = 0; s < 32; ++s) {
