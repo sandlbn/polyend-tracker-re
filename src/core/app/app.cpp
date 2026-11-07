@@ -471,7 +471,11 @@ void App::loop() {
     // Transport bookkeeping.
     const bool playing = seq.isPlaying();
     if (playing && !wasPlaying_) playStart_ = now;
-    if (!playing && wasPlaying_) ++chase::mem().stopSerial;   // [OT] Stop zeroed the slots' presets
+    // [OT] Stop zeroed the slots' presets (also a MIDI Stop while Play waits
+    // for a MIDI Start, or while stopped).
+    chase::Memory& cm = chase::mem();
+    if ((!playing && wasPlaying_) || cm.seqStops != seq.stopCount()) ++cm.stopSerial;
+    cm.seqStops = seq.stopCount();
     wasPlaying_ = playing;
     serviceSynthChase();
     if (stepChanged_) {

@@ -1294,6 +1294,7 @@ void Sequencer::stop() {
     resetPositions(0);
     if (sink_) sink_->synthTransportStop();   // macro overrides -> page values
     zPend_ = 0;
+    stops_ = uint8_t(stops_ + 1);              // [OT] the stopped chase applies again
     sendRealtime(settings_.transportOut, 0xFC);
     if (host_->exportActive()) host_->finaliseExport();
 }

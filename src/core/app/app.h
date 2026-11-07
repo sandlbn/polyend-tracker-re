@@ -709,6 +709,7 @@ private:
     // shows, applied when that position or what it reads changes; idle
     // passes rebuild a few stale summaries.
     void serviceSynthChase();
+    void chaseReapply(int s);   // stopped: slot s to what the stopped chase last gave it
     void chaseWarm(uint16_t used);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);

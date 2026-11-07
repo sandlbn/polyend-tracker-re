@@ -205,6 +205,9 @@ public:
     bool swingPhase() const { return swingPhase_; }
     uint32_t countInMs() const;
     uint64_t tickCount() const { return tickCount_; }   // tick() calls while playing (diagnostic)
+    // [OT] Bumped by every stop() (any source: a key, MIDI Stop, the song's
+    // end): the synth slots are back on their own patches.
+    uint8_t stopCount() const { return stops_; }
     // Tick counter seq+0x10 (1 at play start, 576 per step): the phase base of
     // tempo-locked LFOs (spec 07 Q5).
     uint32_t tickPosition() const { return tick_; }
@@ -402,6 +405,7 @@ private:
     bool breakPending_ = false;
     bool breakPreloadDone_ = false;
     uint8_t zPend_ = 0;   // [OT] bit s: slot s left to step 0's Z at a loop end (applyZ unsent)
+    uint8_t stops_ = 0;   // [OT] stopCount()
 
     // clock
     uint32_t tick_ = 1;

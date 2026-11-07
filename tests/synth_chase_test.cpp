@@ -4,8 +4,11 @@
 #include "test.h"
 
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include "app/synth_chase.h"
+#include "formats/patch_pb.h"
 #include "ui/screens.h"
 #include "ui_fakes.h"
 
@@ -369,4 +372,118 @@ TEST(warm_up_summarises_stale_patterns_in_the_background) {
     h.run(100);
     CHECK(chase::mem().pat[2].flags & chase::kValid);
     CHECK_EQ(int(chase::mem().pat[2].last[0]), 65);
+}
+
+// --- stopped: slot changes the chase does not see by its inputs
+
+namespace {
+// The slot's patch as a library patch Patches/<model>/<name>.patch.
+void libraryPatch(Harness& h, int s, const char* name) {
+    App& a = *h.app;
+    const SynthSlotRecord r = a.project.synthSlot(s);
+    const SynthModel m = SynthModel(r.model < uint32_t(kSynthModelCount) ? r.model : 0);
+    std::vector<uint8_t> buf(kPatchMaxFileSize);
+    size_t n = 0;
+    CHECK(encodePatch(a.synthPatch(s), buf.data(), buf.size(), &n) == PatchStatus::kOk);
+    buf.resize(n);
+    const std::string dir = std::string("Patches/") + synthModelName(m);
+    h.fs.dirs.insert("Patches");
+    h.fs.dirs.insert(dir);
+    h.fs.files[dir + "/" + name + ".patch"] = buf;
+}
+}  // namespace
+
+TEST(stopped_chase_applies_again_after_a_midi_stop_while_armed_or_stopped) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {3});
+    note(a.pattern().tracks[0].steps[4], 64);
+    z(a.pattern().tracks[0].steps[4], 1, 3);
+    a.patternEdited();
+    cursor(a, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.seq.settings().clockIn = 1;   // USB clock: Play waits for a Start
+    a.seq.settings().transportIn = 1;
+    a.togglePlay(false);
+    CHECK(a.seq.isArmed());
+    CHECK(!a.seq.isPlaying());
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.seq.midiRealtimeIn(MidiPortId::kUsb, 0xFC);   // Stop: every slot to its own patch
+    CHECK(!a.seq.isArmed());
+    h.audio.pump(2);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.seq.midiRealtimeIn(MidiPortId::kUsb, 0xFC);   // and while stopped
+    h.audio.pump(2);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+}
+
+TEST(stopped_chase_puts_a_slot_back_when_its_patch_preview_ends) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {2, 4});
+    libraryPatch(h, 0, "Prev");
+    note(a.pattern().tracks[0].steps[4], 64);
+    z(a.pattern().tracks[0].steps[4], 1, 2);
+    a.patternEdited();
+    cursor(a, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK(a.previewSynthLibraryPatch(0, "Prev"));
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);   // the preview is heard
+    a.endSynthPreview();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    // Synth 2 on preset 4 too; a preview on it ends slot 0's: slot 0 goes
+    // back, slot 1's preview is heard.
+    note(a.pattern().tracks[1].steps[5], 65);
+    z(a.pattern().tracks[1].steps[5], 1, 4);
+    a.patternEdited();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPresetActive(1), 4);
+    libraryPatch(h, 1, "Prev2");
+    CHECK(a.previewSynthLibraryPatch(0, "Prev"));
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    CHECK(a.previewSynthLibraryPatch(1, "Prev2"));
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    a.endSynthPreview();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPresetActive(1), 4);
+}
+
+TEST(a_patch_load_from_the_preview_is_heard_on_the_loaded_patch) {
+    // Confirm in Load Patch: the preview ends, then the load (an edit of the
+    // slot's patch) -- heard on that patch until the next change of position.
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {2});
+    libraryPatch(h, 0, "Prev");
+    note(a.pattern().tracks[0].steps[4], 64);
+    z(a.pattern().tracks[0].steps[4], 1, 2);
+    a.patternEdited();
+    cursor(a, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK(a.previewSynthLibraryPatch(0, "Prev"));
+    h.run();
+    a.endSynthPreview();
+    CHECK(a.loadSynthLibraryPatch(0, "Prev"));
+    h.run();
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    cursor(a, 5);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
 }

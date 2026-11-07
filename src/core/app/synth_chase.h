@@ -63,15 +63,17 @@ struct Memory {
     Summary pat[kPatternCount];   // pattern n at [n - 1]
     uint32_t patSerial;           // bumped by every invalidation
     uint32_t presetSerial;        // store / clear / reset of a preset
-    uint32_t stopSerial;          // playing -> stopped
+    uint32_t stopSerial;          // playing -> stopped, or any other stop of the sequencer
     uint16_t used;                // the preset mask the summaries were made with
     uint8_t warmNext;             // next pattern index the idle warm-up looks at
     // Song prefix cache: the state at the start of position `pos`.
     uint8_t prefixValid, prefixPos;
+    uint8_t seqStops;             // the sequencer's stop count last seen
     uint16_t prefixUsed;
     uint32_t prefixHash, prefixSerial;
     State prefix;
     StopKey stopped;              // what the stopped chase was last applied for
+    uint8_t applied[kSynthSlotCount];   // and the preset it gave each slot
 };
 Memory& mem();
 void resetAll();             // everything stale, serials and keys cleared

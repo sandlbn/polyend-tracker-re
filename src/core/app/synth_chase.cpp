@@ -189,7 +189,18 @@ void App::serviceSynthChase() {
     chase::State st;
     const int last = pattern().tracks[0].lastStep;
     chaseAt(k.songMode != 0, k.pos, k.cursor > last ? last : k.cursor, st);   // -1: none of the pattern
-    for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().presetSelect(s, st.preset[s]);
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        engine.synth().presetSelect(s, st.preset[s]);
+        m.applied[s] = st.preset[s];
+    }
+}
+
+void App::chaseReapply(int s) {
+    // Stopped, the slot back from something that took it off its preset (a
+    // Load Patch preview): what the stopped chase gave it, if still current.
+    chase::Memory& m = chase::mem();
+    if (s < 0 || s >= kSynthSlotCount || !m.stopped.valid || seq.isPlaying() || seq.isCountingIn()) return;
+    engine.synth().presetSelect(s, m.applied[s]);
 }
 
 void App::chaseWarm(uint16_t used) {

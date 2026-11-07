@@ -94,6 +94,7 @@ void App::endSynthPreview() {
     patchDirty_[s] = previewDirty_;
     engine.synth().setSlotRecord(s, project.synthSlot(s));
     engine.synth().patchChanged(s);
+    chaseReapply(s);   // [OT] stopped: back on the preset the chase has it on
 }
 
 void App::setSynthSlotRecord(int s, const SynthSlotRecord& r) {
