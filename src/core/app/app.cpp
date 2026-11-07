@@ -96,6 +96,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
     resetSynthPresets();
     engine.synth().bindPresets(presets::table());
+    resetSynthChase();
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);
     for (auto& in : instruments) in.setDefault();
@@ -710,6 +711,7 @@ void App::handleControlChange(uint8_t cc, uint8_t value) {
 
 void App::setPresent(int num, bool on) {
     if (num < 1 || num > kPatternCount) return;
+    chaseInvalidate(num);
     if (on) present_[num >> 3] |= uint8_t(1u << (num & 7));
     else present_[num >> 3] &= uint8_t(~(1u << (num & 7)));
 }
@@ -744,6 +746,7 @@ int App::firstEmptyPattern() {
 
 void App::markPatternDirty(int num) {
     if (num < 1 || num > kPatternCount) return;
+    chaseInvalidate(num);
     patDirty_[num >> 3] |= uint8_t(1u << (num & 7));
     setPresent(num, true);
     unsaved_ = true;
@@ -782,6 +785,7 @@ void App::reportExtPoolFull() {
 
 Track& App::storedTrack(int num, int t) {
     if (!validNum(num) || t < 0 || t >= kTrackCount) return *extDiscard_;
+    chaseInvalidate(num);   // write access
     if (t < kStockTrackCount) return storedStock(num).tracks[t];
     const int e = t - kStockTrackCount;
     if (Track* b = ext_.find(num, e)) return *b;
@@ -812,6 +816,7 @@ void App::readStoredTrack(int num, int t, Track& out) const {
 
 bool App::storePattern(int num, const Pattern& p) {
     if (!validNum(num)) return false;
+    chaseInvalidate(num);
     PatternStock& st = storedStock(num);
     p.copyStockTo(st);
     bool ok = true;
@@ -858,12 +863,14 @@ int App::compactExtTracks(int num) {
 }
 
 void App::clearExtTracks(int num) {
+    chaseInvalidate(num);
     ext_.releasePattern(num);
     if (validNum(num)) extKeep_[num] = 0;   // dropped on purpose: nothing to keep from the file
 }
 
 void App::defaultStored(int num) {
     if (!validNum(num)) return;
+    chaseInvalidate(num);
     clearExtTracks(num);
     defaultPattern(storedStock(num));
 }
@@ -873,6 +880,7 @@ void App::resetPatternStore() {
     std::memset(extKeep_, 0, sizeof(extKeep_));
     extFullReported_ = 0;
     for (int n = 1; n <= kPatternCount; ++n) defaultPattern(storedStock(n));
+    chaseInvalidateAll();
 }
 
 void App::pushFileUndo(int num) {

@@ -63,6 +63,7 @@ void App::storeSynthPreset(int n, int s) {
     setEngine(g_table[n - 1], patches_[s].engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
+    chaseInvalidateAll();   // a Z of an empty preset did nothing; now it selects
 }
 
 void App::clearSynthPreset(int n) {
@@ -71,6 +72,7 @@ void App::clearSynthPreset(int n) {
     leaveSynthPreset(n);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
+    chaseInvalidateAll();
 }
 
 bool App::loadSynthPreset(int s, int n) {
@@ -95,6 +97,7 @@ void App::resetSynthPresets() {
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);
     std::memset(g_table, 0, sizeof(SynthPatch) * kSynthPresetCount);
     g_presetDirty = 0;
+    chaseInvalidateAll();
 }
 
 }  // namespace ot

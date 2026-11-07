@@ -628,6 +628,11 @@ public:
         engine.noteSeqWork(audio::kSeqLiveRecord);
     }
     bool songScreenActive() override { return ui.active() == kModSong; }
+    // [3.x] Z chase (app/synth_chase.cpp): the presets the Z before a play
+    // start selected, from the per-pattern summaries.
+    void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStep, uint8_t preset[kSynthSlotCount],
+                    uint8_t lastInstr[kTrackCount]) override;
+    bool synthChaseSummarised(int num) const;   // pattern num's summary is up to date
 
     // Paths
     void workspacePath(char* out, int cap, const char* rel) const;
@@ -732,6 +737,14 @@ private:
     void loadPresetUnit(int n, uint32_t& cost);
     void leaveSynthPreset(int n);
     void resetSynthPresets();
+    // [3.x] Z chase bookkeeping (app/synth_chase.cpp): a write to stored
+    // pattern num, to every pattern or the presets (invalidate), any other
+    // input of the stopped chase (touch), the slots set elsewhere (forget).
+    void resetSynthChase();
+    void chaseInvalidate(int num);
+    void chaseInvalidateAll();
+    void chaseTouch();
+    void chaseForget();
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);
