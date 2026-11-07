@@ -64,6 +64,7 @@ void App::storeSynthPreset(int n, int s) {
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
     chaseInvalidateAll();   // a Z of an empty preset did nothing; now it selects
+    chaseForget();          // and a slot on preset n went to its own patch
 }
 
 void App::clearSynthPreset(int n) {
@@ -73,6 +74,7 @@ void App::clearSynthPreset(int n) {
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
     chaseInvalidateAll();
+    chaseForget();
 }
 
 bool App::loadSynthPreset(int s, int n) {
@@ -98,6 +100,7 @@ void App::resetSynthPresets() {
     std::memset(g_table, 0, sizeof(SynthPatch) * kSynthPresetCount);
     g_presetDirty = 0;
     chaseInvalidateAll();
+    chaseForget();
 }
 
 }  // namespace ot

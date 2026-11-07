@@ -308,7 +308,7 @@ public:
     void applySequencerSettings();
 
     // ---- dirty state / autosave (spec 02 §1.1) -----------------------------
-    void markProjectDirty() { projectDirty_ = true; unsaved_ = true; engineDirty_ = true; }
+    void markProjectDirty() { projectDirty_ = true; unsaved_ = true; engineDirty_ = true; chaseTouch(); }
     void markNamesDirty() { namesDirty_ = true; unsaved_ = true; }
     void markInstrumentDirty(int i, bool sample = false);
     void markConfigDirty() { configDirty_ = true; engineDirty_ = true; }
@@ -745,6 +745,8 @@ private:
     void chaseInvalidateAll();
     void chaseTouch();
     void chaseForget();
+    void serviceSynthChase();   // loop(): stopped, the slots follow the cursor's chase
+    void chaseWarm(int maxScans);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);

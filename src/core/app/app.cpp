@@ -493,6 +493,7 @@ void App::loop() {
         patternEditedFromSeq_ = false;
         patternEdited();
     }
+    serviceSynthChase();
     serviceResample();
     // Project manager (spec 05 §1.3 step 5, appendix E3/E4): one bounded
     // step of the running job, else the periodic autosave check.
@@ -1106,6 +1107,7 @@ void App::markInstrumentDirty(int i, bool sample) {
 void App::togglePlay(bool shift) {
     if (seq.isPlaying() || seq.isArmed()) {
         seq.stop();
+        chaseForget();   // Stop put every slot on its own patch
         allVoicesOff();
     } else if (shift) {
         seq.playSong(project.playlistPos);

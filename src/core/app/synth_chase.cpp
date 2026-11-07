@@ -175,16 +175,20 @@ Memory& mem() { return g_chase; }
 
 void App::resetSynthChase() {
     std::memset(&g_chase, 0, sizeof g_chase);   // every slot on its own patch, as the engine starts
+    g_chase.stale = 1;
+    g_chase.ticks = seq.tickCount();
 }
 
 void App::chaseInvalidate(int num) {
     if (num < 1 || num > kPatternCount) return;
     g_chase.pat[num - 1].zf[0] = 0;
+    g_chase.stale = 1;
     ++g_chase.gen;
 }
 
 void App::chaseInvalidateAll() {
     for (Summary& m : g_chase.pat) m.zf[0] = 0;
+    g_chase.stale = 1;
     ++g_chase.gen;
 }
 
@@ -193,6 +197,76 @@ void App::chaseTouch() { ++g_chase.gen; }
 void App::chaseForget() {
     g_chase.keyValid = 0;
     std::memset(g_chase.applied, 0xFF, sizeof g_chase.applied);
+}
+
+void App::serviceSynthChase() {
+    // Stopped: the slots play what the Z up to the cursor row selected (in
+    // song mode after the playlist positions before the current one), so
+    // pads and MIDI sound as the song would there. Set again when that
+    // changes; a slot's patch edit meanwhile is heard on its own patch.
+    chase::Memory& g = g_chase;
+    const uint64_t ticks = seq.tickCount();
+    if (seq.isPlaying() || ticks != g.ticks) {   // the sequencer set the slots; Stop put them on their own
+        g.ticks = ticks;
+        chaseForget();
+        return;
+    }
+    if (rendering_ || usbActive_ || (jobBusy() && jobOp() != JobOp::Autosave)) return;
+    const int step = ui.patternCursorStep();
+    const uint8_t num = patternNumber();
+    const uint8_t pos = project.playlistPos;
+    const uint8_t song = seq.isSongMode() ? 1 : 0;
+    if (g.keyValid && g.keyGen == g.gen && g.keyStep == step && g.keyPattern == num && g.keyPos == pos &&
+        g.keySong == song) {
+        chaseWarm(2);
+        return;
+    }
+    g.keyValid = 1;
+    g.keyGen = g.gen;
+    g.keyStep = int16_t(step);
+    g.keyPattern = num;
+    g.keyPos = pos;
+    g.keySong = song;
+    const uint16_t used = usedPresets(*this);
+    State st;
+    ownState(st);
+    if (song) {
+        if (!g.prefixValid || g.prefixGen != g.gen || g.prefixPos != pos) {
+            ownState(g.prefix);
+            playPrefix(*this, pos, used, g.prefix);
+            g.prefixValid = 1;
+            g.prefixGen = g.gen;
+            g.prefixPos = pos;
+        }
+        st = g.prefix;
+    }
+    playCurrent(*this, step, used, st);
+    for (int s = 0; s < kSynthSlotCount; ++s)
+        if (g.applied[s] != st.preset[s]) {
+            engine.synth().presetSelect(s, st.preset[s]);
+            g.applied[s] = st.preset[s];
+        }
+}
+
+void App::chaseWarm(int maxScans) {
+    // A few stale summaries of present patterns per pass (a pattern that is
+    // not present is the empty default: no scan), so a Play later finds them.
+    chase::Memory& g = g_chase;
+    if (!g.stale) return;
+    const uint16_t used = usedPresets(*this);
+    int scans = 0;
+    for (int k = 0; k < kPatternCount; ++k) {
+        const int i = g.warmNext;
+        if (!(g.pat[i].zf[0] & chase::kValid)) {
+            if (patternPresent(i + 1)) {
+                if (scans == maxScans) return;
+                ++scans;
+            }
+            summarise(*this, i + 1, used);
+        }
+        g.warmNext = uint8_t(i + 1 < kPatternCount ? i + 1 : 0);
+    }
+    g.stale = 0;   // a whole round found every summary up to date
 }
 
 bool App::synthChaseSummarised(int num) const {

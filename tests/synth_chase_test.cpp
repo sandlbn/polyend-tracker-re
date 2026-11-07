@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "model/fx.h"
+#include "ui/screens.h"
 #include "ui_fakes.h"
 
 using namespace ot;
@@ -24,6 +25,10 @@ void edited(App& a) { a.patternEdited(); }
 Step& storedStep(App& a, int num, int t, int s) {
     a.markPatternDirty(num);
     return a.storedTrack(num, t).steps[s];
+}
+void cursorTo(Harness& h, int step) {
+    PatternScreen& p = *static_cast<PatternScreen*>(h.app->ui.screen(kModPattern));
+    p.step = step;
 }
 struct Chase {
     uint8_t z[kSynthSlotCount];
@@ -182,6 +187,45 @@ TEST(summary_is_rebuilt_after_a_pattern_edit_undo_and_track_copy) {
     CHECK_EQ(int(chase(a, true, 1, -1).z[0]), 5);
 }
 
+TEST(stopped_pads_and_midi_play_the_chase_at_the_cursor_and_stop_reapplies_it) {
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[4], 60, 64);
+    putZ(p.tracks[0].steps[4], 1, 2);
+    putZ(p.tracks[0].steps[8], 1, 3);   // no note: track 1's Synth 1
+    edited(a);
+    cursorTo(h, 3);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    cursorTo(h, 4);   // the cursor row counts
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    cursorTo(h, 9);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    // Play from the top, then Stop: the slot is back on the cursor's preset.
+    a.togglePlay(false);
+    CHECK(a.seq.isPlaying());
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    h.audio.pump(4);
+    h.run();
+    a.togglePlay(false);
+    CHECK(!a.seq.isPlaying());
+    cursorTo(h, 9);   // the cursor followed the playback
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    // An edit of the slot's patch is heard on that patch (no fight)...
+    a.markSynthPatchDirty(0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    // ...until the cursor moves to another preset.
+    cursorTo(h, 5);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+}
+
 TEST(shift_play_mid_song_starts_on_the_chased_preset) {
     Harness h;
     App& a = *h.app;
@@ -201,4 +245,34 @@ TEST(shift_play_mid_song_starts_on_the_chased_preset) {
     a.togglePlay(true);
     CHECK_EQ(a.synthPresetActive(0), 0);
     a.togglePlay(false);
+}
+
+TEST(play_from_step_0_starts_on_own_even_with_the_cursor_after_a_z) {
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[1], 60, 64);
+    putZ(p.tracks[0].steps[1], 1, 6);
+    edited(a);
+    cursorTo(h, 2);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 6);
+    a.togglePlay(false);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    a.togglePlay(false);
+}
+
+TEST(warm_up_summarises_stale_patterns_in_the_background) {
+    Harness h;
+    App& a = *h.app;
+    for (int n = 2; n <= 7; ++n) putNote(storedStep(a, n, 0, n), 60, 64);
+    a.storeSynthPreset(1, 0);   // every summary is stale now
+    for (int n = 1; n <= kPatternCount; ++n) CHECK(!a.synthChaseSummarised(n));
+    h.run(10);
+    int done = 0;
+    for (int n = 2; n <= 7; ++n) done += a.synthChaseSummarised(n) ? 1 : 0;
+    CHECK(done < 6);   // a few per pass, not all at once
+    h.run(200);
+    for (int n = 1; n <= kPatternCount; ++n) CHECK(a.synthChaseSummarised(n));
 }

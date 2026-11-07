@@ -53,6 +53,8 @@ struct Memory {
     uint32_t prefixGen;
     State prefix;
     uint8_t warmNext;             // next pattern index the warm-up looks at
+    uint8_t stale;                // a summary may be stale (the warm-up has work)
+    uint64_t ticks;               // the sequencer's tick count at the last pass
 };
 
 Memory& mem();
