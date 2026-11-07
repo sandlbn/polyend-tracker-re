@@ -1933,3 +1933,27 @@ TEST(queued_change_leaves_a_slot_to_the_new_patterns_step_0_z) {
     r.runUntil([&] { return r.host.patternEnds >= 2 && r.seq.step(0) == 1; });
     CHECK(zSeq(r) == (ZSeq{{0, 0}, {1, 0}, {2, 0}, {0, 5}, {1, 0}, {2, 0}, {0, 3}, {1, 0}, {2, 0}, {0, 3}}));
 }
+
+TEST(play_forgets_the_last_instrument_of_an_earlier_playback) {
+    // Track 2 played Synth 2, then Stop; a pattern with only a Z3 (no note)
+    // on track 2: Play has no synth for it.
+    Rig r(120.0f);
+    r.setNote(2, 0, 60, 65);
+    r.seq.play(0);
+    runNotes(r, 2, 1);
+    r.seq.stop();
+    r.setNote(2, 0, kNoteEmpty, 0);
+    zA(r, 2, 0, 3);
+    r.sink.ev.clear();
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 2; });
+    CHECK(zSeq(r) == (ZSeq{{0, 0}, {1, 0}, {2, 0}}));
+    // Nor does a roll on an empty first step replay the old note.
+    r.seq.stop();
+    r.fxA(2, 0, 3, 4);   // Roll in place of the Z
+    r.sink.ev.clear();
+    r.seq.play(0);
+    r.runUntil([&] { return r.seq.step(0) == 1; });
+    CHECK(r.sink.of(Ev::SynthOn).empty());
+    CHECK(r.sink.of(Ev::NoteOn).empty());
+}

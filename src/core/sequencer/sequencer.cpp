@@ -1131,8 +1131,15 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
         // (playSelection sets its own loop start).
         setZ(s, songMode_ ? zCur(s) : 0, zCur(s));
     }
-    for (int t = 0; t < kTracks; ++t)
-        if (li[t] != 0xFF) tracks_[t].last.instr = li[t];
+    // [OT] A track's last note is what the chase saw before the start, never one
+    // of an earlier playback or a pad; no note: the power-on "none". A note
+    // the count-in end recorded still sounds and stays.
+    for (int t = 0; t < kTracks; ++t) {
+        TrackState& tr = tracks_[t];
+        if (tr.sounding || tr.midiCount) continue;
+        if (li[t] != 0xFF) tr.last.instr = li[t];
+        else tr.last = NoteRec{};
+    }
     playing_ = true;
     tick_ = 1;
     masterMicro_ = 1;
