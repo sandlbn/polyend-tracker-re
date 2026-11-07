@@ -24,8 +24,8 @@ void clearCols(Step& s, ColMode m) {
             // Note clear also drops instrument and Fx types for sample instruments or special notes.
             if (isSampleInstrument(s.instrument) || s.note < 0) {
                 s.instrument = 0;
-                s.fx[0].type = 0;
-                s.fx[1].type = 0;
+                s.fx[0].clearType();
+                s.fx[1].clearType();
             }
             s.note = kNoteEmpty;
             break;
@@ -34,10 +34,10 @@ void clearCols(Step& s, ColMode m) {
             s.instrument = 0;
             break;
         case ColMode::Fx2:
-            s.fx[1].type = 0;
+            s.fx[1].clearType();
             break;
         case ColMode::Fx1:
-            s.fx[0].type = 0;
+            s.fx[0].clearType();
             break;
     }
 }
@@ -261,14 +261,19 @@ static uint8_t newFxValue(uint8_t type) {
     return uint8_t(clampi(fxInfo(type).defaultValue, seq::fxMin(type), seq::fxMax(type)));
 }
 
+// An FX cell by its list type and value: a Z is stored as type 0 + 0xD0 + n.
+static void setFx(StepFx& f, uint8_t type, uint8_t value) {
+    f.type = type == kFxSynthPreset ? 0 : type;
+    f.value = type == kFxSynthPreset ? uint8_t(kFxPresetCmdBase + value) : value;
+}
+
 void writeFxType(Pattern& p, const SelRect& r, int col, uint8_t type) {
     if (!validRect(r) || col < 2) return;
     const int slot = fxSlotForColumn(col);
     for (int t = r.t0; t <= r.t1; ++t)
         for (int s = r.s0; s <= r.s1; ++s) {
             StepFx& f = p.tracks[t].steps[s].fx[slot];
-            if (f.type != type) f.value = newFxValue(type);
-            f.type = type;
+            if (fxLogicalType(f.type, f.value) != type) setFx(f, type, newFxValue(type));
         }
 }
 
@@ -278,7 +283,8 @@ void writeFxValue(Pattern& p, const SelRect& r, int col, uint8_t value) {
     for (int t = r.t0; t <= r.t1; ++t)
         for (int s = r.s0; s <= r.s1; ++s) {
             StepFx& f = p.tracks[t].steps[s].fx[slot];
-            f.value = uint8_t(clampi(value, seq::fxMin(f.type), seq::fxMax(f.type)));
+            const uint8_t t = fxLogicalType(f.type, f.value);
+            setFx(f, t, uint8_t(clampi(value, seq::fxMin(t), seq::fxMax(t))));
         }
 }
 
@@ -323,13 +329,14 @@ void stepFxValue(Pattern& p, const SelRect& r, int col, int delta) {
     for (int t = r.t0; t <= r.t1; ++t)
         for (int s = r.s0; s <= r.s1; ++s) {
             StepFx& f = p.tracks[t].steps[s].fx[slot];
-            if (f.type == 0 && !r.single()) continue;
-            f.value = uint8_t(clampi(int(f.value) + delta, seq::fxMin(f.type), seq::fxMax(f.type)));
+            const uint8_t t = fxLogicalType(f.type, f.value);
+            if (t == 0 && !r.single()) continue;
+            setFx(f, t, uint8_t(clampi(int(fxLogicalValue(f.type, f.value)) + delta, seq::fxMin(t), seq::fxMax(t))));
         }
 }
 
 int fxOrderIndex(uint8_t type) {
-    for (int i = 0; i < kFxCount; ++i)
+    for (int i = 0; i < kFxListCount; ++i)
         if (kFxMenuOrder[i] == type) return i;
     return 0;
 }
@@ -340,12 +347,12 @@ void stepFxType(Pattern& p, const SelRect& r, int col, int delta) {
     for (int t = r.t0; t <= r.t1; ++t)
         for (int s = r.s0; s <= r.s1; ++s) {
             StepFx& f = p.tracks[t].steps[s].fx[slot];
-            int idx = fxOrderIndex(f.type) + delta;
+            const uint8_t t = fxLogicalType(f.type, f.value);
+            int idx = fxOrderIndex(t) + delta;
             // Wraps to "none" past the end (spec 06 §1.7).
-            if (idx >= kFxCount || idx < 0) idx = 0;
+            if (idx >= kFxListCount || idx < 0) idx = 0;
             const uint8_t nt = kFxMenuOrder[idx];
-            if (nt != f.type) f.value = newFxValue(nt);
-            f.type = nt;
+            if (nt != t) setFx(f, nt, newFxValue(nt));
         }
 }
 
