@@ -391,6 +391,23 @@ void setMix(App& a, int s, float gainDb, float pan, float rev, float del) {
 
 float gainOf(Harness& h, int s) { return h.app->engine.synth().slotGain(s); }
 
+SynthScreen& synthScreen(App& a) { return *static_cast<SynthScreen*>(a.ui.screen(kModSynth)); }
+void openPresets(Harness& h, int slot) {
+    App& a = *h.app;
+    a.setCurrentInstrument(uint8_t(kFirstSynthInstrument + slot));
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    if (synthScreen(a).view != SynthScreen::View::Macros) h.tap(btn::InstrParams);
+    h.tap(btn::F8);
+}
+bool drawn(Harness& h, const char* q) {
+    h.app->ui.dirty();
+    h.run(40);
+    for (const std::string& l : h.disp.last)
+        if (l.find(q) != std::string::npos) return true;
+    return false;
+}
+
 }  // namespace
 
 TEST(store_captures_the_mix_z_plays_it_and_load_copies_it) {
@@ -622,4 +639,21 @@ TEST(a_damaged_mix_chunk_is_ignored) {
     CHECK(a.decodeSidecar(keep.data(), uint32_t(keep.size())));
     CHECK(!(presets::mixTable()[0].flags & audio::kPresetMixHas));
     CHECK(!(presets::mixTable()[1].flags & audio::kPresetMixHas));
+}
+
+TEST(presets_page_shows_the_volume) {
+    Harness h;
+    App& a = *h.app;
+    setMix(a, 1, -4.5f, 0.0f, 0.0f, 0.0f);
+    a.storeSynthPreset(1, 1);
+    a.storeSynthPreset(2, 1);
+    presets::mixTable()[1] = audio::PresetMix{};   // saved before presets had a mix
+    setMix(a, 1, -9.0f, 0.0f, 0.0f, 0.0f);
+    openPresets(h, 1);
+    CHECK(synthScreen(a).view == SynthScreen::View::Presets);
+    char t[24];
+    synthui::gainText(-4.5f, t, int(sizeof t));
+    CHECK(drawn(h, t));
+    synthui::gainText(-9.0f, t, int(sizeof t));
+    CHECK(!drawn(h, t));   // the slot's own volume is not a preset's
 }

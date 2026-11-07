@@ -67,6 +67,7 @@ const SynthPatch& App::synthPreset(int n) const { return g_table[validPreset(n) 
 #if OT_SLOT_INSERTS
 const audio::PresetInsert& App::synthPresetInsert(int n) const { return g_ins[validPreset(n) ? n - 1 : 0]; }
 #endif
+const audio::PresetMix& App::synthPresetMix(int n) const { return g_mix[validPreset(n) ? n - 1 : 0]; }
 bool App::synthPresetUsed(int n) const { return validPreset(n) && g_table[n - 1].engine != 0; }
 bool App::synthPresetDirty() const { return g_presetDirty != 0; }
 int App::synthPresetActive(int s) const { return engine.synth().presetOf(s); }

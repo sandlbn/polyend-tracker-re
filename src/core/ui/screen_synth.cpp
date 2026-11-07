@@ -1338,6 +1338,13 @@ void SynthScreen::drawPresets(Gfx& g) {
         }
         const int32_t e = s->app_.synthPreset(n).engine;
         const char* eng = audio::synthEngineFor(e) ? synthEngineDisplayName(e) : "not available";
+        // [3.x] The volume it carries (old presets: nothing).
+        char gain[24] = "";
+        const audio::PresetMix& pm = s->app_.synthPresetMix(n);
+        if (pm.flags & audio::kPresetMixHas) {
+            gain[0] = gain[1] = ' ';
+            synthui::gainText(pm.gainDb, gain + 2, int(sizeof gain) - 2);
+        }
 #if OT_SLOT_INSERTS
         // [3.x] The insert it carries: its effect, an effect this build lacks
         // by id, "no insert" when stored without one (old presets: nothing).
@@ -1352,9 +1359,9 @@ void SynthScreen::drawPresets(Gfx& g) {
         } else if (pi.flags & audio::kPresetInsertHas) {
             insText = "no insert";
         }
-        std::snprintf(out, size_t(cap), "%sP%d  %s%s%s", mark, n, eng, insText[0] ? "  " : "", insText);
+        std::snprintf(out, size_t(cap), "%sP%d  %s%s%s%s", mark, n, eng, gain, insText[0] ? "  " : "", insText);
 #else
-        std::snprintf(out, size_t(cap), "%sP%d  %s", mark, n, eng);
+        std::snprintf(out, size_t(cap), "%sP%d  %s%s", mark, n, eng, gain);
 #endif
     };
     v.ctx = this;

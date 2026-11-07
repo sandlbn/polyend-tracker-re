@@ -446,6 +446,8 @@ public:
     PatchSource synthPatchSource(int s) const { return s >= 0 && s < kSynthSlotCount ? patchSrc_[s] : PatchSource::None; }
     // [3.x] The project's synth presets (app/synth_presets.cpp), n = 1..8.
     const SynthPatch& synthPreset(int n) const;
+    // [3.x] The mix preset n (1..8) carries (app/synth_presets.cpp).
+    const audio::PresetMix& synthPresetMix(int n) const;
     bool synthPresetUsed(int n) const;
     bool synthPresetDirty() const;
     int synthPresetActive(int s) const;       // what Z left slot s on, 0 = its own patch
