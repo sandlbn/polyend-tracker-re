@@ -471,7 +471,9 @@ void App::loop() {
     // Transport bookkeeping.
     const bool playing = seq.isPlaying();
     if (playing && !wasPlaying_) playStart_ = now;
+    if (!playing && wasPlaying_) ++chase::mem().stopSerial;   // [OT] Stop zeroed the slots' presets
     wasPlaying_ = playing;
+    serviceSynthChase();
     if (stepChanged_) {
         stepChanged_ = false;
         ui.dirty();

@@ -154,6 +154,45 @@ void App::chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::Stat
     chase::scan(tracks, 0, lastStepInclusive, used, io);
 }
 
+void App::serviceSynthChase() {
+    if (seq.isPlaying() || rendering_ || usbActive_ || (jobBusy() && jobOp() != JobOp::Autosave)) return;
+    chase::Memory& m = chase::mem();
+    const uint16_t used = chaseUsed();   // first: may drop every summary
+    chase::StopKey k;
+    std::memset(&k, 0, sizeof(k));
+    k.patSerial = m.patSerial;
+    k.presetSerial = m.presetSerial;
+    k.stopSerial = m.stopSerial;
+    k.ticks = uint32_t(seq.tickCount());   // any playback since, also one too short to be seen
+    k.used = used;
+    k.cursor = int16_t(ui.patternCursorStep());
+    k.pattern = patternNumber();
+    k.songMode = seq.isSongMode() ? 1 : 0;
+    k.pos = project.playlistPos;
+    k.playlistHash = k.songMode ? chase::playlistHash(project.playlist, k.pos) : 0;
+    k.valid = 1;
+    if (std::memcmp(&k, &m.stopped, sizeof(k)) == 0) {
+        chaseWarm(used);
+        return;
+    }
+    m.stopped = k;
+    chase::State st;
+    const int last = pattern().tracks[0].lastStep;
+    chaseAt(k.songMode != 0, k.pos, k.cursor > last ? last : k.cursor, st);
+    for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().presetSelect(s, st.preset[s]);
+}
+
+void App::chaseWarm(uint16_t used) {
+    chase::Memory& m = chase::mem();
+    for (int i = 0, built = 0; i < kPatternCount && built < 2; ++i) {
+        const int idx = m.warmNext;
+        m.warmNext = uint8_t(idx + 1 >= kPatternCount ? 0 : idx + 1);
+        if (m.pat[idx].flags & chase::kValid) continue;
+        if (patternPresent(idx + 1)) ++built;   // an absent one costs no scan
+        chaseSummary(idx + 1, used);
+    }
+}
+
 void App::synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
                      uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) {
     (void)pattern;   // the sequencer's current buffer, which pattern() is

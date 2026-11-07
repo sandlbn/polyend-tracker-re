@@ -704,6 +704,11 @@ private:
     const chase::Summary& chaseSummary(int num, uint16_t used);
     void chasePrefix(int pos, uint16_t used, chase::State& io);
     void chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::State& io);
+    // Stopped: the slots on the chase at the pattern-editor cursor, applied
+    // when that position or what it reads changes; idle passes rebuild a few
+    // stale summaries.
+    void serviceSynthChase();
+    void chaseWarm(uint16_t used);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);

@@ -200,3 +200,83 @@ TEST(play_from_step_0_starts_on_own_even_with_the_cursor_after_a_z) {
     CHECK_EQ(a.synthPresetActive(0), 2);
     a.togglePlay(false);
 }
+
+// --- stopped: the slots follow the chase at the pattern-editor cursor
+
+namespace {
+void cursor(App& a, int step) {
+    static_cast<PatternScreen*>(a.ui.screen(kModPattern))->step = step;
+}
+}  // namespace
+
+TEST(stopped_pads_and_midi_play_the_chase_at_the_cursor_and_stop_reapplies_it) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {2, 5});
+    note(a.pattern().tracks[0].steps[4], 64);
+    z(a.pattern().tracks[0].steps[4], 1, 2);
+    a.patternEdited();
+    cursor(a, 3);
+    h.run();
+    CHECK_EQ(a.ui.patternCursorStep(), 3);
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    cursor(a, 4);   // the cursor row counts
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    // A patch edit is heard on the patch until the next change of position.
+    a.markSynthPatchDirty(0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 0);
+    cursor(a, 6);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    // Song mode: the positions before the playlist position come first.
+    note(stored(a, 2, 3, 0), 65);
+    z(stored(a, 2, 3, 0), 1, 5);
+    a.project.playlist[0] = 2;
+    a.project.playlist[1] = 1;
+    a.project.playlistPos = 1;
+    a.seq.setSongMode(true);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 5);
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    // A pad on Synth 1 plays the chased preset: the slot is on it while stopped.
+    a.setCurrentInstrument(64);
+    h.push(InputEvent::kPadDown, 10);
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    h.push(InputEvent::kPadUp, 10);
+    // Stop zeroes the slots' presets; the next pass puts the chase back.
+    a.togglePlay(true);   // Shift+Play from position 1
+    CHECK(a.seq.isPlaying());
+    CHECK_EQ(a.synthPresetActive(1), 5);
+    h.run();
+    a.togglePlay(false);
+    CHECK(!a.seq.isPlaying());
+    CHECK_EQ(a.synthPresetActive(1), 0);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 5);
+    a.seq.setSongMode(false);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 0);
+}
+
+TEST(warm_up_summarises_stale_patterns_in_the_background) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    for (int n = 2; n <= 5; ++n) note(stored(a, n, 0, 0), 64);
+    for (int n = 2; n <= 5; ++n) CHECK(!(chase::mem().pat[n - 1].flags & chase::kValid));
+    h.run(100);   // a few idle passes
+    for (int n = 2; n <= 5; ++n) CHECK(chase::mem().pat[n - 1].flags & chase::kValid);
+    CHECK_EQ(int(chase::mem().pat[1].last[0]), 64);
+    // Not while playing.
+    note(stored(a, 3, 0, 1), 65);
+    a.togglePlay(false);
+    h.run(100);
+    CHECK(!(chase::mem().pat[2].flags & chase::kValid));
+    a.togglePlay(false);
+    h.run(100);
+    CHECK(chase::mem().pat[2].flags & chase::kValid);
+    CHECK_EQ(int(chase::mem().pat[2].last[0]), 65);
+}

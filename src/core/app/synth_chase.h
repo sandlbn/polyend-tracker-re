@@ -52,7 +52,7 @@ void apply(const Summary& sum, State& io);
 
 // The chase memory (SDRAM on the device, zeroed POD).
 struct StopKey {
-    uint32_t patSerial, presetSerial, stopSerial, playlistHash;
+    uint32_t patSerial, presetSerial, stopSerial, playlistHash, ticks;
     uint16_t used;
     int16_t cursor;
     uint8_t pattern, songMode, pos, valid;
