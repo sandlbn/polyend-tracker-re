@@ -627,8 +627,9 @@ void switchBench() {
 }
 
 // preset / presetx: a Z in the audio block, 4 voices sounding. The same engine
-// ramps every parameter; another engine fades the voices and restarts. SDRAM
-// accesses: the reload reads each of the patch's parameters from SDRAM.
+// ramps every parameter; another engine fades the voices and restarts; the
+// preset's mix (gain, pan, sends) ramps in. SDRAM accesses: the reload reads
+// each of the patch's parameters and its mix from SDRAM.
 SynthPatch gBenchPresets[2];
 void presetBench() {
     for (int cross = 0; cross < 2; ++cross) {
@@ -641,13 +642,14 @@ void presetBench() {
         gBenchPresets[0] = gSynthPatch;
         gBenchPresets[1] = gSynthPatch;
         if (cross) gBenchPresets[0].engine = kSynthEngineTest;
+        patchSetMix(gBenchPresets[0], -3.0f, 20.0f, 30.0f, 40.0f);   // the Z brings its mix too
         r.eng->synth().bindPresets(gBenchPresets);
         for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
         int16_t out[kBlock * 2];
         for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
         const int n = 32 / (kScale > 4 ? 4 : kScale);
         double steady = 0.0, sw = 0.0;
-        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd);
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 2.0 * kPatchMixCount + 1.0;   // + the mix
         for (int k = 0; k < n; ++k) {
             double t0 = nowUnits();
             r.eng->renderLive(out);
