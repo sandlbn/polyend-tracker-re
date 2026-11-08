@@ -595,3 +595,223 @@ TEST(presets_page_shows_the_gain_a_preset_carries) {
     CHECK(!drawn(h, "dB"));
     CHECK(drawn(h, "P2  ACD"));
 }
+
+// --- Edit what you hear: a slot on a preset edits that preset -----------------
+
+namespace {
+// Slot 1 on ACD named "Lead" at polyphony 3 and a mix; preset 1 stored from
+// slot 2 on another model; slot 1 on preset 1.
+void onPreset(App& a) {
+    CHECK(a.newProject());
+    SynthSlotRecord r = a.synthSlot(2);
+    a.setSynthModel(2, otherModel());
+    r = a.synthSlot(2);
+    std::snprintf(r.patchName, sizeof(r.patchName), "Bell");
+    r.polyphony = 3;
+    a.setSynthSlotRecord(2, r);
+    mixed(a, 2, -6.0f, 20.0f, 30.0f, 40.0f);
+    a.storeSynthPreset(1, 2);
+    mixed(a, 1, -12.0f, 0.0f, 0.0f, 0.0f);
+    a.autosave();
+    CHECK(a.engine.synth().presetSelect(1, 1));
+}
+bool hasField(const std::vector<uint8_t>& b, uint32_t f) {
+    size_t beg = 0, end = 0;
+    return patchFieldSpan(b.data(), b.size(), f, &beg, &end);
+}
+}  // namespace
+
+TEST(store_carries_the_name_and_polyphony_and_load_takes_the_polyphony) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    const SynthPatch& p = a.synthPreset(1);
+    CHECK_STR(p.presetName, "Bell");
+    CHECK(patchHasPoly(p));
+    CHECK_EQ(int(p.poly), 3);
+    CHECK(a.saveProjectAs("Nm"));
+    const std::vector<uint8_t> f = h.fs.files[projPreset("Nm", 1)];
+    CHECK(hasField(f, kPatchMixField) && hasField(f, kPatchPresetNameField) && hasField(f, kPatchPolyField));
+    for (int s = 0; s < kSynthSlotCount; ++s) {   // never in the slot's own patch
+        const std::vector<uint8_t> own = h.fs.files["Projects/Nm/" + std::to_string(s + 1) + ".patch"];
+        CHECK(!hasField(own, kPatchPresetNameField) && !hasField(own, kPatchPolyField));
+    }
+    CHECK(a.openProject("Projects", "Nm"));
+    CHECK_STR(a.synthPreset(1).presetName, "Bell");
+    CHECK_EQ(int(a.synthPreset(1).poly), 3);
+    CHECK(a.loadSynthPreset(0, 1));
+    CHECK_EQ(int(a.synthSlot(0).polyphony), 3);
+    CHECK_EQ(int(a.synthPatch(0).presetNameLen), 0);
+    CHECK(!patchHasPoly(a.synthPatch(0)));
+    // A preset saved without a polyphony keeps the slot's on load.
+    SynthPatch q = a.synthPreset(1);
+    q.polyPresent = false;
+    CHECK(a.saveProjectAs("Np"));
+    h.fs.files[projPreset("Np", 1)] = encoded(q);
+    CHECK(a.openProject("Projects", "Np"));
+    SynthSlotRecord r = a.synthSlot(0);
+    r.polyphony = 5;
+    a.setSynthSlotRecord(0, r);
+    CHECK(a.loadSynthPreset(0, 1));
+    CHECK_EQ(int(a.synthSlot(0).polyphony), 5);
+}
+
+TEST(the_target_is_the_preset_while_the_slot_is_on_it) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    CHECK_EQ(a.synthEditTarget(1), 1);
+    CHECK(&a.synthTargetPatch(1) == &a.synthPreset(1));
+    const SynthSlotRecord t = a.synthTargetRecord(1);
+    CHECK_EQ(int(t.model), otherModel());
+    CHECK_STR(t.patchName, "Bell");
+    CHECK_EQ(int(t.polyphony), 3);
+    CHECK(t.gainDb == -6.0f && t.pan == 20.0f && t.reverbSend == 30.0f && t.delaySend == 40.0f);
+    CHECK_EQ(a.synthEditTarget(0), 0);   // the other slots: their own
+    a.engine.synth().presetSelect(1, 0);   // Z0
+    CHECK_EQ(a.synthEditTarget(1), 0);
+    CHECK(&a.synthTargetPatch(1) == &a.synthPatch(1));
+    CHECK(a.synthTargetRecord(1).gainDb == -12.0f);
+    CHECK_EQ(int(a.synthTargetRecord(1).model), int(SynthModel::ACD));
+    a.engine.synth().presetSelect(1, 1);
+    a.engine.synth().transportStop();   // Stop
+    CHECK_EQ(a.synthEditTarget(1), 0);
+}
+
+TEST(a_mix_or_polyphony_edit_on_the_target_changes_the_preset) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    CHECK(!a.synthPresetDirty());
+    SynthSlotRecord t = a.synthTargetRecord(1);
+    t.gainDb = -1.5f;
+    t.polyphony = 2;
+    t.macros[0] = 77;
+    a.setSynthTargetRecord(1, t);
+    CHECK(patchMix(a.synthPreset(1), kPatchMixGain) == -1.5f);
+    CHECK_EQ(int(a.synthPreset(1).poly), 2);
+    CHECK(a.synthSlot(1).gainDb == -12.0f);   // the record keeps its own
+    CHECK_EQ(int(a.synthSlot(1).polyphony), 1);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), 77);   // macro values are the slot's
+    CHECK(a.synthPresetDirty());
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    a.autosave();
+    SynthPatch w;
+    const std::vector<uint8_t>& f = h.fs.files[wsPreset(1)];
+    CHECK(decodePatch(f.data(), f.size(), &w) == PatchStatus::kOk);
+    CHECK(patchMix(w, kPatchMixGain) == -1.5f);
+    CHECK_EQ(int(w.poly), 2);
+    // A preset without a mix takes the whole mix at the first edit.
+    a.engine.synth().presetSelect(1, 0);
+    a.storeSynthPreset(2, 1);
+    SynthPatch& e = const_cast<SynthPatch&>(a.synthPreset(2));
+    patchStripPreset(e);
+    a.engine.synth().presetSelect(1, 2);
+    t = a.synthTargetRecord(1);
+    CHECK(t.gainDb == -12.0f);
+    CHECK_EQ(int(t.polyphony), 1);
+    t.pan = 50.0f;
+    a.setSynthTargetRecord(1, t);
+    CHECK(patchHasMix(a.synthPreset(2)));
+    CHECK(patchMix(a.synthPreset(2), kPatchMixGain) == -12.0f);
+    CHECK(patchMix(a.synthPreset(2), kPatchMixPan) == 50.0f);
+    CHECK(!patchHasPoly(a.synthPreset(2)));
+    CHECK(a.synthSlot(1).pan == 0.0f);
+}
+
+TEST(a_value_edit_on_the_target_changes_the_preset_and_is_saved) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    const std::vector<uint8_t> ownBefore = h.fs.files["Workspace/2.patch"];
+    SynthPatch& p = a.synthTargetPatch(1);
+    const int32_t eng = p.engine;
+    const PatchParamRange* r = audio::synthParamRange(eng, 0);
+    CHECK(r != nullptr);
+    const float v = audio::synthParamGet(p, 0) == r->max ? r->min : r->max;
+    CHECK(audio::synthParamSet(p, 0, v));
+    a.markSynthTargetDirty(1);
+    CHECK_EQ(a.synthPresetActive(1), 1);   // still on it
+    CHECK(!a.synthPatchDirty(1));
+    a.autosave();
+    SynthPatch w;
+    const std::vector<uint8_t>& f = h.fs.files[wsPreset(1)];
+    CHECK(decodePatch(f.data(), f.size(), &w) == PatchStatus::kOk);
+    CHECK(audio::synthParamGet(w, 0) == v);
+    CHECK_STR(w.presetName, "Bell");
+    CHECK(h.fs.files["Workspace/2.patch"] == ownBefore);
+}
+
+TEST(model_init_and_library_load_on_the_target_replace_the_presets_sound) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    SynthSlotRecord r = a.synthSlot(1);
+    r.macros[0] = 99;
+    a.setSynthSlotRecord(1, r);
+    // A model change: the Init patch of the new model, in the preset.
+    a.setSynthTargetModel(1, int(SynthModel::ACD));
+    CHECK_EQ(int(a.synthPreset(1).engine), int(kSynthEngineAcd));
+    CHECK_STR(a.synthPreset(1).presetName, "Init");
+    CHECK(patchMix(a.synthPreset(1), kPatchMixGain) == -6.0f);   // the mix and polyphony stay
+    CHECK_EQ(int(a.synthPreset(1).poly), 3);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    CHECK_EQ(int(a.synthSlot(1).macros[0]), int(audio::synthMacroDefault(a.synthPreset(1).macros[0].bipolar)));
+    CHECK_EQ(int(a.synthSlot(1).model), int(SynthModel::ACD));
+    // Init Patch.
+    audio::synthParamSet(a.synthTargetPatch(1), 0, audio::synthParamRange(kSynthEngineAcd, 0)->max);
+    a.initSynthTargetPatch(1);
+    SynthPatch init;
+    CHECK(patchInit(kSynthEngineAcd, &init));
+    CHECK(audio::synthParamGet(a.synthPreset(1), 0) == audio::synthParamGet(init, 0));
+    // A library patch, saved from the target: no preset fields in the file,
+    // and the preset takes the name.
+    CHECK(a.saveSynthTargetLibraryPatch(1, "Keep"));
+    const std::vector<uint8_t> lib = h.fs.files["Patches/ACD/Keep.patch"];
+    CHECK(!lib.empty());
+    CHECK(!hasField(lib, kPatchMixField) && !hasField(lib, kPatchPresetNameField) && !hasField(lib, kPatchPolyField));
+    CHECK_STR(a.synthPreset(1).presetName, "Keep");
+    audio::synthParamSet(a.synthTargetPatch(1), 0, audio::synthParamRange(kSynthEngineAcd, 0)->max);
+    CHECK(a.loadSynthTargetLibraryPatch(1, "Keep"));
+    CHECK(audio::synthParamGet(a.synthPreset(1), 0) == audio::synthParamGet(init, 0));
+    CHECK_EQ(a.synthPresetActive(1), 1);
+}
+
+TEST(a_preview_on_the_target_puts_the_preset_back_byte_for_byte) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    a.autosave();
+    const int m = otherModel();
+    SynthPatch lib;
+    CHECK(patchInit(synthEngineId(SynthModel(m)), &lib));
+    audio::synthParamSet(lib, 0, audio::synthParamRange(lib.engine, 0)->max);
+    h.fs.dirs.insert("Patches");
+    h.fs.dirs.insert(std::string("Patches/") + synthModelName(SynthModel(m)));
+    h.fs.files[std::string("Patches/") + synthModelName(SynthModel(m)) + "/Try.patch"] = encoded(lib);
+    const SynthPatch before = a.synthPreset(1);
+    CHECK(a.previewSynthLibraryPatch(1, "Try"));
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    CHECK(audio::synthParamGet(a.synthPreset(1), 0) == audio::synthParamGet(lib, 0));
+    CHECK(patchMix(a.synthPreset(1), kPatchMixGain) == -6.0f);
+    CHECK(!a.synthPresetDirty());
+    a.endSynthPreview();
+    CHECK(std::memcmp(&before, &a.synthPreset(1), sizeof(SynthPatch)) == 0);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+    CHECK(!a.synthPresetDirty());
+}
+
+TEST(store_from_a_slot_on_a_preset_stores_what_it_plays) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    a.storeSynthPreset(2, 1);   // slot 1 plays preset 1
+    CHECK_EQ(int(a.synthPreset(2).engine), int(a.synthPreset(1).engine));
+    CHECK_STR(a.synthPreset(2).presetName, "Bell");
+    CHECK(patchMix(a.synthPreset(2), kPatchMixGain) == -6.0f);
+    CHECK_EQ(int(a.synthPreset(2).poly), 3);
+    const SynthPatch before = a.synthPreset(1);
+    a.storeSynthPreset(1, 1);   // onto itself: nothing
+    CHECK(std::memcmp(&before, &a.synthPreset(1), sizeof(SynthPatch)) == 0);
+    CHECK_EQ(a.synthPresetActive(1), 1);
+}

@@ -107,7 +107,7 @@ SynthSlotView SynthBank::slotView(int s) const {
     v.available = okModel && synthEngineFor(v.engine) != nullptr;
     v.patchBound = sl.patch != nullptr;
     v.patchMismatch = !sl.patch || sl.patch->engine != v.engine;
-    v.polyphony = int(r.polyphony > 8 ? 8 : r.polyphony);
+    v.polyphony = polyOf(sl, r);   // [OT] a preset's own polyphony while bound
     const int c = cap();
     v.playable = v.polyphony < c ? v.polyphony : c;
     v.limited = c < v.polyphony;
@@ -172,7 +172,7 @@ int SynthBank::cap() const {
 int SynthBank::playable(int s) const {
     const Slot& sl = slots_[s];
     if (!sl.eng) return 0;
-    const int poly = int(sl.rec.polyphony > 8 ? 8 : sl.rec.polyphony);
+    const int poly = polyOf(sl, sl.rec);
     const int c = cap();
     return poly < c ? poly : c;
 }

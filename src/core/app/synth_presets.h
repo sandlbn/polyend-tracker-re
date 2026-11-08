@@ -13,6 +13,11 @@ namespace presets {
 
 SynthPatch* table();   // [0] is preset 1
 uint8_t& dirty();      // bit n - 1: preset n's file is to be written or removed
+// [OT] Everything of `from` but the engine into `to` (an entry whose engine
+// stays, e.g. a value edit or a preview of the same engine).
+void copyBehindEngine(SynthPatch& to, const SynthPatch& from);
+// The model whose engine is e, -1 = none.
+int modelOfEngine(int32_t e);
 
 }  // namespace presets
 }  // namespace ot

@@ -329,6 +329,13 @@ private:
         return sl.bound && sl.bound != sl.patch && patchHasMix(*sl.bound) ? sl.bound : nullptr;
     }
     void applyMix(Slot& sl);
+    // [OT] The polyphony the slot plays: the bound preset's when it carries
+    // one, else the record's (0..8).
+    static int polyOf(const Slot& sl, const SynthSlotRecord& r) {
+        const SynthPatch* b = sl.bound;
+        const uint32_t p = b && b != sl.patch && patchHasPoly(*b) ? b->poly : r.polyphony;
+        return int(p > 8 ? 8 : p);
+    }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;

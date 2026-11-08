@@ -422,7 +422,9 @@ TEST(stopped_chase_applies_again_after_a_midi_stop_while_armed_or_stopped) {
     CHECK_EQ(a.synthPresetActive(0), 3);
 }
 
-TEST(stopped_chase_puts_a_slot_back_when_its_patch_preview_ends) {
+TEST(a_patch_preview_on_a_chased_preset_plays_in_the_preset) {
+    // The slot stays on the preset the chase has it on; the preview plays in
+    // that preset and its end puts the entry back as it was.
     Harness h;
     App& a = *h.app;
     CHECK(a.newProject());
@@ -434,14 +436,16 @@ TEST(stopped_chase_puts_a_slot_back_when_its_patch_preview_ends) {
     cursor(a, 6);
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
+    const SynthPatch p2 = a.synthPreset(2);
     CHECK(a.previewSynthLibraryPatch(0, "Prev"));
     h.run();
-    CHECK_EQ(a.synthPresetActive(0), 0);   // the preview is heard
+    CHECK_EQ(a.synthPresetActive(0), 2);
+    CHECK_EQ(a.synthPreviewSlot(), 0);
     a.endSynthPreview();
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
-    // Synth 2 on preset 4 too; a preview on it ends slot 0's: slot 0 goes
-    // back, slot 1's preview is heard.
+    CHECK(std::memcmp(&p2, &a.synthPreset(2), sizeof(SynthPatch)) == 0);
+    // Synth 2 on preset 4 too; a preview on it ends slot 0's.
     note(a.pattern().tracks[1].steps[5], 65);
     z(a.pattern().tracks[1].steps[5], 1, 4);
     a.patternEdited();
@@ -451,15 +455,16 @@ TEST(stopped_chase_puts_a_slot_back_when_its_patch_preview_ends) {
     libraryPatch(h, 1, "Prev2");
     CHECK(a.previewSynthLibraryPatch(0, "Prev"));
     h.run();
-    CHECK_EQ(a.synthPresetActive(0), 0);
+    const SynthPatch p4 = a.synthPreset(4);
     CHECK(a.previewSynthLibraryPatch(1, "Prev2"));
     h.run();
-    CHECK_EQ(a.synthPresetActive(0), 2);
-    CHECK_EQ(a.synthPresetActive(1), 0);
+    CHECK_EQ(a.synthPreviewSlot(), 1);
+    CHECK(std::memcmp(&p2, &a.synthPreset(2), sizeof(SynthPatch)) == 0);
     a.endSynthPreview();
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
     CHECK_EQ(a.synthPresetActive(1), 4);
+    CHECK(std::memcmp(&p4, &a.synthPreset(4), sizeof(SynthPatch)) == 0);
 }
 
 TEST(a_patch_load_from_the_preview_is_heard_on_the_loaded_patch) {
@@ -486,4 +491,34 @@ TEST(a_patch_load_from_the_preview_is_heard_on_the_loaded_patch) {
     cursor(a, 5);
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
+}
+
+TEST(the_edit_target_follows_the_stopped_chase_and_a_target_edit_keeps_it) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    presets(a, {2});
+    note(a.pattern().tracks[0].steps[4], 64);
+    z(a.pattern().tracks[0].steps[4], 1, 2);
+    a.patternEdited();
+    cursor(a, 3);
+    h.run();
+    CHECK_EQ(a.synthEditTarget(0), 0);
+    cursor(a, 4);
+    h.run();
+    CHECK_EQ(a.synthEditTarget(0), 2);
+    // An edit of the target (the preset) is heard there: the slot stays on it.
+    SynthSlotRecord t = a.synthTargetRecord(0);
+    t.gainDb = -2.0f;
+    a.setSynthTargetRecord(0, t);
+    a.markSynthTargetDirty(0);
+    h.run();
+    h.run();
+    CHECK_EQ(a.synthEditTarget(0), 2);
+    CHECK(patchMix(a.synthPreset(2), kPatchMixGain) == -2.0f);
+    CHECK(a.synthSlot(0).gainDb != -2.0f);
+    cursor(a, 3);
+    h.run();
+    CHECK_EQ(a.synthEditTarget(0), 0);
+    CHECK(a.synthTargetRecord(0).gainDb == a.synthSlot(0).gainDb);
 }

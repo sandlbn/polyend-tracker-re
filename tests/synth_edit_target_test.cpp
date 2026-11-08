@@ -114,3 +114,44 @@ TEST(preset_changed_with_a_new_engine_restarts_on_it) {
     r.block();
     CHECK_EQ(int(r.bank.params(0).engine), int(kSynthEngineAcd));
 }
+
+// [OT] A preset that carries a polyphony plays at it (voice limit, mono reuse
+// at 1); Z0 / Stop give the record's back; a preset without one keeps the
+// record's (4 in the rig).
+TEST(a_preset_polyphony_limits_the_slot_while_it_plays) {
+    Rig r;
+    patchSetPoly(r.presets[0], 1);
+    CHECK(r.bank.presetSelect(0, 1));
+    r.block();
+    CHECK_EQ(r.bank.slotView(0).polyphony, 1);
+    r.note(0, 60);
+    r.note(1, 64);
+    r.block();
+    CHECK_EQ(r.bank.voicesOf(0), 1);
+    // Edited in place: new notes take it.
+    patchSetPoly(r.presets[0], 2);
+    r.bank.presetChanged(1);
+    r.block();
+    CHECK_EQ(r.bank.slotView(0).polyphony, 2);
+    r.note(2, 67);
+    r.block();
+    CHECK_EQ(r.bank.voicesOf(0), 2);
+    r.bank.transportStop();   // the record's polyphony again
+    r.block();
+    CHECK_EQ(r.bank.slotView(0).polyphony, 4);
+    r.note(3, 70);
+    r.note(4, 72);
+    r.block();
+    CHECK(r.bank.voicesOf(0) >= 3);
+}
+
+TEST(a_preset_without_a_polyphony_keeps_the_records) {
+    Rig r;
+    CHECK(r.bank.presetSelect(0, 1));
+    r.block();
+    CHECK_EQ(r.bank.slotView(0).polyphony, 4);
+    r.note(0, 60);
+    r.note(1, 64);
+    r.block();
+    CHECK_EQ(r.bank.voicesOf(0), 2);
+}
