@@ -32,13 +32,17 @@ struct VoiceNoteOn {
 };
 
 // Argument block for ISequencerSink::synthNoteOn (2.x M3, docs/MINI_PLAN.md §3):
-// a step with instrument 64..66 (Synth 1..3) on any of the 16 tracks.
+// a step with instrument 64..66 (Synth 1..3) on any of the 16 tracks, or
+// [3.x] 67..74 (the presets P1..P8).
 struct SynthNoteOn {
     uint8_t slot = 0;         // 0..2 = instrument 64..66
     uint8_t note = 0;         // 0..127 (performance transpose applied)
     int8_t volume = -1;       // -1 = none (Macro 7 full), else 0..100 (Volume / Random Volume FX)
     StepFx fxA;               // step FX columns (Slide, Glide, Tune, Micro-tune, Volume)
     StepFx fxB;
+    // [3.x] 1..8: a preset instrument (67..74), the bank picks the slot (slot
+    // is then not used); 0: the slot's own instrument.
+    uint8_t preset = 0;
     float tickPeriodUs = 0;
 };
 

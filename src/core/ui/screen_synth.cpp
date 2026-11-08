@@ -168,7 +168,7 @@ int SynthScreen::entrySlot(App& a, Ui& ui, int active) {
     if (active == kModPattern) {
         if (auto* p = static_cast<PatternScreen*>(ui.screen(kModPattern))) {
             const Step& st = a.pattern().tracks[clampi(p->track, 0, kTrackCount - 1)].steps[clampi(p->step, 0, kStepCount - 1)];
-            if (isSynthInstrument(st.instrument)) {
+            if (isSynthSlotInstrument(st.instrument)) {
                 a.setCurrentInstrument(st.instrument);
                 return synthSlotOf(st.instrument);
             }
@@ -195,7 +195,7 @@ int SynthScreen::rows() const {
 
 void SynthScreen::start(int opt) {
     if (opt >= 1 && opt <= kSynthSlotCount) slot = opt - 1;
-    else if (isSynthInstrument(app_.currentInstrument())) slot = synthSlotOf(app_.currentInstrument());
+    else if (isSynthSlotInstrument(app_.currentInstrument())) slot = synthSlotOf(app_.currentInstrument());
     if (view != View::Macros) view = View::Params;
     param = clampi(param, 0, 5);
     // Edit Patch starts at its first section (the index may belong to

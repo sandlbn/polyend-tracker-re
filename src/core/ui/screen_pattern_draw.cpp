@@ -647,7 +647,7 @@ void popupItem(void* ctx, int i, char* out, int cap) {
     } else if (p->kind == 5) {
         // MIDI tracks: Synth 1..3, then the MIDI channels.
         const int ins = synthui::popupInstrumentMidi(i);
-        if (isSynthInstrument(uint8_t(ins)))
+        if (isSynthSlotInstrument(uint8_t(ins)))
             synthui::slotLabel(a, synthSlotOf(uint8_t(ins)), out, cap);
         else
             std::snprintf(out, size_t(cap), "MIDI Channel %d", ins - kFirstMidiInstrument + 1);
@@ -657,7 +657,7 @@ void popupItem(void* ctx, int i, char* out, int cap) {
         const int ins = synthui::popupInstrument(i);
         if (ins < kSampleInstrumentCount)
             std::snprintf(out, size_t(cap), "%d. %s", ins + 1, a.instrPresent[ins] ? a.instruments[ins].name : "");
-        else if (isSynthInstrument(uint8_t(ins)))
+        else if (isSynthSlotInstrument(uint8_t(ins)))
             synthui::slotLabel(a, synthSlotOf(uint8_t(ins)), out, cap);
         else
             std::snprintf(out, size_t(cap), "%d. MIDI Channel %d", ins + 1, ins - kFirstMidiInstrument + 1);

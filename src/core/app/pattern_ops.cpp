@@ -103,7 +103,7 @@ void setLength(Pattern& p, int len) {
 
 uint8_t mapInstrument(int track, int instr) {
     // 2.x synth slots 64..66 play on any of the 16 tracks (Tracker Mini).
-    if (instr >= 0 && isSynthInstrument(uint8_t(instr))) return uint8_t(instr);
+    if (instr >= 0 && isSynthSlotInstrument(uint8_t(instr))) return uint8_t(instr);
     if (isMidiTrack(track)) return (instr >= kFirstMidiInstrument && instr < kInstrumentCount) ? uint8_t(instr) : 48;
     return (instr >= 0 && instr < kInstrumentCount) ? uint8_t(instr) : 0;
 }
@@ -241,7 +241,7 @@ void writeInstrument(Pattern& p, const SelRect& r, uint8_t instr) {
             Step& st = p.tracks[t].steps[s];
             const uint8_t v = mapInstrument(t, instr);
             if (r.single()) {
-                const bool plays = isSampleInstrument(v) || isSynthInstrument(v);
+                const bool plays = isSampleInstrument(v) || isSynthSlotInstrument(v);
                 if (st.note == kNoteEmpty && plays) st.note = 60;
                 if (st.note < kNoteEmpty && plays) continue;   // specials keep theirs
                 st.instrument = v;

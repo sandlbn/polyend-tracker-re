@@ -16,7 +16,7 @@ using chase::Summary;
 
 OT_SDRAM_BSS chase::Memory g_chase;   // main-loop data: zeroed by otAppMain(), reset in App::init()
 
-inline bool synth(uint8_t i) { return isSynthInstrument(i); }
+inline bool synth(uint8_t i) { return isSynthSlotInstrument(i); }
 
 void ownState(State& st) {
     std::memset(st.preset, 0, sizeof st.preset);

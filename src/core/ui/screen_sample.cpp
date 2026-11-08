@@ -800,7 +800,7 @@ void PlaybackScreen::draw(Gfx& g) {
     char sub[48];
     if (ci < kSampleInstrumentCount)
         std::snprintf(sub, sizeof(sub), "%d. %s%s", ci + 1, a.instruments[ci].name, a.streamed(ci) ? " (SD)" : "");
-    else if (isSynthInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
+    else if (isSynthSlotInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
     else std::snprintf(sub, sizeof(sub), "MIDI instrument");
     ui_.drawTitle(g, "Sample Playback", sub);
     if (ui_.bar.label[6].hidden && !ui_.askOpen()) barSelector(g, th, 6, ui_.bar.label[6].top, 67);

@@ -11,7 +11,7 @@ inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline bool isMidiInstr(uint8_t i) { return i >= 48 && i < 64; }
 inline bool isMidiLike(uint8_t i) { return i >= 48; }          // 48..63 MIDI, 64..66 synths
-inline bool isSynth(uint8_t i) { return isSynthInstrument(i); }  // 64..66 = Synth 1..3 (MINI_PLAN §3)
+inline bool isSynth(uint8_t i) { return isSynthSlotInstrument(i); }  // 64..66 = Synth 1..3 (MINI_PLAN §3)
 // Release the track's note before a new note (MIDI tracks are monophonic).
 // A synth note following a synth note is left to the synth bank, which
 // releases the old voice or reuses it (polyphony-1 legato / glide).

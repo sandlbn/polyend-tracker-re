@@ -224,7 +224,8 @@ TEST(mini_sizes_tracker_lib) {
     CHECK_EQ(base + track * 12 + 4, mtp::kStockFileSize);
     CHECK_EQ(base + track * 8 + 4, mtp::kLegacyFileSize);
     CHECK_EQ(kFirstSynthInstrument, 64);
-    CHECK(!isSynthInstrument(63) && isSynthInstrument(64) && isSynthInstrument(66) && !isSynthInstrument(67));
+    CHECK(!isSynthSlotInstrument(63) && isSynthSlotInstrument(64) && isSynthSlotInstrument(66) && !isSynthSlotInstrument(67));
+    CHECK(isSynthInstrument(67) && isSynthInstrument(74) && !isSynthInstrument(75));   // [3.x] P1..P8
     CHECK_EQ(synthSlotOf(65), 1);
     CHECK_EQ(synthSlotOf(48), -1);
 }
@@ -241,7 +242,7 @@ TEST(mini_golden) {
     // Synth instruments 64..66 are in the golden on tracks 0..15.
     int synth = 0;
     for (const Track& t : g_m.tracks)
-        for (const Step& s : t.steps) synth += isSynthInstrument(s.instrument);
+        for (const Step& s : t.steps) synth += isSynthSlotInstrument(s.instrument);
     CHECK(synth > 0);
 
     PatternLoadInfo info;

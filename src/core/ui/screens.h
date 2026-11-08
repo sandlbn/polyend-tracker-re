@@ -987,7 +987,7 @@ inline int popupInstrument(int pos) {
 // do (manual p.100 figure; docs/SYNTH_UX_MINI_VS_OT.md rows 1, 3).
 void slotLabel(const App& a, int slot, char* out, int cap);
 inline int popupPosition(int instrument) {
-    return isSynthInstrument(uint8_t(instrument)) ? instrument - kFirstSynthInstrument : instrument + kSynthSlotCount;
+    return isSynthSlotInstrument(uint8_t(instrument)) ? instrument - kFirstSynthInstrument : instrument + kSynthSlotCount;
 }
 // Instrument popup on the MIDI tracks 9-16 (Mini manual §1.8: "tracks 9-16
 // are used for MIDI and synths"; USER_REPORTS_R2 item 5): Synth 1..3 first,
@@ -997,7 +997,7 @@ inline int popupInstrumentMidi(int pos) {
     return pos < kSynthSlotCount ? kFirstSynthInstrument + pos : kFirstMidiInstrument + pos - kSynthSlotCount;
 }
 inline int popupPositionMidi(int instrument) {
-    if (isSynthInstrument(uint8_t(instrument))) return instrument - kFirstSynthInstrument;
+    if (isSynthSlotInstrument(uint8_t(instrument))) return instrument - kFirstSynthInstrument;
     if (instrument >= kFirstMidiInstrument && instrument < kInstrumentCount)
         return instrument - kFirstMidiInstrument + kSynthSlotCount;
     return kSynthSlotCount;   // a sample instrument: MIDI 1
@@ -1011,7 +1011,7 @@ inline int midiTrackPadInstrument(int pad) {
 }
 // Pad of a MIDI-track instrument (the inverse; -1: none).
 inline int midiTrackInstrumentPad(int instrument) {
-    if (isSynthInstrument(uint8_t(instrument))) return kMidiInstrumentCount + instrument - kFirstSynthInstrument;
+    if (isSynthSlotInstrument(uint8_t(instrument))) return kMidiInstrumentCount + instrument - kFirstSynthInstrument;
     return -1;
 }
 }  // namespace synthui

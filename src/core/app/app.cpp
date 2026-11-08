@@ -311,7 +311,7 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     // §1.4 step 5); each note-off releases one.
     if (voiceId < kAuditionMidiIn || voiceId >= kAuditionMidiIn + 128) previewOff(voiceId);
     const bool midi = isMidiInstrument(instrument);
-    if (isSynthInstrument(instrument)) {
+    if (isSynthSlotInstrument(instrument)) {
         // MIDI input notes and held pads (voiceId = pad number): one live
         // track per held note (polyphonic, up to the slot polyphony and the
         // voice cap); all held: the tracks are reused in turn. (Pads on the
@@ -625,7 +625,7 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
         // 2.x synth slots sound on the synth live tracks, not a pattern
         // track: step entry writes the n-th held note to the n-th track of
         // the target (user report: MIDI keys recorded nothing on S1..S3).
-        if (t < 0 && isSynthInstrument(currentInstrument())) {
+        if (t < 0 && isSynthSlotInstrument(currentInstrument())) {
             int held = 0;
             for (int k = 0; k < audio::kSynthLiveTracks; ++k)
                 if (synthLive_[k] >= kAuditionMidiIn && synthLive_[k] < kAuditionMidiIn + 128 && synthLive_[k] != voice)
