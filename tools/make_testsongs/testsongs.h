@@ -53,12 +53,15 @@ enum class SongId : uint8_t {
     PoolFm4 = 25,
     PoolCsType = 26,
     PoolEight = 27,
+    PoolVap = 28,
+    PoolFat = 29,
+    PoolWtfm = 30,
 };
-constexpr int kSongCount = 27;
+constexpr int kSongCount = 30;
 
 // Songs 6-12 (the BLAST GRID remixes).
 // [I] measurement songs (poolsong.inc): one held synth note; card synths, so no Mini check.
-inline bool isPoolSong(SongId id) { return int(id) >= int(SongId::PoolAcd) && int(id) <= int(SongId::PoolEight); }
+inline bool isPoolSong(SongId id) { return int(id) >= int(SongId::PoolAcd) && int(id) <= int(SongId::PoolWtfm); }
 inline bool isBgSong(SongId id) { return int(id) >= int(SongId::BgTitle) && int(id) <= int(SongId::BgFinalBoss); }
 
 struct SongInfo {
