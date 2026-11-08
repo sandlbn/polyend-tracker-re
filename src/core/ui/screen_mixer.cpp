@@ -38,10 +38,11 @@ const char* kGlobalNames[4] = {"Delay", "Reverb", "Dry Mix", "Line In"};
 constexpr int kSynthCol = 4;
 const char* kSynthNames[3] = {"Synth 1", "Synth 2", "Synth 3"};
 float synthBar(float db) { return clampf((db + 96.0f) / 108.0f, 0.0f, 1.0f); }
+// [3.x] A slot on a preset shows and sets the preset's level (App::synthEditTarget).
 void synthGainStep(App& a, int s, float d, bool reset) {
-    SynthSlotRecord r = a.synthSlot(s);
+    SynthSlotRecord r = a.synthTargetRecord(s);
     r.gainDb = reset ? 0.0f : clampf(std::round((r.gainDb + 0.5f * d) * 2.0f) / 2.0f, -96.0f, 12.0f);
-    a.setSynthSlotRecord(s, r);
+    a.setSynthTargetRecord(s, r);
 }
 const int kMainParams[4] = {0, 5, 6, 7};   // Volume, Saturation, Bass Boost, Space (F-index)
 // Delay sync rate index -> note value, in DSYNC order (spec 04 §5.1,
@@ -453,7 +454,7 @@ void MixerScreen::refreshBar() {
         b.highlight(i, held_[i]);
     }
     for (int s = 0; s < kSynthSlotCount; ++s) {
-        synthui::gainText(a.synthSlot(s).gainDb, v, sizeof(v));
+        synthui::gainText(a.synthTargetRecord(s).gainDb, v, sizeof(v));
         b.set(kSynthCol + s, v);
         b.highlight(kSynthCol + s, held_[kSynthCol + s]);
     }
@@ -847,6 +848,14 @@ void MixerScreen::update(uint32_t now) {
         lastMeter_ = now;
         histPos_ = (histPos_ + 1) % 10;
         bool changed = false;
+        // [3.x] A Z or the chase moved a slot onto another preset: its level and name.
+        for (int s = 0; s < kSynthSlotCount; ++s) {
+            const uint8_t z = uint8_t(app_.synthEditTarget(s));
+            if (z == shownTarget_[s]) continue;
+            shownTarget_[s] = z;
+            refreshBar();
+            changed = true;
+        }
         for (int s = 0; s < kSynthSlotCount; ++s) {
             synthHist_[s][histPos_] = app_.engine.synth().slotPeak(s);
             float sum = 0;
@@ -1058,10 +1067,11 @@ void MixerScreen::draw(Gfx& g) {
     for (int s = 0; s < kSynthSlotCount; ++s) {
         const int k = kSynthCol + s, x = colX(k);
         hd[4 + s].k = k;
-        std::snprintf(hd[4 + s].name, sizeof(hd[4 + s].name), "%s", kSynthNames[s]);
+        if (const int z = a.synthEditTarget(s)) std::snprintf(hd[4 + s].name, sizeof(hd[4 + s].name), "%s P%d", kSynthNames[s], z);
+        else std::snprintf(hd[4 + s].name, sizeof(hd[4 + s].name), "%s", kSynthNames[s]);
         bd[nb++] = Body{x, 47};
         bd[nb++] = Body{x + 50, 47};
-        br[nr++] = wg::ValueBarItem{x, 64, 47, 359, synthBar(a.synthSlot(s).gainDb)};
+        br[nr++] = wg::ValueBarItem{x, 64, 47, 359, synthBar(a.synthTargetRecord(s).gainDb)};
         br[nr++] = wg::ValueBarItem{x + 50, 64, 47, 359, float(synthMeter[s]) / 100.0f, green};
     }
     headers(g, th, hd, 4 + kSynthSlotCount);

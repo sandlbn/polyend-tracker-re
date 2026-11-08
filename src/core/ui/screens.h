@@ -449,6 +449,7 @@ public:
     static int synthMeterBar(float meanPeak);
     int synthMeter[3] = {};
     float synthHist_[3][10] = {};
+    uint8_t shownTarget_[3] = {};   // [3.x] the preset each synth column shows (0 = the slot's own)
     // True when parameter `param` of Master sub-page `sub` is an option list
     // (encoder + / Down = next item, Up = previous item) rather than a bar.
     static bool isListParam(int sub, int param);

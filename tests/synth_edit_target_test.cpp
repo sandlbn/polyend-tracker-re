@@ -616,6 +616,42 @@ TEST(instrument_params_on_a_playing_preset_instrument_opens_its_slot) {
     CHECK_EQ(int(a.synthEditTarget(s)), 0);
     CHECK(!drawn(h, t));
 }
+
+// --- the Mixer -----------------------------------------------------------------------
+
+TEST(the_global_mixer_shows_and_sets_the_presets_level) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.tap(btn::Master);   // Global Mixer 3/3
+    CHECK_EQ(static_cast<MixerScreen*>(a.ui.screen(kModMaster))->page, 2);
+    h.run(40);
+    char want[24];
+    synthui::gainText(-12.0f, want, sizeof want);
+    CHECK_STR(a.ui.bar.label[4].top, want);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(40);
+    CHECK(drawn(h, "Synth 1 P1"));
+    synthui::gainText(-3.0f, want, sizeof want);
+    CHECK_STR(a.ui.bar.label[4].top, want);
+    h.down(4);   // F5 held: Synth 1's level
+    h.enc(2);
+    h.up(4);
+    sound(h, 0);
+    CHECK_NEAR(a.synthPresetMix(1).gainDb, -2.0f, 1e-6);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-2.0f), 1e-6);
+    CHECK_NEAR(a.synthSlot(0).gainDb, -12.0f, 1e-6);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    h.run(40);
+    CHECK(!drawn(h, "Synth 1 P1"));
+    synthui::gainText(-12.0f, want, sizeof want);
+    CHECK_STR(a.ui.bar.label[4].top, want);
+}
 #endif
 
 }  // namespace
