@@ -16,6 +16,8 @@ using chase::Summary;
 
 OT_SDRAM_BSS chase::Memory g_chase;   // main-loop data: zeroed by otAppMain(), reset in App::init()
 
+// The slot instruments; [3.x] a preset instrument (67..74) never moves a slot's
+// Z and is no target of a no-note Z (it reads as a non-synth note here).
 inline bool synth(uint8_t i) { return isSynthSlotInstrument(i); }
 
 void ownState(State& st) {
@@ -44,7 +46,7 @@ uint8_t scanSteps(const Track* const* tracks, int lastStep, uint16_t used, State
                 const StepFx f = s.fx[c];
                 if (!isPresetCmd(f.type, f.value)) continue;
                 uint8_t in = s.instrument;
-                if (!synth(in) && s.note < 0) {
+                if (!synth(in) && !isPresetInstrument(in) && s.note < 0) {   // (the sequencer's isSynth)
                     if (last == chase::kUnknown) out = uint8_t(out | chase::kUnresolved);
                     else in = last;
                 }

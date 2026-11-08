@@ -446,3 +446,26 @@ TEST(a_patch_load_from_the_preview_is_heard_on_the_loaded_patch) {
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
 }
+
+// [3.x] A preset instrument (67..74) never moves a slot's preset: its note
+// reads as a non-synth note, a Z on its step or on an FX-only step after
+// it has no slot to act on (as the sequencer plays it).
+TEST(chase_a_preset_instrument_moves_no_slot) {
+    Harness h;
+    App& a = *h.app;
+    storeAll(a);
+    Pattern& p = a.pattern();
+    putNote(p.tracks[0].steps[0], 60, 65);   // S2
+    putZ(p.tracks[0].steps[0], 1, 2);
+    putNote(p.tracks[0].steps[1], 60, 67);   // P1
+    putZ(p.tracks[0].steps[1], 1, 5);        // on the P step: nothing
+    putZ(p.tracks[0].steps[2], 1, 6);        // no note after P: nothing
+    p.tracks[0].steps[3].instrument = 70;    // an FX-only step naming P4: nothing either
+    putZ(p.tracks[0].steps[3], 1, 7);
+    edited(a);
+    Chase c = chase(a, false, 0, 3);
+    CHECK_EQ(int(c.z[1]), 2);
+    CHECK_EQ(int(c.z[0]), 0);
+    CHECK_EQ(int(c.z[2]), 0);
+    CHECK(c.last[0] != 65 && c.last[0] != 67);   // not a synth slot's
+}

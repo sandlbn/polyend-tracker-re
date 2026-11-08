@@ -10,8 +10,9 @@ namespace {
 inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline bool isMidiInstr(uint8_t i) { return i >= 48 && i < 64; }
-inline bool isMidiLike(uint8_t i) { return i >= 48; }          // 48..63 MIDI, 64..66 synths
-inline bool isSynth(uint8_t i) { return isSynthSlotInstrument(i); }  // 64..66 = Synth 1..3 (MINI_PLAN §3)
+inline bool isMidiLike(uint8_t i) { return i >= 48; }          // 48..63 MIDI, 64..74 synths
+// 64..66 = Synth 1..3 (MINI_PLAN §3), [3.x] 67..74 = the presets P1..P8.
+inline bool isSynth(uint8_t i) { return isSynthInstrument(i); }
 // Release the track's note before a new note (MIDI tracks are monophonic).
 // A synth note following a synth note is left to the synth bank, which
 // releases the old voice or reuses it (polyphony-1 legato / glide).
@@ -537,7 +538,7 @@ void Sequencer::stepStart(int t) {
         if (isPresetCmd(type, v)) {  // Z: an FX-only step uses the synth the track plays
             uint8_t in = p.rec.instr;
             if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-            if (isSynth(in) && sink_) {
+            if (isSynthSlotInstrument(in) && sink_) {   // [3.x] a preset instrument has no slot: no target
                 const int slot = synthSlotOf(in);
                 const uint8_t n = presetCmdIndex(v);
                 zPend_ = uint8_t(zPend_ & ~(1u << slot));
@@ -591,7 +592,8 @@ void Sequencer::stepStart(int t) {
             case 6: {  // Random instrument, clamped inside its class
                 const int i = p.rec.instr;
                 int lo = 0, hi = 47;
-                if (i >= 64) { lo = 64; hi = 66; }
+                if (i >= kFirstPresetInstrument) { lo = kFirstPresetInstrument; hi = kLastPresetInstrument; }   // [3.x] P1..P8
+                else if (i >= 64) { lo = 64; hi = 66; }
                 else if (i >= 48) { lo = 48; hi = 63; }
                 p.rec.instr = uint8_t(clampi(rng_.rangeIncl(i - v, i + v), lo, hi));
                 break;
@@ -607,7 +609,13 @@ void Sequencer::stepStart(int t) {
                     // FX-only step uses the synth the track plays.
                     uint8_t in = p.rec.instr;
                     if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-                    if (isSynth(in)) sink_->synthMacroFx(uint8_t(synthSlotOf(in)), uint8_t(ccLetter(type)), v > 127 ? 127 : v);
+                    if (isSynthSlotInstrument(in)) {
+                        sink_->synthMacroFx(uint8_t(synthSlotOf(in)), uint8_t(ccLetter(type)), v > 127 ? 127 : v);
+                    } else if (isPresetInstrument(in) && p.rec.note < 0) {
+                        // [3.x] A preset instrument: the slot its sounding note
+                        // plays on (a note step's CC goes with the note).
+                        sink_->synthApplyFx(uint8_t(t), type, v);
+                    }
                 }
                 break;
             case 13:  // Break
@@ -754,10 +762,12 @@ void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chord
         tr.midiCount = 0;
         return;
     }
-    if (isSynth(rec.instr)) {  // Synth 1..3 on any track (MINI_PLAN §3)
+    if (isSynth(rec.instr)) {  // Synth 1..3 ([3.x] and P1..P8) on any track (MINI_PLAN §3)
         if (sink_) {
             SynthNoteOn n;
-            n.slot = uint8_t(synthSlotOf(rec.instr));
+            const int slot = synthSlotOf(rec.instr);
+            n.slot = uint8_t(slot < 0 ? 0 : slot);
+            n.preset = presetOfInstrument(rec.instr);
             int note = rec.note;
             if (perfMode_ && tr.transposeOn) note = clampi(note + tr.transpose, 0, 127);
             n.note = uint8_t(note);
@@ -767,14 +777,14 @@ void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chord
             n.fxA = rec.fxA;
             n.fxB = rec.fxB;
             n.tickPeriodUs = tickPeriodUs();
-            if (zPend_ & (1u << n.slot)) zFlush(uint8_t(1u << n.slot));   // [3.x] a note before the step's Z
+            if (slot >= 0 && (zPend_ & (1u << n.slot))) zFlush(uint8_t(1u << n.slot));   // [3.x] a note before the step's Z
             sink_->synthNoteOn(uint8_t(t), n);
         }
         tr.sounding = true;
         tr.midiCount = 0;
         return;
     }
-    if (rec.instr >= 64) {  // 67..: no output (spec 03 §4.4)
+    if (rec.instr >= 64) {  // 75..: no output (spec 03 §4.4)
         tr.sounding = false;
         return;
     }
@@ -871,7 +881,7 @@ void Sequencer::rollRetrigger(int t) {
 // [3.x] The microsteps an arp note of a synth slot stays on: its Arp Gate of
 // the arp period, always shorter than the period; -1 = until the next note.
 int Sequencer::arpGateLimit(const TrackState& tr, uint8_t instr) const {
-    if (!host_ || !isSynth(instr)) return -1;
+    if (!host_ || !isSynthSlotInstrument(instr)) return -1;   // [3.x] a preset instrument: until the next note
     const int gate = host_->synthArpGate(uint8_t(synthSlotOf(instr)));
     if (gate >= 100) return -1;
     return clampi((int(tr.arpPeriod) * gate + 50) / 100, 1, int(tr.arpPeriod) - 1);
@@ -1169,7 +1179,7 @@ uint8_t Sequencer::nextStepZ() const {
             if (!isPresetCmd(s.fx[c].type, s.fx[c].value)) continue;
             uint8_t in = s.instrument;
             if (!isSynth(in) && s.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-            if (isSynth(in)) m = uint8_t(m | (1u << synthSlotOf(in)));
+            if (isSynthSlotInstrument(in)) m = uint8_t(m | (1u << synthSlotOf(in)));
         }
     }
     return m;
