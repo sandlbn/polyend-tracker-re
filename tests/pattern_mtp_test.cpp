@@ -390,3 +390,23 @@ TEST(mini_empty_and_short_file) {
     CHECK(minigold::sameTrack(g_q.tracks[11], g_m.tracks[11]));
     CHECK_EQ(g_q.tracks[15].lastStep, 0);
 }
+
+// [3.x] The preset instruments 67..74 are stored as they are (stock and
+// Tracker Mini files): no clamp on save or load. Other firmware reads them
+// as instruments that do not exist and plays nothing.
+TEST(preset_instruments_round_trip_raw) {
+    g_p.setDefault();
+    for (int k = 0; k < kPresetInstrumentCount; ++k)
+        g_p.tracks[k].steps[k] = Step{int8_t(60 + k), uint8_t(kFirstPresetInstrument + k), {{8, 90}, {0, 0}}};
+    encodePattern(g_p, g_buf);
+    CHECK_BYTES(g_buf + stepOff(3, 3), 63, 70, 0, 0, 8, 90);
+    decodePattern(g_buf, sizeof(g_buf), g_q);
+    for (int k = 0; k < kPresetInstrumentCount; ++k) CHECK(g_q.tracks[k].steps[k] == g_p.tracks[k].steps[k]);
+    g_m.setDefault();
+    g_m.tracks[15].steps[2] = Step{50, uint8_t(kLastPresetInstrument), {}};
+    g_m.tracks[9].steps[0] = Step{51, uint8_t(kFirstPresetInstrument), {}};
+    encodePattern16(g_m, g_mbuf);
+    decodePattern16(g_mbuf, sizeof(g_mbuf), g_q);
+    CHECK_EQ(int(g_q.tracks[15].steps[2].instrument), 74);
+    CHECK_EQ(int(g_q.tracks[9].steps[0].instrument), 67);
+}
