@@ -20,7 +20,16 @@
 // external linkage (a COMDAT group): it needs a section of its own
 // (".fastrun.<tag>"), or GCC reports a section type conflict with the plain
 // .fastrun functions of the same translation unit.
-#if defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE && defined(OT_FASTRUN) && OT_FASTRUN
+//
+// [I] #21 shared fast pool: a synth module with a hot row (tools/hot_rows/,
+// compiled with OT_FASTRUN_ROW=1) keeps each function in its own .text.<name>
+// section, in flash. The row's functions move into the SRAM_L pool when the
+// project uses the synth (modules/hot_rows.h); OT_FASTRUN_FN only keeps them
+// out of line, so the row's pieces are the ones the bench measured.
+#if defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE && defined(OT_FASTRUN) && OT_FASTRUN && defined(OT_FASTRUN_ROW) && OT_FASTRUN_ROW
+#define OT_FASTRUN_FN
+#define OT_FASTRUN_INLINE(tag) __attribute__((section(".fastrun." #tag), noinline, noclone))
+#elif defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE && defined(OT_FASTRUN) && OT_FASTRUN
 #define OT_FASTRUN_FN __attribute__((section(".fastrun"), noinline, noclone))
 #define OT_FASTRUN_INLINE(tag) __attribute__((section(".fastrun." #tag), noinline, noclone))
 #else
