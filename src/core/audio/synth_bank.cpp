@@ -322,7 +322,9 @@ int SynthBank::cap() const {
     return c < 0 ? 0 : (c > kSynthMaxVoices ? kSynthMaxVoices : c);
 }
 
-int SynthBank::playable(int s) const {
+// [3.x] Out of line: render() (.fastrun) calls it, so the cached preset
+// polyphony costs no SRAM code there.
+__attribute__((noinline)) int SynthBank::playable(int s) const {
     const Slot& sl = slots_[s];
     if (!sl.eng) return 0;
     const int poly = sl.poly;   // [3.x] the record's or the bound preset's (applyMix)
