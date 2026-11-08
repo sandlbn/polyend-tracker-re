@@ -175,8 +175,8 @@ Wheel or Vibrato macro) brings in the modulation of VCO 3 or the noise. Leads an
 | OT Tom Thump | Triangle at 32' + noise into a ladder near self-oscillation, Key Track Full: a pitched drum. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Glide, Noise |
 | OT Whistle Sine | No VCO: Emphasis 100 % makes the ladder the oscillator, in tune from C4 (Key Track Full). | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Vibrato, Breath |
 | OT Hollow Square | Squares at 8' and 16', Key Track 2/3, a gentle contour: a hollow, woody voice. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Glide, Detune (+-) |
-| OT Growl Bass | Saws at 32' and 16' with the output fed back into the mixer (Feedback 80 %), cutoff 300 Hz. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Glide, Feedback (+-) |
-| OT Noise Hit | Noise alone through a resonant ladder with a full, fast contour: snares, claps, zaps. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Glide, Pink |
+| OT Feedback Growl | Saws at 32' and 16' with the output fed back into the mixer (Feedback 80 %), cutoff 300 Hz. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Glide, Feedback (+-) |
+| OT Ladder Noise | Noise alone through a resonant ladder with a full, fast contour: snares, claps, zaps. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Glide, Pink |
 | OT Wind Drone | Pink noise + triangle at 32', slow contours, a slow VCO 3 moving the filter on the wheel. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Wheel (+-), Rate (+-) |
 | OT Lab Sweep | Saw + wide pulse, VCO 3 at 16' as audio-rate FM, Emphasis 90 %, a 2 s filter contour sweep. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Wheel (+-), Mod Mix |
 
