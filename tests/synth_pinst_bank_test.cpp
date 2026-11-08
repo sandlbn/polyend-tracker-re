@@ -301,21 +301,20 @@ TEST(a_slot_with_polyphony_0_is_never_borrowed) {
     CHECK_EQ(r.slotOfTrack(0), 1);
 }
 
-TEST(a_bind_brings_the_presets_mix_and_drops_an_own_mix_edit) {
+TEST(a_bind_brings_the_presets_mix_and_the_own_mix_comes_back_with_the_own_sound) {
     Rig r;
     r.mix[0].gainDb = -3.0f;
     r.mix[0].flags = kPresetMixHas;
     CHECK(r.bank.presetSelect(2, 1));
     r.block();
-    r.bank.ownMixWins(2);   // an edit of the slot's own mix on P1
-    r.bank.setSlotRecord(2, Rig::record(4, -12.0f));
+    r.bank.setSlotRecord(2, Rig::record(4, -12.0f));   // the slot's own record: P1's mix plays on
     r.block();
-    CHECK(std::fabs(r.bank.slotGain(2) - dbToGain(-12.0f)) < 1e-4f);
+    CHECK(std::fabs(r.bank.slotGain(2) - dbToGain(-3.0f)) < 1e-4f);
     r.p(0, 2);   // slot 2 is idle (on P1, no notes): P2 takes it
     CHECK_EQ(r.slotOfTrack(0), 2);
     r.block();
     CHECK(std::fabs(r.bank.slotGain(2) - dbToGain(-12.0f)) < 1e-4f);   // P2: no mix of its own
-    r.s(3, 2);   // back to P1, with P1's mix (the own-mix edit went with the bind)
+    r.s(3, 2);   // back to P1, with P1's mix
     r.block();
     CHECK_EQ(int(r.bank.presetOf(2)), 1);
     CHECK(std::fabs(r.bank.slotGain(2) - dbToGain(-3.0f)) < 1e-4f);

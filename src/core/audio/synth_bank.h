@@ -61,8 +61,8 @@
 // of P<k> plays on a slot that plays preset k, else it binds one: an idle
 // slot (S3 first), else the slot whose notes are all in their release, else
 // the one whose last note-on is the oldest; its notes fade (one block) and
-// it plays preset k (patch, mix, insert) with its own polyphony from then
-// on. A note of the slot's own instrument binds it back to what Z / the
+// it plays preset k (patch, mix, insert; the preset's polyphony when it
+// carries one, else its own) from then on. A note of the slot's own instrument binds it back to what Z / the
 // chase / the UI selected (Slot::zSel): the latest note-on decides. A Z
 // on a borrowed slot wins at once. A bind costs about a note start, so a
 // sequencer note that binds counts as one and starts first in the next
@@ -136,6 +136,7 @@ struct SynthSlotView {
     int playable = 0;            // min(polyphony, cap): what plays now
     int sounding = 0;            // voices of this slot sounding
     bool limited = false;        // the governor cap is below the polyphony
+    int cap = 0;                 // [3.x] the governor cap (voices any slot can play now)
     uint8_t macro[kSynthSeqMacros] = {};   // effective M1..M6 (override or page)
     bool overridden[kSynthSeqMacros] = {}; // FX CC override active
     float lastVelocity = 1.0f;   // M7 of the last note
@@ -184,15 +185,20 @@ enum : uint8_t { kPresetInsertHas = 1, kPresetInsertOff = 2 };
 // when the preset was stored. kPresetMixHas: while a slot plays the preset
 // it plays with this mix; without it the slot keeps its own (a preset saved
 // before presets had a mix).
+// [3.x] kPresetMixPoly: the preset also carries the record's polyphony
+// (0..8): a slot on it plays that many voices (without it, its own). name:
+// the preset's patch name (main loop only; "" = none).
 struct PresetMix {
     float gainDb;
     float pan;
     float reverbSend;
     float delaySend;
     uint8_t flags;
-    uint8_t rsv[3];
+    uint8_t polyphony;
+    uint8_t rsv[2];
+    char name[mt::kSynthPatchNameSize + 1];
 };
-enum : uint8_t { kPresetMixHas = 1 };
+enum : uint8_t { kPresetMixHas = 1, kPresetMixPoly = 2 };
 
 class SynthBank : public IVoicePool {
 public:
@@ -233,19 +239,16 @@ public:
     // play that).
     uint8_t selectedPresetOf(int s) const { return slots_[clampSlot(s)].zSel; }
     // [3.x] kSynthPresetCount entries beside the preset table, bound once: a
-    // slot on preset n plays with preset n's mix when it has one (ramped on
-    // the block of the switch, as a record change). setSlotRecord sets the
-    // slot's own mix, which comes back with its own patch.
+    // slot on preset n plays with preset n's mix and polyphony when it has
+    // them (ramped on the block of the switch, as a record change).
+    // setSlotRecord sets the slot's own, which come back with its own patch.
     void bindPresetMix(const PresetMix* mix) { presetMix_ = mix; }
-    // [3.x] An edit of the slot's own mix while it plays a preset's: the own
-    // mix wins (the record's gain, pan and sends) and the slot stays on the
-    // preset's patch and insert, until a presetSelect changes the preset (a Z
-    // of another one, Z0, the stopped chase; a repeated Z keeps the edit),
-    // Stop, an edit of its patch or a reset. Main loop,
-    // before the setSlotRecord that carries the edit.
-    void ownMixWins(int s) {
-        if (s >= 0 && s < kSynthSlots) ownMix_[s] = true;
-    }
+    // [3.x] Preset n's patch, mix or insert changed (an edit on the Synth
+    // pages): every slot on it re-reads it at the next block and stays on it
+    // (parameters ramp, a new engine restarts the slot). Main loop.
+    void presetChanged(uint8_t n);
+    // [3.x] The slot that plays preset k now (a playable one), -1 none.
+    int slotOnPreset(uint8_t k) const { return presetSlot(k); }
     // The gain the slot plays with (linear; its own or its preset's).
     float slotGain(int s) const { return slots_[clampSlot(s)].gainLin; }
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
@@ -400,6 +403,7 @@ private:
         bool mismatch = false;
         volatile uint8_t preset = 0;   // [3.x] Z: 1.. plays that preset, 0 the slot's patch
         volatile uint8_t zSel = 0;     // [3.x] what Z selected; preset differs while a preset instrument borrows the slot
+        uint8_t poly = 0;              // [3.x] the polyphony it plays with: its record's or its preset's (applyMix)
         SynthParams p;
         // macro state
         uint8_t page[kSynthSeqMacros] = {};
@@ -518,9 +522,6 @@ private:
     uint8_t heldSlot_[kSynthAllTracks];
     uint8_t heldSeq_[kSynthAllTracks];
     uint8_t heldNext_ = 0;
-    // [3.x] ownMixWins (in the padding before perfWord_). One byte per slot:
-    // the main loop sets it, a Z (also from the sequencer) clears it.
-    volatile bool ownMix_[kSynthSlots] = {};
     // Performance FX per track (setTrackPerf), one word each: bytes 0..3 =
     // filter value (-100..100, x 477 / 5000 octaves), pan, delay and reverb
     // send offsets (int8). Packed: the stack headroom has no room for more.
@@ -558,7 +559,9 @@ private:
     uint8_t liveSerial_[kSynthLiveTracks] = {}; // main loop: last serial
     void liveDrain();
     static float perfNote(uint32_t w, const Slot& sl, int8_t& pan, int8_t& sendD, int8_t& sendR);
-    void applyMix(int s);   // [3.x] gainLin .. sendR from the record or the bound preset's mix
+    void applyMix(int s);   // [3.x] gainLin .. sendR and poly from the record or the bound preset's mix
+    const PresetMix* boundMix(const Slot& sl) const;
+    static void setPoly(Slot& sl, const PresetMix* m);
     bool livePending() const {
         for (int k = 0; k < kSynthLiveTracks; ++k)
             if (uint8_t(live_[k]) != liveSeen_[k]) return true;

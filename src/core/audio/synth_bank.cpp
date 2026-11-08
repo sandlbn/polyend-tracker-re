@@ -48,7 +48,6 @@ void SynthBank::reset() {
         if (sl.preset) rebind_[s] = true;
         sl.preset = 0;
         sl.zSel = 0;
-        ownMix_[s] = false;
         for (auto& o : sl.ovr) o = -1;
         sl.macroDirty = true;
         sl.ntouched = 0;
@@ -81,7 +80,6 @@ void SynthBank::bindPatch(int s, const SynthPatch* p) {
     slots_[s].patch = p;
     slots_[s].preset = 0;
     slots_[s].zSel = 0;
-    ownMix_[s] = false;
     rebind_[s] = true;
 }
 
@@ -89,19 +87,23 @@ void SynthBank::patchChanged(int s) {
     if (s < 0 || s >= kSynthSlots) return;
     slots_[s].preset = 0;   // an edit is heard, on the patch being edited
     slots_[s].zSel = 0;
-    ownMix_[s] = false;
     rebind_[s] = true;
 }
+void SynthBank::presetChanged(uint8_t n) {
+    if (!n) return;
+    for (int s = 0; s < kSynthSlots; ++s)
+        if (slots_[s].preset == n) rebind_[s] = true;   // the slot stays on it (not patchChanged)
+}
+
 bool SynthBank::presetSelect(int s, uint8_t n) {
     if (s < 0 || s >= kSynthSlots || n > kSynthPresetCount) return false;
     if (n && (!presets_ || presets_[n - 1].engine == 0)) return false;   // empty: the slot plays on
     slots_[s].zSel = n;
-    // A repeated Z costs nothing (and keeps an own-mix edit); [3.x] so does a
-    // Z of the preset an instrument borrowed the slot for. Another one wins
+    // A repeated Z costs nothing; [3.x] so does a Z of the preset an
+    // instrument borrowed the slot for. Another one wins
     // over that borrowing at once.
     if (slots_[s].preset == n) return true;
     slots_[s].preset = n;
-    ownMix_[s] = false;   // [3.x] another preset (or Z0) takes back an own-mix edit
     rebind_[s] = true;
     return true;
 }
@@ -258,6 +260,7 @@ SynthSlotView SynthBank::slotView(int s) const {
     const int c = cap();
     v.playable = v.polyphony < c ? v.polyphony : c;
     v.limited = c < v.polyphony;
+    v.cap = c;
     v.sounding = voicesOf(s);
     for (int k = 0; k < kSynthSeqMacros; ++k) {
         v.overridden[k] = sl.ovr[k] >= 0 && !ovrRelease_[s][k];
@@ -321,7 +324,7 @@ int SynthBank::cap() const {
 int SynthBank::playable(int s) const {
     const Slot& sl = slots_[s];
     if (!sl.eng) return 0;
-    const int poly = int(sl.rec.polyphony > 8 ? 8 : sl.rec.polyphony);
+    const int poly = sl.poly;   // [3.x] the record's or the bound preset's (applyMix)
     const int c = cap();
     return poly < c ? poly : c;
 }
@@ -396,20 +399,31 @@ int SynthBank::busyRecords() const {
 // [3.x] The mix slot s plays with -- its record's, or the one of the preset
 // it is bound to when that preset carries one -- into the cached mixer
 // targets (in sync(), after a record change or a rebind of the patch).
+// [3.x] The mix entry of the preset slot sl is bound to (nullptr: its own patch).
+const PresetMix* SynthBank::boundMix(const Slot& sl) const {
+    if (!presetMix_ || !presets_ || !sl.bound || sl.bound == sl.patch) return nullptr;
+    const uintptr_t b = uintptr_t(sl.bound), t = uintptr_t(presets_);
+    const uintptr_t n = (b - t) / sizeof(SynthPatch);
+    return b >= t && n < uintptr_t(kSynthPresetCount) ? &presetMix_[n] : nullptr;
+}
+
+// [3.x] The polyphony the slot plays with: its record's, or the bound preset's.
+void SynthBank::setPoly(Slot& sl, const PresetMix* m) {
+    const uint32_t poly = m && (m->flags & kPresetMixPoly) ? m->polyphony : sl.rec.polyphony;
+    sl.poly = uint8_t(poly > 8 ? 8 : poly);
+}
+
 __attribute__((noinline)) void SynthBank::applyMix(int s) {
     Slot& sl = slots_[s];
     float gainDb = sl.rec.gainDb, panV = sl.rec.pan, del = sl.rec.delaySend, rev = sl.rec.reverbSend;
-    if (!ownMix_[s] && presetMix_ && presets_ && sl.bound && sl.bound != sl.patch) {
-        const uintptr_t b = uintptr_t(sl.bound), t = uintptr_t(presets_);
-        const uintptr_t n = (b - t) / sizeof(SynthPatch);
-        if (b >= t && n < uintptr_t(kSynthPresetCount) && (presetMix_[n].flags & kPresetMixHas)) {
-            const PresetMix& m = presetMix_[n];
-            gainDb = m.gainDb;
-            panV = m.pan;
-            del = m.delaySend;
-            rev = m.reverbSend;
-        }
+    const PresetMix* m = boundMix(sl);
+    if (m && (m->flags & kPresetMixHas)) {
+        gainDb = m->gainDb;
+        panV = m->pan;
+        del = m->delaySend;
+        rev = m->reverbSend;
     }
+    setPoly(sl, m);
     sl.gainLin = std::isfinite(gainDb) && gainDb > -96.0f ? dbToGain(clampf(gainDb, -96.0f, 12.0f)) : 0.0f;
     // Balance (linear, spec 04 §4.3) and SEND law, cached per mix; the send
     // gains include the (L + R) / 2 of the mono effect input.
@@ -490,6 +504,7 @@ void SynthBank::bindEngine(int s, bool cut) {
     Slot& sl = slots_[s];
     const SynthPatch* patch = patchOf(sl);
     sl.bound = patch;
+    setPoly(sl, boundMix(sl));   // [3.x] before the reload (Spread reads playable())
     const int32_t id = patch != sl.patch ? patch->engine : engineFor(s, sl.rec);   // a preset brings its engine
     ISynthEngine* e = id ? synthEngineFor(id) : nullptr;
     if (e && override_) e = override_;
@@ -838,7 +853,7 @@ int SynthBank::acquire(uint8_t k) {
 
 // Slot s plays preset k (0: its own patch) from this note on: its notes and
 // held notes go (a jump, not a morph), its tails and insert follow the new
-// sound, and an own-mix edit is dropped (the bound preset's mix plays).
+// sound (the bound preset's mix and polyphony play).
 void SynthBank::bindTo(int s, uint8_t k) {
     for (int r = 0; r < kSynthMaxVoices; ++r)
         if (voices_[r].state == kOn && voices_[r].v.slot == s) {
@@ -855,7 +870,6 @@ void SynthBank::bindTo(int s, uint8_t k) {
     for (Pending& pe : pend_)   // a note waiting for a record of the slot was for its old sound
         if (pe.record >= 0 && pe.slot == s) pe.track = -1;
     slots_[s].preset = k;
-    ownMix_[s] = false;
     bindEngine(s, true);
     applyMix(s);
 #if OT_SLOT_INSERTS
@@ -1329,7 +1343,6 @@ void SynthBank::transportStop() {
             rebind_[s] = true;
         }
         sl.zSel = 0;
-        ownMix_[s] = false;
     }
 }
 

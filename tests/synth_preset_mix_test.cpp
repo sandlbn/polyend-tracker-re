@@ -2,10 +2,9 @@
 // it plays with preset n's volume, pan and delay / reverb sends -- the ones
 // the slot had when the preset was stored. A preset saved before presets had
 // a mix keeps the slot's own. Z0, Stop or an edit of the slot's patch bring
-// the slot's own mix back, with its patch. An edit of its own mix (App) is
-// heard at once on the preset's patch, until the preset changes (a repeated
-// Z keeps it). The Mixer and the Synth page show and edit the slot's own
-// mix. Store, Load and Clear carry the mix; it is saved in project.ot3x, one
+// the slot's own mix back, with its patch. While a slot plays a preset, the
+// Mixer and the Synth page show and edit the preset's mix (heard at once);
+// otherwise the slot's own. Store, Load and Clear carry the mix; it is saved in project.ot3x, one
 // chunk per preset.
 #include "test.h"
 
@@ -238,45 +237,29 @@ TEST(own_record_change_on_a_mix_preset_waits_for_z0) {
     CHECK_NEAR(r.bank.slotGain(0), 1.0f, 1e-6);
 }
 
-TEST(own_mix_wins_on_the_presets_patch_until_the_next_z) {
+TEST(a_preset_mix_edit_is_heard_and_the_slot_stays_on_the_preset) {
+    // The Synth page / Mixer edit the mix of the preset a slot plays
+    // (presetChanged): the slot keeps the preset's patch, its level follows.
     Rig r;
     r.presetMix(1, -3.0f);
     r.presetMix(2, 6.0f);
     r.on();
     r.bank.presetSelect(0, 1);
     r.blocks(2);
-    r.bank.ownMixWins(0);
-    r.bank.setSlotRecord(0, Rig::record(0.0f));
+    r.mix[0].gainDb = 0.0f;
+    r.bank.presetChanged(1);
     r.blocks(2);
-    CHECK_EQ(int(r.bank.presetOf(0)), 1);   // still the preset's patch
-    CHECK_NEAR(r.bank.slotGain(0), 1.0f, 1e-6);
-    r.bank.setSlotRecord(0, Rig::record(-1.0f));   // further edits follow
-    r.blocks(1);
-    CHECK_NEAR(r.bank.slotGain(0), dbToGain(-1.0f), 1e-6);
-    // A repeated Z of the same preset (a loop's step 0) keeps the edit.
-    r.bank.presetSelect(0, 1);
-    r.blocks(1);
     CHECK_EQ(int(r.bank.presetOf(0)), 1);
-    CHECK_NEAR(r.bank.slotGain(0), dbToGain(-1.0f), 1e-6);
-    // Another Z, Z0, Stop, a patch edit and a reset too.
-    for (int k = 0; k < 5; ++k) {
-        r.bank.presetSelect(0, 1);
-        r.blocks(1);
-        r.bank.ownMixWins(0);
-        r.bank.setSlotRecord(0, Rig::record(float(-20 - k)));
-        r.blocks(1);
-        CHECK_NEAR(r.bank.slotGain(0), dbToGain(float(-20 - k)), 1e-6);
-        if (k == 0) r.bank.presetSelect(0, 2);
-        if (k == 1) r.bank.presetSelect(0, 0);
-        if (k == 2) r.bank.transportStop();
-        if (k == 3) r.bank.patchChanged(0);
-        if (k == 4) r.bank.reset();
-        r.blocks(1);
-        if (k == 0) CHECK_NEAR(r.bank.slotGain(0), dbToGain(6.0f), 1e-5);
-        r.bank.presetSelect(0, 1);
-        r.blocks(1);
-        CHECK_NEAR(r.bank.slotGain(0), dbToGain(-3.0f), 1e-6);   // the flag went with it
-    }
+    CHECK_NEAR(r.bank.slotGain(0), 1.0f, 1e-6);
+    r.bank.presetChanged(2);   // another preset: nothing here
+    r.blocks(1);
+    CHECK_NEAR(r.bank.slotGain(0), 1.0f, 1e-6);
+    r.bank.presetSelect(0, 2);
+    r.blocks(1);
+    CHECK_NEAR(r.bank.slotGain(0), dbToGain(6.0f), 1e-5);
+    r.bank.presetSelect(0, 0);
+    r.blocks(1);
+    CHECK_NEAR(r.bank.slotGain(0), dbToGain(-9.0f), 1e-6);
 }
 
 TEST(own_record_change_on_a_preset_without_mix_is_heard_at_once) {
@@ -377,11 +360,6 @@ void sound(Harness& h, int s) {
     h.audio.pump(1);
 }
 
-void cursorTo(Harness& h, int step) {
-    static_cast<PatternScreen*>(h.app->ui.screen(kModPattern))->step = step;
-}
-void putZ(Step& s, int n) { s.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + n)}; }   // FX-A
-
 void setMix(App& a, int s, float gainDb, float pan, float rev, float del) {
     SynthSlotRecord r = a.synthSlot(s);
     r.gainDb = gainDb;
@@ -462,9 +440,9 @@ TEST(load_of_a_preset_without_mix_keeps_the_own_mix) {
     CHECK_NEAR(gainOf(h, 1), dbToGain(-20.0f), 1e-6);
 }
 
-TEST(own_mix_edit_on_a_mix_preset_is_heard_on_the_presets_patch) {
-    // While playing (here a Z of the bank): the slot stays on the preset's
-    // patch, its level follows the edit; the next Z takes the edit back.
+TEST(own_record_edit_on_a_mix_preset_is_heard_with_the_own_patch) {
+    // The slot's record (setSynthSlotRecord) is its own mix: a slot on a
+    // preset with a mix plays the preset's until it is back on its own.
     Harness h;
     App& a = *h.app;
     SynthBank& b = a.engine.synth();
@@ -474,86 +452,13 @@ TEST(own_mix_edit_on_a_mix_preset_is_heard_on_the_presets_patch) {
     b.presetSelect(0, 1);
     sound(h, 0);
     CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
-    setMix(a, 0, -6.0f, 0.0f, 0.0f, 0.0f);   // Mixer / Synth page
-    sound(h, 0);
-    CHECK_EQ(a.synthPresetActive(0), 1);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
-    b.presetSelect(0, 1);   // a repeated Z of the same preset: the edit stays
-    sound(h, 0);
-    CHECK_EQ(a.synthPresetActive(0), 1);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
-    b.presetSelect(0, 0);   // the preset changes: the edit goes
-    b.presetSelect(0, 1);
-    sound(h, 0);
-    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
-    // Storing the preset again (the slot leaves it) takes the edit back too.
-    setMix(a, 0, -2.0f, 0.0f, 0.0f, 0.0f);
-    sound(h, 0);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(-2.0f), 1e-6);
-    setMix(a, 1, 3.0f, 0.0f, 0.0f, 0.0f);
-    a.storeSynthPreset(1, 1);
-    b.presetSelect(0, 1);
-    sound(h, 0);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(3.0f), 1e-6);
-    // Not the mix (the macros, the name): the preset's mix stays.
-    SynthSlotRecord r = a.synthSlot(0);
-    r.macros[0] = uint8_t(r.macros[0] ^ 1);
-    a.setSynthSlotRecord(0, r);
-    sound(h, 0);
-    CHECK_EQ(a.synthPresetActive(0), 1);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(3.0f), 1e-6);
-}
-
-TEST(own_mix_edit_while_the_stopped_chase_holds_a_preset_is_heard) {
-    // The slot stays on the preset the chase gave it, with the own mix,
-    // until the chase sets it again (its inputs change).
-    Harness h;
-    App& a = *h.app;
-    setMix(a, 0, 0.0f, 0.0f, 0.0f, 0.0f);
-    a.storeSynthPreset(1, 0);   // presets 1 and 2 at 0 dB
-    a.storeSynthPreset(2, 0);
-    setMix(a, 0, -10.0f, 0.0f, 0.0f, 0.0f);
-    Pattern& p = a.pattern();
-    p.tracks[0].steps[0].note = 60;
-    p.tracks[0].steps[0].instrument = uint8_t(kFirstSynthInstrument);
-    putZ(p.tracks[0].steps[0], 1);
-    putZ(p.tracks[0].steps[4], 2);
-    a.patternEdited();
-    cursorTo(h, 2);
-    h.run();
-    sound(h, 0);
-    CHECK_EQ(a.synthPresetActive(0), 1);
-    CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
     setMix(a, 0, -6.0f, 0.0f, 0.0f, 0.0f);
-    h.run();
-    sound(h, 0);
-    h.run();
-    CHECK_EQ(a.synthPresetActive(0), 1);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
-    // The cursor moves within the same preset: the chase's pass keeps the edit.
-    cursorTo(h, 3);
-    h.run();
     sound(h, 0);
     CHECK_EQ(a.synthPresetActive(0), 1);
-    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
-    // Pan, reverb and delay send edits too (heard: the sends feed the buses).
-    for (int k = 0; k < 3; ++k) {
-        SynthSlotRecord r = a.synthSlot(0);
-        if (k == 0) r.pan = 20.0f;
-        if (k == 1) r.reverbSend = 30.0f;
-        if (k == 2) r.delaySend = 40.0f;
-        a.setSynthSlotRecord(0, r);
-        h.run();
-        sound(h, 0);
-        CHECK_EQ(a.synthPresetActive(0), 1);
-        CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
-    }
-    // The cursor moves to another preset: the chase takes the slot there, with its mix.
-    cursorTo(h, 5);
-    h.run();
-    sound(h, 0);
-    CHECK_EQ(a.synthPresetActive(0), 2);
     CHECK_NEAR(gainOf(h, 0), 1.0f, 1e-6);
+    b.presetSelect(0, 0);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
 }
 
 TEST(own_mix_edit_on_a_preset_without_mix_keeps_the_preset) {
