@@ -1798,3 +1798,111 @@ TEST(store_from_a_slot_on_p1_into_p2_copies_p1) {
     CHECK_STR(a.synthPreset(2).presetName, "Bell");
     CHECK_EQ(int(a.synthPreset(2).poly), 3);
 }
+
+TEST(a_question_or_keyboard_closes_when_the_target_moves) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    SynthScreen& s = synth(a);
+    // An edit of P1's patch, then a model change: "Discard edits?".
+    h.tap(btn::F8);   // Edit Patch
+    h.enc(1);
+    h.tap(btn::F8);   // Back
+    const int32_t eng = a.synthPreset(1).engine;
+    h.tap(btn::F1);
+    h.tap(btn::Up);
+    CHECK(a.ui.askOpen());
+    cursorAt(a, 2);   // the slot leaves P1 while the question is open
+    h.run(4);
+    CHECK(!a.ui.askOpen());
+    CHECK_EQ(s.pendingModelForTest(), -1);
+    CHECK_EQ(int(a.synthPreset(1).engine), int(eng));
+    CHECK_EQ(int(a.synthSlot(1).model), int(SynthModel::ACD));
+    // Save As's keyboard on P1 closes the same way.
+    cursorAt(a, 6);
+    h.run(4);
+    CHECK_EQ(a.synthEditTarget(1), 1);
+    h.tap(btn::F8);   // Edit Patch
+    h.tap(btn::F2);   // Save As
+    CHECK(a.ui.kb.isOpen());
+    cursorAt(a, 2);
+    h.run(4);
+    CHECK(!a.ui.kb.isOpen());
+}
+
+TEST(store_and_clear_of_a_preset_forget_its_edits_and_open_forgets_all) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    h.tap(btn::F8);   // Edit Patch
+    h.enc(1);         // P1 edited
+    h.tap(btn::F8);   // Back
+    // Clear P1 from the Presets page, store it again from the own patch.
+    cursorAt(a, 2);
+    h.run(4);
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets, P1
+    h.tap(btn::F3);
+    h.tap(btn::F8);   // Yes
+    CHECK(!a.synthPresetUsed(1));
+    h.tap(btn::F1);   // empty: stored at once
+    CHECK(a.synthPresetUsed(1));
+    h.tap(btn::F8);   // back to Macros
+    h.tap(btn::InstrParams);   // Params
+    cursorAt(a, 6);
+    h.run(4);
+    CHECK_EQ(a.synthEditTarget(1), 1);
+    h.tap(btn::F1);
+    h.tap(btn::Down);   // another model: no question, P1 has no edits now
+    CHECK(!a.ui.askOpen());
+    // An edit of the own patch, then a new project: no question either.
+    cursorAt(a, 2);
+    h.run(4);
+    a.setSynthModel(1, int(SynthModel::ACD));
+    h.tap(btn::F8);   // Edit Patch
+    h.enc(1);
+    h.tap(btn::F8);   // Back
+    CHECK(a.newProject());
+    openSlot(h, 1);
+    h.tap(btn::F1);
+    h.tap(btn::Down);
+    CHECK(!a.ui.askOpen());
+}
+
+TEST(store_onto_the_preset_the_slot_plays_does_nothing) {
+    Harness h;
+    App& a = *h.app;
+    slotOnPreset(h);
+    const SynthPatch before = a.synthPreset(1);
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets, P1
+    h.tap(btn::F1);
+    CHECK(!a.ui.askOpen());
+    CHECK(std::memcmp(&before, &a.synthPreset(1), sizeof(SynthPatch)) == 0);
+    CHECK(!frameHas(h, "Preset stored"));
+}
+
+TEST(a_held_preset_preview_keeps_the_edit_section) {
+    Harness h;
+    App& a = *h.app;
+    a.setSynthModel(2, otherPlayable());
+    a.storeSynthPreset(2, 2);   // another engine than slot 1's
+    openSlot(h, 1);
+    SynthScreen& s = synth(a);
+    h.tap(btn::F8);   // Edit Patch
+    h.tap(btn::Right);
+    h.tap(btn::Right);
+    const int sec = s.section;
+    CHECK(sec > 0);
+    h.tap(btn::F8);   // Back
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets
+    h.tap(btn::Down);   // P2
+    h.down(btn::F5);
+    h.run(4);
+    CHECK_EQ(a.synthPresetActive(1), 2);
+    CHECK_EQ(s.section, sec);
+    h.up(btn::F5);
+    h.run(4);
+    CHECK_EQ(s.section, sec);
+}

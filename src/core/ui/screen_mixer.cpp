@@ -28,9 +28,10 @@ constexpr int kSynthCol = 4;
 const char* kSynthNames[3] = {"Synth 1", "Synth 2", "Synth 3"};
 float synthBar(float db) { return clampf((db + 96.0f) / 108.0f, 0.0f, 1.0f); }
 void synthGainStep(App& a, int s, float d, bool reset) {
-    SynthSlotRecord r = a.synthTargetRecord(s);
+    const int n = a.synthEditTarget(s);   // once: a Z between the read and the write
+    SynthSlotRecord r = a.synthTargetRecord(s, n);
     r.gainDb = reset ? 0.0f : clampf(std::round((r.gainDb + 0.5f * d) * 2.0f) / 2.0f, -96.0f, 12.0f);
-    a.setSynthTargetRecord(s, r);
+    a.setSynthTargetRecord(s, n, r);
 }
 // The edit targets of the three slots in one word (the header and bars follow them).
 uint32_t synthTargets(const App& a) {

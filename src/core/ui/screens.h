@@ -14,6 +14,7 @@
 #include "ui/wave.h"
 
 namespace ot {
+struct SynthSlotRecord;
 
 struct ImportProbe;   // app/app.h
 
@@ -1109,6 +1110,7 @@ public:
     void closeBrowser();      // Cancel: the slot's patch as before the popup
     bool previewHighlighted();   // the highlighted patch into the slot (Preview / pads)
     int previewSel() const { return previewSel_; }
+    int pendingModelForTest() const { return pendingModel_; }
     bool loadSelected();      // Confirm
     void initPatch();         // with the confirmation popup
     void savePatch();         // to the record's name (Save As when "Init" / empty)
@@ -1135,8 +1137,27 @@ private:
     uint16_t edited_ = 0;
     int editBit() const;
     void clearEdited() { edited_ = uint16_t(edited_ & ~(1u << editBit())); }
+    void forgetPreset(int n) { edited_ = uint16_t(edited_ & ~(1u << (kSynthSlotCount - 1 + n))); }
+    void syncEdited();          // all forgotten after a preset reset (new project, Open)
+    uint32_t shownResets_ = 0;
     uint8_t shownTarget_ = 0;   // [OT] the edit target / engine the pages last showed
     int32_t shownEngine_ = 0;
+    // [OT] The edit target of the current event (Pin), and the one an open
+    // question or keyboard is about.
+    int8_t pin_ = -1;
+    uint8_t pendingTarget_ = 0;
+    bool asking_ = false;
+    struct Pin {
+        SynthScreen& s;
+        int8_t was;
+        explicit Pin(SynthScreen& sc, int n = -1);
+        ~Pin();
+    };
+    int tgt() const;
+    SynthSlotRecord targetRecord() const;
+    SynthPatch& targetPatch() const;
+    void askAbout();
+    bool stillAbout();
     int pendingModel_ = -1;
     char pendingName_[kBrowserNameMax + 1] = {};
     void edited();
