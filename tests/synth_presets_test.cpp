@@ -864,3 +864,26 @@ TEST(a_mix_that_is_not_a_number_never_reaches_the_record) {
     CHECK(a.loadSynthPreset(0, 1));
     CHECK(std::isfinite(a.synthSlot(0).gainDb));
 }
+
+TEST(load_names_the_slot_after_the_preset) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);   // P1 "Bell"
+    CHECK(a.loadSynthPreset(0, 1));
+    const SynthSlotRecord r = a.synthSlot(0);
+    CHECK_STR(r.patchName, "Bell");
+}
+
+TEST(a_new_project_drops_an_open_patch_preview) {
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    CHECK(a.saveSynthLibraryPatch(0, "Own"));
+    CHECK(a.previewSynthLibraryPatch(0, "Own"));
+    CHECK_EQ(a.synthPreviewSlot(), 0);
+    CHECK(a.newProject());
+    CHECK_EQ(a.synthPreviewSlot(), -1);
+    const SynthPatch now = a.synthPatch(0);
+    a.endSynthPreview();   // nothing of the old project is put back
+    CHECK(std::memcmp(&now, &a.synthPatch(0), sizeof now) == 0);
+}

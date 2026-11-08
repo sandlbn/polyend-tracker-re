@@ -224,7 +224,11 @@ bool App::loadSynthPreset(int s, int n) {
     std::memcpy(&patches_[s], &p, sizeof(SynthPatch));
     patchStripPreset(patches_[s]);   // [OT] the slot's own patch never carries a mix, name or polyphony
     SynthSlotRecord r = project.synthSlot(s);
-    std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
+    // [OT] The preset's stored name, else "Preset n".
+    if (p.presetName[0] && std::strcmp(p.presetName, "Init") != 0)
+        std::snprintf(r.patchName, sizeof(r.patchName), "%s", p.presetName);
+    else
+        std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
     // [OT] The preset's mix and polyphony become the slot's; a value the
     // record cannot hold is held at its limit.
     if (patchHasMix(p)) {
@@ -241,7 +245,10 @@ bool App::loadSynthPreset(int s, int n) {
 }
 
 void App::resetSynthPresets() {
-    if (previewPreset_) endSynthPreview();
+    // [OT] A Load Patch preview of the old project is forgotten (in a preset
+    // or a slot): ending it later would put the old sound into the new one.
+    previewSlot_ = -1;
+    previewPreset_ = 0;
     for (SynthPatch& p : g_presets) setEngine(p, 0);
     for (int s = 0; s < kSynthSlotCount; ++s)
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);
