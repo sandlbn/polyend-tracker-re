@@ -344,6 +344,7 @@ __attribute__((noinline)) void SynthBank::spreadVoice(const Slot& sl, uint8_t no
 // The start of a block, before sync(): what the last block reached, and the
 // target; an edit that sync() brings moves the target again.
 __attribute__((noinline)) void SynthBank::blockSync() {
+    bindNow_ = 0;   // [3.x] the binds of the sequencer's notes before this block (not in render: .fastrun)
     if (spreadLive_) spreadSettle();
     sync();
 }
@@ -849,6 +850,8 @@ void SynthBank::bindTo(int s, uint8_t k) {
             held = true;
         }
     if (held) heldUpdate(s);
+    for (Pending& pe : pend_)   // a note waiting for a record of the slot was for its old sound
+        if (pe.record >= 0 && pe.slot == s) pe.track = -1;
     slots_[s].preset = k;
     ownMix_[s] = false;
     bindNow_ = uint8_t(bindNow_ | (1u << s));
@@ -1184,7 +1187,6 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
         pe.record = int8_t(host);
         pe.track = int8_t(track);
         pe.slot = uint8_t(s);
-        pe.preset = sl.preset;
         pe.note = note;
         pe.bend = bend;
         pe.bendTarget = target;
@@ -1574,7 +1576,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 V.pending = -1;
                 if (pe >= 0) {
                     Pending& q = pend_[pe];
-                    if (q.track >= 0 && playable(q.slot) > 0 && slots_[q.slot].preset == q.preset) {
+                    if (q.track >= 0 && playable(q.slot) > 0) {
                         // Other notes may have filled the slot / the cap since
                         // this one was queued: steal by the normal order first.
                         int victim = -1;
@@ -1637,7 +1639,6 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
     // The next block begins: its voice starts count from 0 and the notes
     // queued so far start first in it.
     starts_ = 0;
-    bindNow_ = 0;
     flushDue_ = true;
     return any;
 }

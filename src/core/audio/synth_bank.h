@@ -378,7 +378,6 @@ private:
         int8_t record = -1;      // -1 = entry free
         int8_t track = -1;
         uint8_t slot = 0;
-        uint8_t preset = 0;      // [3.x] the slot's binding when queued: another one drops the note
         SynthNote note;
         float bend = 0.0f, bendTarget = 0.0f, bendStep = 0.0f;
         int8_t sendD = -1, sendR = -1;   // the note step's Delay / Reverb Send FX
