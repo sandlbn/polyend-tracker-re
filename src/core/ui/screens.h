@@ -1100,9 +1100,14 @@ private:
     void applyModel();        // pendingModel_ -> the slot (after "Discard edits?")
     bool loadSelectedNow();
     void saveAsNow();         // pendingName_ (after "Overwrite?")
-    // Patch edits since the last load / init / save / model change, per slot
-    // ("Discard edits?" before Load or a model change).
-    bool edited_[kSynthSlotCount] = {};
+    // Patch edits since the last load / init / save / model change, per edit
+    // target ("Discard edits?" before Load or a model change): bit s = slot
+    // s's own patch, bit kSynthSlotCount + n - 1 = [3.x] preset n.
+    uint16_t editedBits_ = 0;
+    uint16_t editBit() const;
+    // [3.x] What the page showed last (update: a Z or the chase moved the target).
+    uint8_t shownTarget_ = 0;
+    int32_t shownEngine_ = 0;
     int pendingModel_ = -1;
     char pendingName_[kBrowserNameMax + 1] = {};
     void edited();

@@ -469,6 +469,153 @@ TEST(the_target_follows_the_stopped_chase) {
     CHECK_EQ(int(a.synthEditTarget(0)), 2);
     CHECK_NEAR(a.synthTargetRecord(0).gainDb, -12.0f, 1e-6);   // P2 was stored from slot 0
 }
+
+// --- the Synth pages ---------------------------------------------------------------
+
+SynthScreen& synthScreen(App& a) { return *static_cast<SynthScreen*>(a.ui.screen(kModSynth)); }
+void openSynth(Harness& h, int slot) {
+    App& a = *h.app;
+    a.setCurrentInstrument(uint8_t(kFirstSynthInstrument + slot));
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    if (synthScreen(a).view != SynthScreen::View::Params) h.tap(btn::InstrParams);
+}
+bool drawn(Harness& h, const char* q) {
+    h.app->ui.dirty();
+    h.run(40);
+    for (const std::string& l : h.disp.last)
+        if (l.find(q) != std::string::npos) return true;
+    return false;
+}
+
+TEST(synth_parameters_show_and_edit_the_preset_the_slot_plays) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    openSynth(h, 0);
+    CHECK(drawn(h, "Synth 1 (ACD)"));
+    CHECK_STR(a.ui.bar.label[0].bottom, "ACD");
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK(drawn(h, "Synth 1 (FAT) P1"));
+    CHECK_STR(a.ui.bar.label[0].bottom, "FAT");   // the model list: the preset's engine
+    CHECK_STR(a.ui.bar.label[1].bottom, "2");     // its polyphony
+    CHECK(drawn(h, "Bells"));                     // its name
+    char want[24];
+    synthui::gainText(-3.0f, want, sizeof want);
+    CHECK_STR(a.ui.bar.label[2].bottom, want);
+    // The encoder on Gain: the preset's gain, heard; the record stays.
+    h.tap(btn::F3);
+    h.enc(2);
+    sound(h, 0);
+    CHECK_NEAR(a.synthPresetMix(1).gainDb, -2.0f, 1e-6);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-2.0f), 1e-6);
+    CHECK_NEAR(a.synthSlot(0).gainDb, -12.0f, 1e-6);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    // Polyphony.
+    h.tap(btn::F2);
+    h.enc(1);
+    CHECK_EQ(int(a.synthPresetMix(1).polyphony), 3);
+    CHECK_EQ(int(a.synthSlot(0).polyphony), 4);
+    // Z0: the slot's own again.
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    CHECK(drawn(h, "Synth 1 (ACD)"));
+    CHECK(!drawn(h, "Synth 1 (FAT) P1"));
+    CHECK_STR(a.ui.bar.label[0].bottom, "ACD");
+    CHECK_STR(a.ui.bar.label[1].bottom, "4");
+}
+
+TEST(edit_patch_edits_the_preset_and_sets_its_dirty_bit) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.autosave();
+    openSynth(h, 0);   // (the Pattern screen's stopped chase sets the slots on the way)
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.tap(btn::F8);   // Edit Patch
+    CHECK(synthScreen(a).view == SynthScreen::View::Edit);
+    CHECK(drawn(h, "Edit Patch: Bells"));
+    const SynthPatch own = a.synthPatch(0);
+    const SynthPatch before = a.synthPreset(1);
+    bool moved = false;
+    for (int r = 0; r < 8 && !moved; ++r) {   // the first row that moves
+        h.enc(3);
+        moved = std::memcmp(&before, &a.synthPreset(1), sizeof before) != 0;
+        if (!moved) h.tap(btn::Down);
+    }
+    CHECK(moved);
+    CHECK(std::memcmp(&own, &a.synthPatch(0), sizeof own) == 0);   // the slot's own patch is untouched
+    CHECK(a.synthPresetDirty());
+    CHECK(!a.synthPatchDirty(0));
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+}
+
+TEST(the_model_list_on_a_preset_changes_the_presets_engine) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    openSynth(h, 0);   // (the Pattern screen's stopped chase sets the slots on the way)
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.tap(btn::F1);
+    const int want = synthModelListIndex(synthEngineId(SynthModel::ACD));
+    const int cur = synthModelListIndex(synthEngineId(SynthModel::FAT));
+    for (int k = 0; k < 20 && synthModelListIndex(a.synthPreset(1).engine) != want; ++k) {
+        h.enc(want > cur ? 1 : -1);
+        if (a.ui.askOpen()) h.tap(btn::F8);
+    }
+    CHECK_EQ(int(a.synthPreset(1).engine), int(synthEngineId(SynthModel::ACD)));
+    CHECK_EQ(int(a.slotEngineId(0)), int(synthEngineId(SynthModel::ACD)));
+    CHECK_EQ(int(a.slotEngineId(1)), int(synthEngineId(SynthModel::FAT)));   // the slot it came from keeps its own
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+}
+
+TEST(macros_show_the_presets_names_and_the_slots_values) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    std::snprintf(presets::table()[0].macros[0].name, sizeof presets::table()[0].macros[0].name, "Shine");
+    openSynth(h, 0);   // (the Pattern screen's stopped chase sets the slots on the way)
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.tap(btn::InstrParams);
+    CHECK(synthScreen(a).view == SynthScreen::View::Macros);
+    CHECK(drawn(h, "Shine"));
+    const uint8_t v = a.synthSlot(0).macros[0];
+    h.tap(btn::F1);
+    h.enc(1);
+    CHECK_EQ(int(a.synthSlot(0).macros[0]), int(v) + 1);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+}
+
+TEST(instrument_params_on_a_playing_preset_instrument_opens_its_slot) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    h.tap(btn::Pattern);
+    a.previewOn(3, uint8_t(kFirstPresetInstrument), 60, 127);   // pad: P1 binds a slot
+    h.audio.pump(2);
+    const int s = a.engine.synth().slotOnPreset(1);
+    CHECK(s >= 0);
+    a.setCurrentInstrument(kFirstPresetInstrument);
+    h.tap(btn::InstrParams);
+    CHECK_EQ(a.ui.active(), kModSynth);
+    CHECK_EQ(synthScreen(a).slot, s);
+    CHECK(synthScreen(a).view == SynthScreen::View::Params);
+    char t[24];
+    std::snprintf(t, sizeof t, "Synth %d (FAT) P1", s + 1);
+    CHECK(drawn(h, t));
+    a.previewOff(3);
+    // An own note of that slot takes it back: the page shows the slot's own.
+    a.previewOn(4, uint8_t(kFirstSynthInstrument + s), 60, 127);
+    h.audio.pump(2);
+    a.previewOff(4);
+    h.audio.pump(2);
+    CHECK_EQ(int(a.synthEditTarget(s)), 0);
+    CHECK(!drawn(h, t));
+}
 #endif
 
 }  // namespace
