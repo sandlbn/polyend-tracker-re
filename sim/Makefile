@@ -4,6 +4,7 @@
 #                           `make fonts` in reimpl/ also regenerates the UI fonts)
 CXX      ?= g++
 ROOT     := ..
+OT_HOST_BUILD := 1   # [I] card modules compiled in (profile.mk)
 include $(ROOT)/profile.mk
 OUT      := $(ROOT)/build/$(PROFILE)/sim
 SDL_CFLAGS := $(shell pkg-config --cflags sdl2)

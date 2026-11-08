@@ -3,6 +3,7 @@
 CXX      ?= g++
 SRC      := ../src
 ROOT     := ..
+OT_HOST_BUILD := 1   # [I] card modules compiled in (profile.mk)
 include ../profile.mk
 OUT      := ../build/$(PROFILE)/host-tests
 CXXFLAGS := -std=c++17 -Wall -Wextra -Werror -g -O1 -fsanitize=address,undefined \

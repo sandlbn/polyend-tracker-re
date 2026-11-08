@@ -7,6 +7,7 @@
 #   make -C reimpl patches                      (same as run)
 CXX      ?= g++
 ROOT     := ../..
+OT_HOST_BUILD := 1   # [I] card modules compiled in (profile.mk)
 include $(ROOT)/profile.mk
 # The pack holds the models of the profile's modules (presets.cpp); PRESETS.md
 # comes from PROFILE=full (every model).
