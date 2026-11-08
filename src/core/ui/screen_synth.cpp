@@ -284,7 +284,13 @@ void SynthScreen::padsOff() {
 
 // [3.x] A question or keyboard answered after a Z, the chase or a preset
 // instrument moved the slot to another sound: nothing is done.
+void SynthScreen::bindAsk() {
+    askTarget_ = et_;
+    askBound_ = true;
+}
+
 bool SynthScreen::askStale() {
+    askBound_ = false;
     if (uint8_t(app_.synthEditTarget(slot)) != askTarget_) {
         ui_.notify("The slot plays another sound now");
         return true;
@@ -427,7 +433,7 @@ void SynthScreen::paramsChange(int d, bool wrap) {
             pendingModel_ = m;
             // Unsaved patch edits: ask before the new model's Init replaces them.
             if (editedBits_ & editBit()) {
-                askTarget_ = et_;
+                bindAsk();
                 ui_.ask("Change Model", "Discard edits?", nullptr, "No", "Yes",
                         [](void* c, int key) {
                             auto* s = static_cast<SynthScreen*>(c);
@@ -637,7 +643,7 @@ void SynthScreen::macroNameKeyboard() {
     if (!available() || section >= n || sec[section].macro < 0 || row != 0) return;
     const PatchMacro& mc = app_.synthTargetPatch(slot, et_).macros[sec[section].macro];
     // Renaming drops the control bytes the name was shown without.
-    askTarget_ = et_;
+    bindAsk();
     ui_.kb.open("Macro Name", shown(mc.name), kPatchMacroNameMax - 1, "Enter",
                 [](void* c, bool ok, const char* text) {
                     auto* s = static_cast<SynthScreen*>(c);
@@ -757,7 +763,7 @@ bool SynthScreen::previewHighlighted() {
 bool SynthScreen::loadSelected() {
     if (!available() || browserSel < 0 || browserSel >= browserCount) return false;
     if (editedBits_ & editBit()) {   // unsaved patch edits: ask first (2x-05 §6.3)
-        askTarget_ = et_;
+        bindAsk();
         ui_.ask("Load Patch", "Discard edits?", nullptr, "No", "Yes",
                 [](void* c, int key) {
                     auto* s = static_cast<SynthScreen*>(c);
@@ -790,7 +796,7 @@ bool SynthScreen::loadSelectedNow() {
 
 void SynthScreen::initPatch() {
     if (!available()) return;
-    askTarget_ = et_;
+    bindAsk();
     ui_.ask("Init Patch", "Load the init patch?", nullptr, "No", "Yes",
             [](void* c, int key) {
                 auto* s = static_cast<SynthScreen*>(c);
@@ -831,7 +837,7 @@ void SynthScreen::savePatchAs() {
     char init[40];
     if (r.patchName[0] && std::strcmp(r.patchName, "Init") != 0) std::snprintf(init, sizeof(init), "%s", r.patchName);
     else Keyboard::autoName(init, sizeof(init), ui_.now() + uint32_t(slot));
-    askTarget_ = et_;
+    bindAsk();
     ui_.kb.open("Save Patch As", init, kBrowserNameMax, "Save",
                 [](void* c, bool ok, const char* text) {
                     auto* s = static_cast<SynthScreen*>(c);
@@ -850,6 +856,7 @@ void SynthScreen::savePatchAs() {
                     std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(s->app_.synthTargetEngine(s->slot, s->et_)),
                                   name);
                     if (s->app_.fs().exists(path)) {
+                        s->askBound_ = true;   // the target of the keyboard (askStale kept it)
                         s->ui_.ask("Patch exists", "Overwrite?", nullptr, "Cancel", "Overwrite",
                                    [](void* c2, int key) {
                                        auto* s2 = static_cast<SynthScreen*>(c2);
@@ -1505,7 +1512,7 @@ void SynthScreen::presetKey(uint8_t id) {
                 storePresetNow();
                 break;
             }
-            askTarget_ = et_;
+            bindAsk();
             ui_.ask("Store Preset", "Replace this preset?", nullptr, "No", "Yes",
                     [](void* c, int key) {
                         auto* s = static_cast<SynthScreen*>(c);
@@ -1521,6 +1528,7 @@ void SynthScreen::presetKey(uint8_t id) {
                 loadPresetNow();
                 break;
             }
+            askBound_ = false;   // about the preset row, not what the slot plays
             ui_.ask("Load Preset", "Discard patch edits?", nullptr, "No", "Yes",
                     [](void* c, int key) {
                         auto* s = static_cast<SynthScreen*>(c);
@@ -1533,6 +1541,7 @@ void SynthScreen::presetKey(uint8_t id) {
         }
         case btn::F3:
             if (!used) break;
+            askBound_ = false;   // about the preset row, not what the slot plays
             ui_.ask("Clear Preset", "Clear this preset?", nullptr, "No", "Yes",
                     [](void* c, int key) {
                         auto* s = static_cast<SynthScreen*>(c);
@@ -1602,9 +1611,13 @@ void SynthScreen::update(uint32_t now) {
     const int32_t e = engine();
     if (t != shownTarget_ || e != shownEngine_) {
         if (t != shownTarget_) {
-            if (ui_.askOpen()) ui_.closeAsk();
-            if (ui_.kb.isOpen()) ui_.kb.close();
+            if (askBound_) {   // only a question or keyboard opened for the old sound
+                if (ui_.askOpen()) ui_.closeAsk();
+                if (ui_.kb.isOpen()) ui_.kb.close();
+                askBound_ = false;
+            }
             pendingModel_ = -1;
+            if (view == View::Browser) closeBrowser();   // its list and preview were the old sound's
         }
         shownTarget_ = t;
         if (e != shownEngine_ && (view == View::Edit || view == View::Params)) {

@@ -903,6 +903,45 @@ TEST(edit_marks_go_with_a_stored_cleared_or_new_preset_and_a_new_project) {
     h.enc(1);
     CHECK(!a.ui.askOpen());
 }
+
+TEST(a_target_move_closes_the_load_patch_browser_but_not_an_unrelated_question) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    CHECK(a.saveSynthLibraryPatch(1, "Other"));
+    openSynth(h, 0);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(20);
+    std::vector<uint8_t> was(sizeof(SynthPatch));
+    std::memcpy(was.data(), &a.synthPreset(1), was.size());
+    synthParamSet(presets::table()[0], 0, synthParamGet(presets::table()[0], 0) + 0.25f);   // tell it from "Other"
+    std::memcpy(was.data(), &a.synthPreset(1), was.size());
+    h.tap(btn::F7);   // Load Patch
+    SynthScreen& sy = synthScreen(a);
+    CHECK(sy.view == SynthScreen::View::Browser);
+    CHECK(sy.previewHighlighted());   // "Other" plays in P1
+    CHECK(std::memcmp(was.data(), &a.synthPreset(1), was.size()) != 0);
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    h.run(20);
+    CHECK(sy.view == SynthScreen::View::Params);
+    CHECK_EQ(a.synthPreviewSlot(), -1);
+    CHECK(std::memcmp(was.data(), &a.synthPreset(1), was.size()) == 0);
+    // The Presets page's Clear question does not depend on what the slot plays.
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);
+    CHECK(sy.view == SynthScreen::View::Presets);
+    sy.row = 0;
+    h.tap(btn::F3);
+    CHECK(a.ui.askOpen());
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(20);
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F8);
+    CHECK(!a.synthPresetUsed(1));
+}
 #endif
 
 }  // namespace
