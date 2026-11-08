@@ -61,15 +61,22 @@ OTM_FAST_BYTES := $(if $(filter 1,$(OT_POOL_TEST)),12288,0)
 ifeq ($(OT_POOL_TEST),1)
 BUILD     := $(BUILD)/pooltest
 endif
-# [I] shared fast pool (src/core/modules/hot_rows.h): 1 = the built-in
+# [I] shared fast pool (src/core/modules/hot_rows.h): the built-in
 # synths' hot code is linked in flash as rows (tools/hot_rows/<name>.hot) and
-# the SRAM_L block their .fastrun code took becomes the pool every synth
-# shares, built in or from the card. Until it is the default: test images.
-OT_HOT_POOL ?= 0
+# one SRAM_L block is the pool every synth shares, built in or from the card.
+# On by default when the profile compiles in a synth with a row (not core, not
+# the OT_POOL_TEST image); OT_HOT_POOL=0 builds the old layout (each synth's
+# .fastrun code in SRAM_L) in build/<profile>/nopool, the fallback image.
+HOT_ROWS  := tools/hot_rows
+HOT_ROWS_IN := $(strip $(foreach i,$(MOD_IDS),$(wildcard $(HOT_ROWS)/$(notdir $(MOD_DIR_$(i))).hot)))
+OT_HOT_POOL ?= $(if $(filter 1,$(OT_POOL_TEST)),0,$(if $(HOT_ROWS_IN),1,0))
 HOT_POOL_BYTES := 13696
 ifeq ($(OT_HOT_POOL),1)
-BUILD     := $(BUILD)/hotpool
 OTM_FAST_BYTES := $(HOT_POOL_BYTES)
+else ifneq ($(OT_POOL_TEST),1)
+ifneq ($(HOT_ROWS_IN),)
+BUILD     := $(BUILD)/nopool
+endif
 endif
 # USB Storage mode (docs/PLAN_2X.md, Tracker Mini manual §13.10): 1 = the USB
 # device adds a mass-storage interface (third_party/teensy3/usb_msc.h) next to
@@ -116,8 +123,7 @@ APP_C     := $(shell find src -name '*.c') third_party/fatfs/ff.c third_party/fa
 APP_CXX   := $(shell find src -name '*.cpp')
 OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX))
 # Profile modules (profile.mk): sources from MODULES_DIR and the generated
-# registry, found through vpath; -O2 (audio path). The .fastrun groups in
-# src/hal/opentracker.ld match these objects by file name.
+# registry, found through vpath; -O2 (audio path).
 MOD_OBJS  := $(patsubst %.cpp,$(BUILD)/mod/%.cpp.o,$(MOD_SRCS))
 OBJS      += $(MOD_OBJS)
 
@@ -126,7 +132,6 @@ OBJS      += $(MOD_OBJS)
 # .fastrun), the linker fragment that lays the rows out (empty otherwise:
 # src/hal/opentracker.ld includes it) and the move tables, linked twice
 # (tools/hot_pool.py; the second link must give the same tables).
-HOT_ROWS  := tools/hot_rows
 comma     := ,
 space     := $(subst ,, )
 HOT_ROW_IDS := $(if $(filter 1,$(OT_HOT_POOL)),$(foreach i,$(MOD_IDS),$(if $(wildcard $(HOT_ROWS)/$(notdir $(MOD_DIR_$(i))).hot),$(i))))
