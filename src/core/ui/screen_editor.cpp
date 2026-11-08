@@ -547,11 +547,12 @@ void EditorScreen::draw(Gfx& g) {
     const bool sample = ci < kSampleInstrumentCount && a.bank.loaded(ci);
     if (ci < kSampleInstrumentCount) std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instruments[ci].name);
     else if (isSynthSlotInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
+    else if (isPresetInstrument(ci)) synthui::presetLabel(a, presetOfInstrument(ci), sub, sizeof(sub));
     else std::snprintf(sub, sizeof(sub), "MIDI instrument");
     ui_.drawTitle(g, title, sub);
     if (!sample) {
         g.text(400, 220, kFontText, th.dim,
-               ci < kSampleInstrumentCount ? "Empty instrument" : (isSynthSlotInstrument(ci) ? "Synth instrument" : "MIDI instrument"),
+               ci < kSampleInstrumentCount ? "Empty instrument" : (isSynthInstrument(ci) ? "Synth instrument" : "MIDI instrument"),
                IDisplay::kOptCenter);
         return;
     }

@@ -6,6 +6,7 @@
 #include "test.h"
 
 #include <cstring>
+#include <string>
 
 #include "app/pattern_ops.h"
 #include "audio/synth_bank.h"
@@ -92,5 +93,97 @@ TEST(an_empty_preset_instrument_is_silent) {
     CHECK_EQ(a.engine.synth().sounding(), 0);
     CHECK_EQ(slotsOn(a, 3), 0);
     a.previewOff(5);
+}
+#endif
+
+// --- UI ----------------------------------------------------------------------------
+
+TEST(popups_list_the_presets_after_the_slots) {
+    using namespace synthui;
+    CHECK_EQ(kSynthPopupCount, 11);
+    CHECK_EQ(popupInstrument(2), 66);
+    CHECK_EQ(popupInstrument(3), 67);
+    CHECK_EQ(popupInstrument(10), 74);
+    CHECK_EQ(popupInstrument(11), 0);
+    CHECK_EQ(popupInstrument(11 + 63), 63);
+    for (int pos = 0; pos < kInstrumentCount + kSynthPopupCount; ++pos) CHECK_EQ(popupPosition(popupInstrument(pos)), pos);
+    CHECK_EQ(kMidiPopupCount, 27);
+    CHECK_EQ(popupInstrumentMidi(3), 67);
+    CHECK_EQ(popupInstrumentMidi(11), 48);
+    for (int pos = 0; pos < kMidiPopupCount; ++pos) CHECK_EQ(popupPositionMidi(popupInstrumentMidi(pos)), pos);
+    CHECK_EQ(popupPositionMidi(5), 11);   // a sample instrument: MIDI 1
+    // MIDI-track Instr pads: 17-19 = S1..S3, 20-27 = P1..P8.
+    CHECK_EQ(midiTrackPadInstrument(18), 66);
+    CHECK_EQ(midiTrackPadInstrument(19), 67);
+    CHECK_EQ(midiTrackPadInstrument(26), 74);
+    CHECK_EQ(midiTrackPadInstrument(27), kFirstMidiInstrument + (27 & 15));
+    CHECK_EQ(midiTrackInstrumentPad(67), 19);
+    CHECK_EQ(midiTrackInstrumentPad(74), 26);
+    CHECK_EQ(kInstrumentChooserCount, 75);
+}
+
+#if defined(OT_MOD_ACD1) && OT_MOD_ACD1
+TEST(preset_instruments_are_labelled_by_their_engine) {
+    Harness h;
+    App& a = *h.app;
+    if (a.synthSlot(1).model != uint32_t(SynthModel::ACD)) a.setSynthModel(1, int(SynthModel::ACD));
+    a.storeSynthPreset(2, 1);
+    char t[48];
+    synthui::presetLabel(a, 2, t, sizeof t);
+    CHECK(std::strcmp(t, "P2 ACD") == 0);
+    synthui::presetLabel(a, 3, t, sizeof t);
+    CHECK(std::strcmp(t, "P3 -") == 0);
+    instrumentChooserItem(&a, kFirstPresetInstrument + 1, t, sizeof t);
+    CHECK(std::strcmp(t, "P2 ACD") == 0);
+    CHECK(!synthui::presetNotice(a, kFirstPresetInstrument + 1, t, sizeof t));
+    CHECK(synthui::presetNotice(a, kFirstPresetInstrument + 2, t, sizeof t));
+    CHECK(std::strcmp(t, "P3 is empty") == 0);
+    CHECK(!synthui::presetNotice(a, 66, t, sizeof t));
+}
+
+TEST(instrument_params_on_a_preset_instrument_open_its_preset_row) {
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(kFirstSynthInstrument + 2);   // the Synth page shows slot 3 first
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    CHECK_EQ(a.ui.active(), kModSynth);
+    h.tap(btn::Pattern);
+    a.setCurrentInstrument(kFirstPresetInstrument + 4);   // P5
+    h.tap(btn::InstrParams);
+    auto* sy = static_cast<SynthScreen*>(a.ui.screen(kModSynth));
+    CHECK_EQ(a.ui.active(), kModSynth);
+    CHECK(sy->view == SynthScreen::View::Presets);
+    CHECK_EQ(sy->row, 4);
+    CHECK_EQ(sy->slot, 2);   // the slot shown last
+}
+
+TEST(the_pattern_shows_p_codes_and_picking_an_empty_preset_says_so) {
+    Harness h;
+    App& a = *h.app;
+    Pattern& p = a.pattern();
+    p.tracks[0].steps[0].note = 60;
+    p.tracks[0].steps[0].instrument = uint8_t(kFirstPresetInstrument + 6);   // P7
+    a.patternEdited();
+    h.tap(btn::Pattern);
+    a.ui.dirty();
+    h.run(40);
+    bool code = false;
+    for (const std::string& l : h.disp.last) code |= l.find("P7") != std::string::npos;
+    CHECK(code);
+    // The Instrument popup: P3 (empty) picked with the cursor on the Instr column.
+    auto* ps = static_cast<PatternScreen*>(a.ui.screen(kModPattern));
+    h.tap(btn::Rec);
+    ps->col = 1;
+    ps->step = 1;
+    a.setCurrentInstrument(0);
+    h.down(btn::Instr);
+    h.run(300);
+    CHECK_EQ(ps->popup().cursor(), synthui::kSynthPopupCount);   // sample 1 after S1..S3, P1..P8
+    for (int i = 0; i < synthui::kSynthPopupCount - 5; ++i) h.enc(-1);
+    h.up(btn::Instr);
+    CHECK_EQ(int(a.currentInstrument()), kFirstPresetInstrument + 2);
+    CHECK(std::strcmp(a.ui.notice(), "P3 is empty") == 0);
+    CHECK_EQ(int(p.tracks[0].steps[1].instrument), kFirstPresetInstrument + 2);   // written as the instrument
 }
 #endif

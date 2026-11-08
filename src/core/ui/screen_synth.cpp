@@ -161,6 +161,28 @@ void synthui::slotLabel(const App& a, int s, char* out, int cap) {
     std::snprintf(out, size_t(cap), "Synth %d (%s)", s + 1, synthEngineDisplayName(a.slotEngineId(s)));
 }
 
+void synthui::presetLabel(const App& a, int k, char* out, int cap) {
+    if (!a.synthPresetUsed(k)) {
+        std::snprintf(out, size_t(cap), "P%d -", k);
+        return;
+    }
+    const int32_t e = a.synthPreset(k).engine;
+    std::snprintf(out, size_t(cap), "P%d %s", k, audio::synthEngineFor(e) ? synthEngineDisplayName(e) : "not available");
+}
+
+bool synthui::presetNotice(const App& a, int instrument, char* out, int cap) {
+    const int k = instrument >= 0 && instrument <= 255 ? presetOfInstrument(uint8_t(instrument)) : 0;
+    if (!k) return false;
+    if (!a.synthPresetUsed(k)) {
+        std::snprintf(out, size_t(cap), "P%d is empty", k);
+        return true;
+    }
+    const int32_t e = a.synthPreset(k).engine;
+    if (audio::synthEngineFor(e)) return false;
+    std::snprintf(out, size_t(cap), "P%d (%s) not available", k, synthEngineDisplayName(e));
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // State
 
@@ -168,11 +190,16 @@ int SynthScreen::entrySlot(App& a, Ui& ui, int active) {
     if (active == kModPattern) {
         if (auto* p = static_cast<PatternScreen*>(ui.screen(kModPattern))) {
             const Step& st = a.pattern().tracks[clampi(p->track, 0, kTrackCount - 1)].steps[clampi(p->step, 0, kStepCount - 1)];
-            if (isSynthSlotInstrument(st.instrument)) {
+            if (isSynthInstrument(st.instrument)) {
                 a.setCurrentInstrument(st.instrument);
-                return synthSlotOf(st.instrument);
+                if (isSynthSlotInstrument(st.instrument)) return synthSlotOf(st.instrument);
             }
         }
+    }
+    // [3.x] A preset instrument: the Presets page of the slot shown last.
+    if (isPresetInstrument(a.currentInstrument())) {
+        const auto* sy = static_cast<const SynthScreen*>(ui.screen(kModSynth));
+        return sy ? clampi(sy->slot, 0, kSynthSlotCount - 1) : 0;
     }
     return synthSlotOf(a.currentInstrument());
 }
@@ -202,6 +229,11 @@ void SynthScreen::start(int opt) {
     // another slot's / model's section list).
     section = row = 0;
     listTop_ = 0;
+    // [3.x] Opened for a preset instrument: its row on the Presets page.
+    if (const uint8_t k = presetOfInstrument(app_.currentInstrument())) {
+        view = View::Presets;
+        row = k - 1;
+    }
     refreshBar();
 }
 
@@ -782,6 +814,7 @@ void instrumentChooserItem(void* ctx, int i, char* out, int cap) {
     if (i < kSampleInstrumentCount)
         std::snprintf(out, size_t(cap), "%d. %s", i + 1, a->instrPresent[i] ? a->instruments[i].name : "");
     else if (i < kInstrumentCount) std::snprintf(out, size_t(cap), "%d. MIDI Channel %d", i + 1, i - kFirstMidiInstrument + 1);
+    else if (isPresetInstrument(uint8_t(i))) synthui::presetLabel(*a, presetOfInstrument(uint8_t(i)), out, cap);
     else synthui::slotLabel(*a, i - kFirstSynthInstrument, out, cap);
 }
 
@@ -1442,7 +1475,7 @@ void SynthScreen::presetKey(uint8_t id) {
         case btn::F5:
         case btn::F6:
             if (!used || !available()) break;
-            previewPrev_ = uint8_t(app_.synthPresetActive(slot));
+            previewPrev_ = app_.engine.synth().selectedPresetOf(slot);   // [3.x] not a preset instrument's borrowing
             previewKey_ = id;
             app_.engine.synth().presetSelect(slot, uint8_t(n));
             audition(true, id == btn::F5 ? 48 : 72);

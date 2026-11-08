@@ -107,12 +107,14 @@ void instrItem(void* ctx, int pos, char* out, int cap) {
     const int i = synthui::popupInstrument(pos);
     if (i < kSampleInstrumentCount) std::snprintf(out, size_t(cap), "%02d %s", i + 1, a->instrPresent[i] ? a->instruments[i].name : "");
     else if (isSynthSlotInstrument(uint8_t(i))) std::snprintf(out, size_t(cap), "S%d", synthSlotOf(uint8_t(i)) + 1);
+    else if (isPresetInstrument(uint8_t(i))) std::snprintf(out, size_t(cap), "P%d", presetOfInstrument(uint8_t(i)));
     else std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
 }
 // i = MIDI-track popup position (synthui::popupInstrumentMidi: Synth 1..3 first).
 void midiItem(void*, int pos, char* out, int cap) {
     const int i = synthui::popupInstrumentMidi(pos);
     if (isSynthSlotInstrument(uint8_t(i))) std::snprintf(out, size_t(cap), "S%d", synthSlotOf(uint8_t(i)) + 1);
+    else if (isPresetInstrument(uint8_t(i))) std::snprintf(out, size_t(cap), "P%d", presetOfInstrument(uint8_t(i)));
     else std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
 }
 // FX list items carry the column letter, "V - Volume/Velocity" (stock FX
@@ -1056,12 +1058,16 @@ void PatternScreen::editEncoder(int d) {
             // A synth audition has no release event, so it held the note
             // (issue #117): re-trigger the row as stock does (spec 06 §1.6),
             // one step and then the patch's release.
-            if (isSynthSlotInstrument(ins)) a.seq.playSelection(r.s0, r.s0, r.t0, r.t0, false);
+            if (isSynthInstrument(ins)) a.seq.playSelection(r.s0, r.s0, r.t0, r.t0, false);
             else a.previewOn(App::kAuditionEncoder, ins, uint8_t(n), 127);
         }
     } else if (col == 1) {
         pops::stepInstrument(a.pattern(), r, d);
-        if (r.single()) a.setCurrentInstrument(a.pattern().tracks[r.t0].steps[r.s0].instrument);
+        if (r.single()) {
+            a.setCurrentInstrument(a.pattern().tracks[r.t0].steps[r.s0].instrument);
+            char t[48];
+            if (synthui::presetNotice(a, a.currentInstrument(), t, sizeof t)) ui_.notify(t);   // [3.x]
+        }
     } else {
         const bool typeMode = ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2);
         if (typeMode) {
@@ -1247,9 +1253,10 @@ void PatternScreen::openPicker(int which) {
                       midiItem, nullptr);
         } else {
             // 2.x: the synth slots (instruments 64..66) are the first three
-            // entries, as on the Tracker+ (manual p.100 figure); the cursor
-            // is a list position (synthui::popupPosition).
-            pop_.open(2, "Instrument", kInstrumentCount + kSynthSlotCount,
+            // entries, as on the Tracker+ (manual p.100 figure), [3.x] then
+            // the presets P1..P8; the cursor is a list position
+            // (synthui::popupPosition).
+            pop_.open(2, "Instrument", kInstrumentCount + synthui::kSynthPopupCount,
                       synthui::popupPosition(a.currentInstrument()), instrItem, &a);
         }
     } else {
@@ -1321,6 +1328,8 @@ void PatternScreen::commitPicker() {
     if (kind == 2 || kind == 5) {
         const int ins = kind == 5 ? synthui::popupInstrumentMidi(v) : synthui::popupInstrument(v);
         a.setCurrentInstrument(ins);
+        char t[48];
+        if (synthui::presetNotice(a, ins, t, sizeof t)) ui_.notify(t);   // [3.x] it will be silent
         if (edit()) {
             a.pushUndo();
             pops::writeInstrument(a.pattern(), target(), uint8_t(ins));
@@ -1416,6 +1425,7 @@ void fillInstrCode(int val, char* out) {
     const int i = clampi(val, 0, 255);
     if (i < kSampleInstrumentCount) std::snprintf(out, 8, "%02d", i + 1);
     else if (isSynthSlotInstrument(uint8_t(i))) std::snprintf(out, 8, "S%d", synthSlotOf(uint8_t(i)) + 1);
+    else if (isPresetInstrument(uint8_t(i))) std::snprintf(out, 8, "P%d", presetOfInstrument(uint8_t(i)));
     else std::snprintf(out, 8, "M%02d", (i - kFirstMidiInstrument + 1) % 100);
 }
 }  // namespace
@@ -1619,7 +1629,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
         } else if (col == 1) {
             if (st.instrument < 48) lv[st.instrument] = full;
             const int sp = isMidiTrack(track) ? synthui::midiTrackInstrumentPad(st.instrument) : -1;
-            if (sp >= 0) lv[sp] = full;   // a synth on a MIDI track: pads 17-19
+            if (sp >= 0) lv[sp] = full;   // a synth on a MIDI track: pads 17-19 ([3.x] P1..P8: 20-27)
         } else {
             const StepFx& f = st.fx[fxSlotForColumn(col)];
             if (ui_.isDown(col == 2 ? btn::Fx1 : btn::Fx2)) {
@@ -1678,6 +1688,7 @@ void PatternScreen::cellText(int t, int s, char* out) const {
     if (st.note == kNoteEmpty && !isMidiInstrument(st.instrument) && st.instrument < kInstrumentCount)
         std::strcpy(part[1], "-- ");
     else if (isMidiInstrument(st.instrument)) std::snprintf(part[1], sizeof(part[1]), "M%02d", st.instrument - 47);
+    else if (isPresetInstrument(st.instrument)) std::snprintf(part[1], sizeof(part[1]), "P%d ", presetOfInstrument(st.instrument));
     else if (st.instrument >= kInstrumentCount) std::snprintf(part[1], sizeof(part[1]), "S%c ", char('1' + (st.instrument - kInstrumentCount) % 9));
     else std::snprintf(part[1], sizeof(part[1]), "%02d ", st.instrument + 1);
     for (int k = 0; k < 2; ++k) fxCellText(st.fx[k].type, st.fx[k].value, part[2 + k]);
@@ -1776,6 +1787,7 @@ void PatternScreen::drawGridHorizontal(Gfx& g) {
                 } else if (c == 1) {
                     if (st.note == kNoteEmpty && !isMidiInstrument(st.instrument)) std::strcpy(part, "--");
                     else if (isMidiInstrument(st.instrument)) std::snprintf(part, sizeof(part), "M%02d", st.instrument - 47);
+                    else if (isPresetInstrument(st.instrument)) std::snprintf(part, sizeof(part), "P%d", presetOfInstrument(st.instrument));
                     else if (st.instrument >= kInstrumentCount) std::snprintf(part, sizeof(part), "S%c", char('1' + (st.instrument - kInstrumentCount) % 9));
                     else std::snprintf(part, sizeof(part), "%02d", st.instrument + 1);
                 } else {
@@ -1841,6 +1853,7 @@ void PatternScreen::drawFill(Gfx& g) {
             const int i = clampi(v, 0, 255);
             if (i < kSampleInstrumentCount) std::snprintf(out, size_t(cap), "%s %s", code, a.instrPresent[i] ? a.instruments[i].name : "");
             else if (isSynthSlotInstrument(uint8_t(i))) std::snprintf(out, size_t(cap), "Synth %d", synthSlotOf(uint8_t(i)) + 1);
+            else if (isPresetInstrument(uint8_t(i))) synthui::presetLabel(a, presetOfInstrument(uint8_t(i)), out, cap);
             else std::snprintf(out, size_t(cap), "MIDI %d", i - kFirstMidiInstrument + 1);
         };
         char n1[48], n2[48], line[112];
@@ -1933,6 +1946,8 @@ void PatternScreen::drawTitleBar(Gfx& g, bool popupRight) {
             std::snprintf(sub, sizeof(sub), "%d. %s", ci + 1, a.instrPresent[ci] ? a.instruments[ci].name : "");
         else if (isSynthSlotInstrument(ci))   // "Synth 1 (WTFM)" (Tracker+, docs/SYNTH_UX_MINI_VS_OT.md row 3)
             synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
+        else if (isPresetInstrument(ci))   // [3.x] "P3 ACD"
+            synthui::presetLabel(a, presetOfInstrument(ci), sub, sizeof(sub));
         else
             std::snprintf(sub, sizeof(sub), "%d. MIDI Channel %d", ci + 1, ci - kFirstMidiInstrument + 1);
     } else {

@@ -524,6 +524,8 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
                             font = kFont1;
                             adv = 0;
                             x += 6 - textWidth(kFont1, "M");
+                        } else if (isPresetInstrument(st.instrument)) {   // [3.x] P1..P8
+                            std::snprintf(txt, sizeof(txt), "P%d", presetOfInstrument(st.instrument));
                         } else if (st.instrument >= kInstrumentCount) {
                             std::snprintf(txt, sizeof(txt), "S%c", char('1' + (st.instrument - kInstrumentCount) % 9));
                         } else {
@@ -649,6 +651,8 @@ void popupItem(void* ctx, int i, char* out, int cap) {
         const int ins = synthui::popupInstrumentMidi(i);
         if (isSynthSlotInstrument(uint8_t(ins)))
             synthui::slotLabel(a, synthSlotOf(uint8_t(ins)), out, cap);
+        else if (isPresetInstrument(uint8_t(ins)))
+            synthui::presetLabel(a, presetOfInstrument(uint8_t(ins)), out, cap);
         else
             std::snprintf(out, size_t(cap), "MIDI Channel %d", ins - kFirstMidiInstrument + 1);
     } else {
@@ -659,6 +663,8 @@ void popupItem(void* ctx, int i, char* out, int cap) {
             std::snprintf(out, size_t(cap), "%d. %s", ins + 1, a.instrPresent[ins] ? a.instruments[ins].name : "");
         else if (isSynthSlotInstrument(uint8_t(ins)))
             synthui::slotLabel(a, synthSlotOf(uint8_t(ins)), out, cap);
+        else if (isPresetInstrument(uint8_t(ins)))
+            synthui::presetLabel(a, presetOfInstrument(uint8_t(ins)), out, cap);
         else
             std::snprintf(out, size_t(cap), "%d. MIDI Channel %d", ins + 1, ins - kFirstMidiInstrument + 1);
     }
@@ -692,7 +698,7 @@ void PatternScreen::drawListPopup(Gfx& g) {
     v.y = 30;
     v.w = 200;
     v.h = kind == 3 ? 409 : 394;
-    v.count = kind == 3 ? kFxListCount : (kind == 5 ? synthui::kMidiPopupCount : kInstrumentCount + kSynthSlotCount);
+    v.count = kind == 3 ? kFxListCount : (kind == 5 ? synthui::kMidiPopupCount : kInstrumentCount + synthui::kSynthPopupCount);
     v.sel = pop_.cursor();
     popTop_ = wg::listFollow(v.sel, v.count, wg::listVisibleRows(v.h), popTop_);
     v.top = popTop_;
