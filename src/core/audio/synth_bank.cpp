@@ -91,12 +91,9 @@ void SynthBank::patchChanged(int s) {
 bool SynthBank::presetSelect(int s, uint8_t n) {
     if (s < 0 || s >= kSynthSlots || n > kSynthPresetCount) return false;
     if (n && (!presets_ || presets_[n - 1].engine == 0)) return false;   // empty: the slot plays on
-    if (ownMix_[s]) {   // [3.x] a Z takes back an own-mix edit (a repeated one too)
-        ownMix_[s] = false;
-        rebind_[s] = true;
-    }
-    if (slots_[s].preset == n) return true;                              // a repeated Z costs nothing
+    if (slots_[s].preset == n) return true;   // a repeated Z costs nothing (and keeps an own-mix edit)
     slots_[s].preset = n;
+    ownMix_[s] = false;   // [3.x] another preset (or Z0) takes back an own-mix edit
     rebind_[s] = true;
     return true;
 }

@@ -216,8 +216,9 @@ public:
     void bindPresetMix(const PresetMix* mix) { presetMix_ = mix; }
     // [3.x] An edit of the slot's own mix while it plays a preset's: the own
     // mix wins (the record's gain, pan and sends) and the slot stays on the
-    // preset's patch and insert, until the next presetSelect (a Z, Z0, the
-    // stopped chase), Stop, an edit of its patch or a reset. Main loop,
+    // preset's patch and insert, until a presetSelect changes the preset (a Z
+    // of another one, Z0, the stopped chase; a repeated Z keeps the edit),
+    // Stop, an edit of its patch or a reset. Main loop,
     // before the setSlotRecord that carries the edit.
     void ownMixWins(int s) {
         if (s >= 0 && s < kSynthSlots) ownMix_[s] = true;

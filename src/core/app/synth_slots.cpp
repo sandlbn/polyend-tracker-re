@@ -102,7 +102,7 @@ void App::setSynthSlotRecord(int s, const SynthSlotRecord& r) {
     const SynthSlotRecord now = project.synthSlot(s);
     // [3.x] An edit of the slot's own mix is heard at once: a slot on a
     // preset that carries a mix keeps the preset's patch and insert and plays
-    // with its own mix until the next Z (SynthBank::ownMixWins).
+    // with its own mix until the preset changes (SynthBank::ownMixWins).
     const int z = engine.synth().presetOf(s);
     if (z && (presets::mixTable()[z - 1].flags & audio::kPresetMixHas) &&
         (std::memcmp(&old.gainDb, &now.gainDb, sizeof now.gainDb) != 0 ||
