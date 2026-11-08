@@ -541,6 +541,10 @@ public:
     static constexpr uint32_t kCardSettleMs = 250;
     void serviceCardSynths(uint32_t now);
     bool syncCardSynths(bool initPatches);
+    // [I] After USB storage mode: Modules/ listed anew (rescanCardSynths),
+    // before boot() reopens the Workspace.
+    void rescanCardSynths();
+    void holdSynthEngines();   // no synth engine runs until holdEngines(false)
     // Why slot s's card engine isn't loaded ("Loads at Stop", "Loading",
     // "No room for it", ...); nullptr = not a card engine, or loaded.
     const char* cardSlotState(int s) const;
@@ -875,6 +879,7 @@ private:
     int32_t cardTried_[kSynthSlotCount] = {};
     int32_t cardWaiting_[kSynthSlotCount] = {};
     uint32_t cardSince_ = 0;
+    bool modulesStale_ = false;   // [I] #21: Modules/ may have changed (USB storage): boot() rescans
 #if OT_SLOT_INSERTS
     struct SlotInsertCfg {
         char id[4];                  // all zero = none

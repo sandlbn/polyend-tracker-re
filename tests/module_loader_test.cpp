@@ -694,3 +694,57 @@ TEST(card_synths_first_wanted_gets_the_room) {
     CHECK(loadCardSynths(fs, none, 1, scratch, sizeof(scratch)));
     CHECK(!cardEngineLoaded(0xE2));
 }
+
+TEST(card_synths_rescanned_after_usb_storage) {
+    MemStorage fs;
+    fs.files["Modules/fx.otm"] = tagged(0);
+    fs.files["Modules/sa.otm"] = tagged(1);
+    const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, nullptr};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    ModuleHost& h = ModuleHost::instance();
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 1);
+    const int32_t a[1] = {0xE1};
+    CHECK(loadCardSynths(fs, a, 1, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE1));
+    // The computer adds B, removes A and the effect.
+    fs.files.erase("Modules/sa.otm");
+    fs.files.erase("Modules/fx.otm");
+    fs.files["Modules/sb.otm"] = tagged(2);
+    const uint32_t serial = r.serial;
+    CHECK_EQ(rescanCardSynths(fs, scratch, sizeof(scratch)), 1);
+    CHECK(r.serial != serial);
+    // A left and is no longer listed; B is listed, not loaded yet.
+    CHECK(!h.find("SYA1") && !h.synthDescriptor(0xE1));
+    CHECK(!cardEngine(0xE1));
+    CHECK(cardEngine(0xE2) && !cardEngineLoaded(0xE2));
+    // The effect loaded for good stays (until the next start), listed last.
+    CHECK(h.find("FXA1") == &gFxA);
+    CHECK_EQ(r.n, 2);
+    CHECK_STR(r.items[0].file, "sb.otm");
+    CHECK(r.items[0].synth && !r.items[0].loaded);
+    CHECK_STR(r.items[1].file, "fx.otm");
+    CHECK(r.items[1].loaded);
+    CHECK_EQ(r.used, 24u);
+    // B loads after the effect, as at boot.
+    const int32_t b[1] = {0xE2};
+    CHECK(cardSynthsDiffer(b, 1));
+    CHECK(loadCardSynths(fs, b, 1, scratch, sizeof(scratch)));
+    CHECK(h.synthDescriptor(0xE2) == &gSyB.d);
+    CHECK_EQ(r.used, 48u);
+    // A again: listed with its file in name order, the effect kept in place.
+    fs.files["Modules/sa.otm"] = tagged(1);
+    fs.files["Modules/fx.otm"] = tagged(0);
+    CHECK_EQ(rescanCardSynths(fs, scratch, sizeof(scratch)), 2);
+    CHECK(!h.find("SYB1"));
+    CHECK_EQ(r.n, 3);
+    CHECK_STR(r.items[0].file, "fx.otm");
+    CHECK(r.items[0].loaded);
+    CHECK_EQ(cardEngine(0xE1)->file, 1);
+    CHECK_EQ(cardEngine(0xE2)->file, 2);
+    CHECK(loadCardSynths(fs, a, 1, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE1) && !cardEngineLoaded(0xE2));
+    const int32_t none[1] = {0};
+    CHECK(loadCardSynths(fs, none, 1, scratch, sizeof(scratch)));
+    h.removeLoaded(gFxA);   // (the host is shared by the tests)
+}

@@ -270,6 +270,30 @@ void App::serviceCardSynths(uint32_t now) {
     syncCardSynths(true);
 }
 
+void App::holdSynthEngines() {
+    // No card engine runs from here on: the next block drops the synth
+    // voices (a block is 2.9 ms); when no block runs on its own, this does.
+    audio::SynthBank& bank = engine.synth();
+    bank.holdEngines(true);
+    const uint32_t t0 = millis();
+    while (!bank.enginesHeld())
+        if (!hal_.audio || !hal_.audio->blocksOnTheirOwn() || millis() - t0 > 50) {
+            bank.dropEngines();
+            break;
+        }
+}
+
+void App::rescanCardSynths() {
+    if (!mem_.scratch) return;
+    if (previewSlot_ >= 0) endSynthPreview();
+    holdSynthEngines();
+    mod::rescanCardSynths(fs(), mem_.scratch, mem_.scratchBytes);
+    engine.synth().holdEngines(false);
+    // Nothing tried yet: the project load (or a model change) loads anew.
+    std::memset(cardTried_, 0, sizeof(cardTried_));
+    for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().patchChanged(s);
+}
+
 bool App::syncCardSynths(bool initPatches) {
     // The slots' module engines (a built-in one is skipped by the loader).
     // [I] Z presets (upstream #171) will add the engines their presets name.
@@ -280,15 +304,7 @@ bool App::syncCardSynths(bool initPatches) {
     if (!mem_.scratch) return false;
     if (previewSlot_ >= 0) endSynthPreview();
     audio::SynthBank& bank = engine.synth();
-    // No card engine runs from here on: the next block drops the synth
-    // voices (a block is 2.9 ms); when no block runs on its own, this does.
-    bank.holdEngines(true);
-    const uint32_t t0 = millis();
-    while (!bank.enginesHeld())
-        if (!hal_.audio || !hal_.audio->blocksOnTheirOwn() || millis() - t0 > 50) {
-            bank.dropEngines();
-            break;
-        }
+    holdSynthEngines();
     const bool ok = mod::loadCardSynths(fs(), slotEngine_, kSynthSlotCount, mem_.scratch, mem_.scratchBytes);
     bank.holdEngines(false);
     for (int s = 0; s < kSynthSlotCount; ++s) {

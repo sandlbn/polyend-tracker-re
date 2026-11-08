@@ -108,6 +108,14 @@ bool cardEngineLoaded(int32_t engineId);
 // scratch holds one file at a time. Returns false when a wanted module
 // didn't load (no room, a damaged file: the report says).
 bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratch, uint32_t scratchCap);
+// [I] After USB storage mode (the computer may have changed Modules/): every
+// card synth leaves and Modules/ is listed anew, so new and replaced synth
+// modules are what loadCardSynths loads next. The modules the boot loaded for
+// good (master inserts, effects) stay as they are: their memory is never
+// given back, so a new, replaced or removed one takes a restart. The same
+// rules as loadCardSynths (no synth engine runs meanwhile, main loop).
+// Returns the number of card engines listed.
+int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap);
 // True when loadCardSynths(engines, n) would change what's loaded.
 bool cardSynthsDiffer(const int32_t* engines, int n);
 

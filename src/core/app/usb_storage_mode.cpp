@@ -38,6 +38,7 @@ void App::exitUsbStorage() {
     // (spec 05 §1.5 state 3 -> 2: reopen the Workspace). Without a card the
     // loop shows "Insert SD card" until one is back.
     booted_ = false;   // boot() sets it again once the card is usable
+    modulesStale_ = true;   // [I] #21: Modules/ too (boot() lists it anew)
     lastNoCardTry_ = 0;
     boot();
     lastAutosave_ = millis();

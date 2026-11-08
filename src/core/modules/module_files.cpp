@@ -181,6 +181,22 @@ int wantedFiles(const int32_t* engines, int n, int* want) {
     return nWant;
 }
 
+// Every card synth out of the pool: the pool and the fast block hold only
+// what the boot loaded for good.
+void dropCardSynths() {
+    OtmLoadReport& r = *g_card.r;
+    for (int i = 0; i < r.n; ++i)
+        if (g_card.mod[i]) {
+            ModuleHost::instance().removeLoaded(*g_card.mod[i]);
+            g_card.mod[i] = nullptr;
+            r.items[i].loaded = false;
+            r.items[i].fastBytes = 0;
+        }
+    r.used = g_card.keepUsed;
+    r.fastUsed = g_card.keepFast;
+    r.noRoom = false;
+}
+
 }  // namespace
 
 int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_t scratchCap,
@@ -301,16 +317,7 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
     ++r.serial;
     // Every card synth leaves, then the wanted ones load again from the
     // first free byte (a new set gets the fast block shared out anew).
-    for (int i = 0; i < r.n; ++i)
-        if (g_card.mod[i]) {
-            ModuleHost::instance().removeLoaded(*g_card.mod[i]);
-            g_card.mod[i] = nullptr;
-            r.items[i].loaded = false;
-            r.items[i].fastBytes = 0;
-        }
-    r.used = g_card.keepUsed;
-    r.fastUsed = g_card.keepFast;
-    r.noRoom = false;
+    dropCardSynths();
     int want[OtmLoadReport::kMax];
     const int nWant = wantedFiles(engines, n, want);
     bool ok = true;
@@ -357,6 +364,56 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
     }
     if (pool.resize) pool.resize(r.used);
     return ok;
+}
+
+int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap) {
+    if (!g_card.pool) return 0;
+    const OtmPool& pool = *g_card.pool;
+    OtmLoadReport& r = *g_card.r;
+    ++r.serial;
+    dropCardSynths();
+    g_card.nEng = 0;
+    // The modules loaded for good stay where they are, in the report too.
+    OtmLoadReport::Item kept[OtmLoadReport::kMax];
+    int nKept = 0;
+    for (int i = 0; i < r.n; ++i)
+        if (r.items[i].loaded) kept[nKept++] = r.items[i];
+    r.n = 0;
+    Names names;
+    if (fs.listDir(kModulesDir, &collect, &names) < 0) names = Names{};
+    r.skipped = names.skipped;
+    if (names.n > 0 && (!pool.cap || (pool.resize && !pool.resize(pool.cap)))) {
+        r.noRoom = true;
+        names.n = 0;
+    }
+    bool keptListed[OtmLoadReport::kMax] = {};
+    for (int i = 0; i < names.n && r.n < OtmLoadReport::kMax; ++i) {
+        int k = 0;
+        while (k < nKept && std::strcmp(kept[k].file, names.name[i]) != 0) ++k;
+        if (k < nKept) {   // loaded for good at boot: not looked at again
+            keptListed[k] = true;
+            r.items[r.n++] = kept[k];
+            continue;
+        }
+        OtmLoadReport::Item& it = r.items[r.n++];
+        it = OtmLoadReport::Item{};
+        std::strcpy(it.file, names.name[i]);
+        // Looked at after the modules loaded for good (as at boot: entered once
+        // to list its engines, then its room goes back).
+        uint32_t len = 0, used = g_card.keepUsed, fastUsed = 0;
+        OtmHeader hdr;
+        it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, nullptr, nullptr);
+        if (it.error != OtmError::None) continue;
+        it.rowBytes = hdr.rowBytes;
+        IModule* m = place(pool, it, scratch, len, hdr, 0, &used, &fastUsed);
+        // A new module without synth engines loads at the next start.
+        if (m) it.synth = listEngines(*m, r.n - 1);
+    }
+    // Loaded for good, its file gone since: it runs until the next start.
+    for (int k = 0; k < nKept && r.n < OtmLoadReport::kMax; ++k)
+        if (!keptListed[k]) r.items[r.n++] = kept[k];
+    if (pool.resize) pool.resize(r.used);
+    return g_card.nEng;
 }
 
 }  // namespace mod
