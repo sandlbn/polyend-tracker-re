@@ -74,7 +74,7 @@ BENCH_PK_RE = re.compile(r"^\s+block\s+\d+ \(song pos \d+, step \d+\):\s+(\d+) M
 DEVICE_CPI = 1.94
 # "<name> <value> ... limit <N>" lines of the engines, pswitch, the SD stream
 # and the module benches ("<module>.unit...", tests/bench_api.h).
-LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|preset|stream)[\w.]*|[a-z][a-z0-9]*\.unit[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
+LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|preset|pinst|stream)[\w.]*|[a-z][a-z0-9]*\.unit[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
 FLASH_FAIL = 800000
 FLASH_WARN = 600000
 STACK_MIN = 90 * 1024

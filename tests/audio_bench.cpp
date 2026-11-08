@@ -706,6 +706,74 @@ void presetBench() {
     }
 }
 
+// pinst / pinsteal: [3.x] a note of a preset instrument (67..74) from the
+// sequencer, 4 voices sounding on slot 0. pinst: it binds an idle slot (the
+// preset's patch reload and mix; the voice cap takes one of slot 0's notes).
+// pinsteal: the other slots are off, so it steals slot 0 itself (its 4 notes
+// fade). The note starts first in the next block (note-on spreading). The
+// worst of the note-on block and the 2 after it against a steady block;
+// SDRAM accesses as preset.d.
+void presetInstBench() {
+    for (int steal = 0; steal < 2; ++steal) {
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        r.eng->synth().setSlotRecord(0, rc);
+        rc.polyphony = steal ? 0 : 4;
+        r.eng->synth().setSlotRecord(1, rc);
+        r.eng->synth().setSlotRecord(2, rc);
+        gBenchPresets[0] = gSynthPatch;
+        gBenchPresets[1] = gSynthPatch;
+        r.eng->synth().bindPresets(gBenchPresets);
+        benchPresetMix();
+        r.eng->synth().bindPresetMix(gBenchPresetMix);
+        int16_t out[kBlock * 2];
+        auto own4 = [&] {
+            for (int v = 0; v < 4; ++v) r.eng->synthNoteOff(uint8_t(8 + v), NoteOffMode::Cut);
+            for (int v = 0; v < 4; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(48 + 7 * v));
+            for (int b = 0; b < 6; ++b) r.eng->renderLive(out);
+        };
+        own4();
+        for (int b = 0; b < 14; ++b) r.eng->renderLive(out);
+        const int n = 32 / (kScale > 4 ? 4 : kScale);
+        double steady = 0.0, on = 0.0;
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 5.0;
+        for (int k = 0; k < n; ++k) {
+            double t0 = nowUnits();
+            r.eng->renderLive(out);
+            steady += nowUnits() - t0;
+            SynthNoteOn p;
+            p.preset = uint8_t(1 + (k & 1));   // another preset each time: always a bind
+            p.note = 60;
+            t0 = nowUnits();
+            r.eng->synthNoteOn(12, p);
+            r.eng->renderLive(out);
+            double worst = nowUnits() - t0;
+            for (int b = 0; b < 2; ++b) {   // spreading: the bind's block, then the note's
+                t0 = nowUnits();
+                r.eng->renderLive(out);
+                const double c = nowUnits() - t0;
+                if (c > worst) worst = c;
+            }
+            on += worst;
+            gSink = out[k & 255];
+            r.eng->synthNoteOff(12, NoteOffMode::Cut);   // outside the timing
+            own4();
+        }
+        r.eng->synth().bindPresetMix(nullptr);
+        r.eng->synth().bindPresets(nullptr);
+        const double d = (on - steady) / n + acc * kSdramCycles;
+#ifdef OT_BENCH_M4
+        std::printf("    %s  %8.1f  (preset instrument note, worst block - steady block, est. cycles, limit 16000)\n",
+                    steal ? "pinsteal.d" : "pinst.d", d);
+#else
+        std::printf("  (%s: preset instrument note, worst block - steady %+.2f us)\n", steal ? "pinsteal" : "pinst", d);
+#endif
+    }
+}
+
 #if OT_SLOT_INSERTS
 // presetins: [3.x] a Z that also switches the slot insert, 4 voices sounding:
 // the slot's own insert fades out, then the preset's starts fresh (its SDRAM
@@ -1469,6 +1537,7 @@ int main(int argc, char** argv) {
 #endif
     switchBench();
     presetBench();
+    presetInstBench();
 #if OT_SLOT_INSERTS
     presetInsBench();
 #endif

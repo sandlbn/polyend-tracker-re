@@ -21,7 +21,7 @@ inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 // Step FX ids (spec 03 §3.6).
 constexpr uint8_t kFxDelaySend = 30, kFxPanning = 31, kFxReverbSend = 32, kFxRandVol = 7, kFxVol = 18, kFxGlideId = 19, kFxMicro = 34, kFxTuneId = 40, kFxSlideU = 41,
-                  kFxSlideD = 42;
+                  kFxSlideD = 42, kFxCcA = 8, kFxCcF = 37;
 }  // namespace
 
 static_assert(sizeof(SynthVoice) <= 160, "engine-visible voice record");
@@ -47,6 +47,7 @@ void SynthBank::reset() {
         sl.p.held = SynthHeld{};
         if (sl.preset) rebind_[s] = true;
         sl.preset = 0;
+        sl.zSel = 0;
         ownMix_[s] = false;
         for (auto& o : sl.ovr) o = -1;
         sl.macroDirty = true;
@@ -57,6 +58,7 @@ void SynthBank::reset() {
     }
     activeVoices_ = 0;
     tails_ = 0;
+    bindNow_ = 0;
 #if OT_SLOT_INSERTS
     for (Ins& in : ins_) {   // the binding stays; a pending kind change completes
         if (in.off) {
@@ -78,6 +80,7 @@ void SynthBank::bindPatch(int s, const SynthPatch* p) {
     if (s < 0 || s >= kSynthSlots) return;
     slots_[s].patch = p;
     slots_[s].preset = 0;
+    slots_[s].zSel = 0;
     ownMix_[s] = false;
     rebind_[s] = true;
 }
@@ -85,13 +88,18 @@ void SynthBank::bindPatch(int s, const SynthPatch* p) {
 void SynthBank::patchChanged(int s) {
     if (s < 0 || s >= kSynthSlots) return;
     slots_[s].preset = 0;   // an edit is heard, on the patch being edited
+    slots_[s].zSel = 0;
     ownMix_[s] = false;
     rebind_[s] = true;
 }
 bool SynthBank::presetSelect(int s, uint8_t n) {
     if (s < 0 || s >= kSynthSlots || n > kSynthPresetCount) return false;
     if (n && (!presets_ || presets_[n - 1].engine == 0)) return false;   // empty: the slot plays on
-    if (slots_[s].preset == n) return true;   // a repeated Z costs nothing (and keeps an own-mix edit)
+    slots_[s].zSel = n;
+    // A repeated Z costs nothing (and keeps an own-mix edit); [3.x] so does a
+    // Z of the preset an instrument borrowed the slot for. Another one wins
+    // over that borrowing at once.
+    if (slots_[s].preset == n) return true;
     slots_[s].preset = n;
     ownMix_[s] = false;   // [3.x] another preset (or Z0) takes back an own-mix edit
     rebind_[s] = true;
@@ -259,9 +267,9 @@ SynthSlotView SynthBank::slotView(int s) const {
     return v;
 }
 
-void SynthBank::auditionOn(int s, uint8_t note, int8_t volume) {
-    if (s < 0 || s >= kSynthSlots) return;
-    aud_.slot = uint8_t(s);
+void SynthBank::auditionOn(int s, uint8_t note, int8_t volume, uint8_t preset) {
+    if (s < 0 || s >= kSynthSlots || preset > kSynthPresetCount) return;
+    aud_.slot = uint8_t(s | preset << 4);   // [3.x] the preset in the high nibble
     aud_.note = note > 127 ? 127 : note;
     aud_.vol = volume;
     aud_.req = 1;
@@ -269,10 +277,11 @@ void SynthBank::auditionOn(int s, uint8_t note, int8_t volume) {
 
 void SynthBank::auditionOff() { aud_.req = 2; }
 
-void SynthBank::liveOn(int k, int s, uint8_t note, int8_t volume) {
-    if (k < 0 || k >= kSynthLiveTracks || s < 0 || s >= kSynthSlots) return;
+void SynthBank::liveOn(int k, int s, uint8_t note, int8_t volume, uint8_t preset) {
+    if (k < 0 || k >= kSynthLiveTracks || s < 0 || s >= kSynthSlots || preset > kSynthPresetCount) return;
     const uint8_t ser = ++liveSerial_[k];
-    live_[k] = uint32_t(ser) | 1u << 8 | uint32_t(s & 3) << 9 | uint32_t(note & 127) << 11 |
+    // Serial 0..7, on 8, slot 9..10, note 11..17, [3.x] preset 18..21, volume 24..31.
+    live_[k] = uint32_t(ser) | 1u << 8 | uint32_t(s & 3) << 9 | uint32_t(note & 127) << 11 | uint32_t(preset & 15) << 18 |
                uint32_t(uint8_t(volume)) << 24;
 }
 
@@ -293,6 +302,7 @@ void SynthBank::liveDrain() {
             SynthNoteOn n;
             n.slot = uint8_t((w >> 9) & 3);
             n.note = uint8_t((w >> 11) & 127);
+            n.preset = uint8_t((w >> 18) & 15);
             n.volume = int8_t(uint8_t(w >> 24));
             noteOnNow(track, n);
         } else {
@@ -465,7 +475,8 @@ void SynthBank::sync() {
         aud_.req = 0;
         if (req == 1) {
             SynthNoteOn n;
-            n.slot = aud_.slot;
+            n.slot = uint8_t(aud_.slot & 15);
+            n.preset = uint8_t(aud_.slot >> 4);
             n.note = aud_.note;
             n.volume = aud_.vol;
             noteOnNow(kSynthAuditionTrack, n);
@@ -475,7 +486,7 @@ void SynthBank::sync() {
     }
 }
 
-void SynthBank::bindEngine(int s) {
+void SynthBank::bindEngine(int s, bool cut) {
     Slot& sl = slots_[s];
     const SynthPatch* patch = patchOf(sl);
     sl.bound = patch;
@@ -484,7 +495,7 @@ void SynthBank::bindEngine(int s) {
     if (e && override_) e = override_;
     sl.mismatch = !patch || patch->engine != id;
     if (sl.mismatch) e = nullptr;
-    const bool restart = e != sl.eng || id != sl.engineId;
+    const bool restart = cut || e != sl.eng || id != sl.engineId;   // [3.x] cut: another sound on the same engine too
     if (restart) {
         // A new engine starts clean: the slot's voices stop (fade) first.
         for (int r = 0; r < kSynthMaxVoices; ++r)
@@ -776,6 +787,78 @@ void SynthBank::releaseTrack(int track) {
     }
 }
 
+// --- [3.x] preset instruments ----------------------------------------------------------
+
+bool SynthBank::presetPlays(uint8_t k) const {
+    if (!presets_ || k < 1 || k > kSynthPresetCount) return false;
+    const int32_t e = presets_[k - 1].engine;
+    return e != 0 && synthEngineFor(e) != nullptr;
+}
+
+int SynthBank::presetSlot(uint8_t k) const {
+    if (!presetPlays(k)) return -1;
+    for (int s = 0; s < kSynthSlots; ++s)
+        if (slots_[s].preset == k && playable(s) > 0) return s;
+    return -1;
+}
+
+// A slot for preset k (none plays it): an idle one, S3 first (songs start
+// on S1); else steal the slot whose notes are all in their release, else
+// the one whose last note-on is the oldest. One pass over the voices.
+int SynthBank::acquire(uint8_t k) {
+    if (!presetPlays(k) || cap() == 0) return -1;
+    uint8_t on[kSynthSlots] = {}, gated[kSynthSlots] = {};
+    uint32_t last[kSynthSlots] = {};
+    for (const Voice& v : voices_) {
+        if (v.state != kOn) continue;
+        const int s = v.v.slot;
+        ++on[s];
+        gated[s] = uint8_t(gated[s] | v.v.gate);
+        if (v.age > last[s]) last[s] = v.age;
+    }
+    // A slot bound in this block keeps its waiting note: the last choice.
+    int idle = -1, best = -1;
+    for (int s = kSynthSlots - 1; s >= 0; --s) {
+        if (slots_[s].rec.polyphony == 0) continue;   // the slot is off
+        const bool resv = (bindNow_ >> s) & 1u;
+        if (!resv && !on[s] && !(tails_ & (1u << s)) && !insTailOf(s)) {
+            idle = s;
+            break;
+        }
+        const bool bresv = best >= 0 && ((bindNow_ >> best) & 1u);
+        if (best < 0 || (resv != bresv ? !resv : (!gated[s] != !gated[best] ? !gated[s] : last[s] < last[best]))) best = s;
+    }
+    const int s = idle >= 0 ? idle : best;
+    if (s >= 0) bindTo(s, k);
+    return s;
+}
+
+// Slot s plays preset k (0: its own patch) from this note on: its notes and
+// held notes go (a jump, not a morph), its tails and insert follow the new
+// sound, and an own-mix edit is dropped (the bound preset's mix plays).
+void SynthBank::bindTo(int s, uint8_t k) {
+    for (int r = 0; r < kSynthMaxVoices; ++r)
+        if (voices_[r].state == kOn && voices_[r].v.slot == s) {
+            fade(r, true);
+            ++steals_;
+        }
+    bool held = false;
+    for (int t = 0; t < kSynthAllTracks; ++t)
+        if (heldSeq_[t] && heldSlot_[t] == s) {
+            heldSeq_[t] = 0;
+            held = true;
+        }
+    if (held) heldUpdate(s);
+    slots_[s].preset = k;
+    ownMix_[s] = false;
+    bindNow_ = uint8_t(bindNow_ | (1u << s));
+    bindEngine(s, true);
+    applyMix(s);
+#if OT_SLOT_INSERTS
+    applyInsert(s);
+#endif
+}
+
 // --- [3.x] C1: held notes, note priority, return-to-held -------------------------
 
 void SynthBank::holdSet(int track, int s, uint8_t note, float velocity) {
@@ -942,21 +1025,27 @@ void SynthBank::flushDeferred() {
 }
 
 void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
-    if (n.slot >= kSynthSlots) return;
-    const int s = n.slot;
-    Slot& sl = slots_[s];
+    if (n.preset > kSynthPresetCount || (!n.preset && n.slot >= kSynthSlots)) return;
+    // [3.x] A preset instrument's note: the slot on that preset, if any (else
+    // a bind below); a slot instrument's: its slot, back on what Z selected.
+    int s = n.preset ? presetSlot(n.preset) : int(n.slot);
     // Note-on spreading (header): a later note of a track whose note waits
     // replaces it; past the per-block start cap a note that needs a new
-    // voice record waits one block.
+    // voice record (or [3.x] a bind) waits one block.
     if (!forced) {
         Deferred* d = deferredOf(track);
         bool wait = d != nullptr;
-        if (!wait && startCap_ > 0 && starts_ >= startCap_ && playable(s) > 0) {
-            bool reuse = false;
-            if (playable(s) == 1)
-                for (int q = 0; q < kSynthMaxVoices && !reuse; ++q)
-                    reuse = voices_[q].state == kOn && voices_[q].v.slot == s;
-            wait = !reuse;
+        if (!wait && startCap_ > 0 && starts_ >= startCap_) {
+            if (s < 0) {
+                wait = presetPlays(n.preset);
+            } else if (playable(s) > 0) {
+                bool reuse = false;
+                const bool bind = !n.preset && slots_[s].preset != slots_[s].zSel;
+                if (playable(s) == 1 && !bind)
+                    for (int q = 0; q < kSynthMaxVoices && !reuse; ++q)
+                        reuse = voices_[q].state == kOn && voices_[q].v.slot == s;
+                wait = !reuse;
+            }
         }
         if (wait) {
             if (!d) d = &defer_[nDefer_++];   // one entry per track: never full
@@ -967,11 +1056,39 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
             return;
         }
     }
-    const int P = playable(s);
-    if (P == 0) {   // slot off, unavailable model or no patch: silent
+    bool bound = false;
+    if (n.preset) {
+        if (s < 0) {
+            s = acquire(n.preset);
+            bound = s >= 0;
+        }
+    } else if (slots_[s].preset != slots_[s].zSel) {
+        bindTo(s, slots_[s].zSel);   // [3.x] the slot's own note: the latest note-on decides its sound
+        bound = true;
+    }
+    // [3.x] Spreading: the bind costs about a note start, so a sequencer note
+    // that binds counts as one and starts first in the next block.
+    if (bound && !forced && startCap_ > 0) {
+        ++starts_;
+        Deferred* d = &defer_[nDefer_++];   // (no entry of this track: it would have waited above)
+        *d = Deferred{};
+        d->track = int8_t(track);
+        d->n = n;
+        if (prof_) BlockProfile::inc(prof_->nDeferred);
+        return;
+    }
+    const int P = s < 0 ? 0 : playable(s);
+    if (P == 0) {   // slot off, unavailable model or no patch ([3.x] an empty or unavailable preset): silent
         holdClear(track);
         releaseTrack(track);
         return;
+    }
+    Slot& sl = slots_[s];
+    if (n.preset) {   // [3.x] the note's CC a..f: the slot it plays on (as the sequencer's for a slot)
+        const StepFx cc[2] = {n.fxB, n.fxA};
+        for (const StepFx& f : cc)
+            if ((f.type >= kFxCcA && f.type <= kFxCcA + 4) || f.type == kFxCcF)
+                macroFx(s, f.type == kFxCcF ? 5 : f.type - kFxCcA, f.value);
     }
     applyMacros(s);
     SynthNote note;
@@ -1067,6 +1184,7 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
         pe.record = int8_t(host);
         pe.track = int8_t(track);
         pe.slot = uint8_t(s);
+        pe.preset = sl.preset;
         pe.note = note;
         pe.bend = bend;
         pe.bendTarget = target;
@@ -1142,6 +1260,11 @@ void SynthBank::applyFx(int track, uint8_t type, uint8_t value) {
         // Panning: this note's balance (0 left, 50 centre, 100 right), on
         // top of the slot's pan (exact at the slot's default centre).
         case kFxPanning: V.pan = int8_t(value > 100 ? 100 : value); break;
+        // [3.x] CC a..f on an FX-only step after a preset instrument's note:
+        // the slot it plays on (a slot instrument's go through macroFx).
+        case kFxCcA: case kFxCcA + 1: case kFxCcA + 2: case kFxCcA + 3: case kFxCcA + 4: case kFxCcF:
+            macroFx(V.v.slot, type == kFxCcF ? 5 : type - kFxCcA, value);
+            break;
         default:
             break;   // filter step FX: not on synth notes (the Performance filters are, #23)
     }
@@ -1166,10 +1289,11 @@ void SynthBank::transportStop() {
             if (o >= 0) sl.macroDirty = true;
             o = -1;
         }
-        if (sl.preset) {   // Z lasts until Stop
+        if (sl.preset) {   // Z (and [3.x] a preset instrument's binding) lasts until Stop
             sl.preset = 0;
             rebind_[s] = true;
         }
+        sl.zSel = 0;
         ownMix_[s] = false;
     }
 }
@@ -1241,6 +1365,7 @@ void SynthBank::stopAll() {
     // (Also reached from the main loop: a render racing this store keeps or
     // drops one slot's tail for one block; its scratch is zeroed either way.)
     tails_ = 0;
+    bindNow_ = 0;
 #if OT_SLOT_INSERTS
     for (Ins& in : ins_) {   // the inserts' tails go too; the next note starts clean
         if (in.off) {
@@ -1449,7 +1574,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 V.pending = -1;
                 if (pe >= 0) {
                     Pending& q = pend_[pe];
-                    if (q.track >= 0 && playable(q.slot) > 0) {
+                    if (q.track >= 0 && playable(q.slot) > 0 && slots_[q.slot].preset == q.preset) {
                         // Other notes may have filled the slot / the cap since
                         // this one was queued: steal by the normal order first.
                         int victim = -1;
@@ -1512,6 +1637,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
     // The next block begins: its voice starts count from 0 and the notes
     // queued so far start first in it.
     starts_ = 0;
+    bindNow_ = 0;
     flushDue_ = true;
     return any;
 }

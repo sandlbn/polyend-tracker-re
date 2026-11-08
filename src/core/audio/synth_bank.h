@@ -57,6 +57,19 @@
 // synths alike; no release tail. (2x-05 §3.3's "release, cut on a double
 // Stop" is not used.)
 //
+// [3.x] Preset instruments (67..74 = P1..P8, SynthNoteOn::preset): a note
+// of P<k> plays on a slot that plays preset k, else it binds one: an idle
+// slot (S3 first), else the slot whose notes are all in their release, else
+// the one whose last note-on is the oldest; its notes fade (one block) and
+// it plays preset k (patch, mix, insert) with its own polyphony from then
+// on. A note of the slot's own instrument binds it back to what Z / the
+// chase / the UI selected (Slot::zSel): the latest note-on decides. A Z
+// on a borrowed slot wins at once. A bind costs about a note start, so a
+// sequencer note that binds counts as one and starts first in the next
+// block (as a queued note: 2.9 ms late); a slot bound in a block is the
+// last choice of another bind in it. An empty preset, or one whose engine
+// the build lacks, is silent.
+//
 // [3.x] Spread (patch, Poly 2 and up): each note at a place of its own, on the way
 // to the slot bus (synthSpreadPlace); L + R and the sends do not change.
 // Mixing: voices -> slot bus (stereo) -> slot gain (dB) -> pan as balance
@@ -208,7 +221,12 @@ public:
     // False: ignored (an empty preset, out of range), the slot plays on.
     void bindPresets(const SynthPatch* presets) { presets_ = presets; }
     bool presetSelect(int s, uint8_t n);
+    // The preset slot s plays now (0 = its own patch): what Z selected, or
+    // [3.x] the preset instrument that borrowed it.
     uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
+    // [3.x] What Z / the chase / the UI selected for slot s (its own notes
+    // play that).
+    uint8_t selectedPresetOf(int s) const { return slots_[clampSlot(s)].zSel; }
     // [3.x] kSynthPresetCount entries beside the preset table, bound once: a
     // slot on preset n plays with preset n's mix when it has one (ramped on
     // the block of the switch, as a record change). setSlotRecord sets the
@@ -242,11 +260,12 @@ public:
     bool slotAvailable(int s) const;
     // Previews (WP-G: Enc push, Load Patch F5 / F6, Instrument / Loader):
     // play slot s on the audition track, one note at a time.
-    void auditionOn(int s, uint8_t note, int8_t volume = -1);
+    // [3.x] preset 1..8: a preset instrument's note (the bank picks the slot).
+    void auditionOn(int s, uint8_t note, int8_t volume = -1, uint8_t preset = 0);
     void auditionOff();
     // Live note k (MIDI input or pad, 0..kSynthLiveTracks-1) on slot s; volume -1 = full
     // velocity, else 0..100. Main loop; the audio block starts it.
-    void liveOn(int k, int s, uint8_t note, int8_t volume);
+    void liveOn(int k, int s, uint8_t note, int8_t volume, uint8_t preset = 0);
     void liveOff(int k);
 #if OT_SLOT_INSERTS
     // [3.x] Slot inserts: slot s's effect (nullptr = none) and its settings,
@@ -359,6 +378,7 @@ private:
         int8_t record = -1;      // -1 = entry free
         int8_t track = -1;
         uint8_t slot = 0;
+        uint8_t preset = 0;      // [3.x] the slot's binding when queued: another one drops the note
         SynthNote note;
         float bend = 0.0f, bendTarget = 0.0f, bendStep = 0.0f;
         int8_t sendD = -1, sendR = -1;   // the note step's Delay / Reverb Send FX
@@ -373,6 +393,7 @@ private:
         int32_t engineId = 0;
         bool mismatch = false;
         volatile uint8_t preset = 0;   // [3.x] Z: 1.. plays that preset, 0 the slot's patch
+        volatile uint8_t zSel = 0;     // [3.x] what Z selected; preset differs while a preset instrument borrows the slot
         SynthParams p;
         // macro state
         uint8_t page[kSynthSeqMacros] = {};
@@ -437,7 +458,11 @@ private:
     void noteOnNow(int track, const SynthNoteOn& n, bool forced = true);
     void flushDeferred();
     Deferred* deferredOf(int track);
-    void bindEngine(int s);
+    void bindEngine(int s, bool cut = false);
+    int presetSlot(uint8_t k) const;   // [3.x] a playable slot on preset k, -1 none
+    bool presetPlays(uint8_t k) const; // [3.x] preset k has an engine this build has
+    int acquire(uint8_t k);            // [3.x] the slot a note of preset k plays on (binds), -1 silent
+    void bindTo(int s, uint8_t k);     // [3.x] slot s plays preset k (0 own patch) from now: its notes fade
     void reloadParams(int s, bool jump);
     void applyMacros(int s);
     // [OT] Width on the slot bus (busL_ / busR_), before mixSlot; nothing
@@ -496,6 +521,7 @@ private:
     uint32_t perfWord_[kSynthTracks] = {};
     volatile uint8_t perfActive_ = 0;         // tracks with a non-zero perfWord_
     uint8_t tails_ = 0;                       // bit s: slot s's slotPost reported a tail
+    uint8_t bindNow_ = 0;                     // [3.x] bit s: slot s was bound in this block (its note waits)
     uint32_t serial_ = 0;
     uint32_t steals_ = 0;
     int activeVoices_ = 0;                    // records not free
