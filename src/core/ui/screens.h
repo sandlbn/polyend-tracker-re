@@ -449,6 +449,7 @@ public:
     static int synthMeterBar(float meanPeak);
     int synthMeter[3] = {};
     float synthHist_[3][10] = {};
+    uint8_t shownTarget_[3] = {};   // [3.x] the preset each synth column shows (0 = the slot's own)
     // True when parameter `param` of Master sub-page `sub` is an option list
     // (encoder + / Down = next item, Up = previous item) rather than a bar.
     static bool isListParam(int sub, int param);
@@ -977,37 +978,46 @@ int targetChoiceIndex(int32_t engine, int param);
 void gainText(float db, char* out, int cap);    // "-9.00 dB", "-inf dB" at -96
 void sendText(float v, char* out, int cap);     // SEND law dB, "-inf dB" at 0
 // Pattern Instrument popup order (Tracker+ manual p.100 figure, docs/
-// SYNTH_UX_MINI_VS_OT.md row 1): Synth 1..3 first, then the sample
-// instruments 1..48 and MIDI 1..16 in the stock order. The stored numbers
-// stay 64..66 / 0..63; only the list position differs.
+// SYNTH_UX_MINI_VS_OT.md row 1): Synth 1..3 first, [3.x] then the presets
+// P1..P8, then the sample instruments 1..48 and MIDI 1..16 in the stock
+// order. The stored numbers stay 64..74 / 0..63; only the list position
+// differs.
+constexpr int kSynthPopupCount = kSynthSlotCount + kPresetInstrumentCount;   // S1..S3, P1..P8
 inline int popupInstrument(int pos) {
-    return pos < kSynthSlotCount ? kFirstSynthInstrument + pos : pos - kSynthSlotCount;
+    return pos < kSynthPopupCount ? kFirstSynthInstrument + pos : pos - kSynthPopupCount;
 }
 // "Synth 1 (VAP)": a synth slot named as the Tracker+ popup and title bar
 // do (manual p.100 figure; docs/SYNTH_UX_MINI_VS_OT.md rows 1, 3).
 void slotLabel(const App& a, int slot, char* out, int cap);
+// [3.x] "P3 ACD": preset k (1..8) as an instrument, by the engine it plays
+// ("P3 -" when empty).
+void presetLabel(const App& a, int k, char* out, int cap);
+// [3.x] Why preset instrument `instrument` cannot sound ("P3 is empty", "P3
+// (FM4) not available"); false: it can (or it is no preset instrument).
+bool presetNotice(const App& a, int instrument, char* out, int cap);
 inline int popupPosition(int instrument) {
-    return isSynthInstrument(uint8_t(instrument)) ? instrument - kFirstSynthInstrument : instrument + kSynthSlotCount;
+    return isSynthInstrument(uint8_t(instrument)) ? instrument - kFirstSynthInstrument : instrument + kSynthPopupCount;
 }
 // Instrument popup on the MIDI tracks 9-16 (Mini manual §1.8: "tracks 9-16
-// are used for MIDI and synths"; USER_REPORTS_R2 item 5): Synth 1..3 first,
-// as on tracks 1-8, then MIDI 1..16 (positions 3..18 = 48..63).
-constexpr int kMidiPopupCount = kSynthSlotCount + kMidiInstrumentCount;
+// are used for MIDI and synths"; USER_REPORTS_R2 item 5): Synth 1..3 and
+// [3.x] P1..P8 first, as on tracks 1-8, then MIDI 1..16 (positions 11..26 =
+// 48..63).
+constexpr int kMidiPopupCount = kSynthPopupCount + kMidiInstrumentCount;
 inline int popupInstrumentMidi(int pos) {
-    return pos < kSynthSlotCount ? kFirstSynthInstrument + pos : kFirstMidiInstrument + pos - kSynthSlotCount;
+    return pos < kSynthPopupCount ? kFirstSynthInstrument + pos : kFirstMidiInstrument + pos - kSynthPopupCount;
 }
 inline int popupPositionMidi(int instrument) {
     if (isSynthInstrument(uint8_t(instrument))) return instrument - kFirstSynthInstrument;
     if (instrument >= kFirstMidiInstrument && instrument < kInstrumentCount)
-        return instrument - kFirstMidiInstrument + kSynthSlotCount;
-    return kSynthSlotCount;   // a sample instrument: MIDI 1
+        return instrument - kFirstMidiInstrument + kSynthPopupCount;
+    return kSynthPopupCount;   // a sample instrument: MIDI 1
 }
 // Instr-column pad on a MIDI track [OT: the Mini's pad rule there is not
-// documented]: pads 1-16 = MIDI 1..16 (stock), pads 17-19 = Synth 1..3, the
-// other pads keep the stock MIDI wrap.
+// documented]: pads 1-16 = MIDI 1..16 (stock), pads 17-19 = Synth 1..3,
+// [3.x] pads 20-27 = P1..P8, the other pads keep the stock MIDI wrap.
 inline int midiTrackPadInstrument(int pad) {
     const int k = pad - kMidiInstrumentCount;
-    return k >= 0 && k < kSynthSlotCount ? kFirstSynthInstrument + k : kFirstMidiInstrument + (pad & 15);
+    return k >= 0 && k < kSynthPopupCount ? kFirstSynthInstrument + k : kFirstMidiInstrument + (pad & 15);
 }
 // Pad of a MIDI-track instrument (the inverse; -1: none).
 inline int midiTrackInstrumentPad(int instrument) {
@@ -1017,8 +1027,8 @@ inline int midiTrackInstrumentPad(int instrument) {
 }  // namespace synthui
 
 // Instr-hold chooser (Instrument Params, Synth pages): sample instruments
-// 1..48, MIDI 1..16, then Synth 1..3 (2.x, Tracker Mini).
-constexpr int kInstrumentChooserCount = kInstrumentCount + kSynthSlotCount;
+// 1..48, MIDI 1..16, then Synth 1..3 (2.x, Tracker Mini) and [3.x] P1..P8.
+constexpr int kInstrumentChooserCount = kLastPresetInstrument + 1;
 void instrumentChooserItem(void* ctx, int i, char* out, int cap);
 
 class SynthScreen final : public Screen {
@@ -1091,9 +1101,22 @@ private:
     void applyModel();        // pendingModel_ -> the slot (after "Discard edits?")
     bool loadSelectedNow();
     void saveAsNow();         // pendingName_ (after "Overwrite?")
-    // Patch edits since the last load / init / save / model change, per slot
-    // ("Discard edits?" before Load or a model change).
-    bool edited_[kSynthSlotCount] = {};
+    // Patch edits since the last load / init / save / model change, per edit
+    // target ("Discard edits?" before Load or a model change): bit s = slot
+    // s's own patch, bit kSynthSlotCount + n - 1 = [3.x] preset n.
+    uint16_t editedBits_ = 0;
+    uint16_t editBit() const;
+    // [3.x] What the page showed last (update: a Z or the chase moved the target).
+    uint8_t shownTarget_ = 0;
+    int32_t shownEngine_ = 0;
+    uint8_t et_ = 0;          // the edit target of this key / step / frame (retarget)
+    uint8_t askTarget_ = 0;   // the edit target a question or keyboard was opened for
+    bool askBound_ = false;   // the open question / keyboard is about that target (bindAsk)
+    void bindAsk();
+    uint32_t shownEpoch_ = 0; // App::synthPresetsEpoch when editedBits_ was last valid
+    void retarget();
+    bool askStale();
+    void storePresetNow();
     int pendingModel_ = -1;
     char pendingName_[kBrowserNameMax + 1] = {};
     void edited();
@@ -1117,6 +1140,7 @@ private:
     // note and every held pad.
     void audition(bool on, uint8_t note);
     void padsOff();
+    uint8_t borrowedBy() const;
     uint64_t padsHeld_ = 0;   // pads held on this page (each on a synth live track)
     int previewSel_ = -1;   // Load Patch: browser entry playing in the slot, -1 none
     int previewKey_ = -1;   // Load Patch: F5 / F6 holding the Preview note

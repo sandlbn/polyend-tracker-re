@@ -894,6 +894,11 @@ void App::jobCloseFiles() {
 
 void App::jobEnd() {
     jobCloseFiles();
+    // [3.x] A load (or an import) wrote patterns and presets over several passes.
+    if (pj_.op != JobOp::Autosave && pj_.op != JobOp::Save) {
+        chaseInvalidateAll();
+        chaseForget();
+    }
     const bool ok = pj_.ok;
     const bool popup = pj_.popup;
     JobDoneFn fn = pj_.onDone;

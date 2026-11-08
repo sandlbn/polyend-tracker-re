@@ -122,8 +122,8 @@ TEST(generated_mini_projects_round_trip) {
             for (int t = 0; t < kTrackCount; ++t) {
                 same = same && minigold::sameTrack(g_a.tracks[t], g_b.tracks[t]);
                 for (const Step& st : g_a.tracks[t].steps) {
-                    synthSteps += isSynthInstrument(st.instrument);
-                    if (t >= kStockTrackCount) extSynthSteps += isSynthInstrument(st.instrument);
+                    synthSteps += isSynthSlotInstrument(st.instrument);
+                    if (t >= kStockTrackCount) extSynthSteps += isSynthSlotInstrument(st.instrument);
                 }
             }
             CHECK(same);

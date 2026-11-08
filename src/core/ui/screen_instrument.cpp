@@ -428,7 +428,7 @@ void InstrumentScreen::onButton(uint8_t id, uint8_t state) {
         } else if (state == kRelease && ui_.picker.isOpen()) {
             a.setCurrentInstrument(uint8_t(ui_.picker.cursor()));
             ui_.picker.close();
-            if (isSynthInstrument(a.currentInstrument())) {   // 2.x: the synth slot's page
+            if (isSynthInstrument(a.currentInstrument())) {   // 2.x: the synth slot's page ([3.x] a preset's: Presets)
                 ui_.switchTo(kModInstrument);
                 return;
             }
@@ -691,7 +691,8 @@ void InstrumentScreen::draw(Gfx& g) {
     if (ci < kSampleInstrumentCount)
         std::snprintf(sub, sizeof(sub), "%d. %s%s", ci + 1, a.instrPresent[ci] ? a.instruments[ci].name : "(empty)",
                       a.streamed(ci) ? " (SD)" : "");   // SD streaming badge
-    else if (isSynthInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
+    else if (isSynthSlotInstrument(ci)) synthui::slotLabel(a, synthSlotOf(ci), sub, sizeof(sub));
+    else if (isPresetInstrument(ci)) synthui::presetLabel(a, presetOfInstrument(ci), sub, sizeof(sub));
     else std::snprintf(sub, sizeof(sub), "%d. MIDI Channel %d", ci + 1, ci - kFirstMidiInstrument + 1);
     ui_.drawTitle(g, title, sub);
     char v[24];

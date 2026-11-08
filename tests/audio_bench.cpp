@@ -648,7 +648,17 @@ void switchBench() {
 // preset / presetx: a Z in the audio block, 4 voices sounding. The same engine
 // ramps every parameter; another engine fades the voices and restarts. SDRAM
 // accesses: the reload reads each of the patch's parameters from SDRAM.
-SynthPatch gBenchPresets[2];
+// [3.x] The preset carries a mix (another gain and pan; the sends of the
+// slot, so the delay and reverb do not start or stop with the Z): the
+// slot's mixer targets are computed again and ramp.
+SynthPatch gBenchPresets[kSynthPresetCount];
+audio::PresetMix gBenchPresetMix[kSynthPresetCount];
+void benchPresetMix() {
+    gBenchPresetMix[0] = audio::PresetMix{};
+    gBenchPresetMix[0].gainDb = -3.0f;
+    gBenchPresetMix[0].pan = 30.0f;
+    gBenchPresetMix[0].flags = audio::kPresetMixHas;
+}
 void presetBench() {
     for (int cross = 0; cross < 2; ++cross) {
         Rig r;
@@ -661,12 +671,15 @@ void presetBench() {
         gBenchPresets[1] = gSynthPatch;
         if (cross) gBenchPresets[0].engine = kSynthEngineTest;
         r.eng->synth().bindPresets(gBenchPresets);
+        benchPresetMix();
+        r.eng->synth().bindPresetMix(gBenchPresetMix);
         for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
         int16_t out[kBlock * 2];
         for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
         const int n = 32 / (kScale > 4 ? 4 : kScale);
         double steady = 0.0, sw = 0.0;
-        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd);
+        // The patch reload, and the preset's mix entry (5 words) read once.
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 5.0;
         for (int k = 0; k < n; ++k) {
             double t0 = nowUnits();
             r.eng->renderLive(out);
@@ -681,6 +694,7 @@ void presetBench() {
             if (cross)
                 for (int v = 0; v < 4; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(48 + 7 * v));
         }
+        r.eng->synth().bindPresetMix(nullptr);
         r.eng->synth().bindPresets(nullptr);
         const double d = (sw - steady) / n + acc * kSdramCycles;
 #ifdef OT_BENCH_M4
@@ -691,6 +705,166 @@ void presetBench() {
 #endif
     }
 }
+
+// pinst / pinsteal / pinstlive / pinstcap: [3.x] notes of preset instruments
+// (67..74), 4 voices sounding on slot 0. pinst: a sequencer note binds an
+// idle slot (the preset's patch reload and mix; the voice cap takes one of
+// slot 0's notes). pinsteal: the other slots are off, so it steals slot 0
+// itself (its 4 notes fade). A sequencer note that binds starts first in the
+// next block (note-on spreading). pinstlive: a live (pad / MIDI) note binds
+// an idle slot and starts in the same block. pinstcap: a note that waited
+// for the start cap (three notes of slot 0 took the block's starts): it
+// binds at the flush and starts one block later; the blocks after the
+// note-on block (that one is the three starts of slot 0, no preset work).
+// The worst block against a steady block; SDRAM accesses as preset.d.
+void presetInstBench() {
+    for (int mode = 0; mode < 4; ++mode) {
+        const bool steal = mode == 1, live = mode == 2, capm = mode == 3;
+        Rig r;
+        r.synth(4);
+        SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+        rc.model = uint32_t(SynthModel::ACD);
+        rc.polyphony = 4;
+        r.eng->synth().setSlotRecord(0, rc);
+        rc.polyphony = steal ? 0 : 4;
+        r.eng->synth().setSlotRecord(1, rc);
+        r.eng->synth().setSlotRecord(2, rc);
+        for (SynthPatch& p : gBenchPresets) p = gSynthPatch;
+        r.eng->synth().bindPresets(gBenchPresets);
+        benchPresetMix();
+        r.eng->synth().bindPresetMix(gBenchPresetMix);
+        int16_t out[kBlock * 2];
+        auto own4 = [&] {
+            for (int v = 0; v < 4; ++v) r.eng->synthNoteOff(uint8_t(8 + v), NoteOffMode::Cut);
+            for (int v = 0; v < 4; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(48 + 7 * v));
+            for (int b = 0; b < 6; ++b) r.eng->renderLive(out);
+        };
+        own4();
+        for (int b = 0; b < 14; ++b) r.eng->renderLive(out);
+        const int n = 32 / (kScale > 4 ? 4 : kScale);
+        double steady = 0.0, on = 0.0;
+        const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 5.0;
+        for (int k = 0; k < n; ++k) {
+            double t0 = nowUnits();
+            r.eng->renderLive(out);
+            steady += nowUnits() - t0;
+            // Other presets each time: always a bind.
+            const uint8_t k1 = uint8_t(1 + (k & 1));
+            t0 = nowUnits();
+            if (live) {
+                r.eng->synth().liveOn(0, 0, 60, -1, k1);
+            } else {
+                if (capm)
+                    for (int v = 0; v < 3; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(50 + 7 * v));   // the cap's starts
+                SynthNoteOn p;
+                p.preset = k1;
+                p.note = 60;
+                r.eng->synthNoteOn(12, p);
+            }
+            r.eng->renderLive(out);
+            double worst = capm ? 0.0 : nowUnits() - t0;
+            for (int b = 0; b < 3; ++b) {   // spreading: the bind's block, then the note's
+                t0 = nowUnits();
+                r.eng->renderLive(out);
+                const double c = nowUnits() - t0;
+                if (c > worst) worst = c;
+            }
+            on += worst;
+            gSink = out[k & 255];
+            // Outside the timing.
+            if (live) r.eng->synth().noteOff(audio::kSynthLiveTrack0, NoteOffMode::Cut);
+            r.eng->synthNoteOff(12, NoteOffMode::Cut);
+            own4();
+        }
+        r.eng->synth().bindPresetMix(nullptr);
+        r.eng->synth().bindPresets(nullptr);
+        const double d = (on - steady) / n + acc * kSdramCycles;
+        static const char* const kName[4] = {"pinst.d", "pinsteal.d", "pinstlive.d", "pinstcap.d"};
+        // pinstlive.d: a bind and a start in one block (live notes do not wait;
+        // tools/telemetry_check.py BENCH_LIMITS holds the same limit).
+        static const int kLimit[4] = {16000, 16000, 21000, 16000};
+#ifdef OT_BENCH_M4
+        std::printf("    %s  %8.1f  (preset instrument note, worst block - steady block, est. cycles, limit %d)\n",
+                    kName[mode], d, kLimit[mode]);
+#else
+        std::printf("  (%s: preset instrument note, worst block - steady %+.2f us)\n", kName[mode], d);
+#endif
+    }
+}
+
+#if OT_SLOT_INSERTS
+// presetins: [3.x] a Z that also switches the slot insert, 4 voices sounding:
+// the slot's own insert fades out, then the preset's starts fresh (its SDRAM
+// line zeroed). The worst of the Z block and the 5 after it, against a steady
+// block with the own insert; SDRAM accesses counted as in synth4i. The
+// preset carries a mix too (as preset.d).
+audio::PresetInsert gBenchPresetIns[kSynthPresetCount];
+void presetInsBench() {
+    mod::ModuleHost& mh = mod::ModuleHost::instance();
+    audio::IEffect* own = mh.effectAt(0);
+    audio::IEffect* next = mh.effectCount() > 1 ? mh.effectAt(1) : nullptr;
+    if (!own) return;
+    static int16_t lines[kSynthSlots * audio::kEffectWorkMax / 2];
+    Rig r;
+    r.synth(4);
+    SynthSlotRecord rc = SynthSlotRecord::defaults(0);
+    rc.model = uint32_t(SynthModel::ACD);
+    rc.polyphony = 4;
+    r.eng->synth().setSlotRecord(0, rc);
+    gBenchPresets[0] = gSynthPatch;
+    gBenchPresets[1] = gSynthPatch;
+    r.eng->synth().bindPresets(gBenchPresets);
+    gBenchPresetIns[0] = audio::PresetInsert{};
+    gBenchPresetIns[0].fx = next;
+    if (next) {
+        gBenchPresetIns[0].set = audio::effectDefaults(*next);
+        std::memcpy(gBenchPresetIns[0].id, next->id(), 4);
+    }
+    gBenchPresetIns[0].flags = audio::kPresetInsertHas;
+    r.eng->synth().bindPresetInserts(gBenchPresetIns);
+    benchPresetMix();
+    r.eng->synth().bindPresetMix(gBenchPresetMix);
+    r.eng->synth().setInsertMemory(lines);
+    r.eng->synth().setSlotInsert(0, own, audio::effectDefaults(*own));
+    for (int k = 0; k < 4; ++k) r.synthNote(uint8_t(8 + k), 0, uint8_t(48 + 7 * k));
+    int16_t out[kBlock * 2];
+    for (int b = 0; b < 20; ++b) r.eng->renderLive(out);
+    const int n = 16 / (kScale > 4 ? 4 : kScale);
+    double steady = 0.0, sw = 0.0;
+    const double acc = 2.0 * synthParamTotal(kSynthEngineAcd) + 5.0;   // the patch reload and the mix (as preset.d)
+    for (int k = 0; k < n; ++k) {
+        gSdramAccesses = 0;
+        double t0 = nowUnits();
+        r.eng->renderLive(out);
+        steady += nowUnits() - t0 + gSdramAccesses * kSdramCycles;
+        r.eng->synth().presetSelect(0, 1);
+        double worst = 0.0;
+        for (int b = 0; b < 6; ++b) {
+            gSdramAccesses = 0;
+            t0 = nowUnits();
+            r.eng->renderLive(out);
+            const double c = nowUnits() - t0 + gSdramAccesses * kSdramCycles;
+            if (c > worst) worst = c;
+        }
+        sw += worst;
+        gSink = out[k & 255];
+        r.eng->synth().presetSelect(0, 0);   // back to the own insert, outside the timing
+        for (int b = 0; b < 8; ++b) r.eng->renderLive(out);
+    }
+    r.eng->synth().bindPresetInserts(nullptr);
+    r.eng->synth().bindPresetMix(nullptr);
+    r.eng->synth().bindPresets(nullptr);
+    r.eng->synth().setSlotInsert(0, nullptr, audio::EffectSettings{});
+    for (int b = 0; b < 8; ++b) r.eng->renderLive(out);   // the own insert faded out: none bound
+    const double d = (sw - steady) / n + acc * kSdramCycles;
+#ifdef OT_BENCH_M4
+    std::printf("    presetins.d %8.1f  (Z + insert switch, worst block - steady block, est. cycles, %s -> %s, limit 16000)\n",
+                d, own->name(), next ? next->name() : "none");
+#else
+    std::printf("  (presetins: Z + insert switch, worst block - steady %+.2f us)\n", d);
+#endif
+}
+#endif
 
 // peak: song 5 replayed from its trace (tests/peak_trace.cpp, make -C tests
 // peak-trace) through AudioEngine::fillCallback, i.e. with the CPU meter,
@@ -1381,6 +1555,10 @@ int main(int argc, char** argv) {
 #endif
     switchBench();
     presetBench();
+    presetInstBench();
+#if OT_SLOT_INSERTS
+    presetInsBench();
+#endif
 #ifdef OT_BENCH_M4
     peakBench(OT_BENCH_TRACE, 8100);   // song positions 0-2 (intro, groove, sixteen-track chords)
 #else

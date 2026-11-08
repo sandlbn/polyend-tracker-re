@@ -74,7 +74,12 @@ BENCH_PK_RE = re.compile(r"^\s+block\s+\d+ \(song pos \d+, step \d+\):\s+(\d+) M
 DEVICE_CPI = 1.94
 # "<name> <value> ... limit <N>" lines of the engines, pswitch, the SD stream
 # and the module benches ("<module>.unit...", tests/bench_api.h).
-LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|preset|stream)[\w.]*|[a-z][a-z0-9]*\.unit[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
+LIMIT_RE = re.compile(r"^\s+((?:acd|vap|fat|wtfm|perc|pswitch|preset|pinst|stream)[\w.]*|[a-z][a-z0-9]*\.unit[\w.]*)\s+(\d+(?:\.\d+)?)\s.*\blimit (\d+)\b")
+# Limits kept here as well as in the bench line (the lower one counts).
+# pinstlive.d: a live / pad note of a preset instrument binds a synth slot and
+# starts in the same block (live notes are never queued); measured ~20.4k
+# (bench-m4, 3.x preset instruments), limit just above it.
+BENCH_LIMITS = {"pinstlive.d": 21000}
 FLASH_FAIL = 800000
 FLASH_WARN = 600000
 STACK_MIN = 90 * 1024
@@ -378,6 +383,7 @@ def check_bench(baseline_lines, output_lines, tolerance=5.0, quiet=False):
             continue
         limits += 1
         name, val, lim = m.group(1), float(m.group(2)), int(m.group(3))
+        lim = min(lim, BENCH_LIMITS.get(name, lim))
         msg = f"{name:8s} {val:8.0f} insn, limit {lim}"
         if val > lim:
             fails.append(msg + " exceeded")

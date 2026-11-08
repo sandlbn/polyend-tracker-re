@@ -738,7 +738,7 @@ TEST(instrument_popup_lists_synths) {
     h.down(btn::Instr);
     h.run(300);
     CHECK(ps.popup().isOpen());
-    CHECK_EQ(ps.popup().cursor(), 3);   // instrument 1 sits after the synths
+    CHECK_EQ(ps.popup().cursor(), synthui::kSynthPopupCount);   // instrument 1 sits after the synths ([3.x] and P1..P8)
     CHECK(frameHas(h, "Synth 1 (VAP)"));
     CHECK(frameHas(h, "Synth 2 (ACD)"));
     CHECK(frameHas(h, "Synth 3 (VAP)"));
@@ -765,7 +765,7 @@ TEST(instrument_popup_lists_synths) {
     h.down(btn::Instr);
     h.run(300);
     CHECK_EQ(ps.popup().cursor(), 1);
-    for (int i = 0; i < 70; ++i) h.enc(1);
+    for (int i = 0; i < 80; ++i) h.enc(1);
     CHECK_EQ(synthui::popupInstrument(ps.popup().cursor()), 63);
     h.pad(2);   // on the MIDI page the pads pick MIDI 1..16
     CHECK_EQ(synthui::popupInstrument(ps.popup().cursor()), 50);
@@ -793,15 +793,18 @@ TEST(midi_track_popup_lists_synths) {
     h.run(300);
     CHECK(ps.popup().isOpen());
     CHECK_EQ(ps.popup().kind(), 5);
-    CHECK_EQ(ps.popup().cursor(), 5);   // MIDI 3 after the three synths
-    CHECK(frameHas(h, "Synth 1 (VAP)"));
-    CHECK(frameHas(h, "Synth 3 (VAP)"));
+    CHECK_EQ(ps.popup().cursor(), synthui::kSynthPopupCount + 2);   // MIDI 3 after the three synths ([3.x] and P1..P8)
     CHECK(frameHas(h, "MIDI Channel 1"));
+    CHECK(frameHas(h, "MIDI Channel 3"));
+    for (int i = 0; i < 40; ++i) h.enc(-1);
+    h.run(40);
+    CHECK(frameHas(h, "Synth 1 (VAP)"));   // the list starts with the synths
+    CHECK(frameHas(h, "Synth 3 (VAP)"));
     for (int i = 0; i < 40; ++i) h.enc(1);
     CHECK(frameHas(h, "MIDI Channel 16"));
     CHECK_EQ(ps.popup().cursor(), synthui::kMidiPopupCount - 1);   // MIDI 16 ends the list
     CHECK_EQ(synthui::popupInstrumentMidi(ps.popup().cursor()), kInstrumentCount - 1);
-    // Pads: 1-16 pick MIDI 1..16, 17-19 Synth 1..3, the rest nothing.
+    // Pads: 1-16 pick MIDI 1..16, 17-19 Synth 1..3, [3.x] 20-27 P1..P8, the rest nothing.
     h.pad(3);
     CHECK_EQ(synthui::popupInstrumentMidi(ps.popup().cursor()), kFirstMidiInstrument + 3);
     h.pad(17);
@@ -812,7 +815,8 @@ TEST(midi_track_popup_lists_synths) {
     ps.padLeds(lv);
     CHECK(lv[17] == a.cfg.padFull());
     CHECK(lv[0] == a.cfg.padDim());
-    CHECK(lv[19] == 0);
+    CHECK(lv[19] == a.cfg.padDim());   // [3.x] pads 20-27: P1..P8
+    CHECK(lv[27] == 0);
     // Up to the first entry: Synth 1; commit on release.
     for (int i = 0; i < 40; ++i) h.enc(-1);
     CHECK_EQ(ps.popup().cursor(), 0);
@@ -832,7 +836,7 @@ TEST(midi_track_popup_lists_synths) {
     h.down(btn::Instr);
     h.run(300);
     CHECK_EQ(ps.popup().cursor(), 2);
-    h.enc(1);
+    for (int i = 0; i < 1 + kPresetInstrumentCount; ++i) h.enc(1);   // past [3.x] P1..P8
     h.up(btn::Instr);
     CHECK(a.currentInstrument() == kFirstMidiInstrument);
     CHECK_EQ(int(a.pattern().tracks[12].steps[0].instrument), kFirstMidiInstrument);
@@ -849,8 +853,11 @@ TEST(midi_track_popup_lists_synths) {
     h.pad(4);
     CHECK_EQ(int(a.pattern().tracks[12].steps[2].instrument), kFirstMidiInstrument + 4);
     ps.step = 3;
-    h.pad(20);   // past the synths: the stock MIDI wrap
-    CHECK_EQ(int(a.pattern().tracks[12].steps[3].instrument), kFirstMidiInstrument + 4);
+    h.pad(20);   // [3.x] pads 20-27: P1..P8
+    CHECK_EQ(int(a.pattern().tracks[12].steps[3].instrument), kFirstPresetInstrument + 1);
+    ps.step = 4;
+    h.pad(36);   // past the synths: the stock MIDI wrap
+    CHECK_EQ(int(a.pattern().tracks[12].steps[4].instrument), kFirstMidiInstrument + 4);
 }
 
 // A synth step on track 13 plays the synth; a MIDI step on track 14 still
