@@ -59,7 +59,7 @@ OtmError readModuleFile(IStorage& fs, const char* name, uint8_t* scratch, uint32
 
 }  // namespace
 
-void shareFastBlock(const uint32_t (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
+void shareFastBlock(const OtmShareCut (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
                     uint32_t* share) {
     // Turns: each module in name order moves to its next cut while it fits;
     // a module whose next cut doesn't fit is done (its row is hottest first).
@@ -93,7 +93,7 @@ struct CardState {
     int nEng;
     uint32_t keepUsed, keepFast;         // what the modules loaded for good take
     // Row cuts of the files being loaded (here, not on the stack).
-    uint32_t cuts[OtmLoadReport::kMax][kOtmMaxShareCuts];
+    OtmShareCut cuts[OtmLoadReport::kMax][kOtmMaxShareCuts];
     uint32_t nCuts[OtmLoadReport::kMax];
 };
 OT_SDRAM_BSS CardState g_card;
@@ -102,13 +102,18 @@ void copyName(char* out, size_t cap, const char* s) { std::snprintf(out, cap, "%
 
 // Reads and checks Modules/<item's file>, and its row cuts.
 OtmError readChecked(IStorage& fs, const OtmPool& pool, const char* name, uint8_t* scratch, uint32_t cap,
-                     uint32_t* len, OtmHeader* hdr, uint32_t* cuts, uint32_t* nCuts) {
+                     uint32_t* len, OtmHeader* hdr, OtmShareCut* cuts, uint32_t* nCuts) {
     OtmError e = readModuleFile(fs, name, scratch, cap, len);
     if (e == OtmError::None) e = otmCheck(scratch, *len, pool.core, hdr);
     if (e != OtmError::None) return e;
     if (cuts && nCuts) {
-        *nCuts = hdr->nCuts < kOtmMaxShareCuts ? hdr->nCuts : kOtmMaxShareCuts;
-        for (uint32_t k = 0; k < *nCuts; ++k) cuts[k] = otmCutBytes(scratch, *hdr, k);
+        const uint32_t n = hdr->nCuts < kOtmMaxShareCuts ? hdr->nCuts : kOtmMaxShareCuts;
+        *nCuts = 0;
+        for (uint32_t k = 0; k < n; ++k) {
+            const uint32_t c = otmCutBytes(scratch, *hdr, k);
+            if (c > 0xFFFFu) break;   // past 16 bits (never: a row is inside the pool)
+            cuts[(*nCuts)++] = OtmShareCut(c);
+        }
     }
     return OtmError::None;
 }
@@ -204,7 +209,7 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
     }
     // Pass 1: each file once at the pool's start (no fast part) to see what
     // it is, and its row cuts.
-    uint32_t (*cuts)[kOtmMaxShareCuts] = g_card.cuts;
+    OtmShareCut (*cuts)[kOtmMaxShareCuts] = g_card.cuts;
     uint32_t* nCuts = g_card.nCuts;
     int keep[OtmLoadReport::kMax], nKeep = 0;
     for (int i = 0; i < names.n; ++i) {
@@ -314,7 +319,7 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
             r.noRoom = true;
             return false;
         }
-        uint32_t (*cuts)[kOtmMaxShareCuts] = g_card.cuts;
+        OtmShareCut (*cuts)[kOtmMaxShareCuts] = g_card.cuts;
         uint32_t* nCuts = g_card.nCuts;
         for (int k = 0; k < nWant; ++k) {
             nCuts[k] = 0;

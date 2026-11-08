@@ -71,12 +71,14 @@ constexpr int kMaxCardEngines = 32;
 constexpr const char* kModulesDir = "Modules";
 
 // Cuts per module the fast block is shared by (a longer row stops there).
+// A cut is a byte offset into the module's image (<= the pool, so 16 bits).
 constexpr uint32_t kOtmMaxShareCuts = 32;
+using OtmShareCut = uint16_t;
 
 // Shares a fast block of cap bytes between n modules' rows (cuts[i][0 ..
 // nCuts[i]) = module i's cuts, module_loader.h): they take turns, in order,
 // moving to their next cut while it fits. share[i] = module i's cut (0 = none).
-void shareFastBlock(const uint32_t (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
+void shareFastBlock(const OtmShareCut (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
                     uint32_t* share);
 
 // Boot: Modules/*.otm (name order, the first OtmLoadReport::kMax). Each file is loaded once to see what it
