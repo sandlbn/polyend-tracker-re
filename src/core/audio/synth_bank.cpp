@@ -344,7 +344,6 @@ __attribute__((noinline)) void SynthBank::spreadVoice(const Slot& sl, uint8_t no
 // The start of a block, before sync(): what the last block reached, and the
 // target; an edit that sync() brings moves the target again.
 __attribute__((noinline)) void SynthBank::blockSync() {
-    bindNow_ = 0;   // [3.x] the binds of the sequencer's notes before this block (not in render: .fastrun)
     if (spreadLive_) spreadSettle();
     sync();
 }
@@ -496,7 +495,7 @@ void SynthBank::bindEngine(int s, bool cut) {
     if (e && override_) e = override_;
     sl.mismatch = !patch || patch->engine != id;
     if (sl.mismatch) e = nullptr;
-    const bool restart = cut || e != sl.eng || id != sl.engineId;   // [3.x] cut: another sound on the same engine too
+    const bool restart = e != sl.eng || id != sl.engineId;
     if (restart) {
         // A new engine starts clean: the slot's voices stop (fade) first.
         for (int r = 0; r < kSynthMaxVoices; ++r)
@@ -509,7 +508,10 @@ void SynthBank::bindEngine(int s, bool cut) {
         if (e) e->slotReset(sl.scratch);
         tails_ = uint8_t(tails_ & ~(1u << s));
     }
-    reloadParams(s, restart);
+    // [3.x] cut (a preset instrument's bind): the new sound's parameters jump.
+    // The engine's slot state stays: the faded notes of a kit engine (PERC,
+    // T-Type) still fade through it in their last block.
+    reloadParams(s, restart || cut);
 }
 
 float SynthBank::paramBase(const Slot& sl, int i) const { return synthParamGet(*sl.bound, i); }
@@ -854,7 +856,6 @@ void SynthBank::bindTo(int s, uint8_t k) {
         if (pe.record >= 0 && pe.slot == s) pe.track = -1;
     slots_[s].preset = k;
     ownMix_[s] = false;
-    bindNow_ = uint8_t(bindNow_ | (1u << s));
     bindEngine(s, true);
     applyMix(s);
 #if OT_SLOT_INSERTS
@@ -1013,18 +1014,46 @@ SynthBank::Deferred* SynthBank::deferredOf(int track) {
 
 // The note-ons queued in the previous block start first, in their order,
 // each followed by its FX and note-off of that block.
-void SynthBank::flushDeferred() {
+// [3.x] A queued note that needs a bind (one that waited for the start cap,
+// a preset note whose slot was taken since, a slot's own note on a borrowed
+// slot), or whose slot another note of this flush just bound, binds now and
+// starts at the next flush, once: never a bind and a start in one block.
+__attribute__((noinline)) void SynthBank::flushDeferred() {
     flushDue_ = false;
+    bindNow_ = 0;   // the notes of the binds so far start now
     const int n = nDefer_;
     nDefer_ = 0;
     for (int i = 0; i < n; ++i) {
         const Deferred d = defer_[i];
         defer_[i] = Deferred{};
         if (d.track < 0) continue;
+        if (!(d.nfx & kDeferBound) && startCap_ > 0 && bindFirst(d)) {
+            Deferred& q = defer_[nDefer_++];   // (nDefer_ <= i: an entry already read)
+            q = d;
+            q.nfx = uint8_t(q.nfx | kDeferBound);
+            continue;
+        }
         noteOnNow(d.track, d.n, true);
-        for (int k = 0; k < d.nfx; ++k) applyFx(d.track, d.fx[k][0], d.fx[k][1]);
+        for (int k = 0; k < (d.nfx & kDeferFx); ++k) applyFx(d.track, d.fx[k][0], d.fx[k][1]);
         if (d.off) noteOff(d.track, NoteOffMode(d.off));
     }
+}
+
+bool SynthBank::bindFirst(const Deferred& d) {
+    const SynthNoteOn& n = d.n;
+    if (n.preset > kSynthPresetCount || (!n.preset && n.slot >= kSynthSlots)) return false;
+    int s = n.preset ? presetSlot(n.preset) : int(n.slot);
+    if (s >= 0) {
+        if ((bindNow_ >> s) & 1u) return true;   // with the note that bound it, in step order
+        if (n.preset || slots_[s].preset == slots_[s].zSel) return false;
+        bindTo(s, slots_[s].zSel);
+    } else {
+        s = acquire(n.preset);   // (silent: starts now, as nothing)
+        if (s < 0) return false;
+    }
+    bindNow_ = uint8_t(bindNow_ | (1u << s));
+    ++starts_;
+    return true;
 }
 
 void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
@@ -1050,6 +1079,8 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
                 wait = !reuse;
             }
         }
+        // [3.x] A slot bound for a queued note: this one starts after it.
+        if (!wait && s >= 0 && ((bindNow_ >> s) & 1u)) wait = true;
         if (wait) {
             if (!d) d = &defer_[nDefer_++];   // one entry per track: never full
             *d = Deferred{};
@@ -1073,6 +1104,7 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
     // that binds counts as one and starts first in the next block.
     if (bound && !forced && startCap_ > 0) {
         ++starts_;
+        bindNow_ = uint8_t(bindNow_ | (1u << s));
         Deferred* d = &defer_[nDefer_++];   // (no entry of this track: it would have waited above)
         *d = Deferred{};
         d->track = int8_t(track);
@@ -1221,9 +1253,10 @@ void SynthBank::noteOff(int track, NoteOffMode mode) {
 void SynthBank::applyFx(int track, uint8_t type, uint8_t value) {
     if (track < 0 || track >= kSynthAllTracks) return;
     if (Deferred* d = deferredOf(track)) {   // after the queued note starts
-        if (d->nfx < 2) {
-            d->fx[d->nfx][0] = type;
-            d->fx[d->nfx][1] = value;
+        const int k = d->nfx & kDeferFx;
+        if (k < 2) {
+            d->fx[k][0] = type;
+            d->fx[k][1] = value;
             ++d->nfx;
         }
         return;

@@ -367,13 +367,18 @@ TEST(a_sequencer_note_that_binds_starts_in_the_next_block) {
     r.block();   // (the sequencer's notes come before the block they belong to)
     CHECK_EQ(r.bank.queuedNotes(), 4);
     r.block();   // they start first in the next one
-    CHECK_EQ(r.bank.queuedNotes(), 0);
     CHECK_EQ(r.slotOfTrack(1), 1);
     CHECK_EQ(r.slotOfTrack(2), 0);
-    // A fourth sound at once: it takes the slot of the oldest note (P1's).
-    CHECK_EQ(r.slotOfTrack(3), 2);
+    // The fourth sound waited for the cap: it binds in this block (the slot of
+    // the oldest note: P1's, just started, is the one that goes) and starts
+    // in the next one, not both at once.
     CHECK_EQ(int(r.bank.presetOf(2)), 4);
     CHECK_EQ(r.slotOfTrack(0), -1);
+    CHECK(r.bank.voiceOfTrack(3) == nullptr);
+    CHECK_EQ(r.bank.queuedNotes(), 1);
+    r.block();
+    CHECK_EQ(r.slotOfTrack(3), 2);
+    CHECK_EQ(r.bank.queuedNotes(), 0);
     r.block();
     r.p(4, 4);   // a slot already on P4: no wait
     CHECK_EQ(r.slotOfTrack(4), 2);
@@ -383,6 +388,43 @@ TEST(a_sequencer_note_that_binds_starts_in_the_next_block) {
     CHECK(r.bank.voiceOfTrack(5) == nullptr);
     r.blocks(2);
     CHECK_EQ(r.slotOfTrack(5), 2);
+}
+
+TEST(a_preset_chord_starts_together_after_its_bind) {
+    for (int poly : {4, 1}) {
+        Rig r(poly);
+        r.bank.setStartsPerBlock(SynthBank::kStartsPerBlock);
+        r.p(0, 1, 48);   // binds slot 2
+        r.p(1, 1, 55);   // the same preset, the same step: waits with it, in step order
+        CHECK(r.bank.voiceOfTrack(0) == nullptr);
+        CHECK(r.bank.voiceOfTrack(1) == nullptr);
+        CHECK_EQ(r.bank.queuedNotes(), 2);
+        r.blocks(2);
+        if (poly == 4) {
+            CHECK_EQ(r.slotOfTrack(0), 2);
+            CHECK_EQ(r.slotOfTrack(1), 2);
+            CHECK(r.gated(0) && r.gated(1));
+        } else {   // mono: the last note wins
+            CHECK_EQ(r.slotOfTrack(1), 2);
+            CHECK(r.gated(1));
+            CHECK(r.bank.voiceOfTrack(1) && r.bank.voiceOfTrack(1)->note == 55);
+            CHECK_EQ(r.bank.voicesOf(2), 1);
+        }
+        // The next block's notes on that slot do not wait.
+        r.block();
+        r.p(2, 1, 60);
+        CHECK_EQ(r.slotOfTrack(2), 2);
+    }
+}
+
+TEST(a_live_bind_does_not_hold_up_the_next_blocks_notes) {
+    Rig r;
+    r.bank.setStartsPerBlock(SynthBank::kStartsPerBlock);
+    r.bank.liveOn(0, 0, 62, -1, 3);   // binds and starts in the block (live: no wait)
+    r.block();
+    CHECK_EQ(r.slotOfTrack(kSynthLiveTrack0), 2);
+    r.p(0, 3, 50);   // the sequencer's next note on that slot starts at once
+    CHECK_EQ(r.slotOfTrack(0), 2);
 }
 
 TEST(audition_and_live_notes_play_presets) {
@@ -408,6 +450,102 @@ TEST(audition_and_live_notes_play_presets) {
     r.bank.liveOff(0);
     r.block();
     CHECK(!r.gated(kSynthLiveTrack0));
+}
+
+// A kit engine (PERC, T-Type: state beyond the voice) preset stealing a slot
+// of the same engine in the middle of its hits: the cut restart zeroes the
+// slot state while the hits fade; no NaN, no click above the hits' own
+// edges, and the kit goes quiet after the notes end (no stuck state).
+struct KitRun {
+    double steadyJump = 0.0, stealJump = 0.0, tail = 0.0;
+    bool finite = true;
+    int borrowed = -1, busy = -1;
+};
+// steal false: the same hit as a note of the slot's own instrument (the reference).
+KitRun kitRun(int32_t engine, bool steal) {
+    KitRun out;
+    initTables();
+    static SynthPatch own[kSynthSlots], presets[kSynthPresetCount];
+    Governor gov;
+    gov.setBudget(8);
+    static SynthBank bank;
+    bank.reset();
+    bank.stopAll();
+    bank.setGovernor(&gov);
+    bank.setStartsPerBlock(SynthBank::kStartsPerBlock);
+    SynthSlotRecord rec = SynthSlotRecord::defaults(0);
+    rec.model = engine < 0x80 ? uint32_t(engine == synthEngineId(SynthModel::PERC) ? SynthModel::PERC : SynthModel::ACD)
+                              : uint32_t(SynthModel::ACD);
+    rec.polyphony = 8;
+    for (int k = 0; k < kSynthSlots; ++k) {
+        CHECK(patchInit(engine, &own[k]));
+        bank.setSlotEngine(k, engine >= 0x80 ? engine : 0);
+        bank.bindPatch(k, &own[k]);
+        rec.polyphony = k == 2 ? 8 : 0;   // only slot 2 plays: the preset must steal it
+        bank.setSlotRecord(k, rec);
+    }
+    for (SynthPatch& p : presets) p = own[0];
+    bank.bindPresets(presets);
+    bank.bindPresetMix(nullptr);
+    SynthMixInputs in;
+    float L[kBlock], R[kBlock], D[kBlock], V[kBlock];
+    double& steadyJump = out.steadyJump;
+    double& stealJump = out.stealJump;
+    double& tail = out.tail;
+    bool& finite = out.finite;
+    int& borrowed = out.borrowed;
+    float prevL = 0.0f, prevR = 0.0f;
+    for (int b = 0; b < 700; ++b) {
+        if (b < 120 && b % 7 == 0)
+            for (int t = 0; t < 3; ++t) {   // hits on 3 tracks, kit notes 36, 38, 42
+                SynthNoteOn n;
+                n.slot = 2;
+                n.note = uint8_t(36 + 3 * t);
+                bank.noteOn(t, n);
+            }
+        if (b == 60 || b == 61) {   // the preset steals the slot right on a hit (and the block after)
+            SynthNoteOn n;
+            n.preset = steal ? 1 : 0;
+            n.slot = 2;
+            n.note = 36;
+            bank.noteOn(5, n);
+        }
+        if (b == 120)
+            for (int t = 0; t < 8; ++t) bank.noteOff(t, NoteOffMode::Off);
+        for (uint32_t i = 0; i < kBlock; ++i) L[i] = R[i] = D[i] = V[i] = 0.0f;
+        bank.render(in, L, R, D, V, nullptr);
+        if (b == 62) borrowed = bank.presetOf(2);
+        double jump = 0.0;
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            finite = finite && std::isfinite(L[i]) && std::isfinite(R[i]) && std::isfinite(D[i]) && std::isfinite(V[i]);
+            jump = std::fmax(jump, std::fmax(std::fabs(L[i] - prevL), std::fabs(R[i] - prevR)));
+            prevL = L[i];
+            prevR = R[i];
+            if (b >= 640) tail = std::fmax(tail, std::fmax(std::fabs(L[i]), std::fabs(R[i])));
+        }
+        if (b >= 10 && b < 58) steadyJump = std::fmax(steadyJump, jump);
+        if (b >= 60 && b < 66) stealJump = std::fmax(stealJump, jump);
+    }
+    out.busy = bank.busyRecords();
+    return out;
+}
+
+void kitSteal(int32_t engine) {
+    if (!synthEngineFor(engine)) return;   // not in this build
+    const KitRun ref = kitRun(engine, false), st = kitRun(engine, true);
+    CHECK(st.finite && ref.finite);
+    CHECK(ref.stealJump > 0.0);
+    CHECK(st.stealJump <= ref.stealJump * 1.1 + 1e-6);   // no edge beyond the same hit's own
+    CHECK(st.tail < 1e-4);
+    CHECK_EQ(st.busy, 0);
+    CHECK_EQ(st.borrowed, 1);   // (the next hits take the slot back)
+    std::printf("  kit 0x%02x: hit edge %.3f, with the steal %.3f, tail %.2g\n", unsigned(engine), ref.stealJump,
+                st.stealJump, st.tail);
+}
+
+TEST(a_kit_preset_steals_a_kit_slot_mid_hit_cleanly) {
+    kitSteal(synthEngineId(SynthModel::PERC));
+    kitSteal(0x85);   // T-Type
 }
 #endif
 

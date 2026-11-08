@@ -66,9 +66,14 @@
 // chase / the UI selected (Slot::zSel): the latest note-on decides. A Z
 // on a borrowed slot wins at once. A bind costs about a note start, so a
 // sequencer note that binds counts as one and starts first in the next
-// block (as a queued note: 2.9 ms late); a slot bound in a block is the
-// last choice of another bind in it. An empty preset, or one whose engine
-// the build lacks, is silent.
+// block (as a queued note: 2.9 ms late); later notes on that slot wait with
+// it (a chord starts together, in step order), and the slot is the last
+// choice of another bind until then. A queued note that needs a bind at its
+// flush binds then and starts one flush later: a bind and a start never
+// share a block, except for live / audition notes (no wait). More presets
+// than slots in one block: each bind takes the slot of the oldest note, so
+// an earlier note of the block (in step order) is the one that goes. An
+// empty preset, or one whose engine the build lacks, is silent.
 //
 // [3.x] Spread (patch, Poly 2 and up): each note at a place of its own, on the way
 // to the slot bus (synthSpreadPlace); L + R and the sends do not change.
@@ -369,10 +374,12 @@ private:
     struct Deferred {
         int8_t track = -1;
         int8_t off = 0;          // 0 none, else the NoteOffMode that followed
-        uint8_t nfx = 0;
+        uint8_t nfx = 0;         // FX that followed (bits 0..1); [3.x] kDeferBound: bound, starts at the next flush
         SynthNoteOn n;
         uint8_t fx[2][2] = {};   // type, value
     };
+    static constexpr uint8_t kDeferFx = 3, kDeferBound = 0x80;
+    bool bindFirst(const Deferred& d);   // [3.x] flush: bind now, start next block
     // A note waiting for a fading record (only when every record is busy).
     struct Pending {
         int8_t record = -1;      // -1 = entry free
@@ -520,7 +527,7 @@ private:
     uint32_t perfWord_[kSynthTracks] = {};
     volatile uint8_t perfActive_ = 0;         // tracks with a non-zero perfWord_
     uint8_t tails_ = 0;                       // bit s: slot s's slotPost reported a tail
-    uint8_t bindNow_ = 0;                     // [3.x] bit s: slot s was bound in this block (its note waits)
+    uint8_t bindNow_ = 0;                     // [3.x] bit s: slot s bound for a queued note (until the next flush)
     uint32_t serial_ = 0;
     uint32_t steals_ = 0;
     int activeVoices_ = 0;                    // records not free
