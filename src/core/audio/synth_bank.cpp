@@ -89,6 +89,7 @@ void SynthBank::patchChanged(int s) {
     slots_[s].zSel = 0;
     rebind_[s] = true;
 }
+
 void SynthBank::presetChanged(uint8_t n) {
     if (!n) return;
     for (int s = 0; s < kSynthSlots; ++s)
@@ -100,8 +101,8 @@ bool SynthBank::presetSelect(int s, uint8_t n) {
     if (n && (!presets_ || presets_[n - 1].engine == 0)) return false;   // empty: the slot plays on
     slots_[s].zSel = n;
     // A repeated Z costs nothing; [3.x] so does a Z of the preset an
-    // instrument borrowed the slot for. Another one wins
-    // over that borrowing at once.
+    // instrument borrowed the slot for. Another one wins over that
+    // borrowing at once.
     if (slots_[s].preset == n) return true;
     slots_[s].preset = n;
     rebind_[s] = true;
@@ -396,9 +397,6 @@ int SynthBank::busyRecords() const {
     return n;
 }
 
-// [3.x] The mix slot s plays with -- its record's, or the one of the preset
-// it is bound to when that preset carries one -- into the cached mixer
-// targets (in sync(), after a record change or a rebind of the patch).
 // [3.x] The mix entry of the preset slot sl is bound to (nullptr: its own patch).
 const PresetMix* SynthBank::boundMix(const Slot& sl) const {
     if (!presetMix_ || !presets_ || !sl.bound || sl.bound == sl.patch) return nullptr;
@@ -413,6 +411,9 @@ void SynthBank::setPoly(Slot& sl, const PresetMix* m) {
     sl.poly = uint8_t(poly > 8 ? 8 : poly);
 }
 
+// [3.x] The mix slot s plays with -- its record's, or the one of the preset
+// it is bound to when that preset carries one -- into the cached mixer
+// targets (in sync(), after a record change or a rebind of the patch).
 __attribute__((noinline)) void SynthBank::applyMix(int s) {
     Slot& sl = slots_[s];
     float gainDb = sl.rec.gainDb, panV = sl.rec.pan, del = sl.rec.delaySend, rev = sl.rec.reverbSend;

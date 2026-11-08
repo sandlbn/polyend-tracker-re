@@ -4,8 +4,8 @@
 // a mix keeps the slot's own. Z0, Stop or an edit of the slot's patch bring
 // the slot's own mix back, with its patch. While a slot plays a preset, the
 // Mixer and the Synth page show and edit the preset's mix (heard at once);
-// otherwise the slot's own. Store, Load and Clear carry the mix; it is saved in project.ot3x, one
-// chunk per preset.
+// otherwise the slot's own. Store, Load and Clear carry the mix; it is saved
+// in project.ot3x, one chunk per preset.
 #include "test.h"
 
 #include <cmath>
