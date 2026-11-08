@@ -1,7 +1,7 @@
 // Small DSP building blocks for the audio engine (spec 04 §4).
 //
-// VolumeEnvelope and Svf are float ports of algorithms from the PJRC Teensy
-// Audio Library (effect_envelope.cpp, filter_variable.cpp):
+// VolumeEnvelope is a float port of an algorithm from the PJRC Teensy Audio
+// Library (effect_envelope.cpp):
 //
 //   Audio Library for Teensy 3.X
 //   Copyright (c) 2014-2017, Paul Stoffregen, paul@pjrc.com
@@ -39,7 +39,7 @@ namespace audio {
 inline float clampUnit(float x) { return x < -1.0f ? -1.0f : (x > 1.0f ? 1.0f : x); }
 // clampUnit() (same result, NaN passes through) with one compare on the
 // in-range path: cheaper where the compiler keeps the rare branch out of
-// line (reverb output, SVF outputs).
+// line (reverb output).
 inline float clampUnitFast(float x) {
     if (__builtin_expect(__builtin_fabsf(x) > 1.0f, 0)) return x < 0.0f ? -1.0f : 1.0f;
     return x;
@@ -305,50 +305,87 @@ private:
     uint32_t* seed_ = nullptr;
 };
 
-// Chamberlin state-variable filter, 2x oversampled with input averaging
-// (PJRC AudioFilterStateVariable core, spec 04 §4.4). One output selected;
-// fmult/damp interpolate linearly across the block.
-struct Svf {
-    float lp = 0.0f, bp = 0.0f, inPrev = 0.0f;
-    float fm = 0.0f, dp = 1.0f / 0.7f;   // current (end of last block)
-    void reset() { lp = bp = inPrev = 0.0f; }
+// Output stage of the sample filter: unchanged up to |y| = 0.9, then a smooth
+// knee towards (never reaching) full scale, 1 - 0.01 / (|y| - 0.8): continuous
+// in value and slope at 0.9. A loud resonant peak rounds off instead of being
+// flat-topped by a clamp; full-scale material without resonance loses < 0.5 dB.
+inline float sampleFilterSat(float y) {
+    const float a = y < 0.0f ? -y : y;
+    if (a <= 0.9f) return y;
+    const float v = 1.0f - 0.01f / (a - 0.8f);
+    return y < 0.0f ? -v : v;
+}
+
+// One sample of the sample-voice filter: a zero-delay-feedback (trapezoidal)
+// state-variable filter. Exact cutoff tuning (prewarped), flat passbands up
+// to the top, stable at any cutoff; 12 dB/octave. kType 0 LP, 1 HP, 2 BP
+// (BP gain Q at the centre, like the earlier filter). The fused voice chains
+// call this too, so every path does the same operations.
+template <int kType>
+inline float sampleFilterStep(float in, float& s1, float& s2, float a1, float a2, float a3, float k) {
+    const float v3 = in - s2;
+    const float v1 = a1 * s1 + a2 * v3;
+    const float v2 = s2 + a2 * s1 + a3 * v3;
+    s1 = 2.0f * v1 - s1;
+    s2 = 2.0f * v2 - s2;
+    const float y = kType == 0 ? v2 : (kType == 1 ? in - k * v1 - v2 : v1);
+    return sampleFilterSat(y);
+}
+
+// Keeps the state bounded (only reached by a runaway input).
+inline float sampleFilterBound(float s) { return s > 16.0f ? 16.0f : (s < -16.0f ? -16.0f : s); }
+
+// The coefficient ramp across one block, from c to t (shared by every path).
+struct FiltRamp {
+    float a1, a2, a3, k, d1, d2, d3, dk;
+    FiltRamp(const FiltCoef& c, const FiltCoef& t, uint32_t n) {
+        const float inv = 1.0f / float(n);
+        a1 = c.a1;
+        a2 = c.a2;
+        a3 = c.a3;
+        k = c.k;
+        d1 = (t.a1 - c.a1) * inv;
+        d2 = (t.a2 - c.a2) * inv;
+        d3 = (t.a3 - c.a3) * inv;
+        dk = (t.k - c.k) * inv;
+    }
+    void step() {
+        a1 += d1;
+        a2 += d2;
+        a3 += d3;
+        k += dk;
+    }
+};
+
+// The sample-voice filter (2.x). The coefficients ramp linearly across the
+// block from c (end of the last block) to the target.
+struct SampleFilter {
+    float s1 = 0.0f, s2 = 0.0f;
+    FiltCoef c;
+    void reset() { s1 = s2 = 0.0f; }
+    bool sameCoef(const SampleFilter& o) const {
+        return c.a1 == o.c.a1 && c.a2 == o.c.a2 && c.a3 == o.c.a3 && c.k == o.c.k;
+    }
 
     // type 0 LP, 1 HP, 2 BP. In-place on x[0..n).
-    void process(float* x, uint32_t n, int type, float fmTarget, float dpTarget) {
-        // One loop per output type (no per-sample selection).
-        if (type == 0) run<0>(x, n, fmTarget, dpTarget);
-        else if (type == 1) run<1>(x, n, fmTarget, dpTarget);
-        else run<2>(x, n, fmTarget, dpTarget);
+    void process(float* x, uint32_t n, int type, const FiltCoef& t) {
+        if (type == 0) run<0>(x, n, t);
+        else if (type == 1) run<1>(x, n, t);
+        else run<2>(x, n, t);
     }
 
 private:
     template <int kType>
-    void run(float* __restrict x, uint32_t n, float fmTarget, float dpTarget) {
-        const float dfm = (fmTarget - fm) / float(n);
-        const float ddp = (dpTarget - dp) / float(n);
-        float f = fm, d = dp;
-        float l = lp, b = bp, ip = inPrev;
+    void run(float* __restrict x, uint32_t n, const FiltCoef& t) {
+        FiltRamp r(c, t, n);
+        float z1 = s1, z2 = s2;
         for (uint32_t i = 0; i < n; ++i) {
-            f += dfm;
-            d += ddp;
-            const float in = x[i];
-            l += f * b;
-            float h = (in + ip) * 0.5f - l - d * b;
-            ip = in;
-            b += f * h;
-            const float l1 = l, b1 = b, h1 = h;
-            l += f * b;
-            h = in - l - d * b;
-            b += f * h;
-            const float y = kType == 0 ? (l + l1) : (kType == 1 ? (h + h1) : (b + b1));
-            x[i] = clampUnitFast(y * 0.5f);
+            r.step();
+            x[i] = sampleFilterStep<kType>(x[i], z1, z2, r.a1, r.a2, r.a3, r.k);
         }
-        // Keep the state bounded like the fixed-point original (saturating ints).
-        lp = l > 16.0f ? 16.0f : (l < -16.0f ? -16.0f : l);
-        bp = b > 16.0f ? 16.0f : (b < -16.0f ? -16.0f : b);
-        inPrev = ip;
-        fm = fmTarget;
-        dp = dpTarget;
+        s1 = sampleFilterBound(z1);
+        s2 = sampleFilterBound(z2);
+        c = t;
     }
 };
 
