@@ -46,8 +46,14 @@ void panGains(int p, float& l, float& r);
 // --- filter (spec 04 §4.4) --------------------------------------------------
 constexpr int kCutoffSteps = 478;               // k = 0..477
 float cutoffHz(float c);                        // 20 * 2^(floor(c*477)/50), clamped 20..17647.06
-float svfFmult(float hz);                       // 2 sin(pi f / (2 fs))
 float svfDamp(float resonance);                 // 1/q, q = r + 0.7 clamped 0.7..5
+// Sample-voice filter coefficients (zero-delay-feedback SVF, Voice): g =
+// tan(pi f / fs), k = svfDamp(r); a1 = 1 / (1 + g (g + k)), a2 = g a1,
+// a3 = g a2. f clamped to 20 Hz .. 0.45 fs.
+struct FiltCoef {
+    float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f, k = 1.0f / 0.7f;
+};
+FiltCoef sampleFilterCoef(float hz, float resonance);
 
 // --- overdrive / bit depth (spec 04 §4.5, §4.6) ------------------------------
 float overdrivePreGain(int od);                 // 0 -> 0 (off); (od+16)*8/256

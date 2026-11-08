@@ -480,43 +480,102 @@ TEST(bit_depth_quantiser_is_mid_tread) {
     CHECK(std::fabs(mean) < 1.0 / 256.0);
 }
 
-// --- filter (spec 04 §4.4) ----------------------------------------------------
+// --- sample filter (2.x: zero-delay-feedback SVF, soft output stage) ---------
 
 namespace {
-float svfGain(int type, float fc, float f, float res = 0.0f) {
-    Svf s;
-    const float fm = svfFmult(fc), dp = svfDamp(res);
-    s.fm = fm;
-    s.dp = dp;
+// RMS gain of the sample filter for a sine at f (after the transient).
+float sfGain(int type, float fc, float f, float res = 0.0f, float amp = 0.05f) {
+    SampleFilter s;
+    const FiltCoef c = sampleFilterCoef(fc, res);
+    s.c = c;
     float x[kBlock];
-    float peak = 0.0f;
-    uint32_t n = 0;
-    for (int b = 0; b < 120; ++b) {
-        for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = 0.25f * std::sin(2.0f * kPiF * f * float(n) / audio::kSampleRate);
-        s.process(x, kBlock, type, fm, dp);
-        if (b >= 60) peak = std::fmax(peak, peakOf(x, kBlock));
+    double acc = 0.0;
+    uint32_t n = 0, cnt = 0;
+    for (int b = 0; b < 240; ++b) {
+        for (uint32_t i = 0; i < kBlock; ++i, ++n)
+            x[i] = amp * std::sin(2.0f * kPiF * f * float(n % 441000u) / audio::kSampleRate);
+        s.process(x, kBlock, type, c);
+        if (b >= 120)
+            for (uint32_t i = 0; i < kBlock; ++i, ++cnt) acc += double(x[i]) * x[i];
     }
-    return peak / 0.25f;
+    return float(std::sqrt(acc / cnt) / (amp / std::sqrt(2.0)));
 }
+float dB(float g) { return 20.0f * std::log10(g + 1e-9f); }
 }  // namespace
 
-TEST(filter_response) {
+TEST(sample_filter_response_is_tuned_and_flat) {
     initTables();
-    const float fc = 1000.0f;
-    CHECK_NEAR(svfGain(0, fc, 100.0f), 1.0f, 0.03);
-    CHECK_NEAR(svfGain(0, fc, fc), 0.707f, 0.08);       // ~ -3 dB at cutoff (q = 0.7)
-    CHECK(svfGain(0, fc, 8000.0f) < 0.03f);             // 12 dB/oct
-    CHECK_NEAR(svfGain(1, fc, 8000.0f), 1.0f, 0.1);
-    CHECK_NEAR(svfGain(1, fc, fc), 0.707f, 0.08);
-    CHECK(svfGain(1, fc, 100.0f) < 0.03f);
-    CHECK(svfGain(2, fc, fc) > 0.5f);
-    CHECK(svfGain(2, fc, 50.0f) < 0.1f);
-    // Resonance raises the gain at cutoff (q = 5 -> ~ +14 dB).
-    CHECK(svfGain(0, fc, fc, 4.3f) > 3.5f);
-    // Mapped cutoff c = 0.5 -> 20 * 2^(238/50) Hz.
-    const float c05 = cutoffHz(0.5f);
-    CHECK_NEAR(c05, 20.0f * std::exp2(238.0f / 50.0f), 0.01);
-    CHECK_NEAR(svfGain(0, c05, c05), 0.707f, 0.08);
+    const float top = cutoffHz(1.0f);   // the knob's maximum
+    CHECK_NEAR(cutoffHz(0.5f), 20.0f * std::exp2(238.0f / 50.0f), 0.01);   // the knob's mapping
+    // LP at the knob's maximum keeps the top of the spectrum (analog 2-pole:
+    // -0.9 dB at 10 kHz, -3.2 dB at 15 kHz).
+    CHECK(dB(sfGain(0, top, 10000.0f)) > -1.6f);
+    CHECK(dB(sfGain(0, top, 15000.0f)) > -4.5f);
+    // HP passband is flat up to the top.
+    CHECK(dB(sfGain(1, 1000.0f, 15000.0f)) > -0.5f);
+    CHECK(dB(sfGain(1, 1000.0f, 19000.0f)) > -0.5f);
+    // -3 dB at the cutoff, 12 dB/octave, for LP and HP.
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 1000.0f)), -3.1f, 0.4);
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 5000.0f)), -28.0f, 1.5);
+    CHECK_NEAR(dB(sfGain(1, 5000.0f, 1000.0f)), -28.0f, 1.5);
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 100.0f)), 0.0f, 0.2);
+    // Resonance: the peak sits at the cutoff with gain Q, also high up.
+    CHECK_NEAR(dB(sfGain(0, 1000.0f, 1000.0f, 4.3f)), 14.0f, 0.5);
+    CHECK_NEAR(dB(sfGain(0, 10000.0f, 10000.0f, 4.3f)), 14.0f, 1.0);
+    CHECK_NEAR(dB(sfGain(1, 5000.0f, 5000.0f, 4.3f)), 14.0f, 0.7);
+    // BP keeps its gain: Q at the centre (-3 dB at Q 0.7, +14 dB at Q 5).
+    CHECK_NEAR(dB(sfGain(2, 2000.0f, 2000.0f)), -3.1f, 0.5);
+    CHECK_NEAR(dB(sfGain(2, 2000.0f, 2000.0f, 4.3f)), 14.0f, 0.7);
+    CHECK(dB(sfGain(2, 2000.0f, 200.0f)) < -20.0f);
+}
+
+TEST(sample_filter_loud_resonance_saturates_smoothly) {
+    initTables();
+    // A loud sine on a Q 5 peak: the output stays below full scale (never
+    // flat-topped at the clamp) and stays loud; quiet signals pass unchanged.
+    SampleFilter s;
+    const FiltCoef c = sampleFilterCoef(2000.0f, 4.3f);
+    s.c = c;
+    float x[kBlock];
+    float peak = 0.0f;
+    uint32_t n = 0, pinned = 0;
+    for (int b = 0; b < 200; ++b) {
+        for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = 0.5f * std::sin(2.0f * kPiF * 2000.0f * float(n) / audio::kSampleRate);
+        s.process(x, kBlock, 0, c);
+        if (b >= 100)
+            for (uint32_t i = 0; i < kBlock; ++i) {
+                const float a = std::fabs(x[i]);
+                peak = std::fmax(peak, a);
+                if (a >= 0.999f) ++pinned;
+            }
+    }
+    CHECK(peak > 0.9f);
+    CHECK_EQ(pinned, 0u);
+    CHECK_EQ(sampleFilterSat(0.5f), 0.5f);
+    CHECK_EQ(sampleFilterSat(-0.89f), -0.89f);
+    CHECK(sampleFilterSat(1.0f) < 1.0f && sampleFilterSat(1.0f) >= 0.945f);   // < 0.5 dB at full scale
+    CHECK(sampleFilterSat(100.0f) < 1.0f);
+    CHECK_EQ(sampleFilterSat(-3.0f), -sampleFilterSat(3.0f));
+}
+
+TEST(sample_filter_coefficient_ramp_is_smooth) {
+    initTables();
+    // A cutoff sweep within one block: no step larger than the signal allows.
+    SampleFilter s;
+    s.c = sampleFilterCoef(200.0f, 2.0f);
+    float x[kBlock];
+    float prev = 0.0f, maxStep = 0.0f;
+    uint32_t n = 0;
+    for (int b = 0; b < 100; ++b) {
+        for (uint32_t i = 0; i < kBlock; ++i, ++n) x[i] = 0.2f * std::sin(2.0f * kPiF * 440.0f * float(n) / audio::kSampleRate);
+        s.process(x, kBlock, 0, sampleFilterCoef(b % 2 ? 8000.0f : 200.0f, 2.0f));
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            CHECK(std::isfinite(x[i]));
+            maxStep = std::fmax(maxStep, std::fabs(x[i] - prev));
+            prev = x[i];
+        }
+    }
+    CHECK(maxStep < 0.25f);
 }
 
 // --- delay (spec 04 §5.1) -----------------------------------------------------
@@ -992,7 +1051,8 @@ TEST(deterministic_render_hash) {
     // Golden value (host x86-64 SSE float); update deliberately when the DSP changes.
     // 1.9.9: bit depth rounds to nearest (was 0x4e126ff813060a1b with the floor).
 #if defined(__x86_64__)
-    CHECK_EQ(ha, 0xe2e2f8dd73d3e8d6ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
+    // 2.x: the sample filter is a zero-delay-feedback SVF (was 0xe2e2f8dd73d3e8d6).
+    CHECK_EQ(ha, 0x9c3b7ff0ccccd5e8ull);   // spec 07: Q9 delay filter, Q5 bipolar LFOs
 #else
     std::puts("  x86-64 render golden skipped on this host architecture");
 #endif
