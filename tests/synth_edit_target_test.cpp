@@ -652,6 +652,77 @@ TEST(the_global_mixer_shows_and_sets_the_presets_level) {
     synthui::gainText(-12.0f, want, sizeof want);
     CHECK_STR(a.ui.bar.label[4].top, want);
 }
+
+#if defined(OT_SLOT_INSERTS) && OT_SLOT_INSERTS
+// --- the Synth Insert view ----------------------------------------------------------
+
+TEST(the_insert_view_edits_the_presets_insert) {
+    Harness h;
+    App& a = *h.app;
+    mod::ModuleHost& mh = mod::ModuleHost::instance();
+    CHECK(mh.effectCount() >= 1);
+    IEffect* fx = mh.effectAt(0);
+    twoSounds(h);   // P1 stored with no insert (slot 1 had none)
+    a.setSlotInsertKind(0, fx->id());   // the slot's own insert
+    openSynth(h, 0);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.down(btn::Shift);
+    h.tap(btn::InstrParams);
+    h.up(btn::Shift);
+    CHECK(synthScreen(a).view == SynthScreen::View::Insert);
+    CHECK(drawn(h, "Synth 1 (FAT) P1"));
+    CHECK(a.synthTargetInsertId(0) == nullptr);   // P1 carries "no insert"
+    CHECK(a.engine.synth().slotInsert(0) == nullptr);
+    // Pick the first effect from the list: into P1, heard; the slot's own stays.
+    h.tap(btn::F1);
+    h.enc(1);
+    sound(h, 0);
+    CHECK(a.synthTargetInsertEffect(0) == fx);
+    CHECK(a.synthPresetInsert(1).fx == fx);
+    CHECK(a.engine.synth().slotInsert(0) == fx);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    CHECK(a.sidecarDirty());
+    // A setting.
+    if (fx->paramCount() > 0 && fx->param(0).max > 0 && !fx->param(0).names) {
+        const uint8_t v = a.synthTargetInsertSettings(0).v[0];
+        a.setSynthTargetInsertValue(0, 0, uint8_t(v == 0 ? 1 : v - 1));
+        CHECK(a.synthPresetInsert(1).set.v[0] != v);
+        CHECK_EQ(int(a.slotInsertSettings(0).v[0]), int(audio::effectDefaults(*fx).v[0]));
+    }
+    // None again: the preset's, not the slot's.
+    h.tap(btn::Delete);
+    sound(h, 0);
+    CHECK(a.synthTargetInsertId(0) == nullptr);
+    CHECK(a.slotInsertEffect(0) == fx);
+    // Z0: the slot's own insert is shown and plays.
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    CHECK(a.synthTargetInsertEffect(0) == fx);
+    CHECK(a.engine.synth().slotInsert(0) == fx);
+}
+
+TEST(a_preset_without_insert_data_shows_the_slots_and_copies_it_on_an_edit) {
+    Harness h;
+    App& a = *h.app;
+    mod::ModuleHost& mh = mod::ModuleHost::instance();
+    IEffect* fx = mh.effectAt(0);
+    twoSounds(h);
+    presets::insertTable()[0] = PresetInsert{};   // as saved before presets had inserts
+    a.setSlotInsertKind(0, fx->id());
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK(a.synthTargetInsertEffect(0) == fx);   // what plays: the slot's own
+    a.setSynthTargetInsertOff(0, true);
+    CHECK(a.synthPresetInsert(1).flags & kPresetInsertHas);
+    CHECK(a.synthPresetInsert(1).fx == fx);
+    CHECK(a.synthTargetInsertOff(0));
+    CHECK(!a.slotInsertOff(0));
+    sound(h, 0);
+    CHECK(a.engine.synth().slotInsertOff(0));
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+}
+#endif
 #endif
 
 }  // namespace
