@@ -1,4 +1,4 @@
-# [I] Fork #21 device spike: the full profile without the acid bass (ACD1) and Tape,
+# [I] Device test: the full profile without the acid bass (ACD1) and Tape,
 # which load from the card instead, with FM4S (not in full) as a card-only synth:
 #   make otm OTM_MODULE=modules/acd; make otm OTM_MODULE=modules/fm4
 #   make otm OTM_MODULE=../opentracker-fx/modules/tape; copy the .otm files to Modules/.

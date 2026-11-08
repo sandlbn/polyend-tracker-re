@@ -28,7 +28,7 @@ struct AppSdram {
     alignas(ProjectJob) unsigned char pj[sizeof(ProjectJob)];
     alignas(SynthPatch) unsigned char patches[sizeof(SynthPatch) * kSynthSlotCount];
     unsigned char extKeep[kPatternCount + 1];
-    alignas(mod::OtmLoadReport) unsigned char moduleLoad[sizeof(mod::OtmLoadReport)];   // [I] #21
+    alignas(mod::OtmLoadReport) unsigned char moduleLoad[sizeof(mod::OtmLoadReport)];   // [I]
 };
 OT_SDRAM_BSS AppSdram gAppSdram;
 }  // namespace
@@ -66,7 +66,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     ext_.attach(mem_.extTracks, mem_.extTrackBlocks - 1, mem_.extMeta);
     // Compiled-in modules (synth engines, docs/PLAN_3X.md §7) before audio starts.
     mod::ModuleHost::instance().init();
-    // [I] #21: Modules/*.otm from the card, after the compiled-in ones and
+    // [I] Modules/*.otm from the card, after the compiled-in ones and
     // before the engine takes the master inserts. The sample memory holds one
     // file at a time (nothing is loaded into it yet) and is cleared after.
     if (hal_.modulePool && mem_.sampleBank) {

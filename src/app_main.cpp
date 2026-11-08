@@ -146,7 +146,7 @@ void dlOverflow(const char* screen, uint32_t words, uint32_t dropped, bool lowDe
                       lowDetail ? " (low detail)" : "; low detail from the next frame");
 }
 
-// [I] #21: what happened to each Modules/*.otm (diag log; the pool's use).
+// [I] What happened to each Modules/*.otm (diag log; the pool's use).
 void logModuleLoad(const ot::mod::OtmLoadReport& r) {
     for (int i = 0; i < r.n; ++i)
         ot::hal::diagLogf("modules: %s %s", r.items[i].file,
@@ -435,7 +435,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     refs.usbStorage = hal::usbStorage();
     static hal::SdStreamReader sStreamReader(hal::storage());
     refs.streamReader = &sStreamReader;   // SD streaming (raw sectors through the cluster map)   // 2.x USB Storage mode (null in an OT_USB_MSC=0 image)
-    refs.modulePool = hal::modulePool();   // [I] #21: Modules/*.otm from the card
+    refs.modulePool = hal::modulePool();   // [I] Modules/*.otm from the card
     if (!gApp.init(refs, mem)) return;   // falls back to the selftest
     logModuleLoad(gApp.moduleLoadReport());
     hal::setPowerOffHook(&powerOffHook);
@@ -446,7 +446,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     gApp.ui.platform.bootChecks = &bootChecks;     // factory test (spec 05 §2.12)
     gApp.ui.platform.dlOverflow = &dlOverflow;     // RAM_DL guard (Ui::render)
     if (hal::bootReport().sdMounted) gApp.boot();
-    // [I] #21: a module on the card that didn't load says so (the first one).
+    // [I] A module on the card that didn't load says so (the first one).
     for (int i = 0; i < gApp.moduleLoadReport().n; ++i) {
         const ot::mod::OtmLoadReport::Item& it = gApp.moduleLoadReport().items[i];
         if (it.error == ot::mod::OtmError::None && !it.refused) continue;

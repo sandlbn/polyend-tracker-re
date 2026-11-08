@@ -1,4 +1,4 @@
-// [I] Modules loaded from the card (fork issue #21): every Modules/*.otm at
+// [I] Modules loaded from the card: every Modules/*.otm at
 // boot, into the device's module pool, registered after the compiled-in ones
 // (ModuleHost::addLoaded; modules/module_loader.h has the file format).
 #pragma once

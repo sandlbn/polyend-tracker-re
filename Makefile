@@ -15,7 +15,7 @@
 # make patches    -> build/patches/Patches/<MODEL>/ (synth preset pack, tools/make_patches/PRESETS.md)
 # make budget     -> the profile's declared module budgets (flash, SRAM) and their limits
 # make otm OTM_MODULE=<path> -> [I] build/<profile>/otm/<name>.otm, a module loadable from the card
-#                    (fork #21; <path> as in a profile, relative to MODULES_DIR; tools/make_otm.py)
+#                    (<path> as in a profile, relative to MODULES_DIR; tools/make_otm.py)
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
 #                    the firmware's packed font_data_z.inc / font_adv.inc,
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
@@ -99,7 +99,7 @@ OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX)
 MOD_OBJS  := $(patsubst %.cpp,$(BUILD)/mod/%.cpp.o,$(MOD_SRCS))
 OBJS      += $(MOD_OBJS)
 
-# [I] Modules from the card (fork #21, tools/make_otm.py): the core's export table and
+# [I] Modules from the card (tools/make_otm.py): the core's export table and
 # the versions a loadable module must match, generated for src/hal/module_pool.cpp.
 .DEFAULT_GOAL := all
 OTM_GEN   := $(BUILD)/otm-gen
@@ -257,7 +257,7 @@ budget:
 	python3 -I tools/profile.py budget --profile profiles/$(PROFILE).toml --modules-dir $(MODULES_DIR)
 .PHONY: budget
 
-# [I] A module as a file loadable from the card (fork #21, tools/make_otm.py), compiled
+# [I] A module as a file loadable from the card (tools/make_otm.py), compiled
 # with the firmware's flags. OTM_REF=<base> also writes <name>.ref.bin, the image
 # otmLoad must produce at that base (tests/module_loader_test.cpp).
 OTM_NAME = $(notdir $(OTM_MODULE))

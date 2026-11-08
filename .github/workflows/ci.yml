@@ -99,6 +99,10 @@ jobs:
       - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
+      - name: Install pyelftools
+        # tools/make_otm.py (modules from the card) reads the module objects with it.
+        # System-wide: make runs it with python3 -I, which skips the user site.
+        run: sudo python3 -m pip install --break-system-packages pyelftools==0.33
       - name: Build
         run: make -j"$(nproc)"
       - name: Flash, stack headroom and libm checks
@@ -132,6 +136,10 @@ jobs:
       - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
+      - name: Install pyelftools
+        # tools/make_otm.py (modules from the card) reads the module objects with it.
+        # System-wide: make runs it with python3 -I, which skips the user site.
+        run: sudo python3 -m pip install --break-system-packages pyelftools==0.33
       - name: Build this PR
         run: |
           make -j"$(nproc)"

@@ -1,4 +1,4 @@
-// [I] Modules from the card (hal/module_pool.h, fork issue #21).
+// [I] Modules from the card (hal/module_pool.h).
 #include "module_pool.h"
 
 #include <kinetis.h>

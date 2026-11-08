@@ -1,4 +1,4 @@
-// [I] Modules loaded from the card (modules/module_files.h, fork issue #21).
+// [I] Modules loaded from the card (modules/module_files.h).
 #include "modules/module_files.h"
 
 #include <cstdio>

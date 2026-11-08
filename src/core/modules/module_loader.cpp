@@ -1,4 +1,4 @@
-// [I] Loadable modules (modules/module_loader.h, fork issue #21).
+// [I] Loadable modules (modules/module_loader.h).
 #include "modules/module_loader.h"
 
 #include <cstring>

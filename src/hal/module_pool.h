@@ -1,4 +1,4 @@
-// [I] Modules from the card (fork issue #21): the block at the stack's
+// [I] Modules from the card: the block at the stack's
 // bottom they run from, this core's export table and versions (modules/module_files.h).
 #pragma once
 

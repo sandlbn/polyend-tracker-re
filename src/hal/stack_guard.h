@@ -9,7 +9,7 @@
 //
 //   _ebss | heap reserve (kHeapReserveBytes) | [module pool] | guard (kStackGuardBytes) | stack ... _estack
 //
-// [I] The module pool (fork #21, hal/module_pool.h) is code loaded from the
+// [I] The module pool (hal/module_pool.h) is code loaded from the
 // card. It borrows the bottom of the stack's room: setModulePoolBytes() moves
 // the guard up over it (or back down) while the audio is stopped, and never
 // leaves the stack less than kStackFloorBytes. Size 0 = the stock layout.
@@ -37,7 +37,7 @@ constexpr uint32_t kHeapReserveBytes = 4096;   // measured heap use 0.2 KB (tele
 constexpr uint32_t kStackGuardBytes = 8192;    // > the deepest frame (5,672 B, startOpenProject)
 
 // [I] The stack never gets less than this when the module pool grows
-// (measured peak 10.9 KB on v2 plus margin; fork #21, 2026-11-06).
+// (measured peak 10.9 KB on v2 plus margin; 2026-11-06).
 constexpr uint32_t kStackFloorBytes = 25 * 1024;
 
 // Lowest guard address (32-byte aligned, the SYSMPU granule) and the first
@@ -45,7 +45,7 @@ constexpr uint32_t kStackFloorBytes = 25 * 1024;
 uintptr_t stackGuardStart();
 uintptr_t stackGuardEnd();
 
-// [I] The module pool (fork #21): its fixed base (above the heap reserve,
+// [I] The module pool: its fixed base (above the heap reserve,
 // 32-byte aligned), its size now, and the largest size the stack floor allows.
 uintptr_t modulePoolBase();
 uint32_t modulePoolBytes();

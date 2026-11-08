@@ -1,4 +1,4 @@
-# [I] Core symbols a loadable module may use (modules/module_loader.h, fork #21).
+# [I] Core symbols a loadable module may use (modules/module_loader.h).
 # One symbol per line; a module's fixup kind k means the export on line k (1 =
 # the first symbol). APPEND ONLY: inserting, removing or reordering a line
 # breaks every .otm already built. tools/make_otm.py refuses a module that

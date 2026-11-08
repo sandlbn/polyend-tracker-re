@@ -159,7 +159,7 @@ audio::IMasterInsert* ModuleHost::masterInsert() {
 
 bool ModuleHost::addForTest(IModule& m) { return addLoaded(m); }
 
-// [I] A module loaded from the card (modules/module_files.h, fork #21): the
+// [I] A module loaded from the card (modules/module_files.h): the
 // checks init() makes, after the compiled-in modules.
 bool ModuleHost::addLoaded(IModule& m) {
     if (!inited_) init();

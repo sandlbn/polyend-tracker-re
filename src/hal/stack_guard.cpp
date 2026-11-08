@@ -31,7 +31,7 @@ constexpr uint32_t kCoreFields = 0xFFFu;
 
 bool gArmed = false;
 bool gLockup = false;
-uint32_t gPoolBytes = 0;   // [I] module pool (fork #21)
+uint32_t gPoolBytes = 0;   // [I] module pool
 
 // The core's regions on both sides of the guard [lo, hi) (descriptors 1 and 2).
 void writeCoreRegions(uintptr_t lo, uintptr_t hi) {

@@ -1,4 +1,4 @@
-// [I] Loadable modules (fork issue #21): a module built into a .otm file by
+// [I] Loadable modules: a module built into a .otm file by
 // tools/make_otm.py, loaded from the card into a block of memory at run time.
 //
 // The build tool links the module completely at address 0 and keeps a list of

@@ -1,4 +1,4 @@
-// [I] Loadable modules (modules/module_loader.h, fork #21): the .otm checks and
+// [I] Loadable modules (modules/module_loader.h): the .otm checks and
 // fixups on built-in images, and a real module (tools/make_otm.py) against the
 // image the linker makes for the same address (OT_OTM_DIR, skipped without it).
 #include "test.h"
