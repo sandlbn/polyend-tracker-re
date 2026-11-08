@@ -191,16 +191,7 @@ bool synthui::presetNotice(const App& a, int instrument, char* out, int cap) {
 // ---------------------------------------------------------------------------
 // State
 
-int SynthScreen::entrySlot(App& a, Ui& ui, int active) {
-    if (active == kModPattern) {
-        if (auto* p = static_cast<PatternScreen*>(ui.screen(kModPattern))) {
-            const Step& st = a.pattern().tracks[clampi(p->track, 0, kTrackCount - 1)].steps[clampi(p->step, 0, kStepCount - 1)];
-            if (isSynthInstrument(st.instrument)) {
-                a.setCurrentInstrument(st.instrument);
-                if (isSynthSlotInstrument(st.instrument)) return synthSlotOf(st.instrument);
-            }
-        }
-    }
+int SynthScreen::entrySlot(App& a, Ui& ui) {
     // [3.x] A preset instrument: the slot that plays it now, else the
     // Presets page of the slot shown last.
     if (isPresetInstrument(a.currentInstrument())) {
