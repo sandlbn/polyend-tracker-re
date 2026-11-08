@@ -134,16 +134,7 @@ void synthui::slotLabel(const App& a, int s, char* out, int cap) {
 // ---------------------------------------------------------------------------
 // State
 
-int SynthScreen::entrySlot(App& a, Ui& ui, int active) {
-    if (active == kModPattern) {
-        if (auto* p = static_cast<PatternScreen*>(ui.screen(kModPattern))) {
-            const Step& st = a.pattern().tracks[clampi(p->track, 0, kTrackCount - 1)].steps[clampi(p->step, 0, kStepCount - 1)];
-            if (isSynthInstrument(st.instrument)) {
-                a.setCurrentInstrument(st.instrument);
-                return synthSlotOf(st.instrument);
-            }
-        }
-    }
+int SynthScreen::entrySlot(App& a) {
     return synthSlotOf(a.currentInstrument());
 }
 

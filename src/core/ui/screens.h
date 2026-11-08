@@ -1084,7 +1084,7 @@ public:
     // Slot the Instrument Params key opens from module `active` (the Pattern
     // cursor step's synth instrument, else the current instrument), -1 = not
     // a synth (the sample / MIDI Instrument screen opens).
-    static int entrySlot(App& a, Ui& ui, int active);
+    static int entrySlot(App& a);
 
     enum class View : uint8_t { Params, Macros, Edit, Browser, Presets };
     View view = View::Params;
