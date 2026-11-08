@@ -39,7 +39,7 @@ constexpr uint32_t kStackGuardBytes = 8192;    // > the deepest frame (5,672 B, 
 // [I] The stack never gets less than this when the module pool grows
 // (measured peak 10.9 KB on v2 plus margin; 2026-11-06).
 #if defined(OT_POOL_TEST) && OT_POOL_TEST
-constexpr uint32_t kStackFloorBytes = 15 * 1024;   // [I] #21 measurement images only (peak ~7 KB)
+constexpr uint32_t kStackFloorBytes = 15 * 1024;   // [I] measurement images only (peak ~7 KB)
 #else
 constexpr uint32_t kStackFloorBytes = 25 * 1024;
 #endif

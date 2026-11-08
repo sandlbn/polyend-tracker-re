@@ -7,7 +7,7 @@
 PROFILE     ?= full
 MODULES_DIR ?= $(abspath $(ROOT)/../../opentracker-synths)
 # [I] Host builds (tests, sim, tools) set OT_HOST_BUILD := 1 before including this:
-# they compile the profile's card modules in (tools/profile.py, fork #21).
+# they compile the profile's card modules in (tools/profile.py).
 GEN         := $(abspath $(ROOT)/build/$(PROFILE)/gen$(if $(OT_HOST_BUILD),-host))
 export PROFILE MODULES_DIR
 ifeq ($(wildcard $(ROOT)/profiles/$(PROFILE).toml),)

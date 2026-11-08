@@ -139,7 +139,7 @@ SECTIONS
 		. = . + 4096;
 	} > FLASH
 
-	/* [I] #21 OT_POOL_TEST images: the block card modules' fast parts run
+	/* [I] OT_POOL_TEST images: the block card modules' fast parts run
 	 * from (hal/module_pool.cpp), in SRAM_L. __otm_fast_bytes comes from the
 	 * Makefile (--defsym; 0 = no block, the layout unchanged). */
 	.otm_fast (NOLOAD) : {

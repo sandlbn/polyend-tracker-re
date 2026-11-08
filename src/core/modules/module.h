@@ -142,7 +142,7 @@ public:
     audio::IEffect* effectById(const char* id);
     // Host builds (tests): register one more module after init().
     bool addForTest(IModule& m);
-    // [I] A module loaded from the card (modules/module_files.h, fork #21),
+    // [I] A module loaded from the card (modules/module_files.h),
     // after init(): the same checks as init(); false = refused (refused()
     // names it). onDemand: a card synth, which may leave again
     // (removeLoaded); it gets no SDRAM (sdram() returns nullptr in its

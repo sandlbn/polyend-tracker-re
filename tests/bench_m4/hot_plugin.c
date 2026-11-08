@@ -5,7 +5,7 @@
  * tests/bench_m4/hot_funcs.py folds them into functions (nm) to pick the
  * code that goes to SRAM_L (.fastrun, docs/OPTIMIZATION_2X.md item 6).
  *
- * [I] phase=<hex address> (fork #21, make -C tests bench-m4-synth-modes): each
+ * [I] phase=<hex address> (make -C tests bench-m4-synth-modes): each
  * time the block at that address (the bench's otHotPhase()) runs, the counts
  * so far are written as one phase ("P <k>" then its lines) and start again
  * from zero; the last phase is written at exit. */

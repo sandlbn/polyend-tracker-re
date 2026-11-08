@@ -1,4 +1,4 @@
-// [I] Modules loaded from the card (fork issue #21; modules/module_loader.h has
+// [I] Modules loaded from the card (modules/module_loader.h has
 // the file format). At boot every Modules/*.otm is looked at: a module without
 // synth engines (master inserts, effects) loads into the device's module pool
 // for good; a synth module is only listed (its engines and their names), and

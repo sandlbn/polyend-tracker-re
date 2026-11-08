@@ -1,5 +1,0 @@
-# dx7: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
-# <function> <weight: mean share over the modes>, weight per byte first.
-_ZN2ot5audio3dx712_GLOBAL__N_19Dx7Engine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.94936  # 4220 B
-_ZN2ot5audio3dx712_GLOBAL__N_19Dx7Engine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.03466  # 664 B
-# 4884 B, 6 modes, 98.4% of the weight

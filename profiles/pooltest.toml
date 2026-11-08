@@ -1,8 +1,8 @@
-# [I] Fork #21 shared SRAM_L pool measurement (device, with make OT_POOL_TEST=1):
+# [I] Shared SRAM_L pool measurement (device, with make OT_POOL_TEST=1):
 # synths built in that the card copies replace (OT_POOL_TEST), to read the same
 # synth from flash, from the SRAM_U pool and with its hot part in SRAM_L. No VAP /
-# FAT: their .fastrun room in SRAM_L goes to the 12 KB fast block. DX7 is a core
-# engine (built in). Test songs 23-28 (tools/make_testsongs/poolsong.inc).
+# FAT: their .fastrun room in SRAM_L goes to the 12 KB fast block.
+# Test songs 23-27 (tools/make_testsongs/poolsong.inc).
 # Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
 name = "pooltest"
 variant = "p"                 # image PolyendTrackerOTp<ver>.ptf (24 characters)

@@ -162,6 +162,25 @@ is sized for the compiled-in modules), so one that needs it has to be compiled i
 with those two (and FM4S) from the card. `make otm-test` checks the tool's images against
 the linker's.
 
+**Card synths** load when the project uses them. At boot an effect module loads for good;
+a synth module is only listed, so its engines show in the Model list. Open loads the
+card synths the project's slots use, before the slots' patches, and a Model change loads
+the new one once the choice has rested for 1/4 s, while stopped (while playing, the slot
+says "Loads at Stop"). Every load stops the synth voices. A synth that doesn't fit the
+pool stays unloaded, with "Card memory full" on its slot; the first slot gets the room
+first, and two slots on one engine load it once. A profile entry with `card = true`
+stays out of the image, and `make card` builds it into `build/<profile>/otm/`; the host
+builds (tests, simulator, tools) compile it in.
+
+A synth's `.otm` carries its **hot row**: the functions that do most of its work, hottest
+first, from `tools/hot_rows/<module>.hot`. When the image has a fast block in SRAM_L, the
+loaded synths take turns in it and as much of each row as fits runs from there; the rest
+runs from the pool. Without it a card synth costs about a quarter more CPU per voice than
+built in. The rows come from every mode of every synth under the QEMU bench
+(`profiles/allsynths.toml`): run `make hot-rows` after changing a synth's DSP code and
+commit the new rows. `make OT_POOL_TEST=1 PROFILE=pooltest` builds a measurement image
+with a 12 KB fast block, for test songs 23-27 ("OT Pool N").
+
 ## Known limitations
 
 - The synth sound is own design: settings match the Mini, the sound is close but not

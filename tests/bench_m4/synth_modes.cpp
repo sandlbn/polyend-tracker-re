@@ -1,4 +1,4 @@
-// [I] Synth mode sweep for the hot-code lists (fork #21 shared SRAM_L pool):
+// [I] Synth mode sweep for the hot-code lists (shared SRAM_L pool):
 // make -C tests bench-m4-synth-modes PROFILE=allsynths.
 //
 // Every synth engine of the profile's modules plays its Init patch, a run of

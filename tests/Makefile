@@ -211,7 +211,7 @@ bench-m4-hot: $(BENCH_OUT)/audio_bench_m4_peak.elf $(BENCH_OUT)/hot_plugin.so $(
 	    -plugin $(BENCH_OUT)/hot_plugin.so,out=$(BENCH_OUT)/hot.txt -kernel $<
 	python3 -I bench_m4/hot_funcs.py $< $(BENCH_OUT)/hot.txt $(HOT_ARGS)
 
-# [I] Executed instructions per synth (#21 shared SRAM_L pool): the component
+# [I] Executed instructions per synth (shared SRAM_L pool): the component
 # benches alone (OT_BENCH_SYNTHS_ONLY) under the hot plugin, with a link map
 # so tools/synth_hot.py can fold the functions into modules.
 # make -C tests bench-m4-synth-hot PROFILE=allsynths
@@ -226,7 +226,7 @@ bench-m4-synth-hot: $(BENCH_OUT)/audio_bench_m4_synths.elf $(BENCH_OUT)/hot_plug
 	qemu-system-arm -M mps2-an386 -nographic -icount shift=0 -semihosting-config enable=on,target=native \
 	    -plugin $(BENCH_OUT)/hot_plugin.so,out=$(BENCH_OUT)/synth_hot.txt -kernel $<
 
-# [I] Every mode of every synth, one phase each (bench_m4/synth_modes.cpp, #21): the
+# [I] Every mode of every synth, one phase each (bench_m4/synth_modes.cpp): the
 # plugin starts a new count at each otHotPhase(); synth_modes.txt names the phases.
 # make -C tests bench-m4-synth-modes PROFILE=allsynths, then
 # tools/synth_hot.py <elf> <hot> --modes <names> [--emit-hot DIR]

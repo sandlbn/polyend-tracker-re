@@ -239,7 +239,7 @@ bool App::synthUnavailableNotice(char* out, size_t cap) const {
     return false;
 }
 
-// ---- [I] #21 card synths ------------------------------------------------------
+// ---- [I] card synths ------------------------------------------------------
 
 const char* App::cardSlotState(int s) const {
     const int32_t eng = slotEngineId(s);

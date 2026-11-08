@@ -305,7 +305,7 @@ public:
     // stock (spec 05 §1.9). Default: no mute line.
     virtual void setOutputEnabled(bool on) { (void)on; }
     // [I] True when blocks render on their own (an interrupt, a thread) while
-    // the main loop waits for one (fork #21: a card synth load waits for the
+    // the main loop waits for one (a card synth load waits for the
     // block that lets go of the engines); false when the main loop's caller
     // pulls them (tests, the headless simulator).
     virtual bool blocksOnTheirOwn() const { return true; }

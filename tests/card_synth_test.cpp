@@ -1,4 +1,4 @@
-// [I] Card synths (fork #21, modules/module_files.h): the boot scan lists
+// [I] Card synths (modules/module_files.h): the boot scan lists
 // them, the slots' engines decide what's loaded. A model change loads after
 // App::kCardSettleMs while stopped ("Loads at Stop" while playing) and gives
 // the slot its Init patch; Open loads before the patches; a set no slot

@@ -315,8 +315,8 @@ public:
     void transportStop();     // macro overrides -> page values
     void resetFx();           // pitch FX state of every track (play start)
     void stopAll();           // every voice silent now (no fade)
-    // [I] Card synths load and leave on the main loop (fork #21,
-    // modules/module_files.h). holdEngines(true): from the next block the
+    // [I] Card synths load and leave on the main loop
+    // (modules/module_files.h). holdEngines(true): from the next block the
     // bank calls no engine: every synth voice stops at once (no fade) and
     // every slot lets go of its engine; enginesHeld() is true once that
     // happened. holdEngines(false): the slots bind their engines again at the
@@ -556,7 +556,7 @@ private:
     // Main loop -> audio handshake (one writer each side; a flag is cleared
     // before its data is read, so a later write is seen at the next block).
     volatile bool rebind_[kSynthSlots] = {};  // engine / patch must be re-read
-    volatile bool hold_ = false;              // [I] #21 holdEngines
+    volatile bool hold_ = false;              // [I] holdEngines
     volatile bool held_ = false;
     volatile int32_t engineOf_[kSynthSlots] = {};   // module engine per slot (0 = the record's model)
     int32_t engineFor(int s, const SynthSlotRecord& r) const;

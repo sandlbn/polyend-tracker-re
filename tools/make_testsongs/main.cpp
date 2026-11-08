@@ -191,8 +191,8 @@ int main(int argc, char** argv) {
         ++made;
         const std::string dir = std::string(ot::kProjectsDir) + "/" + s.name;
         // Every song is a Tracker Mini project (docs/specs/21) and must pass
-        // the Mini format check. [I] The #21 pool songs are measurement songs
-        // for fork-only synths (DX7, card modules): no Mini check.
+        // the Mini format check. [I] The pool songs are measurement songs
+        // for card module synths: no Mini check.
         const bool pool = ts::isPoolSong(s.id);
         const std::string mini = pool ? std::string() : ts::checkStockProject(fs, dir.c_str(), true);
         std::printf("ok    %-28s  Mini format: %s\n", s.name,

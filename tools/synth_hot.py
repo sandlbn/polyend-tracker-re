@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""[I] Hot code per synth module (#21 shared SRAM_L pool).
+"""[I] Hot code per synth module (shared SRAM_L pool).
 
 usage: synth_hot.py <elf> <hot.txt> [--modules-dir DIR] [--fastrun-elf ELF] [--detail ID]
                     [--emit-hot DIR --share 0.95]
@@ -72,8 +72,6 @@ def owners(elf, addrs, modules_dir):
             mods[a] = rest[1] if len(rest) > 2 and rest[0] == "modules" else "?"
             if len(rest) > 2 and rest[2] == "bench":
                 mods[a] = "bench"
-        elif "/audio/engines/dx7" in f:
-            mods[a] = "dx7"   # core engine for now (the DX7 module plan moves it out)
         elif "/tests/" in f:
             mods[a] = "bench"
         elif f.endswith(".h") and "/src/core/" in f:

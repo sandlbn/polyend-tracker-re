@@ -478,7 +478,7 @@ void SynthBank::dropEngines() {
 }
 
 void SynthBank::sync() {
-    if (hold_) {   // [I] #21: no engine is bound or called until the hold ends
+    if (hold_) {   // [I] no engine is bound or called until the hold ends
         if (!held_) dropEngines();
         return;
     }

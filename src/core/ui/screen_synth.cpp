@@ -735,7 +735,7 @@ void SynthScreen::applyModel() {
     app_.setSynthTargetEngine(slot, synthModelListEngine(pendingModel_), et_);
     pendingModel_ = -1;
     section = row = 0;
-    // [I] #21: a card synth not loaded yet loads when stopped (App::serviceCardSynths).
+    // [I] a card synth not loaded yet loads when stopped (App::serviceCardSynths).
     const char* card = app_.cardSlotState(slot);
     if (card && (app_.seq.isPlaying() || app_.seq.isArmed())) ui_.notify(card);
     else ui_.notify("Init patch loaded");   // Tracker+ 1.0 on every model change (docs/SYNTH_UX_MINI_VS_OT.md row 7)
@@ -1315,7 +1315,7 @@ void SynthScreen::drawParams(Gfx& g) {
     if (ro) {
         const int32_t id = app_.synthTargetEngine(slot, et_);
         const bool foreign = id && audio::synthEngineFor(id);
-        const char* card = app_.cardSlotState(slot);   // [I] #21
+        const char* card = app_.cardSlotState(slot);   // [I]
         g.text(x, 103, kFont3, th.slot(slot::kFocusFrame),
                foreign ? "Patch of another model" : card ? card : "Not available", IDisplay::kOptCenterY);
     }

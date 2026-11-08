@@ -32,7 +32,7 @@
 // before it. The zero-initialised part (bssBytes) follows the main part in
 // memory but is not in the file.
 //
-// [I] Growing later (#21 "option 2"): the row's functions are separate
+// [I] Growing later (a later option): the row's functions are separate
 // pieces already, so a loader could pick any of them (by the patch's modes)
 // instead of a prefix; only the address mapping changes.
 //

@@ -609,7 +609,7 @@ struct Harness {
             return true;
         };
         h.inputCtx = this;
-        if (beforeInit) beforeInit(*this, h);   // [I] e.g. card modules (#21)
+        if (beforeInit) beforeInit(*this, h);   // [I] e.g. card modules
         ot::AppMemory m;
         m.sampleBank = bank.data();
         m.sampleBankSamples = uint32_t(bank.size());
