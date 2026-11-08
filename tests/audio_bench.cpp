@@ -651,7 +651,7 @@ void switchBench() {
 // [3.x] The preset carries a mix (another gain and pan; the sends of the
 // slot, so the delay and reverb do not start or stop with the Z): the
 // slot's mixer targets are computed again and ramp.
-SynthPatch gBenchPresets[2];
+SynthPatch gBenchPresets[kSynthPresetCount];
 audio::PresetMix gBenchPresetMix[kSynthPresetCount];
 void benchPresetMix() {
     gBenchPresetMix[0] = audio::PresetMix{};
@@ -706,15 +706,20 @@ void presetBench() {
     }
 }
 
-// pinst / pinsteal: [3.x] a note of a preset instrument (67..74) from the
-// sequencer, 4 voices sounding on slot 0. pinst: it binds an idle slot (the
-// preset's patch reload and mix; the voice cap takes one of slot 0's notes).
-// pinsteal: the other slots are off, so it steals slot 0 itself (its 4 notes
-// fade). The note starts first in the next block (note-on spreading). The
-// worst of the note-on block and the 2 after it against a steady block;
-// SDRAM accesses as preset.d.
+// pinst / pinsteal / pinstlive / pinstcap: [3.x] notes of preset instruments
+// (67..74), 4 voices sounding on slot 0. pinst: a sequencer note binds an
+// idle slot (the preset's patch reload and mix; the voice cap takes one of
+// slot 0's notes). pinsteal: the other slots are off, so it steals slot 0
+// itself (its 4 notes fade). A sequencer note that binds starts first in the
+// next block (note-on spreading). pinstlive: a live (pad / MIDI) note binds
+// an idle slot and starts in the same block. pinstcap: a note that waited
+// for the start cap (three notes of slot 0 took the block's starts): it
+// binds at the flush and starts one block later; the blocks after the
+// note-on block (that one is the three starts of slot 0, no preset work).
+// The worst block against a steady block; SDRAM accesses as preset.d.
 void presetInstBench() {
-    for (int steal = 0; steal < 2; ++steal) {
+    for (int mode = 0; mode < 4; ++mode) {
+        const bool steal = mode == 1, live = mode == 2, capm = mode == 3;
         Rig r;
         r.synth(4);
         SynthSlotRecord rc = SynthSlotRecord::defaults(0);
@@ -724,8 +729,7 @@ void presetInstBench() {
         rc.polyphony = steal ? 0 : 4;
         r.eng->synth().setSlotRecord(1, rc);
         r.eng->synth().setSlotRecord(2, rc);
-        gBenchPresets[0] = gSynthPatch;
-        gBenchPresets[1] = gSynthPatch;
+        for (SynthPatch& p : gBenchPresets) p = gSynthPatch;
         r.eng->synth().bindPresets(gBenchPresets);
         benchPresetMix();
         r.eng->synth().bindPresetMix(gBenchPresetMix);
@@ -744,14 +748,22 @@ void presetInstBench() {
             double t0 = nowUnits();
             r.eng->renderLive(out);
             steady += nowUnits() - t0;
-            SynthNoteOn p;
-            p.preset = uint8_t(1 + (k & 1));   // another preset each time: always a bind
-            p.note = 60;
+            // Other presets each time: always a bind.
+            const uint8_t k1 = uint8_t(1 + (k & 1));
             t0 = nowUnits();
-            r.eng->synthNoteOn(12, p);
+            if (live) {
+                r.eng->synth().liveOn(0, 0, 60, -1, k1);
+            } else {
+                if (capm)
+                    for (int v = 0; v < 3; ++v) r.synthNote(uint8_t(8 + v), 0, uint8_t(50 + 7 * v));   // the cap's starts
+                SynthNoteOn p;
+                p.preset = k1;
+                p.note = 60;
+                r.eng->synthNoteOn(12, p);
+            }
             r.eng->renderLive(out);
-            double worst = nowUnits() - t0;
-            for (int b = 0; b < 2; ++b) {   // spreading: the bind's block, then the note's
+            double worst = capm ? 0.0 : nowUnits() - t0;
+            for (int b = 0; b < 3; ++b) {   // spreading: the bind's block, then the note's
                 t0 = nowUnits();
                 r.eng->renderLive(out);
                 const double c = nowUnits() - t0;
@@ -759,17 +771,23 @@ void presetInstBench() {
             }
             on += worst;
             gSink = out[k & 255];
-            r.eng->synthNoteOff(12, NoteOffMode::Cut);   // outside the timing
+            // Outside the timing.
+            if (live) r.eng->synth().noteOff(audio::kSynthLiveTrack0, NoteOffMode::Cut);
+            r.eng->synthNoteOff(12, NoteOffMode::Cut);
             own4();
         }
         r.eng->synth().bindPresetMix(nullptr);
         r.eng->synth().bindPresets(nullptr);
         const double d = (on - steady) / n + acc * kSdramCycles;
+        static const char* const kName[4] = {"pinst.d", "pinsteal.d", "pinstlive.d", "pinstcap.d"};
+        // pinstlive.d: a bind and a start in one block (live notes do not wait;
+        // tools/telemetry_check.py BENCH_LIMITS holds the same limit).
+        static const int kLimit[4] = {16000, 16000, 21000, 16000};
 #ifdef OT_BENCH_M4
-        std::printf("    %s  %8.1f  (preset instrument note, worst block - steady block, est. cycles, limit 16000)\n",
-                    steal ? "pinsteal.d" : "pinst.d", d);
+        std::printf("    %s  %8.1f  (preset instrument note, worst block - steady block, est. cycles, limit %d)\n",
+                    kName[mode], d, kLimit[mode]);
 #else
-        std::printf("  (%s: preset instrument note, worst block - steady %+.2f us)\n", steal ? "pinsteal" : "pinst", d);
+        std::printf("  (%s: preset instrument note, worst block - steady %+.2f us)\n", kName[mode], d);
 #endif
     }
 }
