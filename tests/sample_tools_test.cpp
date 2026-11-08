@@ -287,12 +287,35 @@ TEST(snap_to_zero_search_and_indicator) {
     CHECK_EQ(audio::snapToZero(x.data(), 1000, 300), 300);   // none within 64: exact
     x[540] = 0;
     CHECK_EQ(audio::snapToZero(x.data(), 1000, 560), 540);   // nearer hit wins
-    // Indicator: off -> only an exact zero; on -> crossing inside the window.
+    // Indicator: off -> a crossing in the marker's step; on -> inside the window.
     const uint16_t m540 = uint16_t((540 * 65535 + 999) / 1000);
     CHECK(audio::markerOnCrossing(x.data(), 1000, m540, false));
     CHECK(!audio::markerOnCrossing(x.data(), 1000, uint16_t(560 * 65535 / 1000 + 1), false));
     CHECK(audio::markerOnCrossing(x.data(), 1000, uint16_t(560 * 65535 / 1000 + 1), true));
     CHECK(!audio::markerOnCrossing(x.data(), 1000, uint16_t(200 * 65535 / 1000), true));
+}
+
+TEST(marker_on_crossing_snap_off_sees_the_frames_of_its_step) {
+    // 655,350 frames: one marker step is 10 frames. Snap to zero off: the
+    // marker is green when the wave crosses zero in the frames its step
+    // covers, not only on an exact zero at the step's first frame.
+    const uint32_t len = 655350;
+    std::vector<int16_t> x(len, 800);
+    for (uint32_t i = 10004; i < len; ++i) x[i] = -800;   // sign change 10003 -> 10004
+    CHECK(audio::markerOnCrossing(x.data(), len, 1000, false));    // frames 10000..10009
+    CHECK(!audio::markerOnCrossing(x.data(), len, 999, false));    // frames 9990..9999
+    CHECK(!audio::markerOnCrossing(x.data(), len, 1001, false));   // frames 10010..10019
+    // A sign change between the step's last frame and the next step counts.
+    for (uint32_t i = 10004; i < 20020; ++i) x[i] = 800;
+    CHECK(!audio::markerOnCrossing(x.data(), len, 1000, false));
+    CHECK(audio::markerOnCrossing(x.data(), len, 2001, false));    // 20019 -> 20020
+    CHECK(!audio::markerOnCrossing(x.data(), len, 2000, false));
+    // The last positions reach the last frame.
+    std::vector<int16_t> y(len, 800);
+    y[len - 1] = 0;
+    CHECK(audio::markerOnCrossing(y.data(), len, 65535, false));
+    CHECK(audio::markerOnCrossing(y.data(), len, 65534, false));   // frames 655340..655349
+    CHECK(!audio::markerOnCrossing(y.data(), len, 65533, false));
 }
 
 TEST(snap_to_zero_project_option_and_markers_unchanged) {

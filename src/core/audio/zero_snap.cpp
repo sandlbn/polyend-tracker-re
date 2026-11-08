@@ -39,7 +39,15 @@ bool markerOnCrossing(const int16_t* x, uint32_t len, uint16_t marker, bool snap
     if (!x || !len) return false;
     int32_t f = int32_t(uint64_t(len) * marker / 65535u);
     if (uint32_t(f) >= len) f = int32_t(len) - 1;
-    if (!snapOn) return x[f] == 0;
+    if (!snapOn) {
+        // The frames this marker step covers, up to the next step's first.
+        uint32_t e = marker < 65535 ? uint32_t(uint64_t(len) * (marker + 1u) / 65535u) : len;
+        if (e > len) e = len;
+        if (e <= uint32_t(f)) e = uint32_t(f) + 1;
+        for (uint32_t p = uint32_t(f); p < e; ++p)
+            if (crossing(x, len, int32_t(p))) return true;
+        return false;
+    }
     int32_t at = f;
     const int32_t d = nearest(x, len, f, &at);
     return d >= 0 && d < kZeroSnapWindow;
