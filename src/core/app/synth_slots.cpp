@@ -100,6 +100,11 @@ bool App::previewSynthLibraryPatch(int s, const char* name, uint8_t t) {
     return true;
 }
 
+void App::dropSynthPreview() {
+    previewSlot_ = -1;
+    g_previewPreset = 0;
+}
+
 void App::endSynthPreview() {
     const int s = previewSlot_;
     if (s < 0 || s >= kSynthSlotCount) return;

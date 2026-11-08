@@ -286,7 +286,10 @@ bool App::loadSynthPreset(int s, int n) {
     if (slotEngineId(s) != p.engine) return false;
     std::memcpy(&patches_[s], &p, sizeof(SynthPatch));
     SynthSlotRecord r = project.synthSlot(s);
-    std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
+    // [3.x] The preset's stored name, else "Preset n".
+    const char* pn = g_mix[n - 1].name;
+    if (pn[0] && std::strcmp(pn, "Init") != 0) std::snprintf(r.patchName, sizeof(r.patchName), "%s", pn);
+    else std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
     // [3.x] The preset's mix becomes the slot's (one saved before presets
     // had a mix leaves it as it is), its polyphony too.
@@ -310,6 +313,7 @@ bool App::loadSynthPreset(int s, int n) {
 }
 
 void App::resetSynthPresets() {
+    dropSynthPreview();   // [3.x] a preview of the old project has nothing left to put back
     for (int n = 0; n < kSynthPresetCount; ++n) setEngine(g_table[n], 0);
     for (int s = 0; s < kSynthSlotCount; ++s)
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);

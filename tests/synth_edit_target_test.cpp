@@ -949,6 +949,35 @@ TEST(a_target_move_closes_the_load_patch_browser_but_not_an_unrelated_question) 
     h.tap(btn::F8);
     CHECK(!a.synthPresetUsed(1));
 }
+
+TEST(load_names_the_slot_after_the_preset) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);   // P1 "Bells"
+    CHECK(a.loadSynthPreset(2, 1));
+    const SynthSlotRecord r = a.synthSlot(2);
+    CHECK_STR(r.patchName, "Bells");
+    a.setSynthPresetName(1, "");
+    CHECK(a.loadSynthPreset(2, 1));
+    const SynthSlotRecord r2 = a.synthSlot(2);
+    CHECK_STR(r2.patchName, "Preset 1");
+}
+
+TEST(a_new_project_drops_a_preset_preview) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    CHECK(a.saveSynthLibraryPatch(1, "Other"));
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK(a.previewSynthLibraryPatch(0, "Other"));
+    CHECK_EQ(a.synthPreviewSlot(), 0);
+    CHECK(a.newProject());
+    CHECK_EQ(a.synthPreviewSlot(), -1);
+    a.endSynthPreview();   // nothing left to put back
+    CHECK(!a.synthPresetUsed(1));
+    CHECK_EQ(int(presets::dirty()), 0);
+}
 #endif
 
 }  // namespace

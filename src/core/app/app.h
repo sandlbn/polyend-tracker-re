@@ -876,6 +876,7 @@ private:
     bool previewDirty_ = false;
     const SynthPatch* readSynthLibraryPatch(int32_t engineId, const char* name);
     SynthPatch* scratchPatch();   // the scratch decode slot (nullptr: no scratch)
+    void dropSynthPreview();      // [3.x] forget a preview without putting anything back (presets reset)
     // previewOn voice holding the synth audition track (kNoSynthAudition: none).
     static constexpr uint16_t kNoSynthAudition = 0xFFFF;
     uint16_t synthAudVoice_ = kNoSynthAudition;
