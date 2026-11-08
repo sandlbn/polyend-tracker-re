@@ -734,6 +734,156 @@ TEST(a_preset_without_insert_data_shows_the_slots_and_copies_it_on_an_edit) {
     CHECK_EQ(int(a.synthEditTarget(0)), 1);
 }
 #endif
+
+// --- the target resolved once, questions, edit marks, odd values ---------------------
+
+TEST(an_edit_resolved_for_a_preset_goes_there_even_if_the_slot_moved) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    const uint8_t t = a.synthEditTarget(0);
+    SynthSlotRecord r = a.synthTargetRecord(0, t);
+    a.engine.synth().presetSelect(0, 0);   // the audio block moved the slot meanwhile
+    r.gainDb = -1.0f;
+    a.setSynthTargetRecord(0, r, t);
+    CHECK_NEAR(a.synthPresetMix(1).gainDb, -1.0f, 1e-6);
+    CHECK_NEAR(a.synthSlot(0).gainDb, -12.0f, 1e-6);
+    // The own branch takes only mix, polyphony and macros from a record shaped by a preset.
+    const SynthSlotRecord own = a.synthSlot(0);
+    SynthSlotRecord p = a.synthTargetRecord(0, 1);   // P1's name and mix
+    p.model = own.model == 0 ? 1u : 0u;
+    p.gainDb = -20.0f;
+    a.setSynthTargetRecord(0, p, 0);
+    CHECK_EQ(int(a.synthSlot(0).model), int(own.model));
+    CHECK(std::strcmp(a.synthSlot(0).patchName, own.patchName) == 0);
+    CHECK_NEAR(a.synthSlot(0).gainDb, -20.0f, 1e-6);
+}
+
+TEST(a_nan_preset_mix_never_reaches_a_page_or_the_record) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    PresetMix& pm = presets::mixTable()[0];
+    pm.gainDb = std::nanf("");
+    pm.polyphony = 200;
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    const SynthSlotRecord r = a.synthTargetRecord(0);
+    CHECK(std::isfinite(r.gainDb));
+    CHECK_NEAR(r.gainDb, -12.0f, 1e-6);   // the record's
+    CHECK(r.polyphony <= 8);
+    CHECK(a.loadSynthPreset(2, 1));
+    CHECK(std::isfinite(a.synthSlot(2).gainDb));
+    CHECK(a.synthSlot(2).polyphony <= 8);
+}
+
+TEST(a_question_for_the_old_sound_goes_when_the_slot_moves) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    openSynth(h, 0);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(20);
+    h.tap(btn::F8);   // Edit Patch: an edit of P1 marks it
+    h.enc(3);
+    h.tap(btn::F8);   // back to Params
+    h.tap(btn::F1);
+    h.enc(1);         // Change Model: "Discard edits?"
+    CHECK(a.ui.askOpen());
+    a.engine.synth().presetSelect(0, 0);   // a Z0 in the pattern
+    sound(h, 0);
+    h.run(20);
+    CHECK(!a.ui.askOpen());
+    CHECK_EQ(int(a.synthPreset(1).engine), int(synthEngineId(SynthModel::FAT)));
+    CHECK_EQ(int(a.slotEngineId(0)), int(synthEngineId(SynthModel::ACD)));
+    // The macro-name keyboard too.
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(20);
+    h.tap(btn::F8);
+    SynthScreen& sy = synthScreen(a);
+    const synthui::Section* sec = nullptr;
+    const int n = synthui::sections(a.synthPreset(1).engine, &sec);
+    for (int i = 0; i < n; ++i)
+        if (sec[i].macro >= 0) {
+            sy.section = i;
+            break;
+        }
+    sy.row = 0;
+    h.tap(btn::F8);   // the Name row: the keyboard
+    CHECK(a.ui.kb.isOpen());
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    h.run(20);
+    CHECK(!a.ui.kb.isOpen());
+}
+
+TEST(edit_marks_go_with_a_stored_cleared_or_new_preset_and_a_new_project) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    openSynth(h, 0);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(20);
+    h.tap(btn::F8);
+    h.enc(3);         // P1 edited
+    h.tap(btn::F8);
+    h.tap(btn::InstrParams);
+    h.tap(btn::F8);   // Presets
+    SynthScreen& sy = synthScreen(a);
+    CHECK(sy.view == SynthScreen::View::Presets);
+    h.run(20);   // (the stopped chase settles after the store above)
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.run(20);
+    sy.row = 0;
+    // The slot plays P1: Store into P1 does nothing and asks nothing.
+    const uint8_t d = presets::dirty();
+    h.tap(btn::F1);
+    CHECK(!a.ui.askOpen());
+    CHECK_EQ(int(presets::dirty()), int(d));
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    h.run(20);
+    h.tap(btn::F1);   // now it replaces P1: asks
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F8);
+    CHECK(std::strcmp(a.ui.notice(), "Preset stored") == 0);
+    // P1's mark went with it: a model change on P1 asks nothing.
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    h.tap(btn::F8);   // Macros
+    h.tap(btn::InstrParams);   // Params
+    CHECK(sy.view == SynthScreen::View::Params);
+    h.tap(btn::F1);
+    h.enc(1);
+    CHECK(!a.ui.askOpen());
+    // A new project: no marks of the old one (here the slot's own patch edited).
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    h.run(20);
+    h.tap(btn::F8);
+    const SynthPatch before = a.synthPatch(0);
+    for (int r = 0; r < 8 && std::memcmp(&before, &a.synthPatch(0), sizeof before) == 0; ++r) {
+        h.enc(3);
+        h.tap(btn::Down);
+    }
+    h.tap(btn::F8);
+    CHECK(sy.view == SynthScreen::View::Params);
+    h.tap(btn::F1);
+    h.enc(1);
+    CHECK(a.ui.askOpen());   // marked
+    a.ui.closeAsk();
+    CHECK(a.newProject());
+    h.run(20);
+    h.tap(btn::F1);
+    h.enc(1);
+    CHECK(!a.ui.askOpen());
+}
 #endif
 
 }  // namespace

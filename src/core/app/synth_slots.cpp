@@ -67,14 +67,14 @@ const SynthPatch* App::readSynthLibraryPatch(int32_t eng, const char* name) {
     return tmp;
 }
 
-bool App::previewSynthLibraryPatch(int s, const char* name) {
+bool App::previewSynthLibraryPatch(int s, const char* name, uint8_t t) {
     if (s < 0 || s >= kSynthSlotCount) return false;
-    const uint8_t n = synthEditTarget(s);
-    const SynthPatch* p = readSynthLibraryPatch(synthTargetEngine(s), name);
+    const uint8_t n = synthTargetOf(s, t);
+    const SynthPatch* p = readSynthLibraryPatch(synthTargetEngine(s, n), name);
     if (!p) return false;
     if (previewSlot_ != s || g_previewPreset != n) {
         endSynthPreview();
-        std::memcpy(&g_previewSaved, &synthTargetPatch(s), sizeof(SynthPatch));
+        std::memcpy(&g_previewSaved, &synthTargetPatch(s, n), sizeof(SynthPatch));
         if (n) {   // [3.x] the preset's entry: its dirty bit is kept aside the same way
             uint8_t& d = presets::dirty();
             previewDirty_ = ((d >> (n - 1)) & 1u) != 0;
@@ -88,7 +88,7 @@ bool App::previewSynthLibraryPatch(int s, const char* name) {
         g_previewPreset = n;
     }
     // The same engine (readSynthLibraryPatch): the entry's engine word does not change.
-    std::memcpy(&synthTargetPatch(s), p, sizeof(SynthPatch));
+    std::memcpy(&synthTargetPatch(s, n), p, sizeof(SynthPatch));
     if (n) {
         engine.synth().presetChanged(n);   // the slot stays on the preset
         return true;
@@ -184,8 +184,8 @@ bool App::loadSynthLibraryPatch(int s, const char* name) {
 
 // [3.x] The edit target's patch operations (screen_synth.cpp): on a preset
 // they replace the preset's entry, the slot's own otherwise.
-void App::setSynthTargetEngine(int s, int32_t engineId) {
-    const uint8_t n = synthEditTarget(s);
+void App::setSynthTargetEngine(int s, int32_t engineId, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
     if (!n) {
         setSynthEngine(s, engineId);
         return;
@@ -193,32 +193,32 @@ void App::setSynthTargetEngine(int s, int32_t engineId) {
     if (previewSlot_ >= 0) endSynthPreview();
     const SynthPatch* p = readSynthLibraryPatch(engineId, "Init");
     if (!p) {
-        SynthPatch* t = scratchPatch();
-        if (!t || !patchInit(engineId, t)) return;
-        p = t;
+        SynthPatch* init = scratchPatch();
+        if (!init || !patchInit(engineId, init)) return;
+        p = init;
     }
     setSynthPresetPatch(n, *p, "Init");
 }
 
-bool App::loadSynthTargetPatch(int s, const char* name) {
-    const uint8_t n = synthEditTarget(s);
+bool App::loadSynthTargetPatch(int s, const char* name, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
     if (!n) return loadSynthLibraryPatch(s, name);
     if (previewSlot_ >= 0) endSynthPreview();
-    const SynthPatch* p = readSynthLibraryPatch(synthTargetEngine(s), name);
+    const SynthPatch* p = readSynthLibraryPatch(synthTargetEngine(s, n), name);
     if (!p) return false;
     setSynthPresetPatch(n, *p, name);
     return true;
 }
 
-void App::initSynthTargetPatch(int s) {
-    const uint8_t n = synthEditTarget(s);
+void App::initSynthTargetPatch(int s, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
     if (!n) {
         initSynthPatch(s);
         return;
     }
     if (previewSlot_ >= 0) endSynthPreview();
-    SynthPatch* t = scratchPatch();
-    if (t && patchInit(synthTargetEngine(s), t)) setSynthPresetPatch(n, *t, "Init");
+    SynthPatch* init = scratchPatch();
+    if (init && patchInit(synthTargetEngine(s, n), init)) setSynthPresetPatch(n, *init, "Init");
 }
 
 bool App::synthUnavailableNotice(char* out, size_t cap) const {
@@ -231,16 +231,17 @@ bool App::synthUnavailableNotice(char* out, size_t cap) const {
     return false;
 }
 
-bool App::saveSynthLibraryPatch(int s, const char* name) {
+bool App::saveSynthLibraryPatch(int s, const char* name, uint8_t t) {
     if (s < 0 || s >= kSynthSlotCount || !mem_.scratch || mem_.scratchBytes < kPatchMaxFileSize) return false;
     if (jobBusy()) finishJob();
     SynthSlotRecord r = project.synthSlot(s);
-    const int32_t eng = synthTargetEngine(s);   // [3.x] the edit target's
+    const uint8_t tg = synthTargetOf(s, t);
+    const int32_t eng = synthTargetEngine(s, tg);   // [3.x] the edit target's
     char path[96], dir[48], tmpPath[104];
     if (!libraryPath(path, sizeof(path), eng, name)) return false;
     uint8_t* out = mem_.scratch + kFileOff;
     size_t n = 0;
-    if (encodePatch(synthTargetPatch(s), out, kPatchMaxFileSize, &n) != PatchStatus::kOk) return false;
+    if (encodePatch(synthTargetPatch(s, tg), out, kPatchMaxFileSize, &n) != PatchStatus::kOk) return false;
     IStorage& f = fs();
     std::snprintf(dir, sizeof(dir), "Patches/%s", synthEngineFolder(eng));
     if (!f.mkdir("Patches") || !f.mkdir(dir)) return false;
@@ -251,8 +252,8 @@ bool App::saveSynthLibraryPatch(int s, const char* name) {
     }
     if (f.exists(path) && !f.remove(path)) return false;
     if (!f.rename(tmpPath, path)) return false;
-    if (const uint8_t p = synthEditTarget(s)) {
-        setSynthPresetName(p, name);
+    if (tg) {
+        setSynthPresetName(tg, name);
         return true;
     }
     setName(r, name);

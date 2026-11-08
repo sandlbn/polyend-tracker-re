@@ -40,9 +40,10 @@ const char* kSynthNames[3] = {"Synth 1", "Synth 2", "Synth 3"};
 float synthBar(float db) { return clampf((db + 96.0f) / 108.0f, 0.0f, 1.0f); }
 // [3.x] A slot on a preset shows and sets the preset's level (App::synthEditTarget).
 void synthGainStep(App& a, int s, float d, bool reset) {
-    SynthSlotRecord r = a.synthTargetRecord(s);
+    const uint8_t t = uint8_t(a.synthEditTarget(s));   // once: the audio block can move it
+    SynthSlotRecord r = a.synthTargetRecord(s, t);
     r.gainDb = reset ? 0.0f : clampf(std::round((r.gainDb + 0.5f * d) * 2.0f) / 2.0f, -96.0f, 12.0f);
-    a.setSynthTargetRecord(s, r);
+    a.setSynthTargetRecord(s, r, t);
 }
 const int kMainParams[4] = {0, 5, 6, 7};   // Volume, Saturation, Bass Boost, Space (F-index)
 // Delay sync rate index -> note value, in DSYNC order (spec 04 §5.1,

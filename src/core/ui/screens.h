@@ -1109,6 +1109,12 @@ private:
     // [3.x] What the page showed last (update: a Z or the chase moved the target).
     uint8_t shownTarget_ = 0;
     int32_t shownEngine_ = 0;
+    uint8_t et_ = 0;          // the edit target of this key / step / frame (retarget)
+    uint8_t askTarget_ = 0;   // the edit target a question or keyboard was opened for
+    uint32_t shownEpoch_ = 0; // App::synthPresetsEpoch when editedBits_ was last valid
+    void retarget();
+    bool askStale();
+    void storePresetNow();
     int pendingModel_ = -1;
     char pendingName_[kBrowserNameMax + 1] = {};
     void edited();

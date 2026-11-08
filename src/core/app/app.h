@@ -451,7 +451,7 @@ public:
     bool synthPresetUsed(int n) const;
     bool synthPresetDirty() const;
     int synthPresetActive(int s) const;       // what Z left slot s on, 0 = its own patch
-    void storeSynthPreset(int n, int s);      // slot s's patch into preset n
+    void storeSynthPreset(int n, int s, uint8_t t = kTargetNow);   // what slot s plays (target t) into preset n
     bool loadSynthPreset(int s, int n);       // preset n into slot s, its engine too
     void clearSynthPreset(int n);
     void markSynthPatchDirty(int s) {
@@ -467,21 +467,26 @@ public:
     // name and mix (gain, pan, sends, polyphony; the record's where the
     // preset has none); the macro values stay the record's (what plays).
     uint8_t synthEditTarget(int s) const;
-    SynthPatch& synthTargetPatch(int s);
-    const SynthPatch& synthTargetPatch(int s) const;
-    int32_t synthTargetEngine(int s) const;
+    // t: the target as resolved once for an edit (a Z, Stop or a preset
+    // instrument's bind in the audio block can move it at any time);
+    // kTargetNow resolves it here.
+    static constexpr uint8_t kTargetNow = 0xFF;
+    uint8_t synthTargetOf(int s, uint8_t t) const { return t == kTargetNow ? synthEditTarget(s) : (synthPresetUsed(t) ? t : 0); }
+    SynthPatch& synthTargetPatch(int s, uint8_t t = kTargetNow);
+    const SynthPatch& synthTargetPatch(int s, uint8_t t = kTargetNow) const;
+    int32_t synthTargetEngine(int s, uint8_t t = kTargetNow) const;
     // The slot's record with the target's mix, polyphony and patch name.
-    SynthSlotRecord synthTargetRecord(int s) const;
+    SynthSlotRecord synthTargetRecord(int s, uint8_t t = kTargetNow) const;
     // Mix and polyphony into the target (a preset's are heard at once and
     // saved, the slot stays on it); the rest into the record.
-    void setSynthTargetRecord(int s, const SynthSlotRecord& r);
+    void setSynthTargetRecord(int s, const SynthSlotRecord& r, uint8_t t = kTargetNow);
     // The target's patch changed in place (a parameter): heard live, saved.
-    void markSynthTargetDirty(int s);
+    void markSynthTargetDirty(int s, uint8_t t = kTargetNow);
     // A new engine for the target (the Init patch: library, else built in).
-    void setSynthTargetEngine(int s, int32_t engineId);
+    void setSynthTargetEngine(int s, int32_t engineId, uint8_t t = kTargetNow);
     // Load Patch / Init Patch into the target (Patches/<target engine>/).
-    bool loadSynthTargetPatch(int s, const char* name);
-    void initSynthTargetPatch(int s);
+    bool loadSynthTargetPatch(int s, const char* name, uint8_t t = kTargetNow);
+    void initSynthTargetPatch(int s, uint8_t t = kTargetNow);
     // Preset n's patch replaced by src (engine and all) named `name`: the
     // slots on it stay on it and restart on the new patch, their macro
     // values back to its defaults.
@@ -489,6 +494,8 @@ public:
     void markSynthPresetDirty(int n);
     const char* synthPresetName(int n) const;   // "" = none
     void setSynthPresetName(int n, const char* name);
+    // [3.x] Bumped when a project's presets are replaced (open, new, load).
+    uint32_t synthPresetsEpoch() const;
     // Synth screens (WP-G, app/synth_slots.cpp). The record setter stores
     // the project bytes and pushes them to the framework (engine sync).
     void setSynthSlotRecord(int s, const SynthSlotRecord& r);
@@ -504,7 +511,7 @@ public:
     // Slot s's patch -> Patches/<MODEL>/<name>.patch (atomic; folders made),
     // record name = name. [3.x] The edit target's (synthEditTarget): on a
     // preset, its patch and name.
-    bool saveSynthLibraryPatch(int s, const char* name);
+    bool saveSynthLibraryPatch(int s, const char* name, uint8_t t = kTargetNow);
     // Load Patch popup preview (Tracker+ 1.0; docs/SYNTH_UX_MINI_VS_OT.md
     // row 24): Patches/<MODEL>/<name>.patch plays in slot s (its patch and
     // the audio-side record with the patch's macro defaults) while the
@@ -514,7 +521,7 @@ public:
     // (slot unchanged) when the file is missing, damaged or another engine's.
     // [3.x] On a slot that plays a preset, the preset's entry is previewed
     // (and put back) instead.
-    bool previewSynthLibraryPatch(int s, const char* name);
+    bool previewSynthLibraryPatch(int s, const char* name, uint8_t t = kTargetNow);
     void endSynthPreview();
     int synthPreviewSlot() const { return previewSlot_; }
     // The load notice of a project whose slot has no engine in this build
@@ -569,13 +576,13 @@ public:
     // [3.x] The insert the Synth Insert view edits (synthEditTarget): on a
     // preset, the preset's (the slot's own where the preset has none);
     // edits go into the preset's, heard at once and saved.
-    const char* synthTargetInsertId(int s) const;
-    audio::IEffect* synthTargetInsertEffect(int s) const;
-    audio::EffectSettings synthTargetInsertSettings(int s) const;
-    bool synthTargetInsertOff(int s) const;
-    void setSynthTargetInsertKind(int s, const char* effectId);
-    void setSynthTargetInsertValue(int s, int i, uint8_t v);
-    void setSynthTargetInsertOff(int s, bool off);
+    const char* synthTargetInsertId(int s, uint8_t t = kTargetNow) const;
+    audio::IEffect* synthTargetInsertEffect(int s, uint8_t t = kTargetNow) const;
+    audio::EffectSettings synthTargetInsertSettings(int s, uint8_t t = kTargetNow) const;
+    bool synthTargetInsertOff(int s, uint8_t t = kTargetNow) const;
+    void setSynthTargetInsertKind(int s, const char* effectId, uint8_t t = kTargetNow);
+    void setSynthTargetInsertValue(int s, int i, uint8_t v, uint8_t t = kTargetNow);
+    void setSynthTargetInsertOff(int s, bool off, uint8_t t = kTargetNow);
 #endif
     // Put slot s on any engine of the model list (modules/synth_models.h): a
     // Mini engine = setSynthModel; a module engine keeps the record's model.
@@ -856,8 +863,8 @@ private:
     SlotInsertCfg slotInsert_[kSynthSlotCount] = {};
     void applySlotInsert(int s);
     void ownInsertEdited(int s);
-    const audio::PresetInsert* targetInsert(int s) const;   // nullptr: the slot's own
-    audio::PresetInsert* editTargetInsert(int s, uint8_t* n);   // the preset's, filled from the own first
+    const audio::PresetInsert* targetInsert(int s, uint8_t t) const;   // nullptr: the slot's own
+    audio::PresetInsert* editTargetInsert(int s, uint8_t t);   // preset t's, filled from the own first (t 1..8)
     void presetInsertEdited(uint8_t n);
 #endif
     bool sidecarDirty_ = false;

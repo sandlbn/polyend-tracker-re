@@ -191,17 +191,15 @@ void App::setSlotInsertValue(int s, int i, uint8_t v) {
 // [3.x] The edit target's insert: a slot on a preset with insert data shows
 // and edits the preset's; one without shows the slot's own, and its first
 // edit gives the preset a copy of it.
-const audio::PresetInsert* App::targetInsert(int s) const {
-    const uint8_t n = synthEditTarget(s);
+const audio::PresetInsert* App::targetInsert(int s, uint8_t t) const {
+    const uint8_t n = synthTargetOf(s, t);
     if (!n) return nullptr;
     const audio::PresetInsert& pi = synthPresetInsert(n);
     return (pi.flags & audio::kPresetInsertHas) ? &pi : nullptr;
 }
 
-audio::PresetInsert* App::editTargetInsert(int s, uint8_t* n) {
-    *n = synthEditTarget(s);
-    if (!*n) return nullptr;
-    audio::PresetInsert& pi = presets::insertTable()[*n - 1];
+audio::PresetInsert* App::editTargetInsert(int s, uint8_t n) {
+    audio::PresetInsert& pi = presets::insertTable()[n - 1];
     if (!(pi.flags & audio::kPresetInsertHas)) {
         audio::PresetInsert c{};
         if (const char* id = slotInsertId(s)) {
@@ -227,35 +225,35 @@ void App::presetInsertEdited(uint8_t n) {
     engine.synth().presetChanged(n);
 }
 
-const char* App::synthTargetInsertId(int s) const {
-    const audio::PresetInsert* pi = targetInsert(s);
+const char* App::synthTargetInsertId(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
     if (!pi) return slotInsertId(s);
     return anyId(pi->id) ? pi->id : nullptr;
 }
 
-audio::IEffect* App::synthTargetInsertEffect(int s) const {
-    const audio::PresetInsert* pi = targetInsert(s);
+audio::IEffect* App::synthTargetInsertEffect(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
     return pi ? pi->fx : slotInsertEffect(s);
 }
 
-audio::EffectSettings App::synthTargetInsertSettings(int s) const {
-    const audio::PresetInsert* pi = targetInsert(s);
+audio::EffectSettings App::synthTargetInsertSettings(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
     return pi ? pi->set : slotInsertSettings(s);
 }
 
-bool App::synthTargetInsertOff(int s) const {
-    const audio::PresetInsert* pi = targetInsert(s);
+bool App::synthTargetInsertOff(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
     if (!pi) return slotInsertOff(s);
     return anyId(pi->id) && (pi->flags & audio::kPresetInsertOff);
 }
 
-void App::setSynthTargetInsertKind(int s, const char* effectId) {
-    uint8_t n = 0;
-    audio::PresetInsert* pi = editTargetInsert(s, &n);
-    if (!pi) {
+void App::setSynthTargetInsertKind(int s, const char* effectId, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) {
         setSlotInsertKind(s, effectId);
         return;
     }
+    audio::PresetInsert* pi = editTargetInsert(s, n);
     char id[4] = {};
     audio::EffectSettings set{};
     audio::IEffect* fx = nullptr;
@@ -276,15 +274,15 @@ void App::setSynthTargetInsertKind(int s, const char* effectId) {
     presetInsertEdited(n);
 }
 
-void App::setSynthTargetInsertValue(int s, int i, uint8_t v) {
-    audio::IEffect* fx = synthTargetInsertEffect(s);
-    if (!fx || i < 0 || i >= fx->paramCount() || i >= audio::kEffectMaxParams) return;
-    uint8_t n = 0;
-    audio::PresetInsert* pi = editTargetInsert(s, &n);
-    if (!pi) {
+void App::setSynthTargetInsertValue(int s, int i, uint8_t v, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) {
         setSlotInsertValue(s, i, v);
         return;
     }
+    audio::IEffect* fx = synthTargetInsertEffect(s, n);
+    if (!fx || i < 0 || i >= fx->paramCount() || i >= audio::kEffectMaxParams) return;
+    audio::PresetInsert* pi = editTargetInsert(s, n);
     const uint8_t max = fx->param(i).max;
     const uint8_t c = v > max ? max : v;
     if (pi->set.v[i] == c) return;
@@ -292,14 +290,14 @@ void App::setSynthTargetInsertValue(int s, int i, uint8_t v) {
     presetInsertEdited(n);
 }
 
-void App::setSynthTargetInsertOff(int s, bool off) {
-    if (!synthTargetInsertId(s) || synthTargetInsertOff(s) == off) return;
-    uint8_t n = 0;
-    audio::PresetInsert* pi = editTargetInsert(s, &n);
-    if (!pi) {
+void App::setSynthTargetInsertOff(int s, bool off, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) {
         setSlotInsertOff(s, off);
         return;
     }
+    if (!synthTargetInsertId(s, n) || synthTargetInsertOff(s, n) == off) return;
+    audio::PresetInsert* pi = editTargetInsert(s, n);
     pi->flags = uint8_t(off ? (pi->flags | audio::kPresetInsertOff) : (pi->flags & ~audio::kPresetInsertOff));
     presetInsertEdited(n);
 }
