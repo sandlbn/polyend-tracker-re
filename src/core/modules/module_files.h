@@ -1,6 +1,9 @@
-// [I] Modules loaded from the card: every Modules/*.otm at
-// boot, into the device's module pool, registered after the compiled-in ones
-// (ModuleHost::addLoaded; modules/module_loader.h has the file format).
+// [I] Modules loaded from the card (fork issue #21; modules/module_loader.h has
+// the file format). At boot every Modules/*.otm is looked at: a module without
+// synth engines (master inserts, effects) loads into the device's module pool
+// for good; a synth module is only listed (its engines and their names), and
+// loads when the project names one of its engines (loadCardSynths). Both
+// register after the compiled-in modules (ModuleHost::addLoaded).
 #pragma once
 
 #include <cstdint>
@@ -34,22 +37,36 @@ struct OtmPool {
     uint32_t fastCap = 0;
 };
 
+// What happened to each Modules/*.otm: filled at boot, updated by every
+// loadCardSynths (serial counts the changes).
 struct OtmLoadReport {
-    static constexpr int kMax = 8;
+    static constexpr int kMax = 16;
     struct Item {
         char file[40];      // name in Modules/ (longer names are skipped)
-        OtmError error;     // None = loaded and registered
+        OtmError error;     // None = loaded and registered (a synth: when last wanted)
         bool refused;       // loaded, but ModuleHost refused it (id taken, api, ...)
+        bool synth;         // a synth module: loads when a project names its engine
+        bool loaded;        // in the pool now
         uint32_t rowBytes;  // its row: the code that may run from the fast block (0 = none)
         uint32_t fastBytes; // the part of the row in the fast block (the cut; 0 = none)
     };
     Item items[kMax];
     int n = 0;
-    uint32_t used = 0;      // pool bytes in use after loading
+    uint32_t used = 0;      // pool bytes in use
     uint32_t fastUsed = 0;  // fast block bytes in use
     bool noRoom = false;    // the pool could not grow (the stack floor): nothing loaded
     int skipped = 0;        // .otm files past the first kMax in name order: not loaded
+    uint32_t serial = 0;    // +1 on every change
 };
+
+// A card synth engine (the boot scan lists them, loaded or not).
+struct CardEngine {
+    int32_t engineId;
+    char name[12];          // SynthDescriptor::name (Patches/<name>/)
+    char displayName[16];   // SynthDescriptor::displayName, else name
+    uint8_t file;           // OtmLoadReport item of its module
+};
+constexpr int kMaxCardEngines = 32;
 
 constexpr const char* kModulesDir = "Modules";
 
@@ -62,14 +79,35 @@ constexpr uint32_t kOtmMaxShareCuts = 32;
 void shareFastBlock(const uint32_t (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
                     uint32_t* share);
 
-// Loads Modules/*.otm (name order, the first OtmLoadReport::kMax) into the pool and hands each to
-// ModuleHost::addLoaded(); their rows share the fast block (shareFastBlock).
-// Each file is read twice: once for its cuts, once to load it. scratch holds one file at a time (the sample
-// memory at boot: nothing is loaded yet). Main loop, after ModuleHost::init()
-// and before the audio engine takes the master inserts.
-// Returns the number of modules loaded.
+// Boot: Modules/*.otm (name order, the first OtmLoadReport::kMax). Each file is loaded once to see what it
+// is; a module without synth engines stays and is handed to
+// ModuleHost::addLoaded(), a synth module's engines are listed
+// (cardEngineAt) and its pool room goes back. The modules that stay share
+// the fast block (shareFastBlock); each file is read twice (cuts, then the
+// load). scratch holds one file at a time (the sample memory at boot:
+// nothing is loaded yet). Main loop, after ModuleHost::init() and before the
+// audio engine takes the master inserts. The pool and the report are kept
+// (pointers) for loadCardSynths: they must outlive it. Returns the number of modules loaded for good.
 int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_t scratchCap,
                     OtmLoadReport* report);
+
+// The card synth engines the boot scan listed (none on builds without a pool).
+int cardEngineCount();
+const CardEngine* cardEngineAt(int k);
+const CardEngine* cardEngine(int32_t engineId);   // nullptr: not a card engine
+bool cardEngineLoaded(int32_t engineId);
+
+// The card synth modules serving engines[0 .. n) are loaded, every other
+// card synth leaves (ids that are not card engines are skipped). The modules
+// are loaded in the order their engines come, so the first ones get the room
+// when not all fit; their rows share what the boot modules left of the fast
+// block. Nothing changes when the same set is loaded already. The audio block
+// must not run a card engine meanwhile (SynthBank::holdEngines). Main loop;
+// scratch holds one file at a time. Returns false when a wanted module
+// didn't load (no room, a damaged file: the report says).
+bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratch, uint32_t scratchCap);
+// True when loadCardSynths(engines, n) would change what's loaded.
+bool cardSynthsDiffer(const int32_t* engines, int n);
 
 }  // namespace mod
 }  // namespace ot

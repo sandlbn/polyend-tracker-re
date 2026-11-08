@@ -696,7 +696,7 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     const uint32_t pc3 = stamp();
     // 3b. synth slots (2.x M3): voices -> slot gain / pan -> main bus and
     //     sends; the Synth 1..3 stems are tapped from the slot buses.
-    if (synth_.active() || stems) {
+    if (synth_.active() || stems || synth_.holdPending()) {
         int16_t* synthStems[kSynthSlots] = {};
         if (stems)
             for (int s = 0; s < kSynthSlots; ++s) synthStems[s] = stems->data[StemBlock::kFirstSynthStem + s];

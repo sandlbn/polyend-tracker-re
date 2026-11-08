@@ -25,7 +25,7 @@ constexpr uint32_t kPoolCapBytes = 48 * 1024;   // [I] measurement images (profi
 constexpr uint32_t kPoolCapBytes = 32 * 1024;
 #endif
 
-mod::OtmPool gOtmPool;   // constant-initialised; filled by modulePool()
+mod::OtmPool gOtmPool = {};   // constant-initialised (= {}: the fast fields have initialisers); filled by modulePool()
 
 // LMEM PCCCR (K66 RM "Local memory controller"): GO, PUSHW1, INVW1, PUSHW0,
 // INVW0. The code cache covers the code bus (SRAM_L, the fast block), not

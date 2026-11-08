@@ -160,7 +160,9 @@ void logModuleLoad(const ot::mod::OtmLoadReport& r) {
     for (int i = 0; i < r.n; ++i) {
         const ot::mod::OtmLoadReport::Item& it = r.items[i];
         const char* what = it.refused ? "refused (id taken, api or attach)" : ot::mod::otmErrorText(it.error);
-        if (it.error == ot::mod::OtmError::None && !it.refused && it.rowBytes)
+        if (it.synth && !it.loaded && it.error == ot::mod::OtmError::None && !it.refused)
+            what = "card synth, loads when a project uses it";   // [I] #21
+        if (it.loaded && it.rowBytes)
             ot::hal::diagLogf("modules: %s %s, hot code %lu of %lu B in SRAM_L", it.file, what,
                               static_cast<unsigned long>(it.fastBytes), static_cast<unsigned long>(it.rowBytes));
         else
@@ -320,6 +322,13 @@ void telemetryTick() {
     char line[448];
     ot::diag::formatTelemetry(line, sizeof line, s);
     ot::hal::diagLog(line);
+    {   // [I] #21: a card synth load since the last line
+        static uint32_t seen = 0;
+        if (gApp.moduleLoadReport().serial != seen) {
+            seen = gApp.moduleLoadReport().serial;
+            logModuleLoad(gApp.moduleLoadReport());
+        }
+    }
 #if OT_POOL_TEST
     {   // [I] #21 measurement images: the boot log replay ends before the modules load
         static unsigned n = 0;

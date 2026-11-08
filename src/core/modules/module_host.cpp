@@ -35,7 +35,7 @@ ModuleHost::SdramArena ModuleHost::profileSdram() {
 }
 
 void* ModuleHost::sdram(uint32_t bytes) {
-    if (!bytes || !sdram_.base) return nullptr;
+    if (!bytes || !sdram_.base || noSdram_) return nullptr;
     const uintptr_t base = reinterpret_cast<uintptr_t>(sdram_.base);
     const uintptr_t at = (base + sdram_.used + 15u) & ~uintptr_t(15u);
     const uint64_t end = uint64_t(at - base) + bytes;
@@ -159,9 +159,25 @@ audio::IMasterInsert* ModuleHost::masterInsert() {
 
 bool ModuleHost::addForTest(IModule& m) { return addLoaded(m); }
 
-// [I] A module loaded from the card (modules/module_files.h): the
+void ModuleHost::removeLoaded(IModule& m) {
+    int i = 0;
+    while (i < n_ && mods_[i] != &m) ++i;
+    if (i == n_) return;
+    for (int k = i; k + 1 < n_; ++k) mods_[k] = mods_[k + 1];
+    mods_[--n_] = nullptr;
+    int w = 0;
+    for (int k = 0; k < nDesc_; ++k) {
+        bool mine = false;
+        for (int j = 0; const SynthDescriptor* d = m.synthDescriptor(j); ++j) mine |= d == desc_[k];
+        if (!mine) desc_[w++] = desc_[k];
+    }
+    for (int k = w; k < nDesc_; ++k) desc_[k] = nullptr;
+    nDesc_ = w;
+}
+
+// [I] A module loaded from the card (modules/module_files.h, fork #21): the
 // checks init() makes, after the compiled-in modules.
-bool ModuleHost::addLoaded(IModule& m) {
+bool ModuleHost::addLoaded(IModule& m, bool onDemand) {
     if (!inited_) init();
     const ModuleInfo& in = m.info();
 #if defined(OT_POOL_TEST) && OT_POOL_TEST
@@ -182,8 +198,13 @@ bool ModuleHost::addLoaded(IModule& m) {
         break;
     }
 #endif
-    if (in.api != kModuleApi || n_ >= kMaxModules || find(in.id) || !descriptorsOk(m) || !effectsOk(m) ||
-        !m.attach(*this)) {
+    bool ok = in.api == kModuleApi && n_ < kMaxModules && !find(in.id) && descriptorsOk(m) && effectsOk(m);
+    if (ok) {
+        noSdram_ = onDemand;
+        ok = m.attach(*this);
+        noSdram_ = false;
+    }
+    if (!ok) {
         std::memcpy(refused_, in.id, sizeof(refused_));
         refused_[4] = '\0';
         return false;

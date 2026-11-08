@@ -155,8 +155,8 @@ The modules run from a pool at the bottom of the stack (up to 32 KB), and the st
 moves above it. A module is refused when it doesn't fit, when its id is already loaded
 (compiled in or an earlier file), or when it was built for another firmware or needs a
 symbol the firmware doesn't export (`src/core/modules/module_exports.txt`): "needs
-updating". The screen names the first refused module on boot. At most eight files load,
-the first eight by name. A module from the card gets no SDRAM (the profile's module SDRAM
+updating". The screen names the first refused module on boot. At most sixteen files load,
+the first sixteen by name. A module from the card gets no SDRAM (the profile's module SDRAM
 is sized for the compiled-in modules), so one that needs it has to be compiled in.
 `profiles/sdtest.toml` is the `full` profile without ACD and Tape, for trying the loader
 with those two (and FM4S) from the card. `make otm-test` checks the tool's images against

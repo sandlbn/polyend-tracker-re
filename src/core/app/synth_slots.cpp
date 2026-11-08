@@ -230,10 +230,84 @@ bool App::synthUnavailableNotice(char* out, size_t cap) const {
     for (int s = 0; s < kSynthSlotCount; ++s) {
         const int32_t eng = slotEngineId(s);
         if (eng && audio::synthEngineFor(eng)) continue;
-        std::snprintf(out, cap, "Synth %d (%s) not available", s + 1, synthEngineDisplayName(eng));
+        if (const char* why = cardSlotState(s))
+            std::snprintf(out, cap, "Synth %d (%s): %s", s + 1, synthEngineDisplayName(eng), why);
+        else
+            std::snprintf(out, cap, "Synth %d (%s) not available", s + 1, synthEngineDisplayName(eng));
         return true;
     }
     return false;
+}
+
+// ---- [I] #21 card synths ------------------------------------------------------
+
+const char* App::cardSlotState(int s) const {
+    const int32_t eng = slotEngineId(s);
+    const mod::CardEngine* e = mod::cardEngine(eng);
+    if (!e || mod::cardEngineLoaded(eng)) return nullptr;
+    if (seq.isPlaying() || seq.isArmed()) return "Loads at Stop";
+    if (std::memcmp(cardTried_, slotEngine_, sizeof(cardTried_)) != 0) return "Loading";
+    const mod::OtmLoadReport& r = moduleLoad_;
+    if (r.noRoom) return "No card memory";
+    const mod::OtmLoadReport::Item& it = r.items[e->file];
+    if (it.refused) return "Module refused";
+    if (it.error == mod::OtmError::TooBig) return "Card memory full";
+    return mod::otmErrorText(it.error);
+}
+
+void App::serviceCardSynths(uint32_t now) {
+    if (std::memcmp(cardTried_, slotEngine_, sizeof(cardTried_)) == 0) {
+        cardSince_ = 0;
+        return;
+    }
+    if (!cardSince_ || std::memcmp(cardWaiting_, slotEngine_, sizeof(cardWaiting_)) != 0) {
+        std::memcpy(cardWaiting_, slotEngine_, sizeof(cardWaiting_));
+        cardSince_ = now ? now : 1;
+        return;
+    }
+    if (now - cardSince_ < kCardSettleMs || seq.isPlaying() || seq.isArmed() || jobBusy()) return;
+    cardSince_ = 0;
+    syncCardSynths(true);
+}
+
+bool App::syncCardSynths(bool initPatches) {
+    // The slots' module engines (a built-in one is skipped by the loader).
+    // [I] Z presets (upstream #171) will add the engines their presets name.
+    std::memcpy(cardTried_, slotEngine_, sizeof(cardTried_));
+    if (!mod::cardSynthsDiffer(slotEngine_, kSynthSlotCount)) return true;
+    // The scratch is free: serviceCardSynths waits for the job to end, the
+    // project load calls this between its units.
+    if (!mem_.scratch) return false;
+    if (previewSlot_ >= 0) endSynthPreview();
+    audio::SynthBank& bank = engine.synth();
+    // No card engine runs from here on: the next block drops the synth
+    // voices (a block is 2.9 ms); when no block runs on its own, this does.
+    bank.holdEngines(true);
+    const uint32_t t0 = millis();
+    while (!bank.enginesHeld())
+        if (!hal_.audio || !hal_.audio->blocksOnTheirOwn() || millis() - t0 > 50) {
+            bank.dropEngines();
+            break;
+        }
+    const bool ok = mod::loadCardSynths(fs(), slotEngine_, kSynthSlotCount, mem_.scratch, mem_.scratchBytes);
+    bank.holdEngines(false);
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        const int32_t eng = slotEngineId(s);
+        // A slot that took its card engine before it loaded: its Init patch now.
+        if (initPatches && patches_[s].engine != eng && audio::synthEngineFor(eng)) {
+            SynthSlotRecord r = project.synthSlot(s);
+            setName(r, "Init");
+            project.setSynthSlot(s, r);
+            if (!loadSynthLibraryPatch(s, "Init")) initSynthPatch(s);
+        }
+        engine.synth().patchChanged(s);
+    }
+    if (!ok && initPatches) {
+        char t[64];
+        if (synthUnavailableNotice(t, sizeof(t))) ui.notify(t, 4000);
+    }
+    ui.dirty();
+    return ok;
 }
 
 bool App::saveSynthLibraryPatch(int s, const char* name, uint8_t t) {

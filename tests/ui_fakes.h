@@ -506,6 +506,7 @@ public:
     }
     bool start() override { return started = true; }
     void stop() override { started = false; }
+    bool blocksOnTheirOwn() const override { return false; }   // the test pulls them
     // Output mute line (pin 21): history of setOutputEnabled calls, 1 = on.
     std::vector<int> outputLog;
     bool outputOn() const { return !outputLog.empty() && outputLog.back() == 1; }
@@ -608,6 +609,7 @@ struct Harness {
             return true;
         };
         h.inputCtx = this;
+        if (beforeInit) beforeInit(*this, h);   // [I] e.g. card modules (#21)
         ot::AppMemory m;
         m.sampleBank = bank.data();
         m.sampleBankSamples = uint32_t(bank.size());
@@ -641,6 +643,8 @@ struct Harness {
         if (bootNow) app->boot();
     }
     static inline bool dlOverflowFatal = true;
+    // Runs before App::init: may fill the card and the HalRefs (modulePool).
+    static inline std::function<void(Harness&, ot::HalRefs&)> beforeInit;
     void run(uint32_t ms = 20) {
         // Advance time in 10 ms slices so timers fire in order.
         for (uint32_t t = 0; t < ms; t += 10) {

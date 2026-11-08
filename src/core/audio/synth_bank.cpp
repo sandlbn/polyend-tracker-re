@@ -439,7 +439,49 @@ __attribute__((noinline)) void SynthBank::applyMix(int s) {
     sl.mixE = 0.5f * sendGain(sl.sendR);
 }
 
+void SynthBank::holdEngines(bool on) {
+    if (on) {
+        held_ = false;
+        hold_ = true;
+    } else {
+        hold_ = false;
+        held_ = false;
+    }
+}
+
+void SynthBank::dropEngines() {
+    for (auto& v : voices_) {
+        v.state = kFree;
+        v.track = -1;
+        v.pending = -1;
+    }
+    for (auto& p : pend_) p.record = -1;
+    for (auto& d : defer_) d = Deferred{};
+    nDefer_ = 0;
+    flushDue_ = false;
+    for (int t = 0; t < kSynthAllTracks; ++t) {
+        trackVoice_[t] = -1;
+        heldSeq_[t] = 0;
+    }
+    for (auto& o : owner_) o = -1;
+    activeVoices_ = 0;
+    tails_ = 0;
+    aud_.req = 0;
+    for (int k = 0; k < kSynthLiveTracks; ++k) liveSeen_[k] = uint8_t(live_[k]);   // MIDI notes meanwhile: dropped
+    for (int s = 0; s < kSynthSlots; ++s) {
+        slots_[s].p.held = SynthHeld{};
+        slots_[s].eng = nullptr;
+        slots_[s].engineId = 0;
+        rebind_[s] = true;
+    }
+    held_ = true;
+}
+
 void SynthBank::sync() {
+    if (hold_) {   // [I] #21: no engine is bound or called until the hold ends
+        if (!held_) dropEngines();
+        return;
+    }
     for (int s = 0; s < kSynthSlots; ++s) {
         Slot& sl = slots_[s];
         bool mixWant = false;
@@ -1022,6 +1064,7 @@ void SynthBank::notePitchFx(const SynthNoteOn& n, float prevPitch, bool hasPrev,
 void SynthBank::noteOn(int track, const SynthNoteOn& n) {
     if (track < 0 || track >= kSynthTracks) return;
     sync();
+    if (hold_) return;
     if (flushDue_) flushDeferred();
     noteOnNow(track, n, false);
 }
@@ -1450,6 +1493,7 @@ __attribute__((noinline)) void addTap(float* tl, float* tr, const float* vl, con
 OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float* mR, float* dsend, float* rsend,
                        int16_t* const stems[kSynthSlots], int tapTrack, float* tapL, float* tapR) {
     blockSync();
+    if (hold_) return false;
     liveDrain();   // MIDI input (audio side only)
     if (flushDue_) flushDeferred();   // no note-on came first in this block
     // Records per slot (one pass).

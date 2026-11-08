@@ -12,6 +12,7 @@
 #include "modules/module.h"
 #include "modules/module_files.h"
 #include "modules/module_loader.h"
+#include "modules/synth_descriptor.h"
 
 using namespace ot;
 using namespace ot::mod;
@@ -381,11 +382,11 @@ struct FakeModule : IModule {
 FakeModule gLdA("LDA1"), gLdB("LDB1"), gLdDup("LDA1");
 uint8_t gPoolMem[96];
 uint32_t gSynced = 0;
-uint32_t gEntries[4];
+uint32_t gEntries[8];
 int gNEntries = 0;
 
 IModule& fakeEnter(uint32_t entry) {
-    if (gNEntries < 4) gEntries[gNEntries++] = entry;
+    if (gNEntries < 8) gEntries[gNEntries++] = entry;
     const uint32_t off = entry - 0x1FFF8000u;
     return off < 24 ? static_cast<IModule&>(gLdA) : off < 48 ? static_cast<IModule&>(gLdB) : gLdDup;
 }
@@ -427,10 +428,14 @@ TEST(card_modules_load_in_name_order) {
     CHECK(r.items[3].error == OtmError::Api);
     CHECK(r.items[4].error == OtmError::None && r.items[4].refused);   // LDA1 again
     CHECK_EQ(r.used, 48u);                       // two modules of 24 B, back to back (align 8)
-    CHECK_EQ(gNEntries, 3);
+    // Each file is entered once at the pool's start to see what it is, then
+    // the ones that stay are loaded back to back.
+    CHECK_EQ(gNEntries, 6);
     CHECK_EQ(gEntries[0], 0x1FFF8001u);
-    CHECK_EQ(gEntries[1], 0x1FFF8019u);          // 24 + entryOffset 1
-    CHECK_EQ(gSynced, 72u);
+    CHECK_EQ(gEntries[2], 0x1FFF8001u);
+    CHECK_EQ(gEntries[3], 0x1FFF8001u);
+    CHECK_EQ(gEntries[4], 0x1FFF8019u);          // 24 + entryOffset 1
+    CHECK_EQ(gSynced, 144u);
     CHECK_EQ(word(gPoolMem + 24), 0x1FFF8020u);  // b's first word: its own base + 8
     CHECK(ModuleHost::instance().find("LDA1") == &gLdA);
     CHECK(ModuleHost::instance().find("LDB1") == &gLdB);
@@ -486,14 +491,14 @@ struct ReverseStorage : MemStorage {
     }
 };
 
-TEST(card_modules_past_the_first_eight_by_name) {
+TEST(card_modules_past_the_first_kmax_by_name) {
     ReverseStorage fs;
     Built a;
-    // Ten files, listed in reverse name order: the first eight by name are
-    // loaded whatever the directory order, the other two counted.
-    for (int i = 9; i >= 0; --i) {
+    // kMax + 2 files, listed in reverse name order: the first kMax by name
+    // are loaded whatever the directory order, the other two counted.
+    for (int i = OtmLoadReport::kMax + 1; i >= 0; --i) {
         char name[32];
-        std::snprintf(name, sizeof(name), "Modules/m%d.otm", i);
+        std::snprintf(name, sizeof(name), "Modules/m%02d.otm", i);
         fs.files[name] = a.file();
     }
     const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, nullptr};
@@ -504,7 +509,7 @@ TEST(card_modules_past_the_first_eight_by_name) {
     CHECK_EQ(r.skipped, 2);
     for (int i = 0; i < r.n; ++i) {
         char want[24];
-        std::snprintf(want, sizeof(want), "m%d.otm", i);
+        std::snprintf(want, sizeof(want), "m%02d.otm", i);
         CHECK_STR(r.items[i].file, want);
     }
 }
@@ -547,8 +552,9 @@ TEST(fast_block_shared_by_turns) {
 
 namespace {
 FakeModule gRowA("RWA1"), gRowB("RWB1");
+// Entered as: probe a, probe b, load a, load b.
 int gRowEntered = 0;
-IModule& rowEnter(uint32_t) { return gRowEntered++ ? static_cast<IModule&>(gRowB) : gRowA; }
+IModule& rowEnter(uint32_t) { return gRowEntered++ % 2 ? static_cast<IModule&>(gRowB) : gRowA; }
 }  // namespace
 
 TEST(card_modules_share_the_fast_block) {
@@ -574,4 +580,117 @@ TEST(card_modules_share_the_fast_block) {
     CHECK_EQ(word(fastMem + 8), kFb + 1);             // a's row function 8 points at a's row 0
     CHECK_EQ(word(fastMem + 16 + 0), 0x20010000u + 16u + 5u);   // b's row 0: b's main part + 5
     CHECK_EQ(word(mem + 16), 0x20010000u + 16u + 16u + 1u);     // b's main: its row 8, in its tail
+}
+
+// ---- card synths: listed at boot, loaded when wanted ----------------------
+namespace {
+
+const PatchParamRange kFkRange[1] = {{0.5f, 0.0f, 1.0f}};
+const synthui::ParamUi kFkUi[1] = {{"Level", synthui::kFmtPct, nullptr, 0}};
+
+// A synth module stand-in: one engine.
+struct FakeSynth : FakeModule {
+    SynthDescriptor d;
+    int attached = 0;
+    FakeSynth(const char* id, int32_t engine, const char* name)
+        : FakeModule(id), d{engine, name, 0, 0, 1, kFkRange, kFkUi, nullptr, 0, 0, nullptr} {
+        in.caps = kCapSynthEngine | kCapSynthDescriptor;
+    }
+    const SynthDescriptor* synthDescriptor(int i) const override { return i == 0 ? &d : nullptr; }
+    bool attach(ModuleHost&) override {
+        ++attached;
+        return true;
+    }
+};
+FakeSynth gSyA("SYA1", 0xE1, "FAKEA"), gSyB("SYB1", 0xE2, "FAKEB");
+FakeModule gFxA("FXA1");
+
+// The file's tag (image word 2) names the module; probes all land at the
+// pool's start, so the address can't.
+uint8_t gSyPool[256];
+IModule& synthEnter(uint32_t entry) {
+    const uint8_t* m = gSyPool + (entry - 1 - 0x20020000u);
+    switch (word(m + 8)) {
+        case 1: return gSyA;
+        case 2: return gSyB;
+        default: return gFxA;
+    }
+}
+std::vector<uint8_t> tagged(uint32_t tag, uint32_t imageBytes = 16) {
+    Built b;
+    b.image.resize(imageBytes, 0);
+    for (int i = 0; i < 4; ++i) b.image[8 + i] = uint8_t(tag >> (8 * i));
+    return b.file();
+}
+
+}  // namespace
+
+TEST(card_synths_listed_at_boot_and_loaded_when_wanted) {
+    MemStorage fs;
+    fs.files["Modules/fx.otm"] = tagged(0);
+    fs.files["Modules/sa.otm"] = tagged(1);
+    fs.files["Modules/sb.otm"] = tagged(2);
+    const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, nullptr};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    ModuleHost& h = ModuleHost::instance();
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 1);   // only the effect stays
+    CHECK(h.find("FXA1") == &gFxA);
+    CHECK(!h.find("SYA1") && !h.find("SYB1"));
+    CHECK_EQ(gSyA.attached + gSyB.attached, 0);
+    CHECK_EQ(r.used, 24u);
+    CHECK(r.items[1].synth && !r.items[1].loaded);
+    // Both engines are listed, neither loaded.
+    CHECK_EQ(cardEngineCount(), 2);
+    CHECK_STR(cardEngineAt(0)->name, "FAKEA");
+    CHECK_EQ(cardEngine(0xE2)->file, 2);
+    CHECK(!cardEngineLoaded(0xE1));
+    CHECK(!h.synthDescriptor(0xE1));
+    // Slots naming 0xE2 and a built-in engine: only B loads, after the effect.
+    int32_t want[3] = {1, 0xE2, 0xE2};
+    CHECK(cardSynthsDiffer(want, 3));
+    CHECK(loadCardSynths(fs, want, 3, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE2) && !cardEngineLoaded(0xE1));
+    CHECK(h.synthDescriptor(0xE2) == &gSyB.d);
+    CHECK_EQ(gSyB.attached, 1);
+    CHECK_EQ(r.used, 48u);
+    CHECK(!cardSynthsDiffer(want, 3));
+    CHECK(loadCardSynths(fs, want, 3, scratch, sizeof(scratch)));   // the same set: nothing happens
+    CHECK_EQ(gSyB.attached, 1);
+    // A new set: B leaves, A loads where B was.
+    want[1] = want[2] = 0xE1;
+    CHECK(loadCardSynths(fs, want, 3, scratch, sizeof(scratch)));
+    CHECK(!h.find("SYB1") && !h.synthDescriptor(0xE2));
+    CHECK(h.synthDescriptor(0xE1) == &gSyA.d);
+    CHECK_EQ(r.used, 48u);
+    // Both, then none.
+    want[2] = 0xE2;
+    CHECK(loadCardSynths(fs, want, 3, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE1) && cardEngineLoaded(0xE2));
+    CHECK_EQ(r.used, 72u);
+    const int32_t none[3] = {1, 2, 4};
+    CHECK(loadCardSynths(fs, none, 3, scratch, sizeof(scratch)));
+    CHECK(!h.find("SYA1") && !h.find("SYB1"));
+    CHECK_EQ(r.used, 24u);
+    CHECK(h.find("FXA1") == &gFxA);
+    h.removeLoaded(gFxA);   // (the host is shared by the tests)
+}
+
+TEST(card_synths_first_wanted_gets_the_room) {
+    MemStorage fs;
+    fs.files["Modules/sa.otm"] = tagged(1, 96);   // 96 + 8 bss = 104 B each
+    fs.files["Modules/sb.otm"] = tagged(2, 96);
+    const OtmPool pool = {gSyPool, 0x20020000u, 160, kCore, nullptr, &synthEnter, nullptr};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
+    CHECK_EQ(cardEngineCount(), 2);
+    const int32_t want[2] = {0xE2, 0xE1};   // B first
+    CHECK(!loadCardSynths(fs, want, 2, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE2) && !cardEngineLoaded(0xE1));
+    CHECK(r.items[0].error == OtmError::TooBig);
+    CHECK(!loadCardSynths(fs, want, 2, scratch, sizeof(scratch)));   // still: no retry changes it
+    const int32_t none[1] = {0};
+    CHECK(loadCardSynths(fs, none, 1, scratch, sizeof(scratch)));
+    CHECK(!cardEngineLoaded(0xE2));
 }

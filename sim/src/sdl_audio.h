@@ -89,6 +89,7 @@ public:
     }
     bool start() override { running_ = true; return true; }
     void stop() override { running_ = false; }
+    bool blocksOnTheirOwn() const override { return false; }   // [I] #21: the script pulls them
     void applyMasterDsp(const float eq[5], uint8_t bassBoost, uint8_t space) override {
         masterDsp.set(eq, bassBoost, space);
     }
