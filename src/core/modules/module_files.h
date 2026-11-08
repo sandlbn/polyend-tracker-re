@@ -53,9 +53,19 @@ struct OtmLoadReport {
 
 constexpr const char* kModulesDir = "Modules";
 
-// Loads Modules/*.otm (name order, the first OtmLoadReport::kMax) into the
-// pool and hands each to ModuleHost::addLoaded(). scratch holds one file at a
-// time (the sample memory at boot: nothing is loaded yet). Main loop, after ModuleHost::init()
+// Cuts per module the fast block is shared by (a longer row stops there).
+constexpr uint32_t kOtmMaxShareCuts = 32;
+
+// Shares a fast block of cap bytes between n modules' rows (cuts[i][0 ..
+// nCuts[i]) = module i's cuts, module_loader.h): they take turns, in order,
+// moving to their next cut while it fits. share[i] = module i's cut (0 = none).
+void shareFastBlock(const uint32_t (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
+                    uint32_t* share);
+
+// Loads Modules/*.otm (name order, the first OtmLoadReport::kMax) into the pool and hands each to
+// ModuleHost::addLoaded(); their rows share the fast block (shareFastBlock).
+// Each file is read twice: once for its cuts, once to load it. scratch holds one file at a time (the sample
+// memory at boot: nothing is loaded yet). Main loop, after ModuleHost::init()
 // and before the audio engine takes the master inserts.
 // Returns the number of modules loaded.
 int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_t scratchCap,

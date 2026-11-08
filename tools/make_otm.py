@@ -171,8 +171,8 @@ def hot_patterns(objs, rows):
     per section holding a named function (-ffunction-sections: .text.<name>;
     .fastrun code is one section per file and moves as a whole, at its first
     function's place with the weights summed). Sections aligned to more than
-    4 stay in the main part: every cut is a multiple of 4."""
-    where = {}   # name -> pattern
+    8 stay in the main part: every cut is a multiple of 8."""
+    where, base = {}, {}   # name -> pattern; base name -> its patterns (see clone_base)
     for o in objs:
         with open(o, "rb") as f:
             elf = ELFFile(f)
@@ -181,21 +181,32 @@ def hot_patterns(objs, rows):
                 if sym["st_info"]["type"] != "STT_FUNC" or not isinstance(sym["st_shndx"], int):
                     continue
                 sec = elf.get_section(sym["st_shndx"])
-                if sec["sh_addralign"] > 4:
+                if sec["sh_addralign"] > 8:
                     continue
                 n = sec.name
-                where[sym.name] = f"*(.text.{sym.name})" if n == f".text.{sym.name}" else f"*/{os.path.basename(o)}({n})"
+                pat = f"*(.text.{sym.name})" if n == f".text.{sym.name}" else f"*/{os.path.basename(o)}({n})"
+                where[sym.name] = pat
+                if not re.search(r"\.cold(\.\d+)?$", sym.name):
+                    base.setdefault(clone_base(sym.name), []).append(pat)
     pats, weight, missing = [], {}, []
     for name, w in rows:
-        pat = where.get(name)
-        if pat is None:
+        # The same function under another clone name (the bench and the module
+        # build inline and split differently): every clone of it, weight shared.
+        found = [where[name]] if name in where else base.get(clone_base(name), [])
+        if not found:
             missing.append(name)
             continue
-        if pat not in weight:
-            pats.append(pat)
-            weight[pat] = 0.0
-        weight[pat] += w
+        for pat in found:
+            if pat not in weight:
+                pats.append(pat)
+                weight[pat] = 0.0
+            weight[pat] += w / len(found)
     return [(p, weight[p]) for p in pats], missing
+
+
+def clone_base(name):
+    """A function's name without GCC's clone suffixes (.part.0, .isra.0, .constprop.1, ...)."""
+    return re.sub(r"(\.(part|isra|constprop|lto_priv|cold)\.\d+)+$", "", name)
 
 
 def write_stubs(path, funcs):
@@ -281,8 +292,8 @@ def build(args):
                 fail(f"--ref-cut {cut} is not a cut ({' '.join(map(str, cuts))})")
             n_fast = cuts.index(cut) + 1 if cut else 0
             elfr = os.path.join(tmp, "mref.elf")
-            # module_loader.h otmTailOffset: after the main part and its bss, at a multiple of 4.
-            tail_base = base + ((len(image) - row_bytes + bss + 3) & ~3)
+            # module_loader.h otmTailOffset: after the main part and its bss, at a multiple of 8.
+            tail_base = base + ((len(image) - row_bytes + bss + 7) & ~7)
             link(ld, allobjs, entry, funcs, data_imports, fbase, base, row[:n_fast], row[n_fast:],
                  lambda s: fake_export(index[s]), elfr, tail_base)
             with open(elfr, "rb") as f:
@@ -295,21 +306,21 @@ def build(args):
                 fimg = fs.data() if fs is not None and fs["sh_type"] != "SHT_NOBITS" else b""
                 ts = e.get_section_by_name(".otm_tail")
                 timg = ts.data() if ts is not None and ts["sh_type"] != "SHT_NOBITS" else b""
-                if timg and ts["sh_addr"] != base + ((len(img) + nb + 3) & ~3):
+                if timg and ts["sh_addr"] != base + ((len(img) + nb + 7) & ~7):
                     fail(f"the tail was linked at {ts['sh_addr']:#x}, not after the bss")
             main = img + bytes(nb)
             if timg:
-                main += bytes(-len(main) % 4) + timg
+                main += bytes(-len(main) % 8) + timg
             with open(args.ref_out, "wb") as f:
                 f.write(main)
             if args.ref_fast_out:
                 with open(args.ref_fast_out, "wb") as f:
-                    f.write(fimg + bytes(-len(fimg) % 4))
+                    f.write(fimg + bytes(-len(fimg) % 8))
 
 
 def row_body(pieces, first=0):
-    """A row's pieces, each at a multiple of 4, __otm_cut_<k> after each."""
-    return " ".join(f". = ALIGN(4); {p} . = ALIGN(4); __otm_cut_{first + k} = .;" for k, (p, _) in enumerate(pieces))
+    """A row's pieces, each at a multiple of 8, __otm_cut_<k> after each."""
+    return " ".join(f". = ALIGN(8); {p} . = ALIGN(8); __otm_cut_{first + k} = .;" for k, (p, _) in enumerate(pieces))
 
 
 def link(ld, objs, entry, funcs, data_imports, fast_base, base, fast, tail, value, out, tail_base=0):
@@ -354,7 +365,7 @@ def read_linked(path, entry, index, main_link):
         elf = ELFFile(f)
         fs = elf.get_section_by_name(".otm_fast")
         fimg = fs.data() if fs is not None else b""
-        fimg += bytes(-len(fimg) % 4)
+        fimg += bytes(-len(fimg) % 8)
         fast_end = len(fimg)
         otm = elf.get_section_by_name(".otm")
         mimg = otm.data()
@@ -382,7 +393,7 @@ def read_linked(path, entry, index, main_link):
         cutsym = {int(s.name[len("__otm_cut_"):]): s["st_value"] for s in st.iter_symbols()
                   if s.name.startswith("__otm_cut_")}
         cuts = [cutsym[k] for k in sorted(cutsym)] if fast_end else []
-        if cuts and (cuts[-1] != fast_end or any(c & 3 for c in cuts) or cuts != sorted(cuts)):
+        if cuts and (cuts[-1] != fast_end or any(c & 7 for c in cuts) or cuts != sorted(cuts)):
             fail(f"the row's cuts {cuts} don't end at the row's end {fast_end}")
         if fast_end and fast_end >= MAIN_LINK:
             fail("the row is bigger than the main part's link address")

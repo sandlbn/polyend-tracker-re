@@ -1,0 +1,5 @@
+# ju6: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio3ju612_GLOBAL__N_1L6kernelEPfS3_RNS2_10VoiceStateERKNS2_9SlotStateENS2_4RampE 0.96384  # 796 B
+_ZN2ot5audio3ju612_GLOBAL__N_19Ju6Engine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.00681  # 1408 B
+# 2204 B, 20 modes, 97.1% of the weight

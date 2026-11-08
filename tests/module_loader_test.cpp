@@ -220,9 +220,9 @@ struct Loaded2 {
         const std::vector<uint8_t> f = Built2().file();
         e = otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{fast, sizeof(fast), kFb},
                     OtmBlock{mainb, sizeof(mainb), kMb}, cut, &entry);
-        // The main part (8) + bss (4) = 12; the tail starts there (a multiple of 4).
-        row0 = cut > 0 ? kFb : kMb + 12;
-        row8 = cut > 8 ? kFb + 8 : kMb + 12 + (8 - cut);
+        // The main part (8) + bss (4) = 12; the tail starts at 16 (a multiple of 8).
+        row0 = cut > 0 ? kFb : kMb + 16;
+        row8 = cut > 8 ? kFb + 8 : kMb + 16 + (8 - cut);
     }
 };
 
@@ -240,7 +240,7 @@ TEST(row_cut_at_each_cut) {
         CHECK_EQ(uint32_t(l.mainb[6] | l.mainb[7] << 8) & 0xD000u, 0x9000u);  // still a B.W, not a BL
         for (int i = 8; i < 12; ++i) CHECK_EQ(l.mainb[i], 0);            // bss zeroed
         CHECK_EQ(l.fast[cut], 0x55);                                      // nothing past the cut
-        CHECK_EQ(l.mainb[12 + (16 - cut)], 0x55);                         // nothing past the tail
+        CHECK_EQ(l.mainb[cut < 16 ? 16 + (16 - cut) : 12], 0x55);         // nothing past the tail / bss
     }
 }
 
@@ -253,8 +253,8 @@ TEST(row_cuts_read_back) {
     CHECK_EQ(otmCutFor(f.data(), h, 7), 0u);
     CHECK_EQ(otmCutFor(f.data(), h, 15), 8u);
     CHECK_EQ(otmCutFor(f.data(), h, 100), 16u);
-    CHECK_EQ(otmMainSpan(h, 0), 12u + 16u);
-    CHECK_EQ(otmMainSpan(h, 8), 12u + 8u);
+    CHECK_EQ(otmMainSpan(h, 0), 16u + 16u);
+    CHECK_EQ(otmMainSpan(h, 8), 16u + 8u);
     CHECK_EQ(otmMainSpan(h, 16), 12u);
 }
 
@@ -264,8 +264,8 @@ TEST(row_in_one_block) {
     std::memset(dst, 0x55, sizeof(dst));
     const uint32_t base = 0x20010000u;
     CHECK(load(f, dst, sizeof(dst), base) == OtmError::None);   // cut 0: the row after the bss
-    CHECK_EQ(word(dst + 12 + 8), base + 12 + 1);
-    CHECK(load(f, dst, 12 + 16 - 1, base) == OtmError::TooBig);
+    CHECK_EQ(word(dst + 16 + 8), base + 16 + 1);
+    CHECK(load(f, dst, 16 + 16 - 1, base) == OtmError::TooBig);
 }
 
 TEST(row_refusals) {
@@ -290,12 +290,12 @@ TEST(row_refusals) {
         const std::vector<uint8_t> f = Built2().file();
         CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 12, kFb}, OtmBlock{b, 48, kMb}, 16,
                       nullptr) == OtmError::TooBig);   // cut 16 > 12
-        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 24, kFb + 2}, OtmBlock{b, 48, kMb}, 8,
+        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 24, kFb + 4}, OtmBlock{b, 48, kMb}, 8,
                       nullptr) == OtmError::Align);
         CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 24, kFb}, OtmBlock{b, 48, kMb}, 12,
                       nullptr) == OtmError::BadFixup);   // not a cut
-        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 24, kFb}, OtmBlock{b, 12 + 8 - 1, kMb}, 8,
-                      nullptr) == OtmError::TooBig);   // main 12 + tail 8
+        CHECK(otmLoad(f.data(), uint32_t(f.size()), kCore, OtmBlock{a, 24, kFb}, OtmBlock{b, 16 + 8 - 1, kMb}, 8,
+                      nullptr) == OtmError::TooBig);   // main 12, tail 8 at 16
     }
     {
         Built2 x;
@@ -520,4 +520,58 @@ TEST(card_modules_with_no_pool_room_say_so) {
     MemStorage empty;
     CHECK_EQ(loadModuleFiles(empty, pool, scratch, sizeof(scratch), &r), 0);
     CHECK(!r.noRoom);   // no files: nothing to say
+}
+
+TEST(fast_block_shared_by_turns) {
+    uint32_t cuts[3][kOtmMaxShareCuts] = {{1000, 2000, 3000, 9000}, {500, 4000}, {200, 400, 600}};
+    const uint32_t n[3] = {4, 2, 3};
+    uint32_t share[3];
+    // Turns: 1000 + 500 + 200, then 2000 + 4000 + 400, then 3000 + 600 = 7600;
+    // the first module's 9000 doesn't fit the rest.
+    shareFastBlock(cuts, n, 3, 8192, share);
+    CHECK_EQ(share[0], 3000u);
+    CHECK_EQ(share[1], 4000u);
+    CHECK_EQ(share[2], 600u);
+    // A small block: 1000 + 500 + 200 = 1700, then 2000 doesn't fit, 4000
+    // doesn't, 400 does (1900).
+    shareFastBlock(cuts, n, 3, 2000, share);
+    CHECK_EQ(share[0], 1000u);
+    CHECK_EQ(share[1], 500u);
+    CHECK_EQ(share[2], 400u);
+    // One module alone takes its whole row.
+    shareFastBlock(cuts, n, 1, 12288, share);
+    CHECK_EQ(share[0], 9000u);
+    shareFastBlock(cuts, n, 3, 0, share);
+    CHECK_EQ(share[0] + share[1] + share[2], 0u);
+}
+
+namespace {
+FakeModule gRowA("RWA1"), gRowB("RWB1");
+int gRowEntered = 0;
+IModule& rowEnter(uint32_t) { return gRowEntered++ ? static_cast<IModule&>(gRowB) : gRowA; }
+}  // namespace
+
+TEST(card_modules_share_the_fast_block) {
+    MemStorage fs;
+    fs.files["Modules/a.otm"] = Built2().file();   // row cuts 8, 16
+    fs.files["Modules/b.otm"] = Built2().file();
+    static uint8_t mem[128], fastMem[24];
+    std::memset(fastMem, 0x55, sizeof(fastMem));
+    OtmPool pool = {mem, 0x20010000u, sizeof(mem), kCore, nullptr, &rowEnter, nullptr};
+    pool.fastMem = fastMem;
+    pool.fastBase = kFb;
+    pool.fastCap = sizeof(fastMem);
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 2);
+    // Turns in 24 B: a 8, b 8, a 16; b's 16 doesn't fit.
+    CHECK_EQ(r.items[0].fastBytes, 16u);
+    CHECK_EQ(r.items[1].fastBytes, 8u);
+    CHECK_EQ(r.items[0].rowBytes, 16u);
+    CHECK_EQ(r.fastUsed, 24u);
+    // a: main 12 B (no tail); b at the next multiple of 8 (16): main 12, its 8-byte tail at 16.
+    CHECK_EQ(r.used, 16u + 16u + 8u);
+    CHECK_EQ(word(fastMem + 8), kFb + 1);             // a's row function 8 points at a's row 0
+    CHECK_EQ(word(fastMem + 16 + 0), 0x20010000u + 16u + 5u);   // b's row 0: b's main part + 5
+    CHECK_EQ(word(mem + 16), 0x20010000u + 16u + 16u + 1u);     // b's main: its row 8, in its tail
 }

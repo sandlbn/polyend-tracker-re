@@ -1,0 +1,12 @@
+# hand: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio4hand12_GLOBAL__N_1L9pulsePassILb0EEEvPfmRNS2_10VoiceStateENS0_2va3LinES8_S8_S8_S8_S8_.isra.0 0.36913  # 340 B
+_ZN2ot5audio4hand12_GLOBAL__N_110HandEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.58081  # 3056 B
+_ZN2ot5audio4hand12_GLOBAL__N_110HandEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.00461  # 34 B
+_ZN2ot5audio4hand12_GLOBAL__N_110HandEngine8setTempoEf 0.00066  # 6 B
+_ZN2ot5audio2va6enumOfEfi 0.00153  # 32 B
+_ZN2ot5audio4hand12_GLOBAL__N_1L8wavePassEPfmRNS2_10VoiceStateEPKhNS0_2va3LinE 0.00382  # 104 B
+_ZN2ot5audio4hand12_GLOBAL__N_1L9noisePassEPfmRNS2_10VoiceStateEfi 0.00331  # 198 B
+_ZN2ot5audio4hand12_GLOBAL__N_1L9pulsePassILb1EEEvPfmRNS2_10VoiceStateENS0_2va3LinES8_S8_S8_S8_S8_ 0.00821  # 626 B
+_ZN2ot5audio4hand12_GLOBAL__N_1L7refreshERNS2_9SlotStateERKNS0_11SynthParamsE 0.00299  # 1314 B
+# 5710 B, 85 modes, 97.5% of the weight

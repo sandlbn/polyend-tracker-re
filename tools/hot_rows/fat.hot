@@ -1,0 +1,13 @@
+# fat: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio3fat12_GLOBAL__N_1L9svfKernelILb0ELb0ELb0ELb1EEEvPfS4_NS2_7SvfRampEPNS2_6InRampES4_S4_ff 0.25627  # 142 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L9svfKernelILb0ELb0ELb0ELb0EEEvPfS4_NS2_7SvfRampEPNS2_6InRampES4_S4_ff 0.19114  # 118 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L11stackKernelILi1EEEvPfS4_RKNS2_9StackRampE 0.39236  # 856 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L9svfKernelILb0ELb0ELb1ELb1EEEvPfS4_NS2_7SvfRampEPNS2_6InRampES4_S4_ff 0.03862  # 212 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L9svfKernelILb1ELb0ELb0ELb0EEEvPfS4_NS2_7SvfRampEPNS2_6InRampES4_S4_ff 0.00838  # 148 B
+_ZN2ot5audio3fat12_GLOBAL__N_19FatEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.01934  # 364 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L9svfKernelILb0ELb1ELb0ELb0EEEvPfS4_NS2_7SvfRampEPNS2_6InRampES4_S4_ff 0.00947  # 188 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L8lfoShapeEiff 0.00626  # 204 B
+_ZN2ot5audio3fat12_GLOBAL__N_19FatEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_.part.0 0.03337  # 1700 B
+_ZN2ot5audio3fat12_GLOBAL__N_1L11stackKernelILi3EEEvPfS4_RKNS2_9StackRampE 0.02537  # 1466 B
+# 5398 B, 22 modes, 98.1% of the weight

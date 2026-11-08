@@ -28,7 +28,7 @@
 // row, then the main part), the fixups (nFixups x uint32: image offset in bits
 // 0..23, kind in bits 24..31), the cuts (nCuts x 2 uint32: row offset, the
 // share of the module's work up to it in millionths; ascending, multiples of
-// 4, the last = rowBytes), then a CRC-32 (formats/crc32.h) of everything
+// 8, the last = rowBytes), then a CRC-32 (formats/crc32.h) of everything
 // before it. The zero-initialised part (bssBytes) follows the main part in
 // memory but is not in the file.
 //
@@ -115,9 +115,10 @@ uint32_t otmCutShare(const uint8_t* file, const OtmHeader& h, uint32_t k);
 // The longest cut that fits `room` bytes of fast block (0 = none).
 uint32_t otmCutFor(const uint8_t* file, const OtmHeader& h, uint32_t room);
 
-// Where the tail starts in the main block (after the main part and its bss),
-// and the main block's bytes for a cut.
-inline uint32_t otmTailOffset(const OtmHeader& h) { return (h.imageBytes - h.rowBytes + h.bssBytes + 3u) & ~3u; }
+// Where the tail starts in the main block (after the main part and its bss,
+// at a multiple of 8: the row's functions need 8 at most), and the main
+// block's bytes for a cut.
+inline uint32_t otmTailOffset(const OtmHeader& h) { return (h.imageBytes - h.rowBytes + h.bssBytes + 7u) & ~7u; }
 inline uint32_t otmMainSpan(const OtmHeader& h, uint32_t cut) {
     return h.rowBytes > cut ? otmTailOffset(h) + (h.rowBytes - cut) : h.imageBytes - h.rowBytes + h.bssBytes;
 }

@@ -41,7 +41,43 @@ bool collect(const IStorage::DirEntry& e, void* ctx) {
     return true;
 }
 
+// Reads Modules/<name> into scratch.
+OtmError readModuleFile(IStorage& fs, const char* name, uint8_t* scratch, uint32_t cap, uint32_t* len) {
+    char path[64];
+    std::snprintf(path, sizeof(path), "%s/%s", kModulesDir, name);
+    const IStorage::Handle h = fs.open(path, IStorage::kRead);
+    if (h < 0) return OtmError::Truncated;
+    const int32_t n = fs.size(h);
+    const bool ok = n > 0 && uint32_t(n) <= cap && fs.read(h, scratch, uint32_t(n)) == n;
+    fs.close(h);
+    if (!ok) return n > 0 && uint32_t(n) > cap ? OtmError::TooBig : OtmError::Truncated;
+    *len = uint32_t(n);
+    return OtmError::None;
+}
+
 }  // namespace
+
+void shareFastBlock(const uint32_t (*cuts)[kOtmMaxShareCuts], const uint32_t* nCuts, int n, uint32_t cap,
+                    uint32_t* share) {
+    // Turns: each module in name order moves to its next cut while it fits;
+    // a module whose next cut doesn't fit is done (its row is hottest first).
+    uint32_t next[OtmLoadReport::kMax] = {}, used = 0;
+    for (int i = 0; i < n; ++i) share[i] = 0;
+    for (bool moved = true; moved;) {
+        moved = false;
+        for (int i = 0; i < n; ++i) {
+            if (next[i] >= nCuts[i]) continue;
+            const uint32_t grow = cuts[i][next[i]] - share[i];
+            if (grow > cap - used) {
+                next[i] = nCuts[i];
+                continue;
+            }
+            used += grow;
+            share[i] = cuts[i][next[i]++];
+            moved = true;
+        }
+    }
+}
 
 int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_t scratchCap,
                     OtmLoadReport* report) {
@@ -64,47 +100,51 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         r.noRoom = true;
         return 0;
     }
-    int loaded = 0;
+    // Pass 1: every file's row cuts, then the fast block shared out (shareFastBlock).
+    uint32_t cuts[OtmLoadReport::kMax][kOtmMaxShareCuts];
+    uint32_t nCuts[OtmLoadReport::kMax] = {};
     for (int i = 0; i < names.n; ++i) {
         OtmLoadReport::Item& it = r.items[r.n++];
         std::strcpy(it.file, names.name[i]);
         it.refused = false;
         it.fastBytes = 0;
         it.rowBytes = 0;
-        char path[64];
-        std::snprintf(path, sizeof(path), "%s/%s", kModulesDir, names.name[i]);
-        const IStorage::Handle h = fs.open(path, IStorage::kRead);
-        if (h < 0) {
-            it.error = OtmError::Truncated;
-            continue;
-        }
-        const int32_t len = fs.size(h);
-        bool ok = len > 0 && uint32_t(len) <= scratchCap && fs.read(h, scratch, uint32_t(len)) == len;
-        fs.close(h);
-        if (!ok) {
-            it.error = len > 0 && uint32_t(len) > scratchCap ? OtmError::TooBig : OtmError::Truncated;
-            continue;
-        }
-        // The next free spot at the module's alignment.
+        uint32_t len = 0;
+        it.error = readModuleFile(fs, names.name[i], scratch, scratchCap, &len);
         OtmHeader hdr;
-        it.error = otmCheck(scratch, uint32_t(len), pool.core, &hdr);
+        if (it.error == OtmError::None) it.error = otmCheck(scratch, len, pool.core, &hdr);
         if (it.error != OtmError::None) continue;
         it.rowBytes = hdr.rowBytes;
+        nCuts[i] = hdr.nCuts < kOtmMaxShareCuts ? hdr.nCuts : kOtmMaxShareCuts;
+        for (uint32_t k = 0; k < nCuts[i]; ++k) cuts[i][k] = otmCutBytes(scratch, hdr, k);
+    }
+    uint32_t share[OtmLoadReport::kMax] = {};
+    if (pool.fastMem) shareFastBlock(cuts, nCuts, names.n, pool.fastCap, share);
+    // Pass 2: load each with its share.
+    int loaded = 0;
+    for (int i = 0; i < names.n; ++i) {
+        OtmLoadReport::Item& it = r.items[i];
+        if (it.error != OtmError::None) continue;
+        uint32_t len = 0;
+        it.error = readModuleFile(fs, names.name[i], scratch, scratchCap, &len);
+        OtmHeader hdr;
+        if (it.error == OtmError::None) it.error = otmCheck(scratch, len, pool.core, &hdr);
+        if (it.error != OtmError::None) continue;
         const uint32_t at = (pool.base + r.used + hdr.align - 1) & ~(hdr.align - 1);
         const uint32_t off = at - pool.base;
         if (off > pool.cap) {
             it.error = OtmError::TooBig;
             continue;
         }
-        // The longest cut of the row that fits the fast block's free room; the
-        // rest of the row goes after the main part.
-        const uint32_t fat = (pool.fastBase + r.fastUsed + 3u) & ~3u;
-        const uint32_t foff = fat - pool.fastBase;
-        const uint32_t cut = pool.fastMem && foff <= pool.fastCap ? otmCutFor(scratch, hdr, pool.fastCap - foff) : 0u;
-        const OtmBlock fast{cut ? pool.fastMem + foff : nullptr, cut ? pool.fastCap - foff : 0u, cut ? fat : 0u};
+        // The row up to its share in the fast block (back to back: every cut
+        // is a multiple of 8), the rest of the row after its main part.
+        const uint32_t cut = share[i];
+        const uint32_t foff = r.fastUsed;
+        const OtmBlock fast{cut ? pool.fastMem + foff : nullptr, cut ? pool.fastCap - foff : 0u,
+                            cut ? pool.fastBase + foff : 0u};
         const OtmBlock main{pool.mem + off, pool.cap - off, at};
         uint32_t entry = 0;
-        it.error = otmLoad(scratch, uint32_t(len), pool.core, fast, main, cut, &entry);
+        it.error = otmLoad(scratch, len, pool.core, fast, main, cut, &entry);
         if (it.error != OtmError::None) continue;
         const uint32_t bytes = otmMainSpan(hdr, cut);
         if (pool.sync) {

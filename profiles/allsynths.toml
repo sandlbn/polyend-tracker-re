@@ -1,4 +1,4 @@
-# [I] Measurement profile (#21 shared SRAM_L pool): all 15 synth modules, for
+# [I] Measurement profile (#21 shared SRAM_L pool): all 16 synth modules, for
 # make -C tests bench-m4-synth-hot (hot code per synth). Not a device image.
 # Paths are relative to MODULES_DIR (default: ../../opentracker-synths from reimpl/).
 name = "allsynths"
@@ -22,4 +22,5 @@ modules = [
     { id = "HND1", path = "modules/hand" },
     { id = "BTY1", path = "modules/btype" },
     { id = "ARC1", path = "modules/arc" },
+    { id = "DX7S", path = "modules/dx7", in_tree = true },
 ]

@@ -1,0 +1,25 @@
+# vap: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi0ELi0ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.27662  # 142 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi0ELi0ELb0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.20939  # 118 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L12sawSawKernelEPfRfS4_NS2_7OscRampES5_.isra.0 0.32730  # 340 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L6enumOfEfi 0.00143  # 32 B
+_ZN2ot5audio3vap12_GLOBAL__N_19VapEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.01906  # 596 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L8evalDestEPKfRKNS2_9SlotStateES4_bffRNS2_4DestE 0.03330  # 1084 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi2ELi0ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00454  # 174 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi3ELi0ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00454  # 174 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi1ELi0ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00462  # 178 B
+_ZN2ot5audio3vap12_GLOBAL__N_19VapEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_.part.0 0.05482  # 2184 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi0ELi2ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00530  # 212 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi2ELi2ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00554  # 228 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi1ELi2ELb1ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00543  # 228 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi1ELi0ELb0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00274  # 134 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi2ELi0ELb0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00262  # 130 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi3ELi0ELb0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00139  # 130 B
+_ZN2ot5audio9zeroWordsEPvm 0.00022  # 26 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9svfKernelILi0ELi0ELb0ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ffPNS2_9NoiseRampE 0.00155  # 188 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9oscKernelILi0EEEvPfRfNS2_7OscRampE 0.00112  # 220 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9oscKernelILi2EEEvPfRfNS2_7OscRampE 0.00217  # 488 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L10syncKernelILi0EEEvPffRKNS2_7OscRampERfS5_ 0.00161  # 484 B
+_ZN2ot5audio3vap12_GLOBAL__N_1L9oscKernelILi1EEEvPfRfNS2_7OscRampE 0.00092  # 492 B
+# 7982 B, 165 modes, 96.6% of the weight

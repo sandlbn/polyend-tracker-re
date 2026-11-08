@@ -1,0 +1,11 @@
+# cstype: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio6cstype12_GLOBAL__N_1L10filterPassILb0EEEvPKfPfRNS2_6LayerVERNS2_9LayerRampE 0.48143  # 324 B
+_ZN2ot5audio6cstype12_GLOBAL__N_1L7oscPassEPfRNS2_6LayerVERmRNS2_9LayerRampEbb 0.32627  # 700 B
+_ZN2ot5audio6cstype12_GLOBAL__N_1L7outPassEPKfPfS5_RfNS0_2va3LinES8_b 0.05973  # 200 B
+_ZN2ot5audio6cstype12_GLOBAL__N_112CstypeEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.04304  # 1048 B
+_ZN2ot5audio6cstype12_GLOBAL__N_1L10filterPassILb1EEEvPKfPfRNS2_6LayerVERNS2_9LayerRampE 0.01602  # 420 B
+_ZN2ot5audio2va7sineParEf 0.00235  # 80 B
+_ZN2ot5audio6cstype12_GLOBAL__N_112CstypeEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_.part.0 0.04264  # 2480 B
+_ZN2ot5audio6cstype12_GLOBAL__N_1L6fnWaveEiff 0.00255  # 164 B
+# 5416 B, 29 modes, 97.4% of the weight

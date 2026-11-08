@@ -52,14 +52,14 @@ OtmError otmCheck(const uint8_t* file, uint32_t len, const OtmCore& core, OtmHea
     // The entry is a Thumb function (odd offset): an even one would fault on every boot.
     if (h.align < 4 || (h.align & (h.align - 1)) || h.entryOffset >= h.imageBytes || !(h.entryOffset & 1u))
         return OtmError::BadMagic;
-    if (h.rowBytes > h.imageBytes || (h.rowBytes & 3u) || h.rowBytes >= kOtmMainLink) return OtmError::BadMagic;
+    if (h.rowBytes > h.imageBytes || (h.rowBytes & 7u) || h.rowBytes >= kOtmMainLink) return OtmError::BadMagic;
     if ((h.rowBytes == 0) != (h.nCuts == 0)) return OtmError::BadMagic;
-    // The cuts: ascending multiples of 4, the last at the row's end.
+    // The cuts: ascending multiples of 8, the last at the row's end.
     const uint8_t* cuts = file + kOtmHeaderBytes + h.imageBytes + 4u * h.nFixups;
     uint32_t prev = 0;
     for (uint32_t k = 0; k < h.nCuts; ++k) {
         const uint32_t c = rd32(cuts + 8u * k);
-        if (c <= prev || (c & 3u) || c > h.rowBytes) return OtmError::BadMagic;
+        if (c <= prev || (c & 7u) || c > h.rowBytes) return OtmError::BadMagic;
         prev = c;
     }
     if (h.nCuts && prev != h.rowBytes) return OtmError::BadMagic;
@@ -164,7 +164,7 @@ OtmError otmLoad(const uint8_t* file, uint32_t len, const OtmCore& core, const O
     if (main.base & (h.align - 1)) return OtmError::Align;
     if (cut) {
         if (cut > fast.cap) return OtmError::TooBig;
-        if (fast.base & 3u) return OtmError::Align;   // the row's functions need 4 at most
+        if (fast.base & 7u) return OtmError::Align;   // the row's functions need 8 at most
     }
     const Placement pl{h, fast, main, cut, h.rowBytes ? kOtmMainLink : 0u, otmTailOffset(h)};
     const uint32_t mainShift = main.base - pl.mainLink;

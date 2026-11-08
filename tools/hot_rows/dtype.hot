@@ -1,0 +1,12 @@
+# dtype: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio5dtype12_GLOBAL__N_1L7vcoPassILi2EEEvPfPKfRfS7_RNS2_3LinES9_f 0.20494  # 164 B
+_ZN2ot5audio5dtype12_GLOBAL__N_1L10ladderPassEPKfPfS5_RNS2_10VoiceStateERNS2_10LadderRampE 0.47379  # 436 B
+_ZN2ot5audio5dtype12_GLOBAL__N_1L7srcPassILi4EEEvPfS4_RNS2_10VoiceStateERNS2_3LinES8_S8_ffffb 0.22130  # 416 B
+_ZN2ot5audio5dtype12_GLOBAL__N_1L7vcoPassILi3EEEvPfPKfRfS7_RNS2_3LinES9_f 0.01543  # 260 B
+_ZN2ot5audio5dtype12_GLOBAL__N_111DtypeEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.01297  # 268 B
+_ZN2ot5audio5dtype12_GLOBAL__N_1L7vcoPassILi0EEEvPfPKfRfS7_RNS2_3LinES9_f 0.00689  # 308 B
+_ZN2ot5audio5dtype12_GLOBAL__N_1L7vcoPassILi1EEEvPfPKfRfS7_RNS2_3LinES9_f 0.00745  # 348 B
+_ZN2ot5audio5dtype12_GLOBAL__N_111DtypeEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.03395  # 1672 B
+_ZN2ot5audio5dtype12_GLOBAL__N_1L7srcPassILi0EEEvPfS4_RNS2_10VoiceStateERNS2_3LinES8_S8_ffffb 0.00615  # 628 B
+# 4500 B, 54 modes, 98.3% of the weight

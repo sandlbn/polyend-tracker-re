@@ -1,0 +1,12 @@
+# acd: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio12_GLOBAL__N_1L5svf24ILb0EEEvPfS3_PKfS5_RNS1_5NoiseE 0.36099  # 198 B
+_ZN2ot5audio12_GLOBAL__N_1L7oscLoopILb0ELi0EEEvRNS1_3OscEPf 0.31692  # 180 B
+_ZN2ot5audio12_GLOBAL__N_1L5svf12ILb0EEEvPfS3_PKfS5_RNS1_5NoiseE 0.01158  # 110 B
+_ZN2ot5audio12_GLOBAL__N_19AcdEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS8_.part.0 0.22269  # 2608 B
+_ZN2ot5audio12_GLOBAL__N_1L6ladderILb0EEEvPfS3_PKfS5_RNS1_5NoiseE 0.02122  # 262 B
+_ZN2ot5audio12_GLOBAL__N_1L5svf24ILb1EEEvPfS3_PKfS5_RNS1_5NoiseE 0.01364  # 284 B
+_ZN2ot5audio12_GLOBAL__N_1L7oscLoopILb1ELi1EEEvRNS1_3OscEPf 0.01818  # 404 B
+_ZN2ot5audio12_GLOBAL__N_19AcdEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.00606  # 140 B
+_ZN2ot5audio12_GLOBAL__N_1L8lfoShapeEiff 0.00662  # 204 B
+# 4390 B, 26 modes, 97.8% of the weight
