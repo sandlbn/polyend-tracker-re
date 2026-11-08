@@ -608,6 +608,17 @@ TEST(instrument_params_on_a_playing_preset_instrument_opens_its_slot) {
     std::snprintf(t, sizeof t, "Synth %d (FAT) P1", s + 1);
     CHECK(drawn(h, t));
     a.previewOff(3);
+    h.audio.pump(2);
+    // The page's own notes (encoder push, pads) play the preset it shows.
+    h.down(btn::EncPush);
+    h.audio.pump(4);
+    CHECK(a.engine.synth().voicesOf(s) >= 1);
+    h.up(btn::EncPush);
+    h.tap(btn::F2);
+    h.pad(30);   // a pad away from the Edit Patch section grid
+    h.audio.pump(2);
+    CHECK_EQ(int(a.synthEditTarget(s)), 1);
+    CHECK(drawn(h, t));
     // An own note of that slot takes it back: the page shows the slot's own.
     a.previewOn(4, uint8_t(kFirstSynthInstrument + s), 60, 127);
     h.audio.pump(2);

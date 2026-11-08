@@ -258,10 +258,17 @@ void SynthScreen::stop() {
     if (view == View::Presets && previewKey_ >= 0) endPresetPreview();
 }
 
+// [3.x] The preset instrument that borrowed the slot (0: none): the page's
+// notes play as that instrument, so they do not take the slot back.
+uint8_t SynthScreen::borrowedBy() const {
+    const uint8_t n = uint8_t(app_.synthEditTarget(slot));
+    return n && n != app_.engine.synth().selectedPresetOf(slot) ? n : 0;
+}
+
 void SynthScreen::audition(bool on, uint8_t note) {
     audio::SynthBank& b = app_.engine.synth();
     if (on) {
-        b.auditionOn(slot, note);
+        b.auditionOn(slot, note, -1, borrowedBy());
         return;
     }
     b.auditionOff();
@@ -1062,7 +1069,8 @@ void SynthScreen::onPad(uint8_t pad, uint8_t state) {
     if (state == kPress) {
         if (view == View::Browser && !previewHighlighted()) return;
         padsHeld_ |= uint64_t(1) << pad;
-        app_.previewOn(pad, uint8_t(kFirstSynthInstrument + slot), app_.padNote(pad), 127);
+        const uint8_t k = borrowedBy();
+        app_.previewOn(pad, uint8_t(k ? kFirstPresetInstrument + k - 1 : kFirstSynthInstrument + slot), app_.padNote(pad), 127);
     } else if (state == kRelease) {
         // Also a pad pressed on another page (its note is released here).
         padsHeld_ &= ~(uint64_t(1) << pad);

@@ -1132,6 +1132,7 @@ private:
     // note and every held pad.
     void audition(bool on, uint8_t note);
     void padsOff();
+    uint8_t borrowedBy() const;
     uint64_t padsHeld_ = 0;   // pads held on this page (each on a synth live track)
     int previewSel_ = -1;   // Load Patch: browser entry playing in the slot, -1 none
     int previewKey_ = -1;   // Load Patch: F5 / F6 holding the Preview note
