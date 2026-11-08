@@ -21,7 +21,7 @@
 // (".fastrun.<tag>"), or GCC reports a section type conflict with the plain
 // .fastrun functions of the same translation unit.
 //
-// [I] #21 shared fast pool: a synth module with a hot row (tools/hot_rows/,
+// [I] shared fast pool: a synth module with a hot row (tools/hot_rows/,
 // compiled with OT_FASTRUN_ROW=1) keeps each function in its own .text.<name>
 // section, in flash. The row's functions move into the SRAM_L pool when the
 // project uses the synth (modules/hot_rows.h); OT_FASTRUN_FN only keeps them

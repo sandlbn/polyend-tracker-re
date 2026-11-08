@@ -1,4 +1,4 @@
-// [I] Built-in synths' hot rows (modules/hot_rows.h, fork #21): a fake row
+// [I] Built-in synths' hot rows (modules/hot_rows.h): a fake row
 // moved from "flash" into a pool buffer at device addresses, its branches,
 // literals, tables and slots checked after the move and after restoring.
 #include "test.h"

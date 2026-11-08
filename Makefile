@@ -61,7 +61,7 @@ OTM_FAST_BYTES := $(if $(filter 1,$(OT_POOL_TEST)),12288,0)
 ifeq ($(OT_POOL_TEST),1)
 BUILD     := $(BUILD)/pooltest
 endif
-# [I] #21 shared fast pool (src/core/modules/hot_rows.h): 1 = the built-in
+# [I] shared fast pool (src/core/modules/hot_rows.h): 1 = the built-in
 # synths' hot code is linked in flash as rows (tools/hot_rows/<name>.hot) and
 # the SRAM_L block their .fastrun code took becomes the pool every synth
 # shares, built in or from the card. Until it is the default: test images.
@@ -121,7 +121,7 @@ OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX)
 MOD_OBJS  := $(patsubst %.cpp,$(BUILD)/mod/%.cpp.o,$(MOD_SRCS))
 OBJS      += $(MOD_OBJS)
 
-# [I] #21 hot rows (OT_HOT_POOL=1): the image's modules with a row, their
+# [I] hot rows (OT_HOT_POOL=1): the image's modules with a row, their
 # objects (compiled with OT_FASTRUN_ROW=1: a section per function, no
 # .fastrun), the linker fragment that lays the rows out (empty otherwise:
 # src/hal/opentracker.ld includes it) and the move tables, linked twice

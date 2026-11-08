@@ -1,4 +1,4 @@
-// [I] Built-in synths' hot code in the shared fast pool (modules/hot_rows.h, fork issue #21).
+// [I] Built-in synths' hot code in the shared fast pool (modules/hot_rows.h).
 #include "modules/hot_rows.h"
 
 #include <cstring>

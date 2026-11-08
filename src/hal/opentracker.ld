@@ -58,13 +58,13 @@ SECTIONS
 		/* TODO: does linker detect startup overflow onto flashconfig? */
 		. = 0x400;
 		KEEP(*(.flashconfig*))
-		/* [I] #21 shared fast pool (make OT_HOT_POOL=1): the built-in synths'
+		/* [I] shared fast pool (make OT_HOT_POOL=1): the built-in synths'
 		 * hot rows, back to back (tools/hot_pool.py layout; empty otherwise). */
 		INCLUDE hot_pool_text.ld
 		*(.text*)
 		KEEP(*(.rodata.otSdramLayoutEnd))   /* read by tools/size_report.py (CI) */
 		*(.rodata*)
-		/* [I] #21 the rows' move tables (modules/hot_rows.h): after every
+		/* [I] the rows' move tables (modules/hot_rows.h): after every
 		 * other flash contents, so their size moves nothing they describe. */
 		. = ALIGN(4);
 		KEEP(*(.ot_hot_rows))

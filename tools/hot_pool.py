@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""[I] Built-in synths' hot rows for the shared fast pool (fork issue #21,
-src/core/modules/hot_rows.h).
+"""[I] Built-in synths' hot rows for the shared fast pool
+(src/core/modules/hot_rows.h).
 
   hot_pool.py layout --out FILE.ld [--row NAME:HOTFILE:OBJ[,OBJ...]]...
       Before the link: the linker script fragment that places each row's

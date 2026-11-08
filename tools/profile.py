@@ -258,7 +258,7 @@ def gen(args):
     for m in mods:
         mk.append(f"MOD_OBJ_NAMES_{m['id']} := "
                   + " ".join(os.path.basename(p) + ".o" for p in m["srcs"]))
-        # [I] #21 hot rows (make OT_HOT_POOL=1): the module's directory and entry point.
+        # [I] hot rows (make OT_HOT_POOL=1): the module's directory and entry point.
         mk.append(f"MOD_DIR_{m['id']} := {m['dir']}")
         mk.append(f"MOD_ENTRY_{m['id']} := {m['man']['entry']}")
     changed = write_if_changed(os.path.join(out, "modules.mk"), "\n".join(mk) + "\n")

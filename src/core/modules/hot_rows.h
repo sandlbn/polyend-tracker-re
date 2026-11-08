@@ -1,4 +1,4 @@
-// [I] Built-in synths' hot code in the shared fast pool (fork issue #21).
+// [I] Built-in synths' hot code in the shared fast pool.
 //
 // A compiled-in synth's hottest functions (its row, tools/hot_rows/<name>.hot)
 // are linked in flash, back to back in row order, and run there by default.

@@ -1,5 +1,5 @@
-// [I] Thumb-2 long branches, for code that moves at run time (fork issue #21:
-// modules/module_loader.cpp, modules/hot_rows.cpp). Byte access only, so the
+// [I] Thumb-2 long branches, for code that moves at run time
+// (modules/module_loader.cpp, modules/hot_rows.cpp). Byte access only, so the
 // host tests can patch images built for the device.
 #pragma once
 
