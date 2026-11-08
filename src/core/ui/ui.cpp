@@ -660,7 +660,7 @@ void Ui::switchTo(int module, int opt) {
     // 2.x: Instrument Params on a synth step / synth instrument opens the
     // synth slot page (Tracker Mini manual p.146).
     if (module == kModInstrument) {
-        const int s = SynthScreen::entrySlot(app, *this, active_);
+        const int s = SynthScreen::entrySlot(app, *this);
         if (s >= 0) {
             module = kModSynth;
             opt = s + 1;

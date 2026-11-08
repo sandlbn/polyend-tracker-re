@@ -1052,7 +1052,7 @@ public:
     // Slot the Instrument Params key opens from module `active` (the Pattern
     // cursor step's synth instrument, else the current instrument), -1 = not
     // a synth (the sample / MIDI Instrument screen opens).
-    static int entrySlot(App& a, Ui& ui, int active);
+    static int entrySlot(App& a, Ui& ui);
 
     // Insert: [3.x] the slot's insert effect (Shift + Instrument Params; builds
     // with OT_SLOT_INSERTS).
