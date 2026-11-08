@@ -198,6 +198,7 @@ const audio::PresetInsert* App::targetInsert(int s, uint8_t t) const {
     return (pi.flags & audio::kPresetInsertHas) ? &pi : nullptr;
 }
 
+// Called only for an edit that changes what the view shows (it is then marked).
 audio::PresetInsert* App::editTargetInsert(int s, uint8_t n) {
     audio::PresetInsert& pi = presets::insertTable()[n - 1];
     if (!(pi.flags & audio::kPresetInsertHas)) {
@@ -253,7 +254,6 @@ void App::setSynthTargetInsertKind(int s, const char* effectId, uint8_t t) {
         setSlotInsertKind(s, effectId);
         return;
     }
-    audio::PresetInsert* pi = editTargetInsert(s, n);
     char id[4] = {};
     audio::EffectSettings set{};
     audio::IEffect* fx = nullptr;
@@ -262,7 +262,10 @@ void App::setSynthTargetInsertKind(int s, const char* effectId, uint8_t t) {
         fx = mod::ModuleHost::instance().effectById(id);
         if (fx) set = audio::effectDefaults(*fx);
     }
-    if (std::memcmp(id, pi->id, 4) == 0) return;   // the same kind keeps its settings
+    // The same kind keeps its settings (and a preset without insert data gets none).
+    const char* cur = synthTargetInsertId(s, n);
+    if (cur ? std::memcmp(id, cur, 4) == 0 : !anyId(id)) return;
+    audio::PresetInsert* pi = editTargetInsert(s, n);
     // No insert while the entry changes, then the new kind (on).
     pi->fx = nullptr;
     std::atomic_signal_fence(std::memory_order_seq_cst);
@@ -282,10 +285,10 @@ void App::setSynthTargetInsertValue(int s, int i, uint8_t v, uint8_t t) {
     }
     audio::IEffect* fx = synthTargetInsertEffect(s, n);
     if (!fx || i < 0 || i >= fx->paramCount() || i >= audio::kEffectMaxParams) return;
-    audio::PresetInsert* pi = editTargetInsert(s, n);
     const uint8_t max = fx->param(i).max;
     const uint8_t c = v > max ? max : v;
-    if (pi->set.v[i] == c) return;
+    if (synthTargetInsertSettings(s, n).v[i] == c) return;   // nothing changes: no insert data made
+    audio::PresetInsert* pi = editTargetInsert(s, n);
     pi->set.v[i] = c;
     presetInsertEdited(n);
 }

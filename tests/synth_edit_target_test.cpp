@@ -743,6 +743,13 @@ TEST(a_preset_without_insert_data_shows_the_slots_and_copies_it_on_an_edit) {
     a.engine.synth().presetSelect(0, 1);
     sound(h, 0);
     CHECK(a.synthTargetInsertEffect(0) == fx);   // what plays: the slot's own
+    // An edit that changes nothing gives the preset no insert data.
+    a.autosave();
+    CHECK(!a.sidecarDirty());
+    a.setSynthTargetInsertKind(0, fx->id());
+    a.setSynthTargetInsertValue(0, 0, a.synthTargetInsertSettings(0).v[0]);
+    CHECK(!(a.synthPresetInsert(1).flags & kPresetInsertHas));
+    CHECK(!a.sidecarDirty());
     a.setSynthTargetInsertOff(0, true);
     CHECK(a.synthPresetInsert(1).flags & kPresetInsertHas);
     CHECK(a.synthPresetInsert(1).fx == fx);
