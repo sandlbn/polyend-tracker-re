@@ -40,7 +40,6 @@ void SynthBank::reset() {
         Slot& sl = slots_[s];
         if (sl.preset) rebind_[s] = true;
         sl.preset = 0;
-        sl.ownMix = false;
         for (auto& o : sl.ovr) o = -1;
         sl.macroDirty = true;
         sl.ntouched = 0;
@@ -65,21 +64,19 @@ void SynthBank::bindPatch(int s, const SynthPatch* p) {
 void SynthBank::patchChanged(int s) {
     if (s < 0 || s >= kSynthSlots) return;
     slots_[s].preset = 0;   // an edit is heard, on the patch being edited
-    slots_[s].ownMix = false;
     rebind_[s] = true;
 }
 bool SynthBank::presetSelect(int s, uint8_t n) {
     if (s < 0 || s >= kSynthSlots || !presetTakes(n)) return false;   // empty: the slot plays on
-    if (slots_[s].preset == n) return true;   // a repeated Z costs nothing (an own mix stays)
+    if (slots_[s].preset == n) return true;   // a repeated Z costs nothing
     slots_[s].preset = n;
-    slots_[s].ownMix = false;   // [OT] a preset change: its mix again
     rebind_[s] = true;
     return true;
 }
-void SynthBank::ownMixWins(int s) {
-    if (s < 0 || s >= kSynthSlots) return;
-    slots_[s].ownMix = true;
-    mixDirty_[s] = true;
+void SynthBank::presetChanged(uint8_t n) {
+    if (!n) return;
+    for (int s = 0; s < kSynthSlots; ++s)
+        if (slots_[s].preset == n) rebind_[s] = true;   // [OT] the slot stays on it (unlike patchChanged)
 }
 
 void SynthBank::setSlotRecord(int s, const SynthSlotRecord& r) {
@@ -240,12 +237,8 @@ void SynthBank::sync() {
         }
         if (rebind_[s]) {
             rebind_[s] = false;
-            mixDirty_[s] = false;
             bindEngine(s);
             applyMix(sl);   // [OT] a preset's mix comes and goes with its patch
-        } else if (mixDirty_[s]) {
-            mixDirty_[s] = false;
-            applyMix(sl);   // [OT] ownMixWins
         }
     }
     if (aud_.req) {
@@ -853,7 +846,6 @@ void SynthBank::transportStop() {
             sl.preset = 0;
             rebind_[s] = true;
         }
-        sl.ownMix = false;
     }
 }
 

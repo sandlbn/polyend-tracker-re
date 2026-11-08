@@ -2,9 +2,8 @@
 // the slot plays at the preset's mix with its patch, exactly as if its own
 // record held those values. Z0, Stop, an edit of the patch or a reset bring
 // the record's mix back; a preset without a mix keeps the record's. An edit
-// of the slot's own mix wins over the preset's (the preset's patch plays on)
-// until the next preset change. The Performance sends of a track add to the
-// mix the slot plays.
+// of the preset's mix is heard on the slots that play it (presetChanged). The
+// Performance sends of a track add to the mix the slot plays.
 #include "test.h"
 
 #include <cmath>
@@ -255,9 +254,9 @@ void otherSound(SynthPatch& p) {
 }
 }  // namespace
 
-TEST(own_mix_wins_on_a_mix_preset_keeps_its_patch) {
+TEST(an_edited_preset_mix_is_heard_and_keeps_its_patch) {
     // a: preset 1's sound without a mix, at the record kOther; b: the same
-    // sound with the mix kPre, then the record edited to kOther.
+    // sound with the mix kPre, then the preset's mix edited to kOther.
     Rig a(kOther);
     Rig b(kOwn);
     otherSound(a.presets[0]);
@@ -267,74 +266,31 @@ TEST(own_mix_wins_on_a_mix_preset_keeps_its_patch) {
     CHECK(b.bank.presetSelect(0, 1));
     notes(a, b);
     CHECK(!same(a, b, 3, false));
-    b.bank.setSlotRecord(0, recOf(kOther));
-    b.bank.ownMixWins(0);
-    CHECK(b.bank.ownMixWon(0));
+    b.withMix(1, kOther);
+    CHECK(!same(a, b, 2, false));   // not read until presetChanged
+    b.bank.presetChanged(1);
+    a.bank.presetChanged(1);   // the same rebind in both
     a.block();   // the ramp block
     b.block();
     CHECK_EQ(int(b.bank.presetOf(0)), 1);
     CHECK(same(a, b, 8));
-    CHECK(b.bank.presetSelect(0, 1));   // a repeated Z keeps it
-    CHECK(b.bank.ownMixWon(0));
+    CHECK(b.bank.presetSelect(0, 1));   // a repeated Z changes nothing
     CHECK(same(a, b, 4));
 }
 
-TEST(the_next_z_stop_and_a_patch_edit_end_own_mix_wins) {
-    for (int way = 0; way < 5; ++way) {
-        Rig a(kPre);
-        Rig b(kOwn);
-        b.withMix(1, kPre);
-        b.withMix(2, kOther);
-        CHECK(b.bank.presetSelect(0, 1));
-        notes(a, b);
-        b.bank.setSlotRecord(0, recOf(kOwn));   // unchanged record: the flag alone
-        b.bank.ownMixWins(0);
-        b.block();
-        a.block();
-        CHECK(!same(a, b, 3, false));
-        if (way == 0) {   // to another preset and back
-            b.bank.presetSelect(0, 2);
-            CHECK(!b.bank.ownMixWon(0));
-            b.block();
-            b.bank.presetSelect(0, 1);
-        }
-        if (way == 1) {   // Z0, then the preset again
-            b.bank.presetSelect(0, 0);
-            CHECK(!b.bank.ownMixWon(0));
-            b.block();
-            b.bank.presetSelect(0, 1);
-        }
-        if (way == 2) {
-            b.bank.transportStop();
-            CHECK(!b.bank.ownMixWon(0));
-            b.block();
-            b.bank.presetSelect(0, 1);
-        }
-        if (way == 3) {
-            b.bank.patchChanged(0);
-            CHECK(!b.bank.ownMixWon(0));
-            b.block();
-            b.bank.presetSelect(0, 1);
-        }
-        if (way == 4) {
-            b.bank.reset();
-            CHECK(!b.bank.ownMixWon(0));
-            b.bank.setSlotRecord(0, recOf(kOwn));
-            b.block();
-            b.bank.presetSelect(0, 1);
-            a.bank.reset();
-            a.bank.setSlotRecord(0, recOf(kPre));
-            a.block();
-            a.note();
-            b.note();
-        }
-        if (way != 4) a.block();
-        a.bank.patchChanged(0);   // the same rebind in both
-        a.block();
-        b.block();
-        CHECK_EQ(int(b.bank.presetOf(0)), 1);
-        CHECK(same(a, b, 6, false));
-    }
+TEST(preset_changed_touches_only_the_slots_on_that_preset) {
+    Rig b(kOwn);
+    b.withMix(1, kPre);
+    b.withMix(2, kOther);
+    b.bank.presetChanged(1);   // the slot plays its own patch: stays on it
+    b.block();
+    CHECK_EQ(int(b.bank.presetOf(0)), 0);
+    CHECK(b.bank.presetSelect(0, 2));
+    b.block();
+    b.bank.presetChanged(1);
+    b.bank.presetChanged(0);   // no preset: nothing
+    b.block();
+    CHECK_EQ(int(b.bank.presetOf(0)), 2);
 }
 
 TEST(z_from_a_mix_preset_to_one_without_brings_the_records_mix) {
@@ -351,7 +307,7 @@ TEST(z_from_a_mix_preset_to_one_without_brings_the_records_mix) {
     CHECK(same(a, b, 6, false));
 }
 
-TEST(performance_sends_add_to_the_own_mix_that_wins) {
+TEST(performance_sends_add_to_an_edited_preset_mix) {
     SynthPerf pf;
     pf.dsend = 10;
     pf.rsend = 15;
@@ -362,8 +318,9 @@ TEST(performance_sends_add_to_the_own_mix_that_wins) {
     a.bank.setTrackPerf(0, pf);
     b.bank.setTrackPerf(0, pf);
     notes(a, b, 0);
-    b.bank.setSlotRecord(0, recOf(kOther));
-    b.bank.ownMixWins(0);
+    b.withMix(1, kOther);
+    b.bank.presetChanged(1);
+    a.bank.patchChanged(0);   // the same rebind in both
     a.block();
     b.block();
     CHECK(same(a, b, 10));
@@ -371,7 +328,7 @@ TEST(performance_sends_add_to_the_own_mix_that_wins) {
 
 TEST(performance_sends_use_the_mix_the_slot_took_at_its_z) {
     // The base sends are taken with the mix at the Z: a preset entry written
-    // later (a store into it) is not read while the slot plays it.
+    // later is not read while the slot plays it (until presetChanged).
     SynthPerf pf;
     pf.dsend = 10;
     pf.rsend = -10;
