@@ -119,8 +119,10 @@ TEST(size_field_wrong_resets_upper_tracks) {
         for (int s = 0; s < kStepCount; ++s) {
             const Step& st = g_q.tracks[t].steps[s];
             CHECK(st.note == kNoteEmpty && st.instrument == 0 && st.fx[0].type == 0 && st.fx[1].type == 0);
-            // Values untouched by the firmware clear routine.
-            CHECK_EQ(st.fx[0].value, g_p.tracks[t].steps[s].fx[0].value);
+            // Values untouched by the firmware clear routine, except one that
+            // would read as a Z command.
+            const uint8_t was = g_p.tracks[t].steps[s].fx[0].value;
+            CHECK_EQ(st.fx[0].value, isPresetValue(was) ? 0 : was);
         }
     }
 }

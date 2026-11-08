@@ -176,6 +176,7 @@ void SynthScreen::start(int opt) {
 void SynthScreen::stop() {
     audition(false, 0);
     if (view == View::Browser) closeBrowser();   // leaving the screen cancels the popup
+    if (view == View::Presets && previewKey_ >= 0) endPresetPreview();
 }
 
 void SynthScreen::audition(bool on, uint8_t note) {
@@ -246,7 +247,8 @@ void SynthScreen::refreshBar() {
                 else std::snprintf(v, sizeof(v), "%d", val);
                 b.set(k, top, v, !ro);
             }
-            b.label[6].hidden = b.label[7].hidden = true;
+            b.label[6].hidden = true;
+            b.set(7, "Presets");
             b.highlight(macro, !ro);
             break;
         }
@@ -266,6 +268,16 @@ void SynthScreen::refreshBar() {
             // tutorial V2 7:52). Back stays on F8 for every other row.
             b.set(7, nameRow() ? "Edit" : "Back", nullptr, !nameRow() || !ro);
             b.separators = uint8_t(0xFE & ~((1u << 5) | (1u << 6)));
+            break;
+        }
+        case View::Presets: {
+            const bool used = app_.synthPresetUsed(row + 1);
+            b.set(0, "Store", nullptr, !ro);
+            b.set(1, "Load", nullptr, used);
+            b.set(2, "Clear", nullptr, used);
+            b.label[3].hidden = b.label[6].hidden = true;
+            b.setWide(4, "Preview", nullptr, used && !ro);
+            b.set(7, "Back");
             break;
         }
         case View::Browser:
@@ -740,6 +752,7 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
     if (ui_.picker.isOpen()) return;
     if (id == btn::InstrParams) {
         if (state != kPress) return;
+        if (view == View::Presets && previewKey_ >= 0) endPresetPreview();
         audition(false, 0);
         if (view == View::Browser) closeBrowser();   // Cancel, back to page 1/2
         else view = view == View::Params ? View::Macros : View::Params;
@@ -757,6 +770,10 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
         } else if (state == kRelease) {
             app_.engine.synth().auditionOff();   // its own note; held pads play on
         }
+        return;
+    }
+    if (view == View::Presets && (id == btn::F5 || id == btn::F6) && state == kRelease) {
+        if (previewKey_ == int(id)) endPresetPreview();
         return;
     }
     if (view == View::Browser && (id == btn::F5 || id == btn::F6) && state == kRelease) {
@@ -804,7 +821,13 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
             else if (id == btn::Up || id == btn::Down) macroChange(id == btn::Up ? 1 : -1);
             else if (id == btn::Delete) resetSelected();
             else if (id == btn::Left || id == btn::Right) macro = clampi(macro + (id == btn::Right ? 1 : -1), 0, 5);
-            else if (id != btn::F7 && id != btn::F8) Screen::onButton(id, state);
+            else if (id == btn::F8) {
+                view = View::Presets;
+                row = 0;
+            } else if (id != btn::F7) Screen::onButton(id, state);
+            break;
+        case View::Presets:
+            presetKey(id);
             break;
         case View::Edit: {
             const synthui::Section* sec = nullptr;
@@ -877,6 +900,7 @@ void SynthScreen::onEncoder(int d) {
         case View::Params: paramsChange(param == 0 ? (d > 0 ? 1 : -1) : d); break;
         case View::Macros: macroChange(d); break;
         case View::Edit: editChange(d); break;
+        case View::Presets: row = clampi(row + d, 0, kSynthPresetCount - 1); break;
         case View::Browser:
             browserSel = clampi(browserSel + d, 0, browserCount > 0 ? browserCount - 1 : 0);
             break;
@@ -936,7 +960,9 @@ void SynthScreen::title(Gfx& g, const char* text) {
     char right[48];
     const char* m = kModels[r.model < uint32_t(kSynthModelCount) ? r.model : 0];
     if (available()) {
-        std::snprintf(right, sizeof(right), "Synth %d (%s)", slot + 1, m);
+        const int z = app_.synthPresetActive(slot);
+        if (z) std::snprintf(right, sizeof(right), "Synth %d (%s) P%d", slot + 1, m, z);   // why it sounds different
+        else std::snprintf(right, sizeof(right), "Synth %d (%s)", slot + 1, m);
         ui_.drawTitle(g, text, right);
     } else {
         // The longer header needs the status group's room (hidden). A model
@@ -1102,6 +1128,125 @@ void SynthScreen::drawEdit(Gfx& g) {
 // Load Patch popup (Tracker+ 1.0 frames, V1 3:10-3:22): Synth Parameters 1/2
 // dimmed under it, the list at x 600..799 under the "Load Patch" header band
 // (Ui, kRightBar), the loaded patch marked.
+void SynthScreen::drawPresets(Gfx& g) {
+    const Theme& th = ui_.th();
+    wg::ListView v;
+    title(g, "Synth Presets");
+    v.x = 0;
+    v.y = wg::kPanelFillTop;
+    v.w = kScreenW;
+    v.h = wg::kPanelH;
+    v.count = kSynthPresetCount;
+    v.sel = row;
+    v.selStyle = wg::ListSel::kWhite;
+    v.item = [](void* c, int i, char* out, int cap) {
+        auto* s = static_cast<SynthScreen*>(c);
+        const int n = i + 1;
+        const char* mark = s->app_.synthPresetActive(s->slot) == n ? "* " : "";
+        if (!s->app_.synthPresetUsed(n)) {
+            std::snprintf(out, size_t(cap), "%sP%d  -", mark, n);
+            return;
+        }
+        const int32_t e = s->app_.synthPreset(n).engine;
+        std::snprintf(out, size_t(cap), "%sP%d  %s", mark, n,
+                      audio::synthEngineFor(e) ? patchEngineName(e) : "not available");
+    };
+    v.ctx = this;
+    wg::list(g, th, v);
+}
+
+// Back to what the slot played before the held preview, unless a Z or Stop
+// has moved it since.
+void SynthScreen::endPresetPreview() {
+    previewKey_ = -1;
+    app_.engine.synth().auditionOff();
+    if (app_.synthPresetActive(slot) == row + 1) app_.engine.synth().presetSelect(slot, previewPrev_);
+}
+
+void SynthScreen::loadPresetNow() {
+    if (!app_.loadSynthPreset(slot, row + 1)) {
+        ui_.notify("Engine not available");
+        return;
+    }
+    edited_[slot] = false;
+    section = 0;
+    ui_.notify("Preset loaded");
+}
+
+void SynthScreen::presetKey(uint8_t id) {
+    // A held preview: only leaving the page counts (a question would swallow the release).
+    if (previewKey_ >= 0) {
+        if (id != btn::F8) return;
+        endPresetPreview();
+    }
+    const int n = row + 1;
+    const bool used = app_.synthPresetUsed(n);
+    switch (id) {
+        case btn::F1:
+            if (!available()) break;
+            if (!used) {
+                app_.storeSynthPreset(n, slot);
+                ui_.notify("Preset stored");
+                break;
+            }
+            ui_.ask("Store Preset", "Replace this preset?", nullptr, "No", "Yes",
+                    [](void* c, int key) {
+                        auto* s = static_cast<SynthScreen*>(c);
+                        if (key != btn::F8) return;
+                        s->app_.storeSynthPreset(s->row + 1, s->slot);
+                        s->ui_.notify("Preset stored");
+                        s->refreshBar();
+                    },
+                    this);
+            break;
+        case btn::F2: {
+            if (!used) break;
+            if (!edited_[slot]) {
+                loadPresetNow();
+                break;
+            }
+            ui_.ask("Load Preset", "Discard patch edits?", nullptr, "No", "Yes",
+                    [](void* c, int key) {
+                        auto* s = static_cast<SynthScreen*>(c);
+                        if (key != btn::F8) return;
+                        s->loadPresetNow();
+                        s->refreshBar();
+                    },
+                    this);
+            break;
+        }
+        case btn::F3:
+            if (!used) break;
+            ui_.ask("Clear Preset", "Clear this preset?", nullptr, "No", "Yes",
+                    [](void* c, int key) {
+                        auto* s = static_cast<SynthScreen*>(c);
+                        if (key != btn::F8) return;
+                        s->app_.clearSynthPreset(s->row + 1);
+                        s->refreshBar();
+                    },
+                    this);
+            break;
+        case btn::F5:
+        case btn::F6:
+            if (!used || !available()) break;
+            previewPrev_ = uint8_t(app_.synthPresetActive(slot));
+            previewKey_ = id;
+            app_.engine.synth().presetSelect(slot, uint8_t(n));
+            audition(true, id == btn::F5 ? 48 : 72);
+            break;
+        case btn::F8:
+            view = View::Macros;
+            break;
+        case btn::Up:
+        case btn::Down:
+            row = clampi(row + (id == btn::Down ? 1 : -1), 0, kSynthPresetCount - 1);
+            break;
+        default:
+            if (!btn::isFKey(id) && id != btn::Left && id != btn::Right) Screen::onButton(id, kPress);
+            break;
+    }
+}
+
 void SynthScreen::drawBrowser(Gfx& g) {
     const Theme& th = ui_.th();
     drawParams(g);
@@ -1133,6 +1278,14 @@ void SynthScreen::drawBrowser(Gfx& g) {
 
 void SynthScreen::update(uint32_t now) {
     Screen::update(now);
+    if (view == View::Presets) {   // a Z in the pattern moves the marker
+        const uint32_t z = uint32_t(app_.synthPresetActive(slot));
+        if (z != shownMacros_) {
+            shownMacros_ = z;
+            ui_.dirty();
+        }
+        return;
+    }
     if (view != View::Macros) return;
     const SynthSlotRecord r = app_.synthSlot(slot);
     const audio::SynthSlotView sv = app_.engine.synth().slotView(slot);
@@ -1152,6 +1305,7 @@ void SynthScreen::draw(Gfx& g) {
         case View::Macros: drawMacros(g); break;
         case View::Edit: drawEdit(g); break;
         case View::Browser: drawBrowser(g); break;
+        case View::Presets: drawPresets(g); break;
     }
 }
 

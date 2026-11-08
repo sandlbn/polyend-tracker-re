@@ -36,7 +36,7 @@ const char* const kArpRate[11] = {"8", "6", "4", "3", "2", "1", ".2", ".3", ".4"
 
 namespace {
 // Indexed by FX id.
-const char* const kDescription[kFxCount] = {
+const char* const kDescription[kFxListCount] = {
     "No effect in this slot. As a value it clears what the slot set before.",   // 0 None
     "Stops a roll or arp started from this column and undoes this slot's earlier change to the voice.",   // 1 Off
     "Delays the note by a fraction of a step. Higher values start it later.",   // 2 Micro-move
@@ -80,16 +80,17 @@ const char* const kDescription[kFxCount] = {
     "Transposes the note in semitones.",   // 40 Tune
     "Slides the pitch up by value/16 semitones over one step (16 = 1 semitone), then holds.",   // 41 Slide Up (manual p.178)
     "Slides the pitch down by value/16 semitones over one step (16 = 1 semitone), then holds.",   // 42 Slide Down (manual p.179)
+    "Switches the synth slot to preset 1-8 for every track that plays it, until another Z, Stop or an edit of the slot's patch. 0 = the slot's own patch.",   // 43 Synth Preset
 };
 }  // namespace
 
-const char* fxDescription(uint8_t type) { return type < kFxCount ? kDescription[type] : kDescription[0]; }
+const char* fxDescription(uint8_t type) { return type < kFxListCount ? kDescription[type] : kDescription[0]; }
 
 const char* fxHelpText(uint8_t type) {
     static char buf[256];
     const char* d = fxDescription(type);
     const FxId id = static_cast<FxId>(type);
-    if (type >= kFxCount || id == FxId::None || id == FxId::Off || id == FxId::BreakPattern ||
+    if (type >= kFxListCount || id == FxId::None || id == FxId::Off || id == FxId::BreakPattern ||
         seq::fxMin(type) >= seq::fxMax(type)) {
         std::snprintf(buf, sizeof(buf), "%s", d);
         return buf;
@@ -152,6 +153,10 @@ void fxValueText(uint8_t type, uint8_t v, char out[5]) {
 void fxCellText(uint8_t type, uint8_t value, char out[8]) {
     // spec 16 §A.8: FX symbol + right-aligned 3-character value; an empty
     // slot is "----".
+    if (isPresetCmd(type, value)) {
+        std::snprintf(out, 8, "%c%3u", fxInfo(kFxSynthPreset).symbol, unsigned(presetCmdIndex(value)));
+        return;
+    }
     if (type == 0 || type >= kFxCount) {
         std::snprintf(out, 8, "----");
         return;

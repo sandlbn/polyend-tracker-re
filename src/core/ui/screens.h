@@ -1084,7 +1084,7 @@ public:
     // a synth (the sample / MIDI Instrument screen opens).
     static int entrySlot(App& a, Ui& ui, int active);
 
-    enum class View : uint8_t { Params, Macros, Edit, Browser };
+    enum class View : uint8_t { Params, Macros, Edit, Browser, Presets };
     View view = View::Params;
     int slot = 0;           // 0..2
     int param = 0;          // Params page: F1..F6 (0 model .. 5 delay send)
@@ -1137,6 +1137,11 @@ private:
     void drawMacros(Gfx& g);
     void drawEdit(Gfx& g);
     void drawBrowser(Gfx& g);
+    void drawPresets(Gfx& g);
+    void presetKey(uint8_t id);
+    void endPresetPreview();
+    void loadPresetNow();
+    uint8_t previewPrev_ = 0;   // Presets: what the slot played before the held preview
     void title(Gfx& g, const char* text);
     // on: the slot's audition note (Enc push, Load Patch F5 / F6); off: that
     // note and every held pad.

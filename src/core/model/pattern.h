@@ -4,12 +4,19 @@
 #include <cstdint>
 
 #include "model/constants.h"
+#include "model/fx.h"
 
 namespace ot {
 
 struct StepFx {
     uint8_t type = 0;   // FxId value
     uint8_t value = 0;
+    bool used() const { return type != 0 || isPresetCmd(type, value); }
+    // Type 0, keeping the value like the stock clear, unless it would read as a Z.
+    void clearType() {
+        type = 0;
+        if (isPresetValue(value)) value = 0;
+    }
 };
 
 // One step. fx[0] is "FX slot 0", fx[1] is "FX slot 1". On disk the order is
@@ -20,11 +27,12 @@ struct Step {
     StepFx fx[kFxPerStep];
 
     // Firmware clear routine: note empty, instrument 0, FX types 0. FX
-    // values are left untouched (spec 02 §4.2).
+    // values are left untouched (spec 02 §4.2), but for one that would read
+    // as a Z command.
     void clear() {
         note = kNoteEmpty;
         instrument = 0;
-        for (auto& f : fx) f.type = 0;
+        for (auto& f : fx) f.clearType();
     }
     bool operator==(const Step& o) const {
         return note == o.note && instrument == o.instrument && fx[0].type == o.fx[0].type &&
@@ -43,10 +51,11 @@ struct Track {
     }
 
     // Track without data: every step empty (note, instrument and both FX
-    // types 0; FX values are ignored like Step::clear() leaves them).
+    // types 0; FX values are ignored like Step::clear() leaves them, a Z
+    // command excepted).
     bool blank() const {
         for (const Step& s : steps)
-            if (s.note != kNoteEmpty || s.instrument || s.fx[0].type || s.fx[1].type) return false;
+            if (s.note != kNoteEmpty || s.instrument || s.fx[0].used() || s.fx[1].used()) return false;
         return true;
     }
 };

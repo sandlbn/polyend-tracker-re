@@ -56,6 +56,22 @@ enum class FxId : uint8_t {
 
 constexpr int kFxCount = 43;
 
+// [3.x] Z, the synth preset command. A step stores it as FX type 0 ("none" in
+// every firmware) with value kFxPresetCmdBase + n, n = 0 (the slot's own patch)
+// to kSynthPresetCount. kFxSynthPreset is its place in the FX lists and tables;
+// it is never written as a stored type byte.
+constexpr uint8_t kFxSynthPreset = 43;
+constexpr int kFxListCount = kFxCount + 1;
+constexpr uint8_t kFxPresetCmdBase = 0xD0;
+constexpr int kSynthPresetCount = 8;
+constexpr bool isPresetValue(uint8_t value) {
+    return value >= kFxPresetCmdBase && value <= kFxPresetCmdBase + kSynthPresetCount;
+}
+constexpr bool isPresetCmd(uint8_t type, uint8_t value) { return type == 0 && isPresetValue(value); }
+constexpr uint8_t presetCmdIndex(uint8_t value) { return uint8_t(value - kFxPresetCmdBase); }
+constexpr uint8_t fxLogicalType(uint8_t type, uint8_t value) { return isPresetCmd(type, value) ? kFxSynthPreset : type; }
+constexpr uint8_t fxLogicalValue(uint8_t type, uint8_t value) { return isPresetCmd(type, value) ? presetCmdIndex(value) : value; }
+
 struct FxInfo {
     char symbol;          // single-character column symbol
     const char* name;     // menu name
@@ -64,12 +80,12 @@ struct FxInfo {
     uint8_t defaultValue;
 };
 
-// Info for a stored FX id; ids >= kFxCount return the "None" entry.
+// Info for an FX id of the lists; ids >= kFxListCount return the "None" entry.
 const FxInfo& fxInfo(uint8_t id);
 inline const FxInfo& fxInfo(FxId id) { return fxInfo(static_cast<uint8_t>(id)); }
 inline bool fxIdValid(uint8_t id) { return id < kFxCount; }
 
 // Firmware menu (display) order of ids, spec 02 §4.3.
-extern const uint8_t kFxMenuOrder[kFxCount];
+extern const uint8_t kFxMenuOrder[kFxListCount];
 
 }  // namespace ot
