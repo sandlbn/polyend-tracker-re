@@ -311,7 +311,11 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     // §1.4 step 5); each note-off releases one.
     if (voiceId < kAuditionMidiIn || voiceId >= kAuditionMidiIn + 128) previewOff(voiceId);
     const bool midi = isMidiInstrument(instrument);
-    if (isSynthSlotInstrument(instrument)) {
+    if (isSynthInstrument(instrument)) {
+        // [3.x] A preset instrument (P1..P8) names its preset; the bank picks
+        // the slot (synthSlotOf is -1 then: slot 0 is a placeholder).
+        const int slot = synthSlotOf(instrument) < 0 ? 0 : synthSlotOf(instrument);
+        const uint8_t preset = presetOfInstrument(instrument);
         // MIDI input notes and held pads (voiceId = pad number): one live
         // track per held note (polyphonic, up to the slot polyphony and the
         // voice cap); all held: the tracks are reused in turn. (Pads on the
@@ -328,13 +332,13 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
             synthLiveNext_ = uint8_t((k + 1) % audio::kSynthLiveTracks);
             synthLive_[k] = voiceId;
             const uint8_t vel = liveVelocity(uint8_t(velocity & 127));
-            engine.synth().liveOn(k, synthSlotOf(instrument), uint8_t(note & 127),
-                                  vel >= 127 ? int8_t(-1) : int8_t((vel * 100 + 63) / 127));
+            engine.synth().liveOn(k, slot, uint8_t(note & 127), vel >= 127 ? int8_t(-1) : int8_t((vel * 100 + 63) / 127),
+                                  preset);
             return -1;
         }
         // 2.x synth slots: the framework's audition track (one note at a time:
         // the Instrument / Loader previews, the note encoder).
-        engine.synth().auditionOn(synthSlotOf(instrument), uint8_t(note & 127));
+        engine.synth().auditionOn(slot, uint8_t(note & 127), -1, preset);
         synthAudVoice_ = voiceId;
         return -1;
     }
@@ -625,7 +629,7 @@ void App::handleMidiMessage(uint8_t st, uint8_t d1, uint8_t d2) {
         // 2.x synth slots sound on the synth live tracks, not a pattern
         // track: step entry writes the n-th held note to the n-th track of
         // the target (user report: MIDI keys recorded nothing on S1..S3).
-        if (t < 0 && isSynthSlotInstrument(currentInstrument())) {
+        if (t < 0 && isSynthInstrument(currentInstrument())) {
             int held = 0;
             for (int k = 0; k < audio::kSynthLiveTracks; ++k)
                 if (synthLive_[k] >= kAuditionMidiIn && synthLive_[k] < kAuditionMidiIn + 128 && synthLive_[k] != voice)
@@ -1017,8 +1021,9 @@ void App::copyToClipboard(const SelRect& r, int col) {
 
 void App::setCurrentInstrument(int i) {
     if (i < 0) i = 0;
-    // 2.x: synth slots 64..66 are instruments too (Tracker Mini).
-    if (i >= kFirstSynthInstrument + kSynthSlotCount) i = kFirstSynthInstrument + kSynthSlotCount - 1;
+    // 2.x: synth slots 64..66 are instruments too (Tracker Mini); [3.x] and
+    // the presets P1..P8 (67..74).
+    if (i > kLastPresetInstrument) i = kLastPresetInstrument;
     if (project.u8(pf::kCurInstrument) != i) {
         project.setU8(pf::kCurInstrument, uint8_t(i));
         markProjectDirty();

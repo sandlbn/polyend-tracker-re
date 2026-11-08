@@ -102,8 +102,9 @@ void setLength(Pattern& p, int len) {
 }
 
 uint8_t mapInstrument(int track, int instr) {
-    // 2.x synth slots 64..66 play on any of the 16 tracks (Tracker Mini).
-    if (instr >= 0 && isSynthSlotInstrument(uint8_t(instr))) return uint8_t(instr);
+    // 2.x synth slots 64..66 ([3.x] and the presets 67..74) play on any of
+    // the 16 tracks (Tracker Mini).
+    if (instr >= 0 && instr <= 255 && isSynthInstrument(uint8_t(instr))) return uint8_t(instr);
     if (isMidiTrack(track)) return (instr >= kFirstMidiInstrument && instr < kInstrumentCount) ? uint8_t(instr) : 48;
     return (instr >= 0 && instr < kInstrumentCount) ? uint8_t(instr) : 0;
 }
@@ -241,7 +242,7 @@ void writeInstrument(Pattern& p, const SelRect& r, uint8_t instr) {
             Step& st = p.tracks[t].steps[s];
             const uint8_t v = mapInstrument(t, instr);
             if (r.single()) {
-                const bool plays = isSampleInstrument(v) || isSynthSlotInstrument(v);
+                const bool plays = isSampleInstrument(v) || isSynthInstrument(v);
                 if (st.note == kNoteEmpty && plays) st.note = 60;
                 if (st.note < kNoteEmpty && plays) continue;   // specials keep theirs
                 st.instrument = v;
@@ -318,7 +319,7 @@ void stepInstrument(Pattern& p, const SelRect& r, int delta) {
             if (!r.single() && st.note < 0) continue;
             const int lo = isMidiTrack(t) ? kFirstMidiInstrument : 0;
             int v = mapInstrument(t, st.instrument) + delta;
-            st.instrument = uint8_t(clampi(v, lo, kFirstSynthInstrument + kSynthSlotCount - 1));   // + S1..S3
+            st.instrument = uint8_t(clampi(v, lo, kLastPresetInstrument));   // + S1..S3, [3.x] P1..P8
             if (r.single() && st.note == kNoteEmpty) st.note = 60;
         }
 }
