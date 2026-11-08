@@ -3,6 +3,7 @@
 #include "app/synth_presets.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -25,8 +26,13 @@ void setEngine(SynthPatch& p, int32_t engine) {
     *const_cast<volatile int32_t*>(&p.engine) = engine;
     std::atomic_signal_fence(std::memory_order_seq_cst);
 }
-// A mix value as the slot record holds it (out of range: held at its limit).
-float held(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
+// A mix value as the slot record holds it (out of range: held at its limit;
+// not a number: `def`).
+float held(float v, float lo, float hi, float def) {
+    if (!std::isfinite(v)) return def;
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+OT_SDRAM_BSS uint32_t g_presetResets;
 }  // namespace
 
 namespace presets {
@@ -71,32 +77,43 @@ SynthPatch& App::synthTargetPatch(int s) {
     return n ? g_presets[n - 1] : synthPatch(s);
 }
 
-SynthSlotRecord App::synthTargetRecord(int s) const {
+SynthPatch& App::synthTargetPatch(int s, int n) {
+    return synthPresetUsed(n) ? g_presets[n - 1] : synthPatch(s);
+}
+
+SynthSlotRecord App::synthTargetRecord(int s, int n) const {
     SynthSlotRecord r = project.synthSlot(s);
-    const int n = synthEditTarget(s);
-    if (!n) return r;
+    if (!synthPresetUsed(n)) return r;
     const SynthPatch& p = g_presets[n - 1];
     const int m = presets::modelOfEngine(p.engine);
     r.model = m < 0 ? uint32_t(kSynthModelCount) : uint32_t(m);
     std::snprintf(r.patchName, sizeof(r.patchName), "%s", p.presetName);
     if (patchHasPoly(p)) r.polyphony = p.poly;
     if (patchHasMix(p)) {
-        r.gainDb = held(patchMix(p, kPatchMixGain), -96.0f, 12.0f);
-        r.pan = held(patchMix(p, kPatchMixPan), -100.0f, 100.0f);
-        r.reverbSend = held(patchMix(p, kPatchMixReverb), 0.0f, 100.0f);
-        r.delaySend = held(patchMix(p, kPatchMixDelay), 0.0f, 100.0f);
+        r.gainDb = held(patchMix(p, kPatchMixGain), -96.0f, 12.0f, -9.0f);
+        r.pan = held(patchMix(p, kPatchMixPan), -100.0f, 100.0f, 0.0f);
+        r.reverbSend = held(patchMix(p, kPatchMixReverb), 0.0f, 100.0f, 0.0f);
+        r.delaySend = held(patchMix(p, kPatchMixDelay), 0.0f, 100.0f, 0.0f);
     }
     return r;
 }
 
-void App::setSynthTargetRecord(int s, const SynthSlotRecord& r) {
+void App::setSynthTargetRecord(int s, int n, const SynthSlotRecord& r) {
     if (s < 0 || s >= kSynthSlotCount) return;
-    const int n = synthEditTarget(s);
+    SynthSlotRecord own = project.synthSlot(s);
     if (!n) {
-        setSynthSlotRecord(s, r);
+        // Only what the pages edit: the model and the name stay the record's.
+        own.gainDb = r.gainDb;
+        own.pan = r.pan;
+        own.reverbSend = r.reverbSend;
+        own.delaySend = r.delaySend;
+        own.polyphony = r.polyphony;
+        std::memcpy(own.macros, r.macros, sizeof(own.macros));
+        setSynthSlotRecord(s, own);
         return;
     }
-    const SynthSlotRecord t = synthTargetRecord(s);
+    if (!synthPresetUsed(n)) return;   // emptied since the read
+    const SynthSlotRecord t = synthTargetRecord(s, n);
     SynthPatch& p = g_presets[n - 1];
     bool changed = false;
     if (r.gainDb != t.gainDb || r.pan != t.pan || r.reverbSend != t.reverbSend || r.delaySend != t.delaySend) {
@@ -109,18 +126,18 @@ void App::setSynthTargetRecord(int s, const SynthSlotRecord& r) {
     }
     if (changed) markSynthPresetDirty(n);
     // The macro page values stay the slot's.
-    SynthSlotRecord own = project.synthSlot(s);
     if (std::memcmp(own.macros, r.macros, sizeof(own.macros)) != 0) {
         std::memcpy(own.macros, r.macros, sizeof(own.macros));
         setSynthSlotRecord(s, own);
     }
 }
 
-void App::markSynthTargetDirty(int s) {
-    const int n = synthEditTarget(s);
-    if (n) markSynthPresetDirty(n);
-    else markSynthPatchDirty(s);
+void App::markSynthTargetDirty(int s, int n) {
+    if (!n) markSynthPatchDirty(s);
+    else if (synthPresetUsed(n)) markSynthPresetDirty(n);
 }
+
+uint32_t App::synthPresetResets() const { return g_presetResets; }
 
 void App::markSynthPresetDirty(int n) {
     if (!validPreset(n)) return;
@@ -139,7 +156,11 @@ void App::setSynthPresetPatch(int n, const SynthPatch& src, const char* name) {
     std::memcpy(mix, e.mix, sizeof(mix));
     const bool polyPresent = e.polyPresent;
     const uint8_t poly = e.poly;
-    setEngine(e, 0);   // a new engine: no slot reads a half-written entry
+    // A new engine: no slot reads a half-written entry. While the engine is 0
+    // a slot that binds (an audio block between here and the next setEngine)
+    // plays its own patch for that block; presetChanged below binds it to the
+    // new entry at the next one, and the slot's preset number never changes.
+    setEngine(e, 0);
     copyBehindEngine(e, src);
     e.mixCount = mixCount;
     std::memcpy(e.mix, mix, sizeof(mix));
@@ -207,10 +228,10 @@ bool App::loadSynthPreset(int s, int n) {
     // [OT] The preset's mix and polyphony become the slot's; a value the
     // record cannot hold is held at its limit.
     if (patchHasMix(p)) {
-        r.gainDb = held(patchMix(p, kPatchMixGain), -96.0f, 12.0f);
-        r.pan = held(patchMix(p, kPatchMixPan), -100.0f, 100.0f);
-        r.reverbSend = held(patchMix(p, kPatchMixReverb), 0.0f, 100.0f);
-        r.delaySend = held(patchMix(p, kPatchMixDelay), 0.0f, 100.0f);
+        r.gainDb = held(patchMix(p, kPatchMixGain), -96.0f, 12.0f, -9.0f);
+        r.pan = held(patchMix(p, kPatchMixPan), -100.0f, 100.0f, 0.0f);
+        r.reverbSend = held(patchMix(p, kPatchMixReverb), 0.0f, 100.0f, 0.0f);
+        r.delaySend = held(patchMix(p, kPatchMixDelay), 0.0f, 100.0f, 0.0f);
     }
     if (patchHasPoly(p)) r.polyphony = p.poly;
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
@@ -226,6 +247,7 @@ void App::resetSynthPresets() {
         if (engine.synth().presetOf(s)) engine.synth().patchChanged(s);
     std::memset(g_presets, 0, sizeof(g_presets));
     g_presetDirty = 0;
+    ++g_presetResets;
     ++chase::mem().presetSerial;
 }
 

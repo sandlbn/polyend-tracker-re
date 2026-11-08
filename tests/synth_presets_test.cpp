@@ -815,3 +815,52 @@ TEST(store_from_a_slot_on_a_preset_stores_what_it_plays) {
     CHECK(std::memcmp(&before, &a.synthPreset(1), sizeof(SynthPatch)) == 0);
     CHECK_EQ(a.synthPresetActive(1), 1);
 }
+
+TEST(an_edit_resolved_before_a_z0_or_stop_still_goes_to_the_sound_it_read) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    const int n = a.synthEditTarget(1);
+    CHECK_EQ(n, 1);
+    SynthSlotRecord t = a.synthTargetRecord(1, n);
+    t.gainDb = -2.5f;
+    a.engine.synth().transportStop();   // between the read and the write
+    CHECK_EQ(a.synthEditTarget(1), 0);
+    const SynthSlotRecord own = a.synthSlot(1);
+    a.setSynthTargetRecord(1, n, t);
+    CHECK(patchMix(a.synthPreset(1), kPatchMixGain) == -2.5f);
+    CHECK(a.synthSlot(1).gainDb == own.gainDb);
+    CHECK(&a.synthTargetPatch(1, n) == &a.synthPreset(1));
+    a.markSynthTargetDirty(1, n);
+    CHECK(!a.synthPatchDirty(1));
+    // A preset emptied since: the edit is dropped.
+    a.clearSynthPreset(1);
+    t.gainDb = -1.0f;
+    a.setSynthTargetRecord(1, n, t);
+    CHECK(a.synthSlot(1).gainDb == own.gainDb);
+    CHECK(&a.synthTargetPatch(1, n) == &a.synthPatch(1));
+    // The own target never takes a model or a name from the edited record.
+    SynthSlotRecord o = a.synthTargetRecord(1, 0);
+    o.model = uint32_t(otherModel());
+    std::snprintf(o.patchName, sizeof(o.patchName), "Other");
+    o.pan = 33.0f;
+    a.setSynthTargetRecord(1, 0, o);
+    const SynthSlotRecord after = a.synthSlot(1);
+    CHECK_EQ(int(after.model), int(SynthModel::ACD));
+    CHECK_STR(after.patchName, own.patchName);
+    CHECK(after.pan == 33.0f);
+}
+
+TEST(a_mix_that_is_not_a_number_never_reaches_the_record) {
+    Harness h;
+    App& a = *h.app;
+    onPreset(a);
+    SynthPatch& e = a.synthTargetPatch(1, 1);
+    e.mix[kPatchMixGain].bits = 0x7FC00000u;   // NaN
+    CHECK(!patchHasMix(e));
+    const SynthSlotRecord t = a.synthTargetRecord(1, 1);
+    CHECK(std::isfinite(t.gainDb) && std::isfinite(t.pan));
+    CHECK(t.gainDb == a.synthSlot(1).gainDb);
+    CHECK(a.loadSynthPreset(0, 1));
+    CHECK(std::isfinite(a.synthSlot(0).gainDb));
+}

@@ -464,12 +464,22 @@ public:
     // index past the models for an engine no model has), name, polyphony and
     // mix (each the record's where the preset carries none); macro values
     // stay the record's.
-    SynthSlotRecord synthTargetRecord(int s) const;
-    // r as edited from synthTargetRecord(s): own -> setSynthSlotRecord; on a
-    // preset its mix and polyphony go to the preset (heard, saved), the macro
-    // values to the record; model and name are not taken from r.
-    void setSynthTargetRecord(int s, const SynthSlotRecord& r);
-    void markSynthTargetDirty(int s);
+    SynthSlotRecord synthTargetRecord(int s) const { return synthTargetRecord(s, synthEditTarget(s)); }
+    // r as edited from synthTargetRecord(s): its mix, polyphony and macro
+    // values; model and name are never taken from r. Own: onto the slot
+    // record; on a preset the mix and polyphony go to the preset (heard,
+    // saved), the macro values to the record.
+    void setSynthTargetRecord(int s, const SynthSlotRecord& r) { setSynthTargetRecord(s, synthEditTarget(s), r); }
+    void markSynthTargetDirty(int s) { markSynthTargetDirty(s, synthEditTarget(s)); }
+    // The same with the target n (0 = own) resolved once by the caller: a Z
+    // or Stop from the audio block between the read and the write must not
+    // send an edit to another sound. A preset n emptied since is ignored.
+    SynthSlotRecord synthTargetRecord(int s, int n) const;
+    void setSynthTargetRecord(int s, int n, const SynthSlotRecord& r);
+    void markSynthTargetDirty(int s, int n);
+    SynthPatch& synthTargetPatch(int s, int n);
+    // Bumped when the presets are reset (new project, open, workspace load).
+    uint32_t synthPresetResets() const;
     void markSynthPresetDirty(int n);          // heard on the slots that play it, saved by the autosave
     // Preset n takes src's sound (engine, values, macros) and `name`; it keeps
     // its mix and polyphony, the slots on it stay on it and get the patch's
@@ -477,10 +487,12 @@ public:
     void setSynthPresetPatch(int n, const SynthPatch& src, const char* name);
     // The patch operations of the synth pages on the target (own: as
     // setSynthModel, initSynthPatch, load / saveSynthLibraryPatch).
-    void setSynthTargetModel(int s, int model);
-    void initSynthTargetPatch(int s);
-    bool loadSynthTargetLibraryPatch(int s, const char* name);
-    bool saveSynthTargetLibraryPatch(int s, const char* name);
+    // n: the target as the caller resolved it (-1: resolved here); a preset
+    // emptied since changes nothing.
+    void setSynthTargetModel(int s, int model, int n = -1);
+    void initSynthTargetPatch(int s, int n = -1);
+    bool loadSynthTargetLibraryPatch(int s, const char* name, int n = -1);
+    bool saveSynthTargetLibraryPatch(int s, const char* name, int n = -1);
     void markSynthPatchDirty(int s) {
         if (s < 0 || s >= kSynthSlotCount) return;
         patchDirty_[s] = true;

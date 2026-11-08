@@ -228,8 +228,9 @@ bool App::saveSynthLibraryPatch(int s, const char* name) {
 
 // --- [OT] the patch operations of the synth pages on the edit target --------
 
-void App::setSynthTargetModel(int s, int model) {
-    const int n = synthEditTarget(s);
+void App::setSynthTargetModel(int s, int model, int n) {
+    if (n < 0) n = synthEditTarget(s);
+    if (n && !synthPresetUsed(n)) return;
     if (!n) {
         setSynthModel(s, model);
         return;
@@ -245,8 +246,9 @@ void App::setSynthTargetModel(int s, int model) {
     setSynthPresetPatch(n, *p, "Init");
 }
 
-void App::initSynthTargetPatch(int s) {
-    const int n = synthEditTarget(s);
+void App::initSynthTargetPatch(int s, int n) {
+    if (n < 0) n = synthEditTarget(s);
+    if (n && !synthPresetUsed(n)) return;
     if (!n) {
         initSynthPatch(s);
         return;
@@ -256,11 +258,12 @@ void App::initSynthTargetPatch(int s) {
     setSynthPresetPatch(n, *tmp, "Init");
 }
 
-bool App::loadSynthTargetLibraryPatch(int s, const char* name) {
+bool App::loadSynthTargetLibraryPatch(int s, const char* name, int n) {
     if (previewSlot_ == s) endSynthPreview();
-    const int n = synthEditTarget(s);
+    if (n < 0) n = synthEditTarget(s);
     if (!n) return loadSynthLibraryPatch(s, name);
-    const SynthSlotRecord t = synthTargetRecord(s);
+    if (!synthPresetUsed(n)) return false;
+    const SynthSlotRecord t = synthTargetRecord(s, n);
     if (t.model >= uint32_t(kSynthModelCount)) return false;
     const SynthPatch* p = readSynthLibraryPatch(SynthModel(t.model), name);
     if (!p) return false;
@@ -268,10 +271,11 @@ bool App::loadSynthTargetLibraryPatch(int s, const char* name) {
     return true;
 }
 
-bool App::saveSynthTargetLibraryPatch(int s, const char* name) {
-    const int n = synthEditTarget(s);
+bool App::saveSynthTargetLibraryPatch(int s, const char* name, int n) {
+    if (n < 0) n = synthEditTarget(s);
     if (!n) return saveSynthLibraryPatch(s, name);
-    const SynthSlotRecord t = synthTargetRecord(s);
+    if (!synthPresetUsed(n)) return false;
+    const SynthSlotRecord t = synthTargetRecord(s, n);
     SynthPatch* tmp = scratchSynthPatch();
     if (t.model >= uint32_t(kSynthModelCount) || !tmp) return false;
     // A library patch never carries what only a preset does.
