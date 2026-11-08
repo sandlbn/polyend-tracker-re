@@ -8,7 +8,10 @@
 #include "otm_core.h"   // generated: kOtmLayoutHash, kOtmAbiFlags, kOtmExportCount
 
 extern "C" const uint32_t otmExports[];   // generated (tools/make_otm.py exports-cpp)
-extern "C" uint8_t __otm_fast_start[], __otm_fast_end[];   // opentracker.ld (OT_POOL_TEST images)
+extern "C" uint8_t __otm_fast_start[], __otm_fast_end[];   // opentracker.ld (OT_POOL_TEST / OT_HOT_POOL images)
+#if defined(OT_HOT_POOL) && OT_HOT_POOL
+extern "C" const ot::mod::HotRows otHotRows;   // generated (tools/hot_pool.py table)
+#endif
 
 namespace ot {
 namespace hal {
@@ -63,6 +66,9 @@ const mod::OtmPool* modulePool() {
             gOtmPool.fastBase = static_cast<uint32_t>(fs);
             gOtmPool.fastCap = static_cast<uint32_t>(fe - fs);
         }
+#if defined(OT_HOT_POOL) && OT_HOT_POOL
+        gOtmPool.hotRows = &otHotRows;   // [I] the built-in synths' rows share the block
+#endif
     }
     return &gOtmPool;
 }

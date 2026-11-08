@@ -92,8 +92,44 @@ struct CardState {
     CardEngine eng[kMaxCardEngines];
     int nEng;
     uint32_t keepUsed, keepFast;         // what the modules loaded for good take
+    // [I] The compiled-in hot rows (pool->hotRows): usable (hotRowCheck at
+    // boot), the ones the last share served, in turn order.
+    bool hotOk[OtmLoadReport::kMaxHot];
+    int8_t hotWant[OtmLoadReport::kMaxHot];
+    int nHotWant;
+    // One share: each taker's costs per cut (fast block bytes, 8-aligned)
+    // and, for a hot row, the row cut each cost stands for (both inside the
+    // fast block, so 16 bits).
+    OtmShareCut cost[OtmLoadReport::kMax][kOtmMaxShareCuts];
+    OtmShareCut rowCut[OtmLoadReport::kMax][kOtmMaxShareCuts];
+    uint32_t nCost[OtmLoadReport::kMax];
 };
 OT_SDRAM_BSS CardState g_card;
+
+int hotRowCount() {
+    const HotRows* h = g_card.pool ? g_card.pool->hotRows : nullptr;
+    return h ? (h->n < uint32_t(OtmLoadReport::kMaxHot) ? int(h->n) : OtmLoadReport::kMaxHot) : 0;
+}
+
+// The usable hot row whose module serves engineId; -1 = none.
+int hotRowFor(int32_t engineId) {
+    for (int k = 0; k < hotRowCount(); ++k) {
+        const HotRow& row = g_card.pool->hotRows->rows[k];
+        if (g_card.hotOk[k] && row.module && row.module().synthEngine(engineId)) return k;
+    }
+    return -1;
+}
+
+int wantedHot(const int32_t* engines, int n, int8_t* out) {
+    int nOut = 0;
+    for (int k = 0; k < n; ++k) {
+        const int h = engines[k] ? hotRowFor(engines[k]) : -1;
+        bool seen = h < 0;
+        for (int i = 0; i < nOut && !seen; ++i) seen = out[i] == h;
+        if (!seen) out[nOut++] = int8_t(h);
+    }
+    return nOut;
+}
 
 // Row cuts of the files being loaded: at the end of the scratch, not on the
 // stack or in the SDRAM block (they're only needed while loading).
@@ -198,10 +234,16 @@ int wantedFiles(const int32_t* engines, int n, int* want) {
     return nWant;
 }
 
-// Every card synth out of the pool: the pool and the fast block hold only
-// what the boot loaded for good.
+// Every hot row back to flash and every card synth out of the pool: the
+// pool and the fast block hold only what the boot loaded for good.
 void dropCardSynths() {
+    const OtmPool& pool = *g_card.pool;
     OtmLoadReport& r = *g_card.r;
+    for (int k = 0; k < hotRowCount(); ++k)
+        if (r.hotCut[k]) {
+            hotRowRestore(pool.hotRows->rows[k]);
+            r.hotCut[k] = 0;
+        }
     for (int i = 0; i < r.n; ++i)
         if (g_card.mod[i]) {
             ModuleHost::instance().removeLoaded(*g_card.mod[i]);
@@ -209,6 +251,7 @@ void dropCardSynths() {
             r.items[i].loaded = false;
             r.items[i].fastBytes = 0;
         }
+    g_card.nHotWant = 0;
     r.used = g_card.keepUsed;
     r.fastUsed = g_card.keepFast;
     r.noRoom = false;
@@ -235,6 +278,8 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         g_card.pool = &pool;
         g_card.r = report;
     }
+    // [I] The hot rows share the fast block with no card files too.
+    for (int k = 0; k < hotRowCount(); ++k) g_card.hotOk[k] = hotRowCheck(pool.hotRows->rows[k]);
     // Name order, so the master inserts chain the same way on every boot.
     Names names;
     if (fs.listDir(kModulesDir, &collect, &names) < 0 || names.n == 0) return 0;
@@ -323,7 +368,9 @@ bool cardSynthsDiffer(const int32_t* engines, int n) {
     const int nWant = wantedFiles(engines, n, want);
     for (int i = 0; i < g_card.r->n; ++i)
         if (g_card.r->items[i].synth && (g_card.mod[i] != nullptr) != fileWanted(i, want, nWant)) return true;
-    return false;
+    int8_t hot[OtmLoadReport::kMaxHot];
+    const int nHot = wantedHot(engines, n, hot);
+    return nHot != g_card.nHotWant || std::memcmp(hot, g_card.hotWant, size_t(nHot)) != 0;
 }
 
 bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratch, uint32_t scratchCap) {
@@ -339,51 +386,87 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
     int want[OtmLoadReport::kMax];
     const int nWant = wantedFiles(engines, n, want);
     // The pool grows first: no room (the stack), and the card synths loaded
-    // now stay as they are.
+    // now and the hot rows' share stay as they are.
     if (nWant > 0 && (!pool.cap || (pool.resize && !pool.resize(pool.cap)))) {
         r.noRoom = true;
         return false;
     }
-    // Every card synth leaves, then the wanted ones load again from the
-    // first free byte (a new set gets the fast block shared out anew).
+    // Every hot row back to flash and every card synth leaves, then the
+    // wanted ones take the fast block anew (a new set shares it out anew).
     dropCardSynths();
+    g_card.nHotWant = wantedHot(engines, n, g_card.hotWant);
+    // The takers in the engines' order: a hot row (>= 0) or a card file (~item).
+    int taker[OtmLoadReport::kMax], nTaker = 0;
+    for (int k = 0; k < n && nTaker < OtmLoadReport::kMax; ++k) {
+        int t = engines[k] ? hotRowFor(engines[k]) : -1;
+        if (t < 0) {
+            const CardEngine* e = cardEngine(engines[k]);
+            if (!e) continue;
+            t = ~int(e->file);
+        }
+        bool seen = false;
+        for (int i = 0; i < nTaker && !seen; ++i) seen = taker[i] == t;
+        if (!seen) taker[nTaker++] = t;
+    }
     bool ok = true;
-    if (nWant > 0) {
-        CutTable* t = cutTable(pool, scratch, &scratchCap);
-        for (int k = 0; k < nWant; ++k) {
-            if (t) t->nCuts[k] = 0;
-            OtmLoadReport::Item& it = r.items[want[k]];
-            uint32_t len = 0;
-            OtmHeader hdr;
-            it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, t ? t->cuts[k] : nullptr,
-                                   t ? &t->nCuts[k] : nullptr);
-        }
-        uint32_t share[OtmLoadReport::kMax] = {};
-        if (t) shareFastBlock(t->cuts, t->nCuts, nWant, pool.fastCap - g_card.keepFast, share);
-        for (int k = 0; k < nWant; ++k) {
-            OtmLoadReport::Item& it = r.items[want[k]];
-            it.refused = false;
-            uint32_t len = 0;
-            OtmHeader hdr;
-            if (it.error == OtmError::None)
-                it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, nullptr, nullptr);
-            uint32_t used = r.used, fastUsed = r.fastUsed;
-            IModule* m = it.error == OtmError::None ? place(pool, it, scratch, len, hdr, share[k], &used, &fastUsed)
-                                                    : nullptr;
-            if (m && !ModuleHost::instance().addLoaded(*m, true)) {
-                it.refused = true;
-                m = nullptr;
+    // Each taker's costs: a card file's cuts, a hot row's spans (code, stubs, tables).
+    for (int i = 0; i < nTaker; ++i) {
+        g_card.nCost[i] = 0;
+        if (taker[i] >= 0) {
+            const HotRow& row = pool.hotRows->rows[taker[i]];
+            for (uint32_t k = 0; k < row.nCuts && k < kOtmMaxShareCuts; ++k) {
+                const uint32_t span = hotRowSpan(row, row.cuts[k]);
+                if (span == UINT32_MAX || span > 0xFFF8u || row.cuts[k] > 0xFFFFu) break;
+                g_card.cost[i][g_card.nCost[i]] = OtmShareCut((span + 7u) & ~7u);
+                g_card.rowCut[i][g_card.nCost[i]++] = OtmShareCut(row.cuts[k]);
             }
-            if (!m) {
-                it.fastBytes = 0;
-                ok = false;
-                continue;
-            }
-            it.loaded = true;
-            g_card.mod[want[k]] = m;
-            r.used = used;
-            r.fastUsed = fastUsed;
+            continue;
         }
+        OtmLoadReport::Item& it = r.items[~taker[i]];
+        uint32_t len = 0;
+        OtmHeader hdr;
+        it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, g_card.cost[i], &g_card.nCost[i]);
+    }
+    uint32_t share[OtmLoadReport::kMax] = {};
+    if (pool.fastMem) shareFastBlock(g_card.cost, g_card.nCost, nTaker, pool.fastCap - g_card.keepFast, share);
+    for (int i = 0; i < nTaker; ++i) {
+        if (taker[i] >= 0) {
+            if (!share[i]) continue;
+            const HotRow& row = pool.hotRows->rows[taker[i]];
+            uint32_t cut = 0;   // the longest cut that costs the share
+            for (uint32_t k = 0; k < g_card.nCost[i]; ++k)
+                if (g_card.cost[i][k] == share[i]) cut = g_card.rowCut[i][k];
+            const uint32_t at = r.fastUsed;
+            const OtmBlock dst{pool.fastMem + at, pool.fastCap - at, pool.fastBase + at};
+            if (!cut || !hotRowMove(row, cut, dst)) continue;   // it runs from flash
+            if (pool.sync) pool.sync(dst.mem, share[i]);
+            r.hotCut[taker[i]] = cut;
+            r.fastUsed = at + share[i];
+            continue;
+        }
+        const int f = ~taker[i];
+        OtmLoadReport::Item& it = r.items[f];
+        it.refused = false;
+        uint32_t len = 0;
+        OtmHeader hdr;
+        if (it.error == OtmError::None)
+            it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, nullptr, nullptr);
+        uint32_t used = r.used, fastUsed = r.fastUsed;
+        IModule* m = it.error == OtmError::None ? place(pool, it, scratch, len, hdr, share[i], &used, &fastUsed)
+                                                : nullptr;
+        if (m && !ModuleHost::instance().addLoaded(*m, true)) {
+            it.refused = true;
+            m = nullptr;
+        }
+        if (!m) {
+            it.fastBytes = 0;
+            ok = false;
+            continue;
+        }
+        it.loaded = true;
+        g_card.mod[f] = m;
+        r.used = used;
+        r.fastUsed = fastUsed;
     }
     if (pool.resize) pool.resize(r.used);
     return ok;

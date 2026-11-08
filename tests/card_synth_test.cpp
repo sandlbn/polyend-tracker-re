@@ -13,6 +13,7 @@
 #include "modules/module_files.h"
 #include "modules/synth_descriptor.h"
 #include "modules/synth_models.h"
+#include "modules/thumb_branch.h"
 #include "ui_fakes.h"
 
 using namespace ot;
@@ -141,4 +142,97 @@ TEST(card_synth_loads_with_the_project) {
     CHECK(cardEngineLoaded(kCardEng));    // before the patches: the slot's patch is its own
     CHECK_EQ(a.slotEngineId(0), kCardEng);
     CHECK_EQ(a.synthPatch(0).engine, kCardEng);
+}
+
+// ---- [I] built-in synths' hot rows share the fast block (modules/hot_rows.h) ----
+
+namespace ot {
+namespace mod {
+IModule& acdModule();
+IModule& vapModule();
+IModule& fatModule();
+}  // namespace mod
+}  // namespace ot
+
+namespace {
+
+constexpr uint32_t kFastBase = 0x1FFF9000u;
+uint8_t g_fast[64];
+
+// A 16-byte row per synth (one cut, no fixups) with a 4-byte table pointing
+// into it and a "vtable pointer" slot (a test word) pointing at the table.
+struct FakeRow {
+    uint8_t code[16] = {};
+    uint8_t table[4] = {};
+    uint32_t cuts[1] = {16};
+    uint32_t entries[1] = {0};
+    uint32_t vptr;
+    HotTable tab;
+    HotSlot slot;
+    FakeRow(uint32_t addr) {
+        for (int i = 0; i < 4; ++i) table[i] = uint8_t((addr + 1) >> (8 * i));
+        vptr = addr + 0x1000u;
+        tab = HotTable{table, addr + 0x1000u, 4, 1, entries};
+        slot = HotSlot{&vptr, addr + 0x1000u};
+    }
+    HotRow row(ModuleFactory m, uint32_t addr) { return HotRow{m, code, addr, 16, 1, cuts, 0, nullptr, 1, &tab, 1, &slot}; }
+};
+FakeRow g_acdRow(0x00010000u), g_vapRow(0x00020000u);
+HotRow g_rows[2];
+HotRows g_hot = {2, g_rows};
+
+struct HotRig {
+    explicit HotRig(uint32_t fastCap) {
+        g_rows[0] = g_acdRow.row(&acdModule, 0x00010000u);
+        g_rows[1] = g_vapRow.row(&vapModule, 0x00020000u);
+        g_acdRow.vptr = 0x00011000u;
+        g_vapRow.vptr = 0x00021000u;
+        static OtmPool pool;
+        pool = OtmPool{g_pool, 0x20030000u, sizeof(g_pool), kCore, nullptr, &enterCard, nullptr};
+        pool.fastMem = g_fast;
+        pool.fastBase = kFastBase;
+        pool.fastCap = fastCap;
+        pool.hotRows = &g_hot;
+        static OtmPool* p;
+        p = &pool;
+        Harness::beforeInit = [](Harness&, HalRefs& r) { r.modulePool = p; };
+    }
+    ~HotRig() { Harness::beforeInit = nullptr; }
+};
+
+int32_t engineOf(IModule& m) { return m.synthDescriptor(0)->engineId; }
+
+}  // namespace
+
+TEST(hot_rows_share_the_fast_block_in_slot_order) {
+    HotRig rig(sizeof(g_fast));
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.setSynthEngine(0, engineOf(fatModule()));   // no row: takes no turn
+    a.setSynthEngine(1, engineOf(acdModule()));
+    a.setSynthEngine(2, engineOf(vapModule()));
+    h.run(400);
+    // ACD first (16 B code + 4 B table, 24 with the 8-byte step), then VAP.
+    CHECK_EQ(g_acdRow.vptr, kFastBase + 16);
+    CHECK_EQ(g_vapRow.vptr, kFastBase + 24 + 16);
+    CHECK_EQ(thumb::rd32(g_fast + 16), kFastBase + 1);   // the table's copy points at the moved code
+    // VAP leaves: back to flash, ACD keeps its place.
+    a.setSynthEngine(2, engineOf(fatModule()));
+    h.run(400);
+    CHECK_EQ(g_vapRow.vptr, 0x00021000u);
+    CHECK_EQ(g_acdRow.vptr, kFastBase + 16);
+}
+
+TEST(hot_row_without_room_runs_from_flash) {
+    HotRig rig(24);   // room for one
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.setSynthEngine(0, engineOf(vapModule()));
+    a.setSynthEngine(1, engineOf(acdModule()));
+    a.setSynthEngine(2, engineOf(fatModule()));
+    h.run(400);
+    CHECK_EQ(g_vapRow.vptr, kFastBase + 16);   // the first slot's synth got the block
+    CHECK_EQ(g_acdRow.vptr, 0x00011000u);
 }
