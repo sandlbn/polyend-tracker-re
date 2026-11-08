@@ -20,8 +20,9 @@ extern volatile bool gSnapToZero;
 
 // Nearest crossing to `frame` within the window, or `frame`.
 int32_t snapToZero(const int16_t* x, uint32_t len, int32_t frame);
-// Marker indicator (stock 0x160c0): flag off -> the exact frame is 0; flag on
-// -> a crossing exists in the window at a position other than its edges.
+// Marker indicator: flag off -> the wave crosses zero in the frames the
+// marker's step covers (up to the next step); flag on -> a crossing exists in
+// the window at a position other than its edges.
 bool markerOnCrossing(const int16_t* x, uint32_t len, uint16_t marker, bool snapOn);
 
 }  // namespace audio
