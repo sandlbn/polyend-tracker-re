@@ -19,7 +19,8 @@ they hold --share of its instructions, for tools/make_otm.py --hot.
 <hot> holds one count per phase (every mode of every synth) and NAMES the
 bench output naming them. Per module: the hottest functions of each of its
 phases until --share of that phase, joined; --emit-hot writes the joined
-lists. Functions from core headers (inline / template, which each module
+lists as the rows tools/make_otm.py --hot links (weight per byte first,
+with each function's mean share over the modes). Functions from core headers (inline / template, which each module
 compiles into its own code) count for the module whose phase runs them. The
 table shows what the Init patch's list alone covers of the module's worst
 phase, and what the joined list costs."""
@@ -191,13 +192,22 @@ def modes(a, syms, starts):
         print(f"{m:8} {len(ph):6d} {size(init_set):7d} {worst:5.0f}% {wname[:11]:>11} {size(joined):8d} {size(agg):15d}"
               + cols + f"  {mean:6.0f}%")
         if a.emit_hot:
+            # The row make_otm.py links hottest first (the loader cuts it to
+            # fit the fast block): each function's weight is its mean share
+            # over the module's modes (every mode counts the same), the order
+            # weight per byte, so any cut holds the most weight for its bytes.
             os.makedirs(a.emit_hot, exist_ok=True)
-            tot = sum(total.values()) or 1
+            w = collections.Counter()
+            for _, rows in ph:
+                tot = sum(rows.values()) or 1
+                for i, v in rows.items():
+                    w[i] += v / tot / len(ph)
             lines = [f"# {m}: the hottest functions of each mode until {100 * a.share:.0f}% of that mode's "
-                     f"instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes)"]
-            for i in sorted(joined, key=lambda i: -total[i]):
-                lines.append(f"{syms[i][2]}  # {100.0 * total[i] / tot:.1f}% {syms[i][1]} B")
-            lines.append(f"# {size(joined)} B, {len(ph)} modes")
+                     f"instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).",
+                     "# <function> <weight: mean share over the modes>, weight per byte first."]
+            for i in sorted(joined, key=lambda i: -w[i] / max(syms[i][1], 1)):
+                lines.append(f"{syms[i][2]} {w[i]:.5f}  # {syms[i][1]} B")
+            lines.append(f"# {size(joined)} B, {len(ph)} modes, {100.0 * sum(w[i] for i in joined):.1f}% of the weight")
             with open(os.path.join(a.emit_hot, m + ".hot"), "w") as f:
                 f.write("\n".join(lines) + "\n")
     return 0
@@ -300,7 +310,7 @@ def main():
                     break
                 got += ins
                 size += sz
-                lines.append(f"{name}  # {100.0 * ins / tot:.1f}% {sz} B")
+                lines.append(f"{name} {ins / tot:.5f}  # {sz} B")
             lines.append(f"# {size} B, {100.0 * got / tot:.1f}%")
             with open(os.path.join(a.emit_hot, m + ".hot"), "w") as f:
                 f.write("\n".join(lines) + "\n")

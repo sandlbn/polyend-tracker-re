@@ -160,10 +160,9 @@ void logModuleLoad(const ot::mod::OtmLoadReport& r) {
     for (int i = 0; i < r.n; ++i) {
         const ot::mod::OtmLoadReport::Item& it = r.items[i];
         const char* what = it.refused ? "refused (id taken, api or attach)" : ot::mod::otmErrorText(it.error);
-        if (it.error == ot::mod::OtmError::None && !it.refused && it.fastBytes)
-            ot::hal::diagLogf("modules: %s %s, fast part %lu B %s", it.file, what,
-                              static_cast<unsigned long>(it.fastBytes),
-                              it.fastInBlock ? "in SRAM_L" : "in the pool (no room in SRAM_L)");
+        if (it.error == ot::mod::OtmError::None && !it.refused && it.rowBytes)
+            ot::hal::diagLogf("modules: %s %s, hot code %lu of %lu B in SRAM_L", it.file, what,
+                              static_cast<unsigned long>(it.fastBytes), static_cast<unsigned long>(it.rowBytes));
         else
             ot::hal::diagLogf("modules: %s %s", it.file, what);
     }

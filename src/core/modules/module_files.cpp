@@ -70,7 +70,7 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         std::strcpy(it.file, names.name[i]);
         it.refused = false;
         it.fastBytes = 0;
-        it.fastInBlock = false;
+        it.rowBytes = 0;
         char path[64];
         std::snprintf(path, sizeof(path), "%s/%s", kModulesDir, names.name[i]);
         const IStorage::Handle h = fs.open(path, IStorage::kRead);
@@ -89,33 +89,27 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         OtmHeader hdr;
         it.error = otmCheck(scratch, uint32_t(len), pool.core, &hdr);
         if (it.error != OtmError::None) continue;
-        it.fastBytes = hdr.fastBytes;
+        it.rowBytes = hdr.rowBytes;
         const uint32_t at = (pool.base + r.used + hdr.align - 1) & ~(hdr.align - 1);
         const uint32_t off = at - pool.base;
         if (off > pool.cap) {
             it.error = OtmError::TooBig;
             continue;
         }
-        // The fast part in the fast block when it fits there, else in front of the main part.
-        const uint32_t fat = (pool.fastBase + r.fastUsed + hdr.align - 1) & ~(hdr.align - 1);
+        // The longest cut of the row that fits the fast block's free room; the
+        // rest of the row goes after the main part.
+        const uint32_t fat = (pool.fastBase + r.fastUsed + 3u) & ~3u;
         const uint32_t foff = fat - pool.fastBase;
-        const bool inFast = hdr.fastBytes && pool.fastMem && foff <= pool.fastCap &&
-                            hdr.fastBytes <= pool.fastCap - foff;
-        const uint32_t span = hdr.fastBytes && !inFast ? otmFastSpan(hdr) : 0u;
-        if (span > pool.cap - off) {
-            it.error = OtmError::TooBig;
-            continue;
-        }
-        const OtmBlock fast = inFast ? OtmBlock{pool.fastMem + foff, pool.fastCap - foff, fat}
-                                     : OtmBlock{pool.mem + off, span, at};
-        const OtmBlock main{pool.mem + off + span, pool.cap - off - span, at + span};
+        const uint32_t cut = pool.fastMem && foff <= pool.fastCap ? otmCutFor(scratch, hdr, pool.fastCap - foff) : 0u;
+        const OtmBlock fast{cut ? pool.fastMem + foff : nullptr, cut ? pool.fastCap - foff : 0u, cut ? fat : 0u};
+        const OtmBlock main{pool.mem + off, pool.cap - off, at};
         uint32_t entry = 0;
-        it.error = otmLoad(scratch, uint32_t(len), pool.core, fast, main, &entry);
+        it.error = otmLoad(scratch, uint32_t(len), pool.core, fast, main, cut, &entry);
         if (it.error != OtmError::None) continue;
-        const uint32_t bytes = span + (hdr.imageBytes - hdr.fastBytes) + hdr.bssBytes;
+        const uint32_t bytes = otmMainSpan(hdr, cut);
         if (pool.sync) {
             pool.sync(pool.mem + off, bytes);
-            if (inFast) pool.sync(fast.mem, hdr.fastBytes);
+            if (cut) pool.sync(fast.mem, cut);
         }
         IModule& m = pool.enter(entry);
         if (!ModuleHost::instance().addLoaded(m)) {
@@ -123,8 +117,8 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
             continue;
         }
         r.used = off + bytes;
-        if (inFast) r.fastUsed = foff + hdr.fastBytes;
-        it.fastInBlock = inFast;
+        if (cut) r.fastUsed = foff + cut;
+        it.fastBytes = cut;
         ++loaded;
     }
     if (pool.resize) pool.resize(r.used);
