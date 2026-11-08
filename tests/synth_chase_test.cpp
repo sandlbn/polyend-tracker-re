@@ -376,7 +376,9 @@ TEST(stopped_chase_sets_the_slots_again_after_a_midi_stop_while_armed) {
     CHECK_EQ(a.synthPresetActive(0), 3);
 }
 
-TEST(stopped_chase_sets_a_slot_again_after_its_patch_preview_ends) {
+TEST(a_patch_preview_on_a_slot_the_chase_holds_on_a_preset_plays_in_the_preset) {
+    // [3.x] The Synth pages edit what the slot plays: the preview goes into
+    // the preset's entry (the slot stays on it) and comes out byte for byte.
     Harness h;
     App& a = *h.app;
     storeAll(a);
@@ -389,14 +391,16 @@ TEST(stopped_chase_sets_a_slot_again_after_its_patch_preview_ends) {
     cursorTo(h, 6);
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
+    std::vector<uint8_t> was(sizeof(SynthPatch));
+    std::memcpy(was.data(), &a.synthPreset(2), was.size());
     CHECK(a.previewSynthLibraryPatch(0, "Prev"));
     h.run();
-    CHECK_EQ(a.synthPresetActive(0), 0);   // the preview is heard
+    CHECK_EQ(a.synthPresetActive(0), 2);
     a.endSynthPreview();
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);
-    // Synth 2 on preset 4 too; a preview on it ends slot 0's: only the
-    // slot that preview left is set again.
+    CHECK(std::memcmp(was.data(), &a.synthPreset(2), was.size()) == 0);
+    // Synth 2 on preset 4 too; a preview on it ends slot 0's.
     putNote(p.tracks[1].steps[5], 60, 65);
     putZ(p.tracks[1].steps[5], 1, 4);
     edited(a);
@@ -405,13 +409,9 @@ TEST(stopped_chase_sets_a_slot_again_after_its_patch_preview_ends) {
     CHECK_EQ(a.synthPresetActive(1), 4);
     libraryPatch(h, 1, "Prev2");
     CHECK(a.previewSynthLibraryPatch(0, "Prev"));
-    h.run();
-    CHECK_EQ(a.synthPresetActive(0), 0);
-    CHECK_EQ(a.synthPresetActive(1), 4);
     CHECK(a.previewSynthLibraryPatch(1, "Prev2"));
+    CHECK(std::memcmp(was.data(), &a.synthPreset(2), was.size()) == 0);
     h.run();
-    CHECK_EQ(a.synthPresetActive(0), 2);
-    CHECK_EQ(a.synthPresetActive(1), 0);   // its preview is heard
     a.endSynthPreview();
     h.run();
     CHECK_EQ(a.synthPresetActive(0), 2);

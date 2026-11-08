@@ -223,6 +223,252 @@ TEST(a_preset_mix_edit_ramps_the_gain) {
     CHECK_EQ(int(r.bank.presetOf(0)), 1);
 }
 
+// --- the App ---------------------------------------------------------------------
+
+// A note on slot s: the bank takes a Z at its next block with sound.
+void sound(Harness& h, int s) {
+    h.app->engine.synth().auditionOn(s, 60);
+    h.audio.pump(8);
+    h.app->engine.synth().auditionOff();
+    h.audio.pump(1);
+}
+float gainOf(Harness& h, int s) { return h.app->engine.synth().slotGain(s); }
+void setMix(App& a, int s, float gainDb, int poly = 4) {
+    SynthSlotRecord r = a.synthSlot(s);
+    r.gainDb = gainDb;
+    r.polyphony = uint32_t(poly);
+    a.setSynthSlotRecord(s, r);
+}
+// Slot 0 ACD at -12 dB, slot 1 FAT at -3 dB stored as P1 (named "Bells", poly 2).
+void twoSounds(Harness& h) {
+    App& a = *h.app;
+    if (a.synthSlot(0).model != uint32_t(SynthModel::ACD)) a.setSynthModel(0, int(SynthModel::ACD));
+    a.setSynthModel(1, int(SynthModel::FAT));
+    setMix(a, 0, -12.0f, 4);
+    setMix(a, 1, -3.0f, 2);
+    SynthSlotRecord r = a.synthSlot(1);
+    std::snprintf(r.patchName, sizeof r.patchName, "Bells");
+    a.setSynthSlotRecord(1, r);
+    a.storeSynthPreset(1, 1);
+}
+std::string wsPreset(int n) { return "Workspace/presets/" + std::to_string(n) + ".patch"; }
+void cursorTo(Harness& h, int step) { static_cast<PatternScreen*>(h.app->ui.screen(kModPattern))->step = step; }
+void putZ(Step& s, int n) { s.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + n)}; }   // FX-A
+
+TEST(the_target_is_the_preset_the_slot_plays) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    const int32_t acd = synthEngineId(SynthModel::ACD), fat = synthEngineId(SynthModel::FAT);
+    CHECK_EQ(int(a.synthEditTarget(0)), 0);
+    CHECK_EQ(int(a.synthTargetEngine(0)), int(acd));
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    CHECK_EQ(int(a.synthTargetEngine(0)), int(fat));
+    CHECK(&a.synthTargetPatch(0) == &presets::table()[0]);
+    const SynthSlotRecord t = a.synthTargetRecord(0);
+    CHECK_NEAR(t.gainDb, -3.0f, 1e-6);
+    CHECK_EQ(int(t.polyphony), 2);
+    CHECK(std::strcmp(t.patchName, "Bells") == 0);
+    CHECK_NEAR(a.synthSlot(0).gainDb, -12.0f, 1e-6);   // the record stays the slot's
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 0);
+    CHECK_NEAR(a.synthTargetRecord(0).gainDb, -12.0f, 1e-6);
+    CHECK_EQ(int(a.synthTargetRecord(0).polyphony), 4);
+    // Stop: back to the own sound.
+    a.engine.synth().presetSelect(0, 1);
+    a.engine.synth().transportStop();
+    CHECK_EQ(int(a.synthEditTarget(0)), 0);
+}
+
+TEST(a_mix_edit_on_the_target_changes_the_preset_and_is_heard) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-3.0f), 1e-6);
+    CHECK(a.saveProjectAs("Tgt"));
+    SynthSlotRecord r = a.synthTargetRecord(0);
+    r.gainDb = -6.0f;
+    r.polyphony = 3;
+    r.macros[0] = 99;   // a macro value: the slot's record
+    a.setSynthTargetRecord(0, r);
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-6.0f), 1e-6);
+    CHECK_NEAR(a.synthPresetMix(1).gainDb, -6.0f, 1e-6);
+    CHECK_EQ(int(a.synthPresetMix(1).polyphony), 3);
+    CHECK_NEAR(a.synthSlot(0).gainDb, -12.0f, 1e-6);
+    CHECK_EQ(int(a.synthSlot(0).polyphony), 4);
+    CHECK_EQ(int(a.synthSlot(0).macros[0]), 99);
+    CHECK(std::strcmp(a.synthSlot(0).patchName, "Bells") != 0);
+    CHECK(a.sidecarDirty());
+    CHECK(a.unsavedChanges());
+    a.engine.synth().presetSelect(0, 0);
+    sound(h, 0);
+    CHECK_NEAR(gainOf(h, 0), dbToGain(-12.0f), 1e-6);
+}
+
+TEST(a_patch_edit_on_the_target_changes_the_preset_and_autosaves_it) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.autosave();
+    CHECK(!a.synthPresetDirty());
+    const std::vector<uint8_t> before = h.fs.files[wsPreset(1)];
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    SynthPatch& p = a.synthTargetPatch(0);
+    const int32_t fat = synthEngineId(SynthModel::FAT);
+    float nv = 0.0f;
+    const int i = rangedParam(fat, synthParamGet(p, 0), &nv);
+    CHECK(i >= 0);
+    synthParamSet(p, i, nv);
+    a.markSynthTargetDirty(0);
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);   // still on the preset
+    CHECK_NEAR(a.engine.synth().params(0).end[i], nv, 1e-6);
+    CHECK(!a.synthPatchDirty(0));
+    CHECK(a.synthPresetDirty());
+    a.autosave();
+    CHECK(!a.synthPresetDirty());
+    CHECK(h.fs.files[wsPreset(1)] != before);
+}
+
+TEST(the_preset_name_and_polyphony_round_trip_in_the_sidecar) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.setSynthPresetName(1, "FM Bells");
+    std::vector<uint8_t> buf(2 * ot3::kMaxFile);
+    uint32_t len = 0;
+    CHECK(a.encodeSidecar(buf.data(), uint32_t(buf.size()), &len));
+    buf.resize(len);
+    presets::mixTable()[0] = PresetMix{};
+    CHECK(a.decodeSidecar(buf.data(), len));
+    CHECK(std::strcmp(a.synthPresetName(1), "FM Bells") == 0);
+    CHECK(a.synthPresetMix(1).flags & kPresetMixPoly);
+    CHECK_EQ(int(a.synthPresetMix(1).polyphony), 2);
+    // Save As / Open bring both back.
+    a.markSidecarDirty();   // the decode above left the Workspace file behind
+    CHECK(a.saveProjectAs("Nam"));
+    CHECK(a.newProject());
+    CHECK(std::strcmp(a.synthPresetName(1), "") == 0);
+    CHECK(a.openProject("Projects", "Nam"));
+    CHECK(std::strcmp(a.synthPresetName(1), "FM Bells") == 0);
+    CHECK_EQ(int(a.synthPresetMix(1).polyphony), 2);
+}
+
+TEST(an_old_mix_chunk_keeps_the_slots_polyphony) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    std::vector<uint8_t> buf(2 * ot3::kMaxFile);
+    uint32_t len = 0;
+    presets::mixTable()[0].flags = kPresetMixHas;   // as an older build saved it
+    CHECK(a.encodeSidecar(buf.data(), uint32_t(buf.size()), &len));
+    CHECK(a.decodeSidecar(buf.data(), len));
+    CHECK(!(a.synthPresetMix(1).flags & kPresetMixPoly));
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    CHECK_EQ(int(a.synthTargetRecord(0).polyphony), 4);   // the slot's
+    // Load of such a preset keeps the slot's polyphony; one with it copies it.
+    CHECK(a.loadSynthPreset(2, 1));
+    CHECK_EQ(int(a.synthSlot(2).polyphony), int(SynthSlotRecord::defaults(2).polyphony));
+    a.storeSynthPreset(3, 1);
+    CHECK(a.loadSynthPreset(2, 3));
+    CHECK_EQ(int(a.synthSlot(2).polyphony), 2);
+}
+
+TEST(a_new_engine_on_the_target_stays_on_the_preset) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    const int32_t acd = synthEngineId(SynthModel::ACD);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    a.setSynthTargetEngine(0, acd);
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    CHECK_EQ(int(a.synthPreset(1).engine), int(acd));
+    CHECK_EQ(int(a.engine.synth().params(0).engine), int(acd));
+    CHECK(std::strcmp(a.synthPresetName(1), "Init") == 0);
+    CHECK_EQ(int(a.slotEngineId(1)), int(synthEngineId(SynthModel::FAT)));   // the slots keep theirs
+    CHECK(a.synthPresetDirty());
+    // Init Patch on the target, too.
+    synthParamSet(a.synthTargetPatch(0), 0, synthParamGet(a.synthTargetPatch(0), 0) + 0.25f);
+    a.initSynthTargetPatch(0);
+    SynthPatch init;
+    patchInit(acd, &init);
+    CHECK(std::memcmp(&a.synthPreset(1), &init, sizeof init) == 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+}
+
+TEST(store_from_a_slot_on_a_preset_stores_the_preset) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    a.storeSynthPreset(2, 0);   // slot 0 plays P1: P2 = P1
+    CHECK(std::memcmp(&a.synthPreset(2), &a.synthPreset(1), sizeof(SynthPatch)) == 0);
+    CHECK_NEAR(a.synthPresetMix(2).gainDb, -3.0f, 1e-6);
+    CHECK_EQ(int(a.synthPresetMix(2).polyphony), 2);
+    CHECK(std::strcmp(a.synthPresetName(2), "Bells") == 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    const uint8_t d = presets::dirty();
+    a.storeSynthPreset(1, 0);   // onto itself: nothing
+    CHECK_EQ(int(presets::dirty()), int(d));
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+}
+
+TEST(a_library_patch_preview_on_the_target_puts_the_preset_back) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    CHECK(a.saveSynthLibraryPatch(1, "Other"));   // the own FAT patch, then a change to tell them apart
+    a.engine.synth().presetSelect(0, 1);
+    sound(h, 0);
+    synthParamSet(a.synthTargetPatch(0), 0, synthParamGet(a.synthTargetPatch(0), 0) + 0.25f);
+    a.markSynthTargetDirty(0);
+    SynthPatch saved = a.synthPreset(1);
+    CHECK(a.previewSynthLibraryPatch(0, "Other"));
+    CHECK(synthParamGet(a.synthPreset(1), 0) == synthParamGet(a.synthPatch(1), 0));
+    CHECK(!a.synthPresetDirty());   // the autosave never writes a previewed preset
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    a.endSynthPreview();
+    CHECK(std::memcmp(&a.synthPreset(1), &saved, sizeof saved) == 0);
+    CHECK(a.synthPresetDirty());
+    // A load names the preset.
+    CHECK(a.loadSynthTargetPatch(0, "Other"));
+    CHECK(std::strcmp(a.synthPresetName(1), "Other") == 0);
+    CHECK(std::strcmp(a.synthTargetRecord(0).patchName, "Other") == 0);
+}
+
+TEST(the_target_follows_the_stopped_chase) {
+    Harness h;
+    App& a = *h.app;
+    twoSounds(h);
+    a.storeSynthPreset(2, 0);
+    Pattern& p = a.pattern();
+    p.tracks[0].steps[0].note = 60;
+    p.tracks[0].steps[0].instrument = uint8_t(kFirstSynthInstrument);
+    putZ(p.tracks[0].steps[0], 1);
+    putZ(p.tracks[0].steps[4], 2);
+    a.patternEdited();
+    cursorTo(h, 2);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 1);
+    cursorTo(h, 6);
+    h.run();
+    sound(h, 0);
+    CHECK_EQ(int(a.synthEditTarget(0)), 2);
+    CHECK_NEAR(a.synthTargetRecord(0).gainDb, -12.0f, 1e-6);   // P2 was stored from slot 0
+}
 #endif
 
 }  // namespace

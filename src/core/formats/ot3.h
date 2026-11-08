@@ -34,6 +34,7 @@ enum : uint16_t {
     kTagSlotArp = 0x0009,     // SlotArp (4 B), not critical
     kTagPresetInsert = 0x000A, // PresetInsert (16 B), not critical
     kTagPresetMix = 0x000B,   // PresetMix (20 B), not critical
+    kTagPresetName = 0x000C,  // PresetName (36 B), not critical
     kTagMods = 0x0010,        // n x ModEntry (8 B)
     kTagModuleFirst = 0x4000, // module chunks: ModuleChunkHeader + payload
     kTagModuleLast = 0x7FFF,
@@ -84,16 +85,29 @@ static_assert(sizeof(PresetInsert) == 16, "PresetInsert layout");
 // preset that has one; a preset without one keeps the slot's mix). The
 // values have the slot record's ranges (spec 21 §3.3); a chunk outside them
 // is ignored.
+// [3.x] kPresetMixPoly: polyphony (0..8) is the preset's; without it (an
+// older chunk: flags 0) the preset keeps the slot's.
+constexpr uint8_t kPresetMixPoly = 0x01;
 struct PresetMix {
     uint8_t preset;         // 1..8
-    uint8_t flags;          // 0
-    uint16_t rsv;
+    uint8_t flags;          // kPresetMixPoly; other bits 0
+    uint8_t polyphony;      // 0..8 with kPresetMixPoly, else 0
+    uint8_t rsv;
     float gainDb;           // -96..12
     float pan;              // -100..100
     float reverbSend;       // 0..100
     float delaySend;        // 0..100
 };
 static_assert(sizeof(PresetMix) == 20, "PresetMix layout");
+
+// [3.x] kTagPresetName payload: the patch name of a synth preset (one chunk
+// per preset that has one), NUL-padded.
+struct PresetName {
+    uint8_t preset;         // 1..8
+    uint8_t rsv[3];
+    char name[32];
+};
+static_assert(sizeof(PresetName) == 36, "PresetName layout");
 
 struct ModEntry {   // kTagMods entry
     char id[4];

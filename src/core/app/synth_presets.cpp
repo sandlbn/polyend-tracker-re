@@ -72,6 +72,130 @@ bool App::synthPresetUsed(int n) const { return validPreset(n) && g_table[n - 1]
 bool App::synthPresetDirty() const { return g_presetDirty != 0; }
 int App::synthPresetActive(int s) const { return engine.synth().presetOf(s); }
 
+// --- [3.x] what the Synth pages edit ------------------------------------------------
+
+uint8_t App::synthEditTarget(int s) const {
+    if (s < 0 || s >= kSynthSlotCount) return 0;
+    const uint8_t n = engine.synth().presetOf(s);
+    return synthPresetUsed(n) ? n : 0;
+}
+
+SynthPatch& App::synthTargetPatch(int s) {
+    const uint8_t n = synthEditTarget(s);
+    return n ? g_table[n - 1] : synthPatch(s);
+}
+
+const SynthPatch& App::synthTargetPatch(int s) const {
+    const uint8_t n = synthEditTarget(s);
+    return n ? g_table[n - 1] : synthPatch(s);
+}
+
+int32_t App::synthTargetEngine(int s) const {
+    const uint8_t n = synthEditTarget(s);
+    return n ? g_table[n - 1].engine : slotEngineId(s);
+}
+
+namespace {
+bool sameMix(const SynthSlotRecord& a, const SynthSlotRecord& b) {
+    return std::memcmp(&a.gainDb, &b.gainDb, sizeof a.gainDb) == 0 && std::memcmp(&a.pan, &b.pan, sizeof a.pan) == 0 &&
+           std::memcmp(&a.reverbSend, &b.reverbSend, sizeof a.reverbSend) == 0 &&
+           std::memcmp(&a.delaySend, &b.delaySend, sizeof a.delaySend) == 0 && a.polyphony == b.polyphony;
+}
+// The record's mix fields and polyphony from `from`.
+void copyMix(SynthSlotRecord& to, const SynthSlotRecord& from) {
+    to.gainDb = from.gainDb;
+    to.pan = from.pan;
+    to.reverbSend = from.reverbSend;
+    to.delaySend = from.delaySend;
+    to.polyphony = from.polyphony;
+}
+}  // namespace
+
+SynthSlotRecord App::synthTargetRecord(int s) const {
+    SynthSlotRecord r = project.synthSlot(s);
+    if (const uint8_t n = synthEditTarget(s)) {
+        const audio::PresetMix& pm = g_mix[n - 1];
+        if (pm.flags & audio::kPresetMixHas) {
+            r.gainDb = pm.gainDb;
+            r.pan = pm.pan;
+            r.reverbSend = pm.reverbSend;
+            r.delaySend = pm.delaySend;
+        }
+        if (pm.flags & audio::kPresetMixPoly) r.polyphony = pm.polyphony;
+        std::snprintf(r.patchName, sizeof(r.patchName), "%s", pm.name);
+    }
+    return r;
+}
+
+void App::setSynthTargetRecord(int s, const SynthSlotRecord& r) {
+    const uint8_t n = synthEditTarget(s);
+    if (!n) {
+        setSynthSlotRecord(s, r);
+        return;
+    }
+    if (!sameMix(r, synthTargetRecord(s))) {
+        // The values before the flags: the audio block may read the entry any time.
+        audio::PresetMix& pm = g_mix[n - 1];
+        pm.gainDb = r.gainDb;
+        pm.pan = r.pan;
+        pm.reverbSend = r.reverbSend;
+        pm.delaySend = r.delaySend;
+        pm.polyphony = uint8_t(r.polyphony > 8 ? 8 : r.polyphony);
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        pm.flags = uint8_t(pm.flags | audio::kPresetMixHas | audio::kPresetMixPoly);
+        sidecarDirty_ = true;
+        unsaved_ = true;
+        engine.synth().presetChanged(n);
+    }
+    const SynthSlotRecord own = project.synthSlot(s);
+    SynthSlotRecord w = r;   // the macro values (and the rest) stay the slot's
+    copyMix(w, own);
+    std::memcpy(w.patchName, own.patchName, sizeof w.patchName);
+    if (std::memcmp(&w, &own, sizeof w) != 0) setSynthSlotRecord(s, w);
+}
+
+void App::markSynthPresetDirty(int n) {
+    if (!validPreset(n)) return;
+    g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
+    unsaved_ = true;
+    engine.synth().presetChanged(uint8_t(n));
+}
+
+void App::markSynthTargetDirty(int s) {
+    if (const uint8_t n = synthEditTarget(s)) markSynthPresetDirty(n);
+    else markSynthPatchDirty(s);
+}
+
+const char* App::synthPresetName(int n) const { return validPreset(n) ? g_mix[n - 1].name : ""; }
+
+void App::setSynthPresetName(int n, const char* name) {
+    if (!validPreset(n)) return;
+    char* to = g_mix[n - 1].name;
+    char t[sizeof(audio::PresetMix::name)];
+    std::snprintf(t, sizeof t, "%s", name ? name : "");
+    if (std::strcmp(t, to) == 0) return;
+    std::memcpy(to, t, sizeof t);
+    sidecarDirty_ = true;
+    unsaved_ = true;
+}
+
+void App::setSynthPresetPatch(int n, const SynthPatch& src, const char* name) {
+    if (!validPreset(n) || &src == &g_table[n - 1]) return;
+    if (previewSlot_ >= 0) endSynthPreview();
+    SynthPatch& e = g_table[n - 1];
+    setEngine(e, 0);   // the slots on it play their own patch while it is written
+    copyBehindEngine(e, src);
+    setEngine(e, src.engine);
+    setSynthPresetName(n, name);
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        if (engine.synth().presetOf(s) != n) continue;
+        SynthSlotRecord r = project.synthSlot(s);
+        for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(e.macros[k].bipolar);
+        setSynthSlotRecord(s, r);
+    }
+    markSynthPresetDirty(n);
+}
+
 // A slot on preset n goes back to its patch before the entry changes.
 void App::leaveSynthPreset(int n) {
     for (int s = 0; s < kSynthSlotCount; ++s)
@@ -80,33 +204,42 @@ void App::leaveSynthPreset(int n) {
 
 void App::storeSynthPreset(int n, int s) {
     if (!validPreset(n) || s < 0 || s >= kSynthSlotCount) return;
-    if (previewSlot_ == s) endSynthPreview();
-    setEngine(g_table[n - 1], 0);   // no Z can select it from here on
-    leaveSynthPreset(n);
+    // [3.x] What the slot plays: its own sound, or the preset it is on.
+    const uint8_t from = synthEditTarget(s);
+    if (from == n) return;   // already there
+    if (previewSlot_ >= 0) endSynthPreview();
+    const SynthPatch& src = from ? g_table[from - 1] : patches_[s];
+    const SynthSlotRecord tr = synthTargetRecord(s);
 #if OT_SLOT_INSERTS
-    // [3.x] The slot's insert goes with the patch (none: the preset removes it).
-    audio::PresetInsert& pi = g_ins[n - 1];
-    pi = audio::PresetInsert{};
-    if (const char* id = slotInsertId(s)) {
+    // The insert goes with the patch (none: the preset removes it), read
+    // before the entry changes.
+    audio::PresetInsert pi{};
+    if (const char* id = synthTargetInsertId(s)) {
         std::memcpy(pi.id, id, 4);
-        pi.fx = slotInsertEffect(s);
-        pi.set = slotInsert_[s].set;
-        if (slotInsert_[s].off) pi.flags = audio::kPresetInsertOff;
+        pi.fx = synthTargetInsertEffect(s);
+        pi.set = synthTargetInsertSettings(s);
+        if (synthTargetInsertOff(s)) pi.flags = audio::kPresetInsertOff;
     }
     pi.flags = uint8_t(pi.flags | audio::kPresetInsertHas);
 #endif
-    // [3.x] And the slot's mix (gain, pan, sends).
-    const SynthSlotRecord own = project.synthSlot(s);
+    setEngine(g_table[n - 1], 0);   // no Z can select it from here on
+    leaveSynthPreset(n);
+#if OT_SLOT_INSERTS
+    g_ins[n - 1] = pi;
+#endif
+    // [3.x] And the mix (gain, pan, sends), the polyphony and the name.
     audio::PresetMix& pm = g_mix[n - 1];
     pm = audio::PresetMix{};
-    pm.gainDb = own.gainDb;
-    pm.pan = own.pan;
-    pm.reverbSend = own.reverbSend;
-    pm.delaySend = own.delaySend;
-    pm.flags = audio::kPresetMixHas;
+    pm.gainDb = tr.gainDb;
+    pm.pan = tr.pan;
+    pm.reverbSend = tr.reverbSend;
+    pm.delaySend = tr.delaySend;
+    pm.polyphony = uint8_t(tr.polyphony > 8 ? 8 : tr.polyphony);
+    std::snprintf(pm.name, sizeof pm.name, "%s", tr.patchName);
+    pm.flags = audio::kPresetMixHas | audio::kPresetMixPoly;
     sidecarDirty_ = true;
-    copyBehindEngine(g_table[n - 1], patches_[s]);
-    setEngine(g_table[n - 1], patches_[s].engine);
+    copyBehindEngine(g_table[n - 1], src);
+    setEngine(g_table[n - 1], src.engine);
     g_presetDirty = uint8_t(g_presetDirty | (1u << (n - 1)));
     unsaved_ = true;
     chaseInvalidateAll();   // a Z of an empty preset did nothing; now it selects
@@ -115,6 +248,7 @@ void App::storeSynthPreset(int n, int s) {
 
 void App::clearSynthPreset(int n) {
     if (!synthPresetUsed(n)) return;
+    if (previewSlot_ >= 0) endSynthPreview();
     setEngine(g_table[n - 1], 0);   // no Z can select it from here on
     leaveSynthPreset(n);
 #if OT_SLOT_INSERTS
@@ -140,7 +274,7 @@ bool App::loadSynthPreset(int s, int n) {
     std::snprintf(r.patchName, sizeof(r.patchName), "Preset %d", n);
     for (int k = 0; k < int(mt::kSynthMacroCount); ++k) r.macros[k] = audio::synthMacroDefault(p.macros[k].bipolar);
     // [3.x] The preset's mix becomes the slot's (one saved before presets
-    // had a mix leaves it as it is).
+    // had a mix leaves it as it is), its polyphony too.
     const audio::PresetMix& pm = g_mix[n - 1];
     if (pm.flags & audio::kPresetMixHas) {
         r.gainDb = pm.gainDb;
@@ -148,6 +282,7 @@ bool App::loadSynthPreset(int s, int n) {
         r.reverbSend = pm.reverbSend;
         r.delaySend = pm.delaySend;
     }
+    if (pm.flags & audio::kPresetMixPoly) r.polyphony = pm.polyphony;   // [3.x] and its polyphony
     setSynthSlotRecord(s, r);
     markSynthPatchDirty(s);   // also ends a running Z on this slot
 #if OT_SLOT_INSERTS
