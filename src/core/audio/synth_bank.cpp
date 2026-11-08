@@ -813,6 +813,9 @@ void SynthBank::releaseTrack(int track) {
 bool SynthBank::presetPlays(uint8_t k) const {
     if (!presets_ || k < 1 || k > kSynthPresetCount) return false;
     const int32_t e = presets_[k - 1].engine;
+    // [3.x] A preset that carries polyphony 0 is off: its notes are silent
+    // and never borrow a slot.
+    if (presetMix_ && (presetMix_[k - 1].flags & kPresetMixPoly) && presetMix_[k - 1].polyphony == 0) return false;
     return e != 0 && synthEngineFor(e) != nullptr;
 }
 

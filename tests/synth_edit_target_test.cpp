@@ -208,6 +208,25 @@ TEST(a_preset_instrument_plays_with_the_presets_polyphony) {
     CHECK_EQ(r.bank.voicesOf(s), 3);
 }
 
+TEST(a_preset_with_polyphony_0_never_borrows_a_slot) {
+    Rig r;
+    r.bank.setStartsPerBlock(SynthBank::kStartsPerBlock);
+    r.mix[0].flags = kPresetMixPoly;
+    r.mix[0].polyphony = 0;
+    r.on(0, 48, 0);
+    r.on(1, 48, 1);
+    r.blocks(2);
+    const uint32_t steals = r.bank.steals();
+    for (int k = 0; k < 3; ++k) r.pOn(4 + k, 1, 48 + 4 * k);   // a P1 chord: silent
+    r.blocks(3);
+    for (int s = 0; s < kSynthSlots; ++s) CHECK_EQ(int(r.bank.presetOf(s)), 0);
+    CHECK_EQ(r.bank.slotOnPreset(1), -1);
+    CHECK_EQ(int(r.bank.steals()), int(steals));
+    CHECK_EQ(r.bank.voicesOf(0), 1);   // the slots' own notes play on
+    CHECK_EQ(r.bank.voicesOf(1), 1);
+    for (int t = 4; t < 7; ++t) CHECK(!r.bank.voiceOfTrack(t));
+}
+
 TEST(a_preset_mix_edit_ramps_the_gain) {
     Rig r;
     r.mix[0].gainDb = -9.0f;

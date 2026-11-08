@@ -73,7 +73,8 @@
 // share a block, except for live / audition notes (no wait). More presets
 // than slots in one block: each bind takes the slot of the oldest note, so
 // an earlier note of the block (in step order) is the one that goes. An
-// empty preset, or one whose engine the build lacks, is silent.
+// empty preset, one whose engine the build lacks, or one that carries
+// polyphony 0, is silent (and borrows nothing).
 //
 // [3.x] Spread (patch, Poly 2 and up): each note at a place of its own, on the way
 // to the slot bus (synthSpreadPlace); L + R and the sends do not change.
