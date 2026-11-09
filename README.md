@@ -18,8 +18,36 @@ graphics, and is not affiliated with or endorsed by Polyend.
 
 2.x brings the newer Tracker Mini features to the original hardware: 16 tracks, synth
 engines, stereo samples, Mini-compatible project files and USB Storage mode. These notes cover
-the whole 2.x line (2.0 to 2.2.5); the full list is in the release notes of the
-[2.2.5 download](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.5).
+the whole 2.x line (2.0 to 2.2.7); the full list is in the release notes of the
+[2.2.7 download](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.7).
+
+## New in 2.2.7
+
+- **Synth presets and the Z FX:** eight presets per project, shared by the three synth slots.
+  Each holds a patch of any model with its gain, pan, sends, polyphony and name. Z1-Z8 in a
+  pattern switch a slot to a preset, Z0 back to its own patch.
+- **The song sounds the same wherever you start:** Play from the middle starts each slot on
+  the right preset, and pads and MIDI play what the song plays at the cursor while stopped.
+- **Edit what you hear:** while a slot plays a preset, the synth pages and the Global Mixer
+  column show and edit that preset.
+- **New sample filter:** flat passbands, exact tuning and rounded loud peaks. Existing songs
+  that use the filter sound slightly different.
+- **Sample Playback:** with Snap to zero off, a marker turns green on a zero crossing in
+  the frames its position covers.
+- **Fixes:** Instrument Params on a synth step follows the sample rule; a copied FX column
+  pastes into the other FX column; Stop cancels a queued pattern; the Synth Macros number
+  follows an FX.
+
+## New in 2.2.6
+
+- **Pattern pads with one finger** (issue #153): a short tap of F1 keeps the pads on patterns
+  until you tap it again or press another screen button.
+- **Resample, Place on:** tracks without notes are green, tracks with notes red; From and
+  Place on list tracks by name.
+- **Radio stereo:** Config > General > Radio stereo = On makes the built-in radio stereo.
+  Off, the default, keeps it mono as on stock.
+- **WAV import:** 32-bit float files that peak past full scale are clipped instead of
+  wrapping into noise.
 
 ## New in 2.2.5
 
@@ -158,7 +186,7 @@ the whole 2.x line (2.0 to 2.2.5); the full list is in the release notes of the
 
 ## Install
 
-1. Copy `PolyendTrackerOTv225.ptf` to `/Firmware` on the SD card. Keep the name; the
+1. Copy `PolyendTrackerOTv227.ptf` to `/Firmware` on the SD card. Keep the name; the
    bootloader only accepts 24-character names.
 2. Go to **Config > Firmware update**, select it and confirm. If the screen stays dark
    after the update, press the power button once.
@@ -210,4 +238,4 @@ and an IDM track using three engines at once) and seven BLAST GRID synth remixes
 (Title, World 1, World 4, Battle, Battle FM, Boss, Final Boss). Copy them to `/Projects` on
 the card.
 
-Downloads: https://github.com/sandlbn/polyend-tracker-re/releases (latest: [2.2.5](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.5))
+Downloads: https://github.com/sandlbn/polyend-tracker-re/releases (latest: [2.2.7](https://github.com/sandlbn/polyend-tracker-re/releases/tag/2.2.7))
