@@ -338,6 +338,10 @@ public:
 #endif
     Screen* screen(int module) const { return module >= 0 && module < kModCount ? screens_[module] : nullptr; }
     Screen* current() const { return screen(active_); }
+    // [OT] The pattern editor's cursor row (also while another screen shows).
+    int patternCursorStep() const;
+    // [OT] The Song screen's cursor position while it is the active screen, else -1.
+    int songCursorPos() const;
 
     bool isDown(uint8_t id) const { return id < 64 && ((down_ >> id) & 1); }
     bool shift() const { return isDown(btn::Shift); }

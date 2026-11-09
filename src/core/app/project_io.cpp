@@ -374,7 +374,8 @@ bool writePatchAtomic(IStorage& f, const char* path, const uint8_t* buf, uint32_
 // Extra field (written last by writePatchAtomic) and has the full expected
 // size: it re-encodes to exactly its own `len` bytes (encBuf: scratch of
 // kPatchMaxFileSize bytes). A file cut right after Extra loses only the [OT]
-// extension parameters (field 16, after Extra): it plays mono.
+// fields after it: the extension parameters (field 16: it plays mono) and a
+// preset's mix (field 17: the preset keeps the slot's).
 bool completePatch(const uint8_t* b, uint32_t len, SynthPatch* scratchPatch, uint8_t* encBuf) {
     if (!len || decodePatch(b, len, scratchPatch) != PatchStatus::kOk || !scratchPatch->extraPresent) return false;
     size_t n = 0;
@@ -894,6 +895,9 @@ void App::jobEnd() {
     void* ctx = pj_.ctx;
     lastJobOk_ = ok;
     lastJobErrors_ = pj_.loadErrors;
+    // [OT] A job other than the autosave may have written the store directly
+    // (load, import): every Z chase summary is rebuilt from what it left.
+    if (pj_.op != JobOp::Autosave) chase::invalidateAll();
     pj_ = ProjectJob{};
     g_prof.running = false;
     if (popup) ui.progressDone();
@@ -1601,7 +1605,7 @@ bool App::loadPatternBytes(int num, const uint8_t* file, uint32_t len, uint8_t* 
     ctx.beatSliceReference = project.beatSliceReference();
     Track* ext = reinterpret_cast<Track*>(mem_.scratch + kExtOff);
     PatternLoadInfo li;
-    clearExtTracks(num);
+    clearExtTracks(num);   // also drops the Z chase summary
     PatternStock& st = storedStock(num);
     decodePattern16(file, len, st, ext, &ctx, &li);
     bool fit = true;
@@ -1657,7 +1661,12 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
     if (haveFile) {
         const PatchStatus st = len > kPatchMaxFileSize ? PatchStatus::kTooLarge : decodePatch(buf, len, tmp);
         if (st == PatchStatus::kOk && tmp->engine == engine) {
+            // [OT] A preset's mix, name and polyphony are not the slot's
+            // (fields 17-19): the next save writes the slot's file again
+            // without them.
+            if (tmp->mixCount || tmp->presetNameLen || tmp->polyPresent) patchDirty_[s] = true;
             patches_[s] = *tmp;
+            patchStripPreset(patches_[s]);
             patchSrc_[s] = PatchSource::File;
             return true;
         }
@@ -1672,6 +1681,7 @@ bool App::resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile) {
         if (readWholeFile(fs(), path, mem_.scratch, kPatchMaxFileSize + 1, &got) == FmtStatus::Ok && got <= kPatchMaxFileSize &&
             decodePatch(mem_.scratch, got, tmp) == PatchStatus::kOk && tmp->engine == engine) {
             patches_[s] = *tmp;
+            patchStripPreset(patches_[s]);
             patchSrc_[s] = PatchSource::Library;
             return true;
         }

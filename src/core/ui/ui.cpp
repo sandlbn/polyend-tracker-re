@@ -644,6 +644,19 @@ void Ui::setUsbStorageMode(bool on) {
     dirty();
 }
 
+int Ui::patternCursorStep() const {
+    const auto* p = static_cast<const PatternScreen*>(screen(kModPattern));
+    if (!p) return 0;
+    return p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step);
+}
+
+int Ui::songCursorPos() const {
+    if (active_ != kModSong) return -1;
+    const auto* s = static_cast<const SongScreen*>(screen(kModSong));
+    if (!s) return -1;
+    return s->cursor < 0 ? 0 : (s->cursor >= kSongSlots ? kSongSlots - 1 : s->cursor);
+}
+
 void Ui::switchTo(int module, int opt) {
     // [I] Issue #52 (stock 1.9.2, checked on a Tracker): from the Pattern
     // screen with Rec off, Instrument Params, Sample Playback and Sample
@@ -661,7 +674,7 @@ void Ui::switchTo(int module, int opt) {
     // 2.x: Instrument Params on a synth step / synth instrument opens the
     // synth slot page (Tracker Mini manual p.146).
     if (module == kModInstrument) {
-        const int s = SynthScreen::entrySlot(app, *this, active_);
+        const int s = SynthScreen::entrySlot(app);
         if (s >= 0) {
             module = kModSynth;
             opt = s + 1;

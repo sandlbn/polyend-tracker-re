@@ -14,6 +14,7 @@
 #include "ui/wave.h"
 
 namespace ot {
+struct SynthSlotRecord;
 
 struct ImportProbe;   // app/app.h
 
@@ -439,6 +440,7 @@ public:
     int meter[8] = {};      // current bar 0..100
     int meterHold[8] = {};  // peak hold 0..100
     int globalMeter[4][2] = {};   // Global Mixer 3/3: Delay, Reverb, Dry, Line In x L/R, 0..100
+    uint32_t synthTargets_ = 0;   // [OT] the synth slots' edit targets the page last showed
     // Master Limiter gain-reduction meter (spec 06 §4.3): dB of reduction
     // from the engine's mean limiter gain, read every 50 ms; the bar spans
     // 0..kGrRangeDb (OpenTracker's scale).
@@ -1082,7 +1084,7 @@ public:
     // Slot the Instrument Params key opens from module `active` (the Pattern
     // cursor step's synth instrument, else the current instrument), -1 = not
     // a synth (the sample / MIDI Instrument screen opens).
-    static int entrySlot(App& a, Ui& ui, int active);
+    static int entrySlot(App& a);
 
     enum class View : uint8_t { Params, Macros, Edit, Browser, Presets };
     View view = View::Params;
@@ -1108,6 +1110,7 @@ public:
     void closeBrowser();      // Cancel: the slot's patch as before the popup
     bool previewHighlighted();   // the highlighted patch into the slot (Preview / pads)
     int previewSel() const { return previewSel_; }
+    int pendingModelForTest() const { return pendingModel_; }
     bool loadSelected();      // Confirm
     void initPatch();         // with the confirmation popup
     void savePatch();         // to the record's name (Save As when "Init" / empty)
@@ -1129,7 +1132,32 @@ private:
     void saveAsNow();         // pendingName_ (after "Overwrite?")
     // Patch edits since the last load / init / save / model change, per slot
     // ("Discard edits?" before Load or a model change).
-    bool edited_[kSynthSlotCount] = {};
+    // [OT] Keyed by edit target: bits 0..2 the slots' own patches, 3.. the
+    // presets (editBit()).
+    uint16_t edited_ = 0;
+    int editBit() const;
+    void clearEdited() { edited_ = uint16_t(edited_ & ~(1u << editBit())); }
+    void forgetPreset(int n) { edited_ = uint16_t(edited_ & ~(1u << (kSynthSlotCount - 1 + n))); }
+    void syncEdited();          // all forgotten after a preset reset (new project, Open)
+    uint32_t shownResets_ = 0;
+    uint8_t shownTarget_ = 0;   // [OT] the edit target / engine the pages last showed
+    int32_t shownEngine_ = 0;
+    // [OT] The edit target of the current event (Pin), and the one an open
+    // question or keyboard is about.
+    int8_t pin_ = -1;
+    uint8_t pendingTarget_ = 0;
+    bool asking_ = false;
+    struct Pin {
+        SynthScreen& s;
+        int8_t was;
+        explicit Pin(SynthScreen& sc, int n = -1);
+        ~Pin();
+    };
+    int tgt() const;
+    SynthSlotRecord targetRecord() const;
+    SynthPatch& targetPatch() const;
+    void askAbout();
+    bool stillAbout();
     int pendingModel_ = -1;
     char pendingName_[kBrowserNameMax + 1] = {};
     void edited();

@@ -205,6 +205,9 @@ public:
     bool swingPhase() const { return swingPhase_; }
     uint32_t countInMs() const;
     uint64_t tickCount() const { return tickCount_; }   // tick() calls while playing (diagnostic)
+    // [OT] Bumped by every stop() (any source: a key, MIDI Stop, the song's
+    // end): the synth slots are back on their own patches.
+    uint8_t stopCount() const { return stops_; }
     // Tick counter seq+0x10 (1 at play start, 576 per step): the phase base of
     // tempo-locked LFOs (spec 07 Q5).
     uint32_t tickPosition() const { return tick_; }
@@ -306,6 +309,20 @@ private:
     int preloadTracksPerBlock() const;
     void resetPositions(int startStep);
     void startPlayback(int startStep, bool keepSongMode, bool afterCountIn);
+    uint8_t zStart(int s) const { return uint8_t(zState_[s] & 0x0F); }
+    uint8_t zCur(int s) const { return uint8_t(zState_[s] >> 4); }
+    void setZ(int s, uint8_t start, uint8_t cur) { zState_[s] = uint8_t((start & 0x0F) | (cur << 4)); }
+    // Slot s to preset n through the sink; a refused n puts it on its own
+    // patch. send false: only the state moves (a Z on the next step sets the
+    // slot, so it never plays n for the blocks in between).
+    void applyZ(int s, uint8_t n, bool send = true);
+    // Every slot to its loop-start preset / every slot and its loop start to
+    // the own patch; `leave` (bit per slot) is only noted, not sent.
+    void zLoopBack(uint8_t leave);
+    void zAllOwn(uint8_t leave);
+    void zFlush(uint8_t mask);   // the pending slots in mask to their tracked state
+    // Slots a Z on the step each track plays next will set (bit per slot).
+    uint8_t zNextStepSets() const;
 
     void triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chordValue);
     void noteOffTrack(int t, NoteOffMode mode);
@@ -387,11 +404,16 @@ private:
     int queued_ = 0;
     bool breakPending_ = false;
     bool breakPreloadDone_ = false;
+    uint8_t zPend_ = 0;   // [OT] bit s: slot s left to step 0's Z at a loop end (applyZ unsent)
+    uint8_t stops_ = 0;   // [OT] stopCount()
 
     // clock
     uint32_t tick_ = 1;
     uint64_t tickCount_ = 0;
     uint8_t masterMicro_ = 1;
+    // [OT] Z chase per synth slot, a nibble each: low = the preset a loop
+    // end goes back to, high = the preset the slot is on now (0 = own).
+    uint8_t zState_[kSynthSlotCount] = {};
     int32_t masterStep_ = 0;
     int16_t masterPos_ = 0;               // pattern position, wraps at baseLastIndex()
     float accUs_ = 0;

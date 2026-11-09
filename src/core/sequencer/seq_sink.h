@@ -76,8 +76,13 @@ public:
     // value until Stop.
     virtual void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) { (void)slot; (void)macro; (void)value; }
     // [OT] Z: slot plays preset n (1..8) or its own patch (0) until the next
-    // Z or Stop. Runs before the same step's synthNoteOn.
-    virtual void synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; }
+    // Z, a loop end or Stop. Runs before the same step's synthNoteOn. False:
+    // refused (an empty preset, out of range), the slot plays on as it was;
+    // a repeat of the slot's current preset counts as taken.
+    virtual bool synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; return false; }
+    // [OT] Whether synthPreset(slot, n) would take n (0 always): asked from
+    // the audio context, before the Z that sends it.
+    virtual bool synthPresetTakes(uint8_t n) { (void)n; return false; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
 };
@@ -124,6 +129,16 @@ public:
     virtual void markPatternDirty() {}
     // External Start chooses song play when the Song screen is active (spec 03 §4.3).
     virtual bool songScreenActive() { return false; }
+    // [OT] Z chase, main loop only (never the audio block): what the Z
+    // commands before a start position leave the synth slots on. Song mode:
+    // playlist positions 0..songPos-1, then steps 0..lastStepInclusive of
+    // `pattern`; pattern mode: those steps only (-1 = none). preset[s] comes
+    // in as 0 (own patch) and lastInstr[t] as 0xFF (no note seen): the
+    // default leaves both, the app fills in what the pattern data says.
+    virtual void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                            uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) {
+        (void)songMode; (void)songPos; (void)pattern; (void)lastStepInclusive; (void)preset; (void)lastInstr;
+    }
 };
 
 }  // namespace ot

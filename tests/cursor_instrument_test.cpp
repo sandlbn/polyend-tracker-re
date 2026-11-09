@@ -100,6 +100,47 @@ TEST(module_key_from_another_screen_keeps_the_current_instrument) {
 
 // 2.x: a synth step opens its synth page (Instrument Params) and becomes the
 // current instrument for Sample Playback too; tracks 13-16 follow the rule.
+TEST(module_key_on_a_synth_step_with_rec_on_keeps_the_current_instrument) {
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(5);
+    putStep(a, 0, 0, 60, uint8_t(kFirstSynthInstrument + 1));   // Synth 2
+    h.tap(btn::Pattern);
+    h.tap(btn::Rec);
+    CHECK(a.editMode);
+    cursorTo(h, 0, 0);
+    h.tap(btn::InstrParams);
+    CHECK_EQ(int(a.currentInstrument()), 5);
+    CHECK_EQ(a.ui.active(), int(kModInstrument));
+}
+
+TEST(module_key_on_a_synth_step_without_a_note_keeps_the_current_instrument) {
+    const int8_t notes[] = {kNoteEmpty, kNoteOff, kNoteCut, kNoteFade};
+    for (int8_t n : notes) {
+        Harness h;
+        App& a = *h.app;
+        a.setCurrentInstrument(5);
+        putStep(a, 0, 3, n, uint8_t(kFirstSynthInstrument + 1));
+        h.tap(btn::Pattern);
+        cursorTo(h, 0, 3);
+        h.tap(btn::InstrParams);
+        CHECK_EQ(int(a.currentInstrument()), 5);
+        CHECK_EQ(a.ui.active(), int(kModInstrument));
+    }
+}
+
+TEST(a_synth_as_the_current_instrument_still_opens_its_page) {
+    Harness h;
+    App& a = *h.app;
+    a.setCurrentInstrument(kFirstSynthInstrument + 2);   // Synth 3
+    h.tap(btn::Pattern);
+    h.tap(btn::Rec);
+    cursorTo(h, 0, 0);
+    h.tap(btn::InstrParams);
+    CHECK_EQ(int(a.currentInstrument()), kFirstSynthInstrument + 2);
+    CHECK_EQ(a.ui.active(), int(kModSynth));
+}
+
 TEST(module_keys_on_synth_steps_and_tracks_13_16) {
     {
         Harness h;

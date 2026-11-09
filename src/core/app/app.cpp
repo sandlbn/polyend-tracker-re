@@ -1,4 +1,5 @@
 #include "app/app.h"
+#include "app/synth_chase.h"
 #include "app/synth_presets.h"
 
 #include <cstdio>
@@ -82,6 +83,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
     resetSynthPresets();
     engine.synth().bindPresets(presets::table());
+    chase::resetAll();   // [OT] Z chase: one App owns the summaries
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);
     for (auto& in : instruments) in.setDefault();
@@ -469,7 +471,13 @@ void App::loop() {
     // Transport bookkeeping.
     const bool playing = seq.isPlaying();
     if (playing && !wasPlaying_) playStart_ = now;
+    // [OT] Stop zeroed the slots' presets (also a MIDI Stop while Play waits
+    // for a MIDI Start, or while stopped).
+    chase::Memory& cm = chase::mem();
+    if ((!playing && wasPlaying_) || cm.seqStops != seq.stopCount()) ++cm.stopSerial;
+    cm.seqStops = seq.stopCount();
     wasPlaying_ = playing;
+    serviceSynthChase();
     if (stepChanged_) {
         stepChanged_ = false;
         ui.dirty();
@@ -696,6 +704,7 @@ void App::handleControlChange(uint8_t cc, uint8_t value) {
 
 void App::setPresent(int num, bool on) {
     if (num < 1 || num > kPatternCount) return;
+    chase::invalidate(num);   // [OT] a pattern store write: its Z chase summary is stale
     if (on) present_[num >> 3] |= uint8_t(1u << (num & 7));
     else present_[num >> 3] &= uint8_t(~(1u << (num & 7)));
 }
@@ -730,6 +739,7 @@ int App::firstEmptyPattern() {
 
 void App::markPatternDirty(int num) {
     if (num < 1 || num > kPatternCount) return;
+    chase::invalidate(num);
     patDirty_[num >> 3] |= uint8_t(1u << (num & 7));
     setPresent(num, true);
     unsaved_ = true;
@@ -768,6 +778,7 @@ void App::reportExtPoolFull() {
 
 Track& App::storedTrack(int num, int t) {
     if (!validNum(num) || t < 0 || t >= kTrackCount) return *extDiscard_;
+    chase::invalidate(num);   // write access
     if (t < kStockTrackCount) return storedStock(num).tracks[t];
     const int e = t - kStockTrackCount;
     if (Track* b = ext_.find(num, e)) return *b;
@@ -798,6 +809,7 @@ void App::readStoredTrack(int num, int t, Track& out) const {
 
 bool App::storePattern(int num, const Pattern& p) {
     if (!validNum(num)) return false;
+    chase::invalidate(num);
     PatternStock& st = storedStock(num);
     p.copyStockTo(st);
     bool ok = true;
@@ -844,17 +856,19 @@ int App::compactExtTracks(int num) {
 }
 
 void App::clearExtTracks(int num) {
+    chase::invalidate(num);
     ext_.releasePattern(num);
     if (validNum(num)) extKeep_[num] = 0;   // dropped on purpose: nothing to keep from the file
 }
 
 void App::defaultStored(int num) {
     if (!validNum(num)) return;
-    clearExtTracks(num);
+    clearExtTracks(num);   // the Z chase summary goes with it
     defaultPattern(storedStock(num));
 }
 
 void App::resetPatternStore() {
+    chase::invalidateAll();
     ext_.clear();
     std::memset(extKeep_, 0, sizeof(extKeep_));
     extFullReported_ = 0;

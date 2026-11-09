@@ -13,6 +13,7 @@
 #include "app/pattern_ops.h"
 #include "app/project_io.h"
 #include "app/stream_policy.h"
+#include "app/synth_chase.h"
 #include "app/undo.h"
 #include "audio/engine.h"
 #include "hal_api.h"
@@ -452,6 +453,46 @@ public:
     void storeSynthPreset(int n, int s);      // slot s's patch into preset n
     bool loadSynthPreset(int s, int n);       // preset n into slot s, its engine too
     void clearSynthPreset(int n);
+    // [OT] Edit what you hear (app/synth_presets.cpp): the sound the synth
+    // pages and the Mixer strip of slot s show and edit. While the slot is on
+    // a preset that holds a patch (Z, the chase), that preset (1..), else 0:
+    // the slot's own patch and record. Derived from the bank, no state.
+    int synthEditTarget(int s) const;
+    const SynthPatch& synthTargetPatch(int s) const;
+    SynthPatch& synthTargetPatch(int s);       // edited in place, then markSynthTargetDirty
+    // The slot record as the target shows it: on a preset its model (an
+    // index past the models for an engine no model has), name, polyphony and
+    // mix (each the record's where the preset carries none); macro values
+    // stay the record's.
+    SynthSlotRecord synthTargetRecord(int s) const { return synthTargetRecord(s, synthEditTarget(s)); }
+    // r as edited from synthTargetRecord(s): its mix, polyphony and macro
+    // values; model and name are never taken from r. Own: onto the slot
+    // record; on a preset the mix and polyphony go to the preset (heard,
+    // saved), the macro values to the record.
+    void setSynthTargetRecord(int s, const SynthSlotRecord& r) { setSynthTargetRecord(s, synthEditTarget(s), r); }
+    void markSynthTargetDirty(int s) { markSynthTargetDirty(s, synthEditTarget(s)); }
+    // The same with the target n (0 = own) resolved once by the caller: a Z
+    // or Stop from the audio block between the read and the write must not
+    // send an edit to another sound. A preset n emptied since is ignored.
+    SynthSlotRecord synthTargetRecord(int s, int n) const;
+    void setSynthTargetRecord(int s, int n, const SynthSlotRecord& r);
+    void markSynthTargetDirty(int s, int n);
+    SynthPatch& synthTargetPatch(int s, int n);
+    // Bumped when the presets are reset (new project, open, workspace load).
+    uint32_t synthPresetResets() const;
+    void markSynthPresetDirty(int n);          // heard on the slots that play it, saved by the autosave
+    // Preset n takes src's sound (engine, values, macros) and `name`; it keeps
+    // its mix and polyphony, the slots on it stay on it and get the patch's
+    // macro defaults.
+    void setSynthPresetPatch(int n, const SynthPatch& src, const char* name);
+    // The patch operations of the synth pages on the target (own: as
+    // setSynthModel, initSynthPatch, load / saveSynthLibraryPatch).
+    // n: the target as the caller resolved it (-1: resolved here); a preset
+    // emptied since changes nothing.
+    void setSynthTargetModel(int s, int model, int n = -1);
+    void initSynthTargetPatch(int s, int n = -1);
+    bool loadSynthTargetLibraryPatch(int s, const char* name, int n = -1);
+    bool saveSynthTargetLibraryPatch(int s, const char* name, int n = -1);
     void markSynthPatchDirty(int s) {
         if (s < 0 || s >= kSynthSlotCount) return;
         patchDirty_[s] = true;
@@ -475,7 +516,9 @@ public:
     // record name = name.
     bool saveSynthLibraryPatch(int s, const char* name);
     // Load Patch popup preview (Tracker+ 1.0; docs/SYNTH_UX_MINI_VS_OT.md
-    // row 24): Patches/<MODEL>/<name>.patch plays in slot s (its patch and
+    // row 24), on the edit target ([OT] a preset's entry is kept and put back
+    // the same way, its mix and polyphony play on):
+    // Patches/<MODEL>/<name>.patch plays in slot s (its patch and
     // the audio-side record with the patch's macro defaults) while the
     // project record, the patch source and the dirty flag stay as they were
     // (no autosave of a previewed patch). The first preview keeps a copy of
@@ -590,6 +633,10 @@ public:
         engine.noteSeqWork(audio::kSeqLiveRecord);
     }
     bool songScreenActive() override { return ui.active() == kModSong; }
+    // [OT] Z chase (app/synth_chase.cpp): the store and the current pattern
+    // read the way the sequencer plays them. Main loop only.
+    void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStepInclusive,
+                    uint8_t preset[kSynthSlotCount], uint8_t lastInstr[kTrackCount]) override;
 
     // Paths
     void workspacePath(char* out, int cap, const char* rel) const;
@@ -694,6 +741,18 @@ private:
     void loadPresetUnit(int n, uint32_t& cost);
     void leaveSynthPreset(int n);
     void resetSynthPresets();
+    // Z chase internals (synth_chase.cpp).
+    uint16_t chaseUsed();
+    const chase::Summary& chaseSummary(int num, uint16_t used);
+    void chasePrefix(int pos, uint16_t used, chase::State& io);
+    void chaseAt(bool songMode, int songPos, int lastStepInclusive, chase::State& io);
+    // Stopped (not counting in): the slots on the chase at the pattern-editor
+    // cursor, or at the Song screen's cursor position while that screen
+    // shows, applied when that position or what it reads changes; idle
+    // passes rebuild a few stale summaries.
+    void serviceSynthChase();
+    void chaseReapply(int s);   // stopped: slot s to what the stopped chase last gave it
+    void chaseWarm(uint16_t used);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);
@@ -745,7 +804,10 @@ private:
     int8_t previewSlot_ = -1;
     PatchSource previewSrc_ = PatchSource::None;
     bool previewDirty_ = false;
-    const SynthPatch* readSynthLibraryPatch(int s, const char* name);
+    uint8_t previewPreset_ = 0;   // [OT] the preset the preview plays in (0: the slot's patch)
+    SynthPatch* readSynthLibraryPatch(SynthModel m, const char* name);
+    SynthPatch* scratchSynthPatch();   // the scratch decode slot (nullptr: no scratch)
+    bool writeSynthLibraryPatch(SynthModel m, const SynthPatch& p, const char* name);
     // previewOn voice holding the synth audition track (kNoSynthAudition: none).
     static constexpr uint16_t kNoSynthAudition = 0xFFFF;
     uint16_t synthAudVoice_ = kNoSynthAudition;

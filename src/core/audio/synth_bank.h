@@ -152,9 +152,18 @@ public:
     // [OT] Z: the table of kSynthPresetCount presets (engine 0 = empty), bound
     // once. presetSelect(s, n) makes slot s play preset n (1..), or its own
     // patch (0), until the next select, an edit of its patch, or Stop.
+    // False: refused (out of range, or an empty preset), nothing changes.
     void bindPresets(const SynthPatch* presets) { presets_ = presets; }
-    void presetSelect(int s, uint8_t n);
+    bool presetSelect(int s, uint8_t n);
+    // [OT] Whether presetSelect would take n: 0, or a preset that holds a patch.
+    bool presetTakes(uint8_t n) const {
+        return n == 0 || (n <= kSynthPresetCount && presets_ && presets_[n - 1].engine != 0);
+    }
     uint8_t presetOf(int s) const { return slots_[clampSlot(s)].preset; }
+    // [OT] Preset n's entry was edited (values, macros, mix or engine): every
+    // slot on it re-reads it at the next block and stays on it (a value edit
+    // ramps, a new engine restarts the slot). Main loop.
+    void presetChanged(uint8_t n);
     // The project record of slot s (spec 21 §3.3). Gain / pan / sends ramp,
     // polyphony applies to new notes, a model change silences the slot.
     void setSlotRecord(int s, const SynthSlotRecord& r);
@@ -294,9 +303,10 @@ private:
         // end[] was moved since the last render and start[] already holds
         // the value at the next block start: render must not catch up first.
         bool fresh = false;
-        float gainLin = 0.0f;     // dbToGain(rec.gainDb), 0 at -96 dB
+        float gainLin = 0.0f;     // dbToGain(gain dB of mixOf / rec), 0 at -96 dB
         float mixL = 0.0f, mixR = 0.0f;   // gain x balance
         float mixD = 0.0f, mixE = 0.0f;   // 0.5 x SEND[delay / reverb send]
+        uint8_t baseD = 0, baseE = 0;     // [OT] delay / reverb send 0..100 (mixOf / rec): the base of a Performance send
         float volMin = 0.0f, volMax = 2.0f;   // Volume parameter range
         // mixer ramps
         Ramp gl, gr, sd, sr;
@@ -312,6 +322,19 @@ private:
     const SynthPatch* patchOf(const Slot& sl) const {
         const uint8_t z = sl.preset;
         return z && presets_ && presets_[z - 1].engine ? &presets_[z - 1] : sl.patch;
+    }
+    // [OT] The preset whose mix the slot plays (bound and holding a mix),
+    // else nullptr: the record's (gain, pan, sends).
+    const SynthPatch* mixOf(const Slot& sl) const {
+        return sl.bound && sl.bound != sl.patch && patchHasMix(*sl.bound) ? sl.bound : nullptr;
+    }
+    void applyMix(Slot& sl);
+    // [OT] The polyphony the slot plays: the bound preset's when it carries
+    // one, else the record's (0..8).
+    static int polyOf(const Slot& sl, const SynthSlotRecord& r) {
+        const SynthPatch* b = sl.bound;
+        const uint32_t p = b && b != sl.patch && patchHasPoly(*b) ? b->poly : r.polyphony;
+        return int(p > 8 ? 8 : p);
     }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;

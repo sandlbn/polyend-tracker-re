@@ -461,6 +461,56 @@ PatchStatus decodePatch(const uint8_t* data, size_t len, SynthPatch* out) {
                 }
                 break;
             }
+            case kPatchMixField: {
+                // [OT] preset mix; entries past kPatchMixCount are dropped.
+                PB_EXPECT_WT(wt, kWtLen);
+                Reader s;
+                PB_TRY(readLen(r, &s));
+                if (out->mixCount < kPatchMixCount) {
+                    PB_TRY(decodeParam(s, &out->mix[out->mixCount]));
+                    ++out->mixCount;
+                }
+                break;
+            }
+            case kPatchPresetNameField: {
+                // [OT] preset name: the first one of 1..kPatchPresetNameMax
+                // bytes; any other is kept as an unknown field.
+                PB_EXPECT_WT(wt, kWtLen);
+                Reader s;
+                PB_TRY(readLen(r, &s));
+                const size_t n = s.left();
+                if (!out->presetNameLen && n >= 1 && n <= size_t(kPatchPresetNameMax)) {
+                    std::memcpy(out->presetName, s.p, n);
+                    out->presetName[n] = 0;
+                    out->presetNameLen = uint8_t(n);
+                    break;
+                }
+                const size_t raw = size_t(r.p - start);
+                if (out->opaqueLen + raw > size_t(kPatchOpaqueMax)) return PatchStatus::kOpaqueOverflow;
+                std::memcpy(out->opaque + out->opaqueLen, start, raw);
+                out->opaqueLen = uint16_t(out->opaqueLen + raw);
+                break;
+            }
+            case kPatchPolyField: {
+                // [OT] preset polyphony: the first varint of 0..8; any other
+                // field 19 is kept as an unknown field.
+                if (wt == kWtVarint) {
+                    uint64_t v = 0;
+                    PB_TRY(readVarint(r, &v));
+                    if (!out->polyPresent && v <= kPatchPolyMax) {
+                        out->poly = uint8_t(v);
+                        out->polyPresent = true;
+                        break;
+                    }
+                } else {
+                    PB_TRY(skipValue(r, wt));
+                }
+                const size_t raw = size_t(r.p - start);
+                if (out->opaqueLen + raw > size_t(kPatchOpaqueMax)) return PatchStatus::kOpaqueOverflow;
+                std::memcpy(out->opaque + out->opaqueLen, start, raw);
+                out->opaqueLen = uint16_t(out->opaqueLen + raw);
+                break;
+            }
             default: {
                 PB_TRY(skipValue(r, wt));
                 size_t n = size_t(r.p - start);
@@ -495,7 +545,8 @@ void patchExtraPayload(uint8_t* out) {
 PatchStatus encodePatch(const SynthPatch& pt, uint8_t* out, size_t cap, size_t* written) {
     *written = 0;
     Writer w{out, out + cap};
-    if (pt.opaqueLen > kPatchOpaqueMax || pt.paramCount > kPatchMaxParams || pt.extCount > kPatchExtMax)
+    if (pt.opaqueLen > kPatchOpaqueMax || pt.paramCount > kPatchMaxParams || pt.extCount > kPatchExtMax ||
+        pt.mixCount > kPatchMixCount || pt.presetNameLen > kPatchPresetNameMax)
         return PatchStatus::kBadValue;
 
     // Unknown fields are flushed, in stored order, ahead of the first known
@@ -604,6 +655,35 @@ PatchStatus encodePatch(const SynthPatch& pt, uint8_t* out, size_t cap, size_t* 
         } else {
             w.byte(0);
         }
+    }
+
+    // [OT] preset mix, every entry read or set (none: nothing written).
+    PB_TRY(flushOpaque(kPatchMixField));
+    for (int i = 0; i < pt.mixCount; ++i) {
+        w.tag(kPatchMixField, kWtLen);
+        if (pt.mix[i].present) {
+            w.byte(5);
+            w.tag(1, kWtFixed32);
+            w.fixed32(pt.mix[i].bits);
+        } else {
+            w.byte(0);
+        }
+    }
+
+    // [OT] preset name (none: nothing written).
+    PB_TRY(flushOpaque(kPatchPresetNameField));
+    if (pt.presetNameLen) {
+        w.tag(kPatchPresetNameField, kWtLen);
+        w.varint(pt.presetNameLen);
+        w.bytes(pt.presetName, pt.presetNameLen);
+    }
+
+    // [OT] preset polyphony (none: nothing written; 0 is written when set).
+    PB_TRY(flushOpaque(kPatchPolyField));
+    if (pt.polyPresent) {
+        if (pt.poly > kPatchPolyMax) return PatchStatus::kBadValue;
+        w.tag(kPatchPolyField, kWtVarint);
+        w.varint(pt.poly);
     }
 
     PB_TRY(flushOpaque(0xFFFFFFFFu));
