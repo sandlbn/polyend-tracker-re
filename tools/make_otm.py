@@ -172,6 +172,7 @@ def hot_patterns(objs, rows):
     .fastrun code is one section per file and moves as a whole, at its first
     function's place with the weights summed). Sections aligned to more than
     8 stay in the main part: every cut is a multiple of 8."""
+    ELFFile, _ = elftools()
     where, base = {}, {}   # name -> pattern; base name -> its patterns (see clone_base)
     for o in objs:
         with open(o, "rb") as f:
