@@ -109,6 +109,11 @@ TEST(refuses_mismatches) {
         b.h.magic = 0;
         CHECK(load(b.file(), dst, sizeof(dst), 0) == OtmError::BadMagic);
     }
+    {
+        Built b;
+        b.h.entryOffset = 2;   // not a Thumb address: would fault on every boot
+        CHECK(load(b.file(), dst, sizeof(dst), 0) == OtmError::BadMagic);
+    }
     CHECK_STR(otmErrorText(OtmError::Layout), "needs updating");
 }
 
@@ -192,7 +197,7 @@ uint32_t gEntries[4];
 int gNEntries = 0;
 
 IModule& fakeEnter(uint32_t entry) {
-    gEntries[gNEntries++] = entry;
+    if (gNEntries < 4) gEntries[gNEntries++] = entry;
     const uint32_t off = entry - 0x1FFF8000u;
     return off < 24 ? static_cast<IModule&>(gLdA) : off < 48 ? static_cast<IModule&>(gLdB) : gLdDup;
 }
@@ -275,4 +280,56 @@ TEST(card_modules_without_a_pool_or_folder) {
     fs.files["Modules/big.otm"] = Built().file();
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, 40, &r), 0);   // the file is bigger than the scratch
     CHECK(r.items[0].error == OtmError::TooBig);
+}
+
+// A card whose directory lists files in reverse name order.
+struct ReverseStorage : MemStorage {
+    int32_t listDir(const char* path, DirFn fn, void* ctx) override {
+        const std::string prefix = std::string(path) + "/";
+        int32_t n = 0;
+        for (auto it = files.rbegin(); it != files.rend(); ++it) {
+            if (it->first.compare(0, prefix.size(), prefix) != 0) continue;
+            const std::string rest = it->first.substr(prefix.size());
+            DirEntry e{rest.c_str(), false, uint32_t(it->second.size())};
+            ++n;
+            if (!fn(e, ctx)) break;
+        }
+        return n;
+    }
+};
+
+TEST(card_modules_past_the_first_eight_by_name) {
+    ReverseStorage fs;
+    Built a;
+    // Ten files, listed in reverse name order: the first eight by name are
+    // loaded whatever the directory order, the other two counted.
+    for (int i = 9; i >= 0; --i) {
+        char name[32];
+        std::snprintf(name, sizeof(name), "Modules/m%d.otm", i);
+        fs.files[name] = a.file();
+    }
+    const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, nullptr};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r);
+    CHECK_EQ(r.n, OtmLoadReport::kMax);
+    CHECK_EQ(r.skipped, 2);
+    for (int i = 0; i < r.n; ++i) {
+        char want[24];
+        std::snprintf(want, sizeof(want), "m%d.otm", i);
+        CHECK_STR(r.items[i].file, want);
+    }
+}
+
+TEST(card_modules_with_no_pool_room_say_so) {
+    MemStorage fs;
+    fs.files["Modules/a.otm"] = Built().file();
+    const OtmPool pool = {gPoolMem, 0x1FFF8000u, 0, kCore, &fakeSync, &fakeEnter, &fakeResize};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
+    CHECK(r.noRoom);
+    MemStorage empty;
+    CHECK_EQ(loadModuleFiles(empty, pool, scratch, sizeof(scratch), &r), 0);
+    CHECK(!r.noRoom);   // no files: nothing to say
 }

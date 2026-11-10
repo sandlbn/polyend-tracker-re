@@ -39,13 +39,14 @@ struct OtmLoadReport {
     int n = 0;
     uint32_t used = 0;      // pool bytes in use after loading
     bool noRoom = false;    // the pool could not grow (the stack floor): nothing loaded
+    int skipped = 0;        // .otm files past the first kMax in name order: not loaded
 };
 
 constexpr const char* kModulesDir = "Modules";
 
-// Loads Modules/*.otm (name order) into the pool and hands each to
-// ModuleHost::addLoaded(). scratch holds one file at a time (the sample
-// memory at boot: nothing is loaded yet). Main loop, after ModuleHost::init()
+// Loads Modules/*.otm (name order, the first OtmLoadReport::kMax) into the
+// pool and hands each to ModuleHost::addLoaded(). scratch holds one file at a
+// time (the sample memory at boot: nothing is loaded yet). Main loop, after ModuleHost::init()
 // and before the audio engine takes the master inserts.
 // Returns the number of modules loaded.
 int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_t scratchCap,

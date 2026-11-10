@@ -153,7 +153,9 @@ public:
     // OT_PROFILE_SDRAM_BYTES, in .sdram_bss on the device, zeroed at boot),
     // 16-byte aligned; nullptr when it does not fit (or bytes is 0). From
     // attach() only (main loop); never freed. Audio use: block spans only
-    // (the rule above).
+    // (the rule above). [I] The block is sized for the compiled-in modules,
+    // so a module loaded from the card (addLoaded) gets nullptr: one that
+    // needs SDRAM must be compiled in for now.
     void* sdram(uint32_t bytes);
     // [3.x] The core's synth slot insert lines (one kEffectWorkMax line per
     // slot), reserved once at init after the modules (images with slot

@@ -49,7 +49,9 @@ OtmError otmCheck(const uint8_t* file, uint32_t len, const OtmCore& core, OtmHea
     if (h.layoutHash != core.layoutHash) return OtmError::Layout;
     if (h.abiFlags != core.abiFlags) return OtmError::Abi;
     if (h.nExports > core.nExports) return OtmError::Exports;
-    if (h.align < 4 || (h.align & (h.align - 1)) || h.entryOffset >= h.imageBytes) return OtmError::BadMagic;
+    // The entry is a Thumb function (odd offset): an even one would fault on every boot.
+    if (h.align < 4 || (h.align & (h.align - 1)) || h.entryOffset >= h.imageBytes || !(h.entryOffset & 1u))
+        return OtmError::BadMagic;
     if (hdr) *hdr = h;
     return OtmError::None;
 }

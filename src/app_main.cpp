@@ -153,6 +153,9 @@ void logModuleLoad(const ot::mod::OtmLoadReport& r) {
                           r.items[i].refused ? "refused (id taken, api or attach)"
                                              : ot::mod::otmErrorText(r.items[i].error));
     if (r.noRoom) ot::hal::diagLog("modules: not loaded, no stack room for the pool");
+    if (r.skipped)
+        ot::hal::diagLogf("modules: %d more not loaded (the first %d by name only)", r.skipped,
+                          ot::mod::OtmLoadReport::kMax);
     if (r.n) ot::hal::diagLogf("modules: pool %lu of %lu B used, stack room %lu B", static_cast<unsigned long>(r.used),
                               static_cast<unsigned long>(ot::hal::modulePool()->cap),
                               static_cast<unsigned long>(ot::hal::stackSizeBytes()));
@@ -446,14 +449,19 @@ void otAppMain(ot::hal::HalSet& hal) {
     gApp.ui.platform.bootChecks = &bootChecks;     // factory test (spec 05 §2.12)
     gApp.ui.platform.dlOverflow = &dlOverflow;     // RAM_DL guard (Ui::render)
     if (hal::bootReport().sdMounted) gApp.boot();
-    // [I] A module on the card that didn't load says so (the first one).
-    for (int i = 0; i < gApp.moduleLoadReport().n; ++i) {
-        const ot::mod::OtmLoadReport::Item& it = gApp.moduleLoadReport().items[i];
-        if (it.error == ot::mod::OtmError::None && !it.refused) continue;
-        char t[64];
-        snprintf(t, sizeof(t), "Module %s: %s", it.file, it.refused ? "refused" : ot::mod::otmErrorText(it.error));
-        gApp.ui.notify(t, 6000);
-        break;
+    // [I] A module on the card that didn't load says so (the first one;
+    // the diag log has them all).
+    {
+        const ot::mod::OtmLoadReport& r = gApp.moduleLoadReport();
+        char t[64] = "";
+        if (r.noRoom) snprintf(t, sizeof(t), "Modules: no room, none loaded");
+        for (int i = 0; !t[0] && i < r.n; ++i) {
+            const ot::mod::OtmLoadReport::Item& it = r.items[i];
+            if (it.error == ot::mod::OtmError::None && !it.refused) continue;
+            snprintf(t, sizeof(t), "Module %s: %s", it.file, it.refused ? "refused" : ot::mod::otmErrorText(it.error));
+        }
+        if (!t[0] && r.skipped) snprintf(t, sizeof(t), "Modules: %d more than %d not loaded", r.skipped, r.kMax);
+        if (t[0]) gApp.ui.notify(t, 6000);
     }
     gApp.run();
 }
