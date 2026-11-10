@@ -28,6 +28,7 @@ struct AppSdram {
     alignas(ProjectJob) unsigned char pj[sizeof(ProjectJob)];
     alignas(SynthPatch) unsigned char patches[sizeof(SynthPatch) * kSynthSlotCount];
     unsigned char extKeep[kPatternCount + 1];
+    alignas(mod::OtmLoadReport) unsigned char moduleLoad[sizeof(mod::OtmLoadReport)];   // [I]
 };
 OT_SDRAM_BSS AppSdram gAppSdram;
 }  // namespace
@@ -35,7 +36,8 @@ OT_SDRAM_BSS AppSdram gAppSdram;
 App::App()
     : names(*reinterpret_cast<PatternNames*>(gAppSdram.names)), bank(engine.bank()), ui(*this),
       extKeep_(*reinterpret_cast<ExtKeep*>(gAppSdram.extKeep)),
-      patches_(*reinterpret_cast<SynthPatches*>(gAppSdram.patches)), pj_(*reinterpret_cast<ProjectJob*>(gAppSdram.pj)) {}
+      patches_(*reinterpret_cast<SynthPatches*>(gAppSdram.patches)),
+      moduleLoad_(*reinterpret_cast<mod::OtmLoadReport*>(gAppSdram.moduleLoad)), pj_(*reinterpret_cast<ProjectJob*>(gAppSdram.pj)) {}
 #else
 App::App() : bank(engine.bank()), ui(*this) {}
 #endif
@@ -47,6 +49,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     new (&names) PatternNames();
     new (&pj_) ProjectJob();
     for (SynthPatch& p : patches_) new (&p) SynthPatch();
+    new (&moduleLoad_) mod::OtmLoadReport();
 #else
     for (SynthPatch& p : patches_) p = SynthPatch{};   // plain member without an initialiser
 #endif
@@ -63,6 +66,15 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     ext_.attach(mem_.extTracks, mem_.extTrackBlocks - 1, mem_.extMeta);
     // Compiled-in modules (synth engines, docs/PLAN_3X.md §7) before audio starts.
     mod::ModuleHost::instance().init();
+    // [I] Modules/*.otm from the card, after the compiled-in ones and
+    // before the engine takes the master inserts. The sample memory holds one
+    // file at a time (nothing is loaded into it yet) and is cleared after.
+    if (hal_.modulePool && mem_.sampleBank) {
+        uint8_t* scratch = reinterpret_cast<uint8_t*>(mem_.sampleBank);
+        const uint32_t cap = mem_.sampleBankSamples * 2u < 256u * 1024u ? mem_.sampleBankSamples * 2u : 256u * 1024u;
+        mod::loadModuleFiles(*hal_.storage, *hal_.modulePool, scratch, cap, &moduleLoad_);
+        std::memset(scratch, 0, cap);
+    }
     // spec 04: delay/reverb memory and the sample pool are caller-provided (SDRAM).
     if (!engine.init(mem_.fxMemory, mem_.fxSamples, mem_.sampleBank, mem_.sampleBankSamples, instruments))
         return false;

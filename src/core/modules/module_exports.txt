@@ -1,0 +1,24 @@
+# [I] Core symbols a loadable module may use (modules/module_loader.h).
+# One symbol per line; a module's fixup kind k means the export on line k (1 =
+# the first symbol). APPEND ONLY: inserting, removing or reordering a line
+# breaks every .otm already built. tools/make_otm.py refuses a module that
+# needs a symbol not listed here.
+memset
+memcpy
+snprintf
+sqrtf
+expf
+exp2f
+__aeabi_f2d
+__aeabi_dmul
+_ZdlPv
+_ZdlPvj
+_ZN2ot7synthui5names5kWaveE
+_ZN2ot7synthui5names6kGlideE
+_ZN2ot7synthui5names7kRetrigE
+_ZN2ot7synthui5names7kModSrcE
+_ZN2ot7synthui5names9kFilter15E
+_ZNK2ot5audio7IEffect9valueTextEihPci
+_ZN2ot5audio12EffectInsert7processEPfS2_m
+_ZN2ot5audio12EffectInsert3setERKNS0_14EffectSettingsEb
+_ZN2ot3mod10ModuleHost5sdramEm

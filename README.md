@@ -138,6 +138,30 @@ from that folder.
 original Tracker reads only tracks 1–8 of those patterns (expected from the stock loader's
 rules; not yet confirmed on a stock unit).
 
+### Modules from the card
+
+A synth or effect module can also be loaded from the SD card instead of being compiled in.
+`make otm OTM_MODULE=<path>` (the path as in a profile, relative to `MODULES_DIR`) builds
+it into `build/<profile>/otm/<name>.otm` with the firmware's flags; it needs Python's
+[pyelftools](https://pypi.org/project/pyelftools/). Copy the file into `Modules/` on the
+card. At boot the firmware loads every `Modules/*.otm` after the compiled-in modules:
+
+```
+make otm OTM_MODULE=../opentracker-fx/modules/tape
+make otm OTM_MODULE=modules/fm4
+```
+
+The modules run from a pool at the bottom of the stack (up to 32 KB), and the stack guard
+moves above it. A module is refused when it doesn't fit, when its id is already loaded
+(compiled in or an earlier file), or when it was built for another firmware or needs a
+symbol the firmware doesn't export (`src/core/modules/module_exports.txt`): "needs
+updating". The screen names the first refused module on boot. At most eight files load,
+the first eight by name. A module from the card gets no SDRAM (the profile's module SDRAM
+is sized for the compiled-in modules), so one that needs it has to be compiled in.
+`profiles/sdtest.toml` is the `full` profile without ACD and Tape, for trying the loader
+with those two (and FM4S) from the card. `make otm-test` checks the tool's images against
+the linker's.
+
 ## Known limitations
 
 - The synth sound is own design: settings match the Mini, the sound is close but not

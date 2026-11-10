@@ -21,6 +21,7 @@
 #include "model/pattern_store.h"
 #include "model/project.h"
 #include "model/synth_patch.h"
+#include "modules/module_files.h"
 #include "sequencer/sequencer.h"
 #include "ui/notes.h"
 #include "ui/ui.h"
@@ -44,6 +45,9 @@ struct HalRefs {
     // called from the audio-block context. Null when the board has no capture.
     const int16_t* (*lineIn)(void* ctx) = nullptr;
     void* lineInCtx = nullptr;
+    // [I] Modules from the card (modules/module_files.h): the block
+    // they load into. Null: no loading (simulator, host tests).
+    const mod::OtmPool* modulePool = nullptr;
     // Recorder input routing (spec 05 appendix C §2.4/§2.5): source 0 line
     // in, 1 radio, 2 mic low gain, 3 mic high gain; gain 0..100. Returns
     // false when the source is not available. Null: only line in (no
@@ -528,6 +532,8 @@ public:
     // ("Synth k (WTFM) not available", the first such slot; MINI_PLAN §3).
     // False (out untouched) when every slot is available.
     bool synthUnavailableNotice(char* out, size_t cap) const;
+    // [I] What happened to each Modules/*.otm at boot.
+    const mod::OtmLoadReport& moduleLoadReport() const { return moduleLoad_; }
 
     // ---- project operations (project_io.cpp) ------------------------------
     // The blocking calls below run the same background job as the start*()
@@ -888,6 +894,7 @@ private:
     uint8_t synthLiveNext_ = 0;
     float liveBend_ = 0.0f;         // last MIDI input pitch bend (semitones)
     char loadNotice_[64] = {};      // first problem of the last load (one notice)
+    OT_APP_SDRAM_MEMBER(mod::OtmLoadReport, moduleLoad_);  // [I] Modules/*.otm at boot
     uint8_t patDirty_[32] = {};
     bool projectDirty_ = false, namesDirty_ = false, configDirty_ = false, configForce_ = false;
     uint8_t recShadow_[12] = {};                  // project bytes 0x134..0x13F last synced

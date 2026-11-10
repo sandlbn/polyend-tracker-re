@@ -14,6 +14,9 @@
 # make testsongs  -> build/testsongs/Projects/<name>/ (2.x hardware-test projects, TESTSONGS.md)
 # make patches    -> build/patches/Patches/<MODEL>/ (synth preset pack, tools/make_patches/PRESETS.md)
 # make budget     -> the profile's declared module budgets (flash, SRAM) and their limits
+# make otm OTM_MODULE=<path> -> [I] build/<profile>/otm/<name>.otm, a module loadable from the card
+#                    (<path> as in a profile, relative to MODULES_DIR; tools/make_otm.py)
+# make otm-test   -> [I] tools/make_otm.py's images against the linker's (ARM toolchain, pyelftools)
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
 #                    the firmware's packed font_data_z.inc / font_adv.inc,
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
@@ -76,7 +79,7 @@ DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENG
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
              -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
-INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs $(MOD_INCS)
+INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs $(MOD_INCS) -I$(BUILD)/otm-gen
 COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD
 CFLAGS    := $(COMMON) -std=gnu11
 CXXFLAGS  := $(COMMON) -std=gnu++17 -fno-exceptions -fno-rtti -felide-constructors -Wno-psabi
@@ -96,6 +99,18 @@ OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX)
 # src/hal/opentracker.ld match these objects by file name.
 MOD_OBJS  := $(patsubst %.cpp,$(BUILD)/mod/%.cpp.o,$(MOD_SRCS))
 OBJS      += $(MOD_OBJS)
+
+# [I] Modules from the card (tools/make_otm.py): the core's export table and
+# the versions a loadable module must match, generated for src/hal/module_pool.cpp.
+.DEFAULT_GOAL := all
+OTM_GEN   := $(BUILD)/otm-gen
+OTM_EXPORTS := src/core/modules/module_exports.txt
+$(OTM_GEN)/otm_core.h: tools/make_otm.py $(OTM_EXPORTS) $(wildcard src/core/modules/*.h src/core/audio/*.h) src/core/fastrun.h
+	python3 -I tools/make_otm.py abi-header --cxx $(CXX) --cxxflags '$(CXXFLAGS)' --out $@
+$(OTM_GEN)/otm_exports.cpp: tools/make_otm.py $(OTM_EXPORTS)
+	python3 -I tools/make_otm.py exports-cpp --out $@
+$(BUILD)/src/hal/module_pool.cpp.o: $(OTM_GEN)/otm_core.h
+OBJS      += $(BUILD)/$(OTM_GEN)/otm_exports.cpp.o
 
 # Size optimization per directory (docs/OPTIMIZATION_2X.md OP-4): UI, app,
 # HAL, formats and FatFs build with -Os; everything on the audio /
@@ -242,6 +257,24 @@ testsongs:
 budget:
 	python3 -I tools/profile.py budget --profile profiles/$(PROFILE).toml --modules-dir $(MODULES_DIR)
 .PHONY: budget
+
+# [I] A module as a file loadable from the card (tools/make_otm.py), compiled
+# with the firmware's flags. OTM_REF=<base> also writes <name>.ref.bin, the image
+# otmLoad must produce at that base (tests/module_loader_test.cpp).
+OTM_NAME = $(notdir $(OTM_MODULE))
+otm:
+	@test -n "$(OTM_MODULE)" || { echo "make otm OTM_MODULE=<module path, e.g. ../opentracker-fx/modules/tape>"; exit 1; }
+	@mkdir -p $(BUILD)/otm
+	python3 -I tools/make_otm.py build --module $(MODULES_DIR)/$(OTM_MODULE) --obj-dir $(BUILD)/otm/obj/$(OTM_NAME) \
+	    --out $(BUILD)/otm/$(OTM_NAME).otm --cxx $(CXX) --cxxflags '$(CXXFLAGS)' \
+	    $(if $(OTM_REF),--reference $(OTM_REF) --ref-out $(BUILD)/otm/$(OTM_NAME).ref.bin)
+.PHONY: otm
+
+# [I] tools/make_otm.py against the linker (tools/make_otm_test.py): needs
+# the ARM toolchain and pyelftools.
+otm-test:
+	python3 -I tools/make_otm_test.py --cxx $(CXX) --cxxflags '$(CXXFLAGS)'
+.PHONY: otm-test
 
 # Synth preset pack (tools/make_patches/PRESETS.md): build/patches/Patches/<MODEL>/.
 patches:

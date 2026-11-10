@@ -157,9 +157,19 @@ audio::IMasterInsert* ModuleHost::masterInsert() {
     return nullptr;
 }
 
-bool ModuleHost::addForTest(IModule& m) {
+bool ModuleHost::addForTest(IModule& m) { return addLoaded(m); }
+
+// [I] A module loaded from the card (modules/module_files.h): the
+// checks init() makes, after the compiled-in modules.
+bool ModuleHost::addLoaded(IModule& m) {
     if (!inited_) init();
-    if (n_ >= kMaxModules || find(m.info().id) || !descriptorsOk(m) || !effectsOk(m) || !m.attach(*this)) return false;
+    const ModuleInfo& in = m.info();
+    if (in.api != kModuleApi || n_ >= kMaxModules || find(in.id) || !descriptorsOk(m) || !effectsOk(m) ||
+        !m.attach(*this)) {
+        std::memcpy(refused_, in.id, sizeof(refused_));
+        refused_[4] = '\0';
+        return false;
+    }
     mods_[n_++] = &m;
     for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
         if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
