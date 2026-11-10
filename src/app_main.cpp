@@ -19,6 +19,7 @@
 #include "hal/radio_si4703.h"
 #include "hal/telemetry.h"
 #include "hal/sd_storage.h"
+#include "hal/stack_guard.h"
 #include "hal/stack_watch.h"
 #include "hal/usb_storage.h"
 
@@ -463,5 +464,8 @@ void otAppMain(ot::hal::HalSet& hal) {
         if (!t[0] && r.skipped) snprintf(t, sizeof(t), "Modules: %d more than %d not loaded", r.skipped, r.kMax);
         if (t[0]) gApp.ui.notify(t, 6000);
     }
+    if (hal::lastResetWasLockup())
+        gApp.ui.notify(hal::stackGuardArmed() ? "Restarted after a crash (stack overflow)"
+                                              : "Restarted after a crash", 8000);
     gApp.run();
 }

@@ -22,7 +22,7 @@
 //   logs that reset reason (stackGuardInit), so an overflow is a clean reset
 //   with a logged cause instead of silent corruption. A stray access into the
 //   guard that is not a stack overflow is an ordinary BusFault with the
-//   diag fault report; diag.cpp adds the SYSMPU error address to it.
+//   diag fault report.
 // - The guard is larger than the deepest single stack frame of the firmware
 //   plus an interrupt's exception frame (telemetry_check.py frames), so no
 //   frame can step over it.
