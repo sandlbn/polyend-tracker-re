@@ -265,7 +265,7 @@ SynthSlotView SynthBank::slotView(int s) const {
     v.sounding = voicesOf(s);
     for (int k = 0; k < kSynthSeqMacros; ++k) {
         v.overridden[k] = sl.ovr[k] >= 0 && !ovrRelease_[s][k];
-        v.macro[k] = v.overridden[k] ? uint8_t(sl.ovr[k]) : (r.macros[k] > 127 ? 127 : r.macros[k]);
+        v.macro[k] = v.overridden[k] ? uint8_t(sl.ovr[k]) : shownMacro(sl, k, r.macros[k] > 127 ? 127 : r.macros[k]);
     }
     v.lastVelocity = sl.lastVel;
     return v;
@@ -615,7 +615,7 @@ void SynthBank::applyMacros(int s) {
     uint8_t val[kSynthSeqMacros];
     float m[kSynthSeqMacros];
     for (int k = 0; k < kSynthSeqMacros; ++k) {
-        val[k] = sl.ovr[k] >= 0 ? uint8_t(sl.ovr[k]) : sl.page[k];
+        val[k] = sl.ovr[k] >= 0 ? uint8_t(sl.ovr[k]) : shownMacro(sl, k, sl.page[k]);
         m[k] = synthMacroM(val[k], sl.bound->macros[k].bipolar);
         sl.applied[k] = val[k];
     }

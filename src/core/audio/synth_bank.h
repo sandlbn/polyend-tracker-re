@@ -458,6 +458,12 @@ private:
         const uint8_t z = sl.preset;
         return z && presets_ && presets_[z - 1].engine ? &presets_[z - 1] : sl.patch;
     }
+    // [3.x] A macro value as the bound sound plays it.
+    static uint8_t shownMacro(const Slot& sl, int k, uint8_t v) {
+        return sl.patch && sl.bound && sl.bound != sl.patch
+                   ? synthMacroOnPreset(v, sl.patch->macros[k].bipolar, sl.bound->macros[k].bipolar)
+                   : v;
+    }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;

@@ -68,6 +68,11 @@ inline float synthMacroM(uint8_t v, bool bipolar) {
 }
 // Page / default value of a macro: 63 when bipolar, else 0 (spec 21 §3.3).
 inline uint8_t synthMacroDefault(bool bipolar) { return bipolar ? 63 : 0; }
+// [3.x] A slot's macro value as a preset plays it: at the slot's own neutral it
+// has not been moved, so it means the preset's neutral.
+inline uint8_t synthMacroOnPreset(uint8_t v, bool ownBipolar, bool presetBipolar) {
+    return v == synthMacroDefault(ownBipolar) ? synthMacroDefault(presetBipolar) : v;
+}
 // Number of live targets of macro k (count clamped 0..6).
 int synthMacroTargets(const PatchMacro& m);
 

@@ -23,6 +23,9 @@
 #include "modules/synth_models.h"
 #include "ui/screens.h"
 #include "ui_fakes.h"
+#if defined(OT_MOD_ACD1) && OT_MOD_ACD1
+#include "acd.h"
+#endif
 #if __has_include("ot_profile.h")
 #include "ot_profile.h"
 #endif
@@ -193,6 +196,113 @@ bool drawn(Harness& h, const char* q) {
 }  // namespace
 
 #if defined(OT_MOD_ACD1) && OT_MOD_ACD1
+
+int padPeak(Harness& h) {
+    h.push(ot::InputEvent::kPadDown, 20);
+    h.run(5);
+    const int peak = h.audio.pump(60);
+    h.push(ot::InputEvent::kPadUp, 20);
+    h.run(5);
+    h.audio.pump(200);
+    return peak;
+}
+
+TEST(a_loaded_presets_neutral_macros_do_not_move_the_macros_of_the_preset_a_z_plays) {
+    // Load gives the slot the loaded preset's neutral macro values; a macro
+    // nobody moved stays the neutral of whatever preset the slot plays.
+    Harness h;
+    App& a = *h.app;
+    a.setSynthModel(1, int(SynthModel::ACD));
+    PatchMacro& c = a.synthPatch(1).macros[2];
+    c.bipolar = false;                 // P2: unipolar, up turns the volume down
+    c.count = 1;
+    c.targets[0].param = audio::acd::kVolume;
+    c.targets[0].amountBits = patchFloatToBits(-1.0f);
+    a.markSynthPatchDirty(1);
+    a.storeSynthPreset(2, 1);
+    a.synthPatch(1).macros[2] = PatchMacro{};
+    a.synthPatch(1).macros[2].bipolar = true;   // P4: its macro C is bipolar
+    a.markSynthPatchDirty(1);
+    a.storeSynthPreset(4, 1);
+    a.synthPatch(1).macros[2].bipolar = false;
+    a.markSynthPatchDirty(1);
+    Pattern& p = a.pattern();
+    p.tracks[0].steps[0].note = 60;
+    p.tracks[0].steps[0].instrument = uint8_t(kFirstSynthInstrument + 1);
+    putZ(p.tracks[0].steps[0], 2);
+    a.patternEdited();
+    a.setCurrentInstrument(uint8_t(kFirstSynthInstrument + 1));
+    h.tap(btn::Pattern);
+    cursorTo(h, 0);
+    h.run();
+    h.audio.pump(4);
+    h.tap(btn::InstrParams);
+    h.run();
+    CHECK_EQ(a.synthPresetActive(1), 2);
+    const int before = padPeak(h);
+    CHECK(before > 1000);
+    CHECK(a.loadSynthPreset(1, 4));
+    h.run();
+    a.seq.play();
+    h.run(5);
+    h.audio.pump(40);
+    a.seq.stop();
+    h.run(10);
+    h.audio.pump(100);
+    h.run(10);
+    CHECK_EQ(a.synthPresetActive(1), 2);
+    const int after = padPeak(h);
+    std::printf("    pads on P2: %d before Load, %d after\n", before, after);
+    CHECK(after * 10 > before * 8);
+    // A macro somebody moved still counts on the preset.
+    SynthSlotRecord r = a.synthSlot(1);
+    r.macros[2] = 127;
+    a.setSynthSlotRecord(1, r);
+    h.run();
+    h.audio.pump(4);
+    CHECK(padPeak(h) * 2 < before);
+}
+
+TEST(a_preset_shows_its_own_neutral_and_macro_edits_pass_through_it) {
+    Harness h;
+    App& a = *h.app;
+    a.setSynthModel(1, int(SynthModel::ACD));
+    a.synthPatch(1).macros[2].bipolar = false;   // P2: unipolar macro C
+    a.markSynthPatchDirty(1);
+    a.storeSynthPreset(2, 1);
+    a.synthPatch(1).macros[2].bipolar = true;    // the slot's own: bipolar, record at neutral
+    a.markSynthPatchDirty(1);
+    SynthSlotRecord own = a.synthSlot(1);
+    own.macros[2] = 63;
+    a.setSynthSlotRecord(1, own);
+    SynthBank& b = a.engine.synth();
+    b.presetSelect(1, 2);
+    h.audio.pump(2);
+    CHECK_EQ(int(a.synthTargetRecord(1, 2).macros[2]), 0);   // shown as P2's neutral
+    CHECK_EQ(int(b.slotView(1).macro[2]), 0);
+    // A mix edit leaves the macro where it was.
+    SynthSlotRecord r = a.synthTargetRecord(1, 2);
+    r.gainDb = -3.0f;
+    a.setSynthTargetRecord(1, r, 2);
+    CHECK_EQ(int(a.synthSlot(1).macros[2]), 63);
+    // The first step moves from what is shown.
+    r = a.synthTargetRecord(1, 2);
+    r.macros[2] = 1;
+    a.setSynthTargetRecord(1, r, 2);
+    CHECK_EQ(int(a.synthSlot(1).macros[2]), 1);
+    // Up and down across the value that means "neutral" keeps moving.
+    r = a.synthTargetRecord(1, 2);
+    r.macros[2] = 62;
+    a.setSynthTargetRecord(1, r, 2);
+    r = a.synthTargetRecord(1, 2);
+    r.macros[2] = 63;
+    a.setSynthTargetRecord(1, r, 2);
+    CHECK_EQ(int(a.synthTargetRecord(1, 2).macros[2]), 64);
+    r = a.synthTargetRecord(1, 2);
+    r.macros[2] = 63;
+    a.setSynthTargetRecord(1, r, 2);
+    CHECK_EQ(int(a.synthTargetRecord(1, 2).macros[2]), 62);
+}
 
 TEST(z_switches_patch_and_insert_together_and_z0_restores_own) {
     Gain a("TGNA"), b("TGNB");

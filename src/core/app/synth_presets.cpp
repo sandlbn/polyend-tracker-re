@@ -134,6 +134,8 @@ SynthSlotRecord App::synthTargetRecord(int s, uint8_t t) const {
         }
         if (pm.flags & audio::kPresetMixPoly) r.polyphony = pm.polyphony > 8 ? 8u : pm.polyphony;
         std::snprintf(r.patchName, sizeof(r.patchName), "%s", pm.name);
+        for (int k = 0; k < int(mt::kSynthMacroCount) && k < kPatchMacros; ++k)
+            r.macros[k] = audio::synthMacroOnPreset(r.macros[k], patches_[s].macros[k].bipolar, g_table[n - 1].macros[k].bipolar);
     }
     return r;
 }
@@ -158,8 +160,24 @@ void App::setSynthTargetRecord(int s, const SynthSlotRecord& r, uint8_t t) {
     }
     // The record: the macro values always; the mix and polyphony when it is the target.
     SynthSlotRecord w = own;
-    std::memcpy(w.macros, r.macros, sizeof w.macros);
-    if (!n) copyMix(w, r);
+    if (n) {
+        // Only what moved from the values shown; a step onto the value that
+        // means "neutral" on this preset goes one further, so it can pass.
+        const SynthSlotRecord shown = synthTargetRecord(s, n);
+        for (int k = 0; k < int(mt::kSynthMacroCount) && k < kPatchMacros; ++k) {
+            if (r.macros[k] == shown.macros[k]) continue;
+            int v = r.macros[k];
+            const int ownNeutral = audio::synthMacroDefault(patches_[s].macros[k].bipolar);
+            if (v == ownNeutral && ownNeutral != audio::synthMacroDefault(g_table[n - 1].macros[k].bipolar)) {
+                v += v > int(shown.macros[k]) ? 1 : -1;
+                if (v < 0 || v > 127) continue;
+            }
+            w.macros[k] = uint8_t(v);
+        }
+    } else {
+        std::memcpy(w.macros, r.macros, sizeof w.macros);
+        copyMix(w, r);
+    }
     if (std::memcmp(&w, &own, sizeof w) != 0) setSynthSlotRecord(s, w);
 }
 
