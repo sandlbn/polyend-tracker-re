@@ -1110,6 +1110,9 @@ private:
     uint8_t shownTarget_ = 0;
     int32_t shownEngine_ = 0;
     uint8_t et_ = 0;          // the edit target of this key / step / frame (retarget)
+    uint8_t opened_ = 0;      // the preset opened from the Presets list (Edit), 0: none
+    uint8_t currentTarget() const;
+    void closeOpened();
     uint8_t askTarget_ = 0;   // the edit target a question or keyboard was opened for
     bool askBound_ = false;   // the open question / keyboard is about that target (bindAsk)
     void bindAsk();

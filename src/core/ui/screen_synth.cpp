@@ -10,7 +10,9 @@
 // [3.x] The pages edit what the slot plays (App::synthEditTarget): while it
 // is on a preset (Z, the stopped chase, a preset instrument's note) they
 // show that preset ("P<n>" in the header) and every edit changes it, heard
-// at once and saved; otherwise the slot's own patch and record.
+// at once and saved; otherwise the slot's own patch and record. Edit on the
+// Presets list opens one preset the same way, whatever the slot is playing,
+// until Instrument Params goes back to the list or the page is left.
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -220,6 +222,7 @@ int SynthScreen::rows() const {
 }
 
 void SynthScreen::start(int opt) {
+    opened_ = 0;
     if (opt >= 1 && opt <= kSynthSlotCount) slot = opt - 1;
     else if (isSynthSlotInstrument(app_.currentInstrument())) slot = synthSlotOf(app_.currentInstrument());
     if (view != View::Macros) view = View::Params;
@@ -246,6 +249,7 @@ void SynthScreen::start(int opt) {
 
 void SynthScreen::stop() {
     audition(false, 0);
+    closeOpened();
     if (view == View::Browser) closeBrowser();   // leaving the screen cancels the popup
     if (view == View::Presets && previewKey_ >= 0) endPresetPreview();
 }
@@ -282,7 +286,7 @@ void SynthScreen::bindAsk() {
 
 bool SynthScreen::askStale() {
     askBound_ = false;
-    if (uint8_t(app_.synthEditTarget(slot)) != askTarget_) {
+    if (currentTarget() != askTarget_) {
         ui_.notify("The slot plays another sound now");
         return true;
     }
@@ -292,12 +296,30 @@ bool SynthScreen::askStale() {
 
 // [3.x] The edit target, resolved once per key, encoder step, pad and frame;
 // and a new project's presets: no edits of the old ones remain.
+// An audition of the opened preset borrowed an idle slot: it goes back to what
+// was selected on it.
+void SynthScreen::closeOpened() {
+    const uint8_t n = opened_;
+    opened_ = 0;
+    if (!n) return;
+    audio::SynthBank& b = app_.engine.synth();
+    for (int s = 0; s < kSynthSlotCount; ++s)
+        if (b.presetOf(s) == n && b.selectedPresetOf(s) != n) b.presetSelect(s, b.selectedPresetOf(s));
+    retarget();
+}
+
+uint8_t SynthScreen::currentTarget() const {
+    return opened_ && app_.synthPresetUsed(opened_) ? opened_ : uint8_t(app_.synthEditTarget(slot));
+}
+
 void SynthScreen::retarget() {
-    et_ = uint8_t(app_.synthEditTarget(slot));
     if (app_.synthPresetsEpoch() != shownEpoch_) {
         shownEpoch_ = app_.synthPresetsEpoch();
         editedBits_ = 0;
+        opened_ = 0;
     }
+    if (opened_ && !app_.synthPresetUsed(opened_)) opened_ = 0;
+    et_ = currentTarget();
 }
 
 uint16_t SynthScreen::editBit() const {
@@ -392,7 +414,8 @@ void SynthScreen::refreshBar() {
             b.set(0, "Store", nullptr, !ro);
             b.set(1, "Load", nullptr, used);
             b.set(2, "Clear", nullptr, used);
-            b.label[3].hidden = b.label[6].hidden = true;
+            b.set(3, "Edit", nullptr, used && audio::synthEngineFor(app_.synthPreset(row + 1).engine));
+            b.label[6].hidden = true;
             b.setWide(4, "Preview", nullptr, used && !ro);
             b.set(7, "Back");
             break;
@@ -596,7 +619,7 @@ void SynthScreen::macroRowChange(int m, int r, int d) {
         // The macro's value restarts at its neutral position for the new
         // mode (0, or the centre 63 = "0" when bipolar), as on a patch load;
         // keeping the old 0 showed a bipolar macro at -63 (user report).
-        if (m < audio::kSynthSeqMacros) {
+        if (m < audio::kSynthSeqMacros && !opened_) {   // the value belongs to the slot
             SynthSlotRecord rec = app_.synthTargetRecord(slot, et_);
             rec.macros[m] = audio::synthMacroDefault(mc.bipolar);
             app_.setSynthTargetRecord(slot, rec, et_);
@@ -903,6 +926,11 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
         else if (view == View::Insert) view = View::Params;
         else if (ui_.shift()) view = View::Insert;
 #endif
+        else if (view == View::Params && opened_) {
+            view = View::Presets;
+            row = opened_ - 1;
+            closeOpened();
+        }
         else view = view == View::Params ? View::Macros : View::Params;
         refreshBar();
         ui_.dirty();
@@ -1542,6 +1570,17 @@ void SynthScreen::presetKey(uint8_t id) {
                         s->refreshBar();
                     },
                     this);
+            break;
+        case btn::F4:
+            if (!used || !audio::synthEngineFor(app_.synthPreset(n).engine)) break;
+            opened_ = uint8_t(n);
+            retarget();
+            view = View::Params;
+            param = 1;             // not Model: its key would swap the preset's engine
+            section = row = 0;
+            listTop_ = 0;
+            shownTarget_ = et_;
+            shownEngine_ = engine();
             break;
         case btn::F5:
         case btn::F6:

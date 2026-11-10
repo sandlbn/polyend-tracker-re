@@ -269,6 +269,64 @@ TEST(store_load_clear_keys_with_confirmations) {
     CHECK_EQ(int(a.synthPatch(1).engine), int(eng));
 }
 
+TEST(edit_key_opens_a_listed_preset_and_only_it_changes) {
+    Harness h;
+    App& a = *h.app;
+    a.setSynthModel(1, int(SynthModel::ACD));
+    a.storeSynthPreset(2, 1);
+    a.storeSynthPreset(3, 1);
+    const float ownGain = a.synthSlot(1).gainDb;
+    const float gain3 = a.synthTargetRecord(1, 3).gainDb;
+    openPresets(h);
+    h.tap(btn::Down);          // P2
+    h.tap(btn::F4);            // Edit
+    CHECK(screen(a).view == SynthScreen::View::Params);
+    CHECK(drawn(h, "(ACD) P2"));
+    CHECK_EQ(a.synthPresetActive(1), 0);   // the slot itself stays where it was
+    const int32_t eng2 = a.synthPreset(2).engine;
+    h.tap(btn::F1);            // focuses Model; does not swap the preset's engine
+    CHECK_EQ(int(a.synthPreset(2).engine), int(eng2));
+    h.tap(btn::F3);            // Gain
+    h.tap(btn::Up);
+    CHECK(a.synthTargetRecord(1, 2).gainDb > ownGain);
+    CHECK_EQ(a.synthSlot(1).gainDb, ownGain);
+    CHECK_EQ(a.synthTargetRecord(1, 3).gainDb, gain3);
+    // A Z moving the slot does not take the page away.
+    a.engine.synth().presetSelect(1, 3);
+    h.audio.pump(1);
+    CHECK(drawn(h, "(ACD) P2"));
+    a.engine.synth().presetSelect(1, 0);
+    h.audio.pump(1);
+    // An audition may borrow an idle slot; it does not keep it afterwards.
+    h.down(btn::EncPush);
+    h.audio.pump(2);
+    h.up(btn::EncPush);
+    h.audio.pump(2);
+    // One key back to the list, on the same row, and the slot's own sound again.
+    h.tap(btn::InstrParams);
+    CHECK(screen(a).view == SynthScreen::View::Presets);
+    for (int s = 0; s < kSynthSlotCount; ++s) CHECK(a.engine.synth().presetOf(s) != 2);
+    CHECK_EQ(screen(a).row, 1);
+    h.tap(btn::InstrParams);
+    CHECK(!drawn(h, " P2"));
+}
+
+TEST(edit_key_does_nothing_on_an_empty_row_and_a_cleared_preset_lets_go) {
+    Harness h;
+    App& a = *h.app;
+    a.setSynthModel(1, int(SynthModel::ACD));
+    a.storeSynthPreset(1, 1);
+    openPresets(h);
+    h.tap(btn::Down);          // P2 is empty
+    h.tap(btn::F4);
+    CHECK(screen(a).view == SynthScreen::View::Presets);
+    h.tap(btn::Up);            // P1
+    h.tap(btn::F4);
+    CHECK(drawn(h, "(ACD) P1"));
+    a.clearSynthPreset(1);
+    CHECK(!drawn(h, " P1"));
+}
+
 TEST(preview_keys_switch_while_held_and_restore) {
     Harness h;
     App& a = *h.app;
