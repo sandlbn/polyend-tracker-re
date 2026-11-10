@@ -57,7 +57,6 @@ void play(ISynthEngine* e, const mod::SynthDescriptor& d, const char* what, cons
     std::memcpy(g_p.start, g_p.end, sizeof g_p.end);
     g_p.serial = uint32_t(g_phase);
     e->slotReset(g_sc);
-    e->loadPatch(g_sc, g_patch);
     for (int k = 0; k < kVoices; ++k) {
         g_v[k] = SynthVoice{};
         g_v[k].slotScratch = &g_sc;
