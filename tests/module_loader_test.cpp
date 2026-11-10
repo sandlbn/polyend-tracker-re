@@ -567,7 +567,7 @@ TEST(card_modules_share_the_fast_block) {
     pool.fastMem = fastMem;
     pool.fastBase = kFb;
     pool.fastCap = sizeof(fastMem);
-    uint8_t scratch[256];
+    static uint8_t scratch[256 + kOtmCutScratchBytes + 8];   // the row cuts after the file
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 2);
     // Turns in 24 B: a 8, b 8, a 16; b's 16 doesn't fit.
@@ -747,4 +747,85 @@ TEST(card_synths_rescanned_after_usb_storage) {
     const int32_t none[1] = {0};
     CHECK(loadCardSynths(fs, none, 1, scratch, sizeof(scratch)));
     h.removeLoaded(gFxA);   // (the host is shared by the tests)
+}
+
+TEST(card_synths_rescanned_when_modules_was_empty_at_boot) {
+    MemStorage fs;   // no Modules/ at boot
+    const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, nullptr};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
+    CHECK_EQ(r.n, 0);
+    // The computer adds a synth over USB storage.
+    fs.files["Modules/sa.otm"] = tagged(1);
+    CHECK_EQ(rescanCardSynths(fs, scratch, sizeof(scratch)), 1);
+    CHECK(cardEngine(0xE1) && !cardEngineLoaded(0xE1));
+    const int32_t a[1] = {0xE1};
+    CHECK(loadCardSynths(fs, a, 1, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE1));
+    const int32_t none[1] = {0};
+    CHECK(loadCardSynths(fs, none, 1, scratch, sizeof(scratch)));
+}
+
+TEST(card_synths_kept_when_the_pool_cannot_grow) {
+    MemStorage fs;
+    fs.files["Modules/sa.otm"] = tagged(1);
+    fs.files["Modules/sb.otm"] = tagged(2);
+    const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, &fakeResize};
+    uint8_t scratch[256];
+    OtmLoadReport r;
+    ModuleHost& h = ModuleHost::instance();
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
+    const int32_t a[1] = {0xE1};
+    CHECK(loadCardSynths(fs, a, 1, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE1));
+    // The stack has no room for the pool now: A keeps playing, B waits.
+    gResizeOk = false;
+    const int32_t b[1] = {0xE2};
+    CHECK(!loadCardSynths(fs, b, 1, scratch, sizeof(scratch)));
+    CHECK(r.noRoom);
+    CHECK(cardEngineLoaded(0xE1) && !cardEngineLoaded(0xE2));
+    CHECK(h.synthDescriptor(0xE1) == &gSyA.d);
+    // A rescan without room keeps the list and A as they are.
+    CHECK_EQ(rescanCardSynths(fs, scratch, sizeof(scratch)), 2);
+    CHECK(cardEngine(0xE1) && cardEngine(0xE2));
+    CHECK(cardEngineLoaded(0xE1));
+    // Room again: B loads.
+    gResizeOk = true;
+    CHECK(loadCardSynths(fs, b, 1, scratch, sizeof(scratch)));
+    CHECK(cardEngineLoaded(0xE2) && !cardEngineLoaded(0xE1));
+    const int32_t none[1] = {0};
+    CHECK(loadCardSynths(fs, none, 1, scratch, sizeof(scratch)));
+}
+
+TEST(row_cuts_live_in_the_scratch_tail) {
+    MemStorage fs;
+    fs.files["Modules/a.otm"] = Built2().file();   // row cuts 8, 16
+    fs.files["Modules/b.otm"] = Built2().file();
+    static uint8_t mem[128], fastMem[24];
+    OtmPool pool = {mem, 0x20010000u, sizeof(mem), kCore, nullptr, &rowEnter, nullptr};
+    pool.fastMem = fastMem;
+    pool.fastBase = kFb;
+    pool.fastCap = sizeof(fastMem);
+    OtmLoadReport r;
+    // No room for the cuts after the file: the modules load, all from the pool.
+    ModuleHost& h = ModuleHost::instance();
+    auto fresh = [&] { h.removeLoaded(gRowA); h.removeLoaded(gRowB); gRowEntered = 0; };
+    uint8_t small[256];
+    fresh();
+    CHECK_EQ(loadModuleFiles(fs, pool, small, sizeof(small), &r), 2);
+    CHECK_EQ(r.fastUsed, 0u);
+    CHECK_EQ(r.items[0].fastBytes, 0u);
+    // With room the block is shared as before.
+    static uint8_t big[256 + kOtmCutScratchBytes + 8];
+    fresh();
+    CHECK_EQ(loadModuleFiles(fs, pool, big, sizeof(big), &r), 2);
+    CHECK_EQ(r.fastUsed, 24u);
+    // No fast block: nothing is taken from the scratch.
+    pool.fastMem = nullptr;
+    pool.fastCap = 0;
+    fresh();
+    CHECK_EQ(loadModuleFiles(fs, pool, small, sizeof(small), &r), 2);
+    CHECK_EQ(r.fastUsed, 0u);
+    fresh();
 }

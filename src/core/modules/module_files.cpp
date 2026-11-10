@@ -92,11 +92,28 @@ struct CardState {
     CardEngine eng[kMaxCardEngines];
     int nEng;
     uint32_t keepUsed, keepFast;         // what the modules loaded for good take
-    // Row cuts of the files being loaded (here, not on the stack).
+};
+OT_SDRAM_BSS CardState g_card;
+
+// Row cuts of the files being loaded: at the end of the scratch, not on the
+// stack or in the SDRAM block (they're only needed while loading).
+struct CutTable {
     OtmShareCut cuts[OtmLoadReport::kMax][kOtmMaxShareCuts];
     uint32_t nCuts[OtmLoadReport::kMax];
 };
-OT_SDRAM_BSS CardState g_card;
+static_assert(sizeof(CutTable) == kOtmCutScratchBytes, "kOtmCutScratchBytes");
+
+// The cut table at the scratch's end, *cap cut to what is left for the file.
+// nullptr (scratch untouched) = no fast block to share, or no room for it:
+// the modules then run from the pool alone.
+CutTable* cutTable(const OtmPool& pool, uint8_t* scratch, uint32_t* cap) {
+    if (!pool.fastMem || !pool.fastCap || *cap < sizeof(CutTable) + alignof(CutTable)) return nullptr;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(scratch);
+    const uintptr_t at = (base + *cap - sizeof(CutTable)) & ~(uintptr_t(alignof(CutTable)) - 1);
+    if (at - base < 256) return nullptr;   // a file needs more than that
+    *cap = uint32_t(at - base);
+    return reinterpret_cast<CutTable*>(at);
+}
 
 void copyName(char* out, size_t cap, const char* s) { std::snprintf(out, cap, "%s", s ? s : ""); }
 
@@ -212,6 +229,12 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         if (m) ModuleHost::instance().removeLoaded(*m);
     g_card = CardState{};
     if (!pool.mem || !pool.enter) return 0;
+    // Known from here on, so a later rescan (USB storage) can fill an empty
+    // or missing Modules/, and a card synth load retries a pool with no room.
+    if (report) {
+        g_card.pool = &pool;
+        g_card.r = report;
+    }
     // Name order, so the master inserts chain the same way on every boot.
     Names names;
     if (fs.listDir(kModulesDir, &collect, &names) < 0 || names.n == 0) return 0;
@@ -225,8 +248,7 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
     }
     // Pass 1: each file once at the pool's start (no fast part) to see what
     // it is, and its row cuts.
-    OtmShareCut (*cuts)[kOtmMaxShareCuts] = g_card.cuts;
-    uint32_t* nCuts = g_card.nCuts;
+    CutTable* t = cutTable(pool, scratch, &scratchCap);
     int keep[OtmLoadReport::kMax], nKeep = 0;
     for (int i = 0; i < names.n; ++i) {
         OtmLoadReport::Item& it = r.items[r.n++];
@@ -234,7 +256,8 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         std::strcpy(it.file, names.name[i]);
         uint32_t len = 0, used = 0, fastUsed = 0;
         OtmHeader hdr;
-        it.error = readChecked(fs, pool, names.name[i], scratch, scratchCap, &len, &hdr, cuts[nKeep], &nCuts[nKeep]);
+        it.error = readChecked(fs, pool, names.name[i], scratch, scratchCap, &len, &hdr, t ? t->cuts[nKeep] : nullptr,
+                               t ? &t->nCuts[nKeep] : nullptr);
         if (it.error != OtmError::None) continue;
         it.rowBytes = hdr.rowBytes;
         IModule* m = place(pool, it, scratch, len, hdr, 0, &used, &fastUsed);
@@ -251,7 +274,7 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
     }
     // Pass 2: the modules that stay, back to back, sharing the fast block.
     uint32_t share[OtmLoadReport::kMax] = {};
-    if (pool.fastMem) shareFastBlock(cuts, nCuts, nKeep, pool.fastCap, share);
+    if (t) shareFastBlock(t->cuts, t->nCuts, nKeep, pool.fastCap, share);
     int loaded = 0;
     for (int k = 0; k < nKeep; ++k) {
         OtmLoadReport::Item& it = r.items[keep[k]];
@@ -273,8 +296,6 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         ++loaded;
     }
     if (pool.resize) pool.resize(r.used);
-    g_card.pool = &pool;
-    g_card.r = &r;
     g_card.keepUsed = r.used;
     g_card.keepFast = r.fastUsed;
     ++r.serial;
@@ -315,28 +336,30 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
     const OtmPool& pool = *g_card.pool;
     OtmLoadReport& r = *g_card.r;
     ++r.serial;
+    int want[OtmLoadReport::kMax];
+    const int nWant = wantedFiles(engines, n, want);
+    // The pool grows first: no room (the stack), and the card synths loaded
+    // now stay as they are.
+    if (nWant > 0 && (!pool.cap || (pool.resize && !pool.resize(pool.cap)))) {
+        r.noRoom = true;
+        return false;
+    }
     // Every card synth leaves, then the wanted ones load again from the
     // first free byte (a new set gets the fast block shared out anew).
     dropCardSynths();
-    int want[OtmLoadReport::kMax];
-    const int nWant = wantedFiles(engines, n, want);
     bool ok = true;
     if (nWant > 0) {
-        if (pool.resize && !pool.resize(pool.cap)) {
-            r.noRoom = true;
-            return false;
-        }
-        OtmShareCut (*cuts)[kOtmMaxShareCuts] = g_card.cuts;
-        uint32_t* nCuts = g_card.nCuts;
+        CutTable* t = cutTable(pool, scratch, &scratchCap);
         for (int k = 0; k < nWant; ++k) {
-            nCuts[k] = 0;
+            if (t) t->nCuts[k] = 0;
             OtmLoadReport::Item& it = r.items[want[k]];
             uint32_t len = 0;
             OtmHeader hdr;
-            it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, cuts[k], &nCuts[k]);
+            it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, t ? t->cuts[k] : nullptr,
+                                   t ? &t->nCuts[k] : nullptr);
         }
         uint32_t share[OtmLoadReport::kMax] = {};
-        if (pool.fastMem) shareFastBlock(cuts, nCuts, nWant, pool.fastCap - g_card.keepFast, share);
+        if (t) shareFastBlock(t->cuts, t->nCuts, nWant, pool.fastCap - g_card.keepFast, share);
         for (int k = 0; k < nWant; ++k) {
             OtmLoadReport::Item& it = r.items[want[k]];
             it.refused = false;
@@ -371,6 +394,14 @@ int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap) {
     const OtmPool& pool = *g_card.pool;
     OtmLoadReport& r = *g_card.r;
     ++r.serial;
+    Names names;
+    if (fs.listDir(kModulesDir, &collect, &names) < 0) names = Names{};
+    // The pool grows first: no room (the stack), and the list and the card
+    // synths loaded stay as they are until a rescan with room.
+    if (names.n > 0 && (!pool.cap || (pool.resize && !pool.resize(pool.cap)))) {
+        r.noRoom = true;
+        return g_card.nEng;
+    }
     dropCardSynths();
     g_card.nEng = 0;
     // The modules loaded for good stay where they are, in the report too.
@@ -379,13 +410,7 @@ int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap) {
     for (int i = 0; i < r.n; ++i)
         if (r.items[i].loaded) kept[nKept++] = r.items[i];
     r.n = 0;
-    Names names;
-    if (fs.listDir(kModulesDir, &collect, &names) < 0) names = Names{};
     r.skipped = names.skipped;
-    if (names.n > 0 && (!pool.cap || (pool.resize && !pool.resize(pool.cap)))) {
-        r.noRoom = true;
-        names.n = 0;
-    }
     bool keptListed[OtmLoadReport::kMax] = {};
     for (int i = 0; i < names.n && r.n < OtmLoadReport::kMax; ++i) {
         int k = 0;

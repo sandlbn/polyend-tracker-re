@@ -66,7 +66,7 @@ struct CardEngine {
     char displayName[16];   // SynthDescriptor::displayName, else name
     uint8_t file;           // OtmLoadReport item of its module
 };
-constexpr int kMaxCardEngines = 32;
+constexpr int kMaxCardEngines = OtmLoadReport::kMax;   // one per card module (more are skipped)
 
 constexpr const char* kModulesDir = "Modules";
 
@@ -74,6 +74,10 @@ constexpr const char* kModulesDir = "Modules";
 // A cut is a byte offset into the module's image (<= the pool, so 16 bits).
 constexpr uint32_t kOtmMaxShareCuts = 32;
 using OtmShareCut = uint16_t;
+// The row cuts of the files being loaded sit at the end of the loader's
+// scratch (only with a fast block to share): the file gets the rest.
+constexpr uint32_t kOtmCutScratchBytes =
+    OtmLoadReport::kMax * (kOtmMaxShareCuts * sizeof(OtmShareCut) + sizeof(uint32_t));
 
 // Shares a fast block of cap bytes between n modules' rows (cuts[i][0 ..
 // nCuts[i]) = module i's cuts, module_loader.h): they take turns, in order,
