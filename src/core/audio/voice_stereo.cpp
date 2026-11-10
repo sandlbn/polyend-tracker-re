@@ -70,46 +70,18 @@ void fusedOutSt(const float* __restrict p, const float* __restrict pr, const flo
 // a scratch bus with a zero ramp).
 template <int kType, bool kAmp>
 void fusedOutStF(const float* __restrict p, const float* __restrict pr, const float* __restrict eg, OutRamps g,
-                 Svf& sl, Svf& sr, float fmTarget, float dpTarget, float* __restrict ds, float* __restrict rs,
+                 SampleFilter& sl, SampleFilter& sr, const FiltCoef& ft, float* __restrict ds, float* __restrict rs,
                  VoiceOut& o, float* __restrict mL, float* __restrict mR, float& lastL, float& lastR) {
     float* __restrict oa = o.amp;
     float* __restrict ol = o.l;
     float* __restrict orr = o.r;
-    const float dfm = (fmTarget - sl.fm) / float(kBlock);
-    const float ddp = (dpTarget - sl.dp) / float(kBlock);
-    float f = sl.fm, d = sl.dp;
-    float l = sl.lp, b = sl.bp, ip = sl.inPrev;
-    float l2 = sr.lp, b2 = sr.bp, ip2 = sr.inPrev;
+    FiltRamp fr(sl.c, ft, kBlock);
+    float z1 = sl.s1, z2 = sl.s2, w1 = sr.s1, w2 = sr.s2;
     float xl = 0.0f, xr = 0.0f;
     for (uint32_t i = 0; i < kBlock; ++i) {
-        f += dfm;
-        d += ddp;
-        {
-            const float in = p[i] * eg[i];
-            l += f * b;
-            float h = (in + ip) * 0.5f - l - d * b;
-            ip = in;
-            b += f * h;
-            const float l1 = l, b1 = b, h1 = h;
-            l += f * b;
-            h = in - l - d * b;
-            b += f * h;
-            const float y = kType == 0 ? (l + l1) : (kType == 1 ? (h + h1) : (b + b1));
-            xl = clampUnitFast(y * 0.5f);
-        }
-        {
-            const float in = pr[i] * eg[i];
-            l2 += f * b2;
-            float h = (in + ip2) * 0.5f - l2 - d * b2;
-            ip2 = in;
-            b2 += f * h;
-            const float l1 = l2, b1 = b2, h1 = h;
-            l2 += f * b2;
-            h = in - l2 - d * b2;
-            b2 += f * h;
-            const float y = kType == 0 ? (l2 + l1) : (kType == 1 ? (h + h1) : (b2 + b1));
-            xr = clampUnitFast(y * 0.5f);
-        }
+        fr.step();
+        xl = sampleFilterStep<kType>(p[i] * eg[i], z1, z2, fr.a1, fr.a2, fr.a3, fr.k);
+        xr = sampleFilterStep<kType>(pr[i] * eg[i], w1, w2, fr.a1, fr.a2, fr.a3, fr.k);
         const float m = xl + xr;   // send gains are pre-halved: (L + R) / 2
         g.s0 += g.di;
         ds[i] += m * g.s0;
@@ -128,14 +100,11 @@ void fusedOutStF(const float* __restrict p, const float* __restrict pr, const fl
     }
     lastL = xl;
     lastR = xr;
-    sl.lp = l > 16.0f ? 16.0f : (l < -16.0f ? -16.0f : l);
-    sl.bp = b > 16.0f ? 16.0f : (b < -16.0f ? -16.0f : b);
-    sl.inPrev = ip;
-    sr.lp = l2 > 16.0f ? 16.0f : (l2 < -16.0f ? -16.0f : l2);
-    sr.bp = b2 > 16.0f ? 16.0f : (b2 < -16.0f ? -16.0f : b2);
-    sr.inPrev = ip2;
-    sl.fm = sr.fm = fmTarget;
-    sl.dp = sr.dp = dpTarget;
+    sl.s1 = sampleFilterBound(z1);
+    sl.s2 = sampleFilterBound(z2);
+    sr.s1 = sampleFilterBound(w1);
+    sr.s2 = sampleFilterBound(w2);
+    sl.c = sr.c = ft;
 }
 
 // Peak |post-balance output| of a stereo block (meters; every 4th frame of
@@ -155,66 +124,36 @@ inline float stereoPeak(const VoiceOut& o) {
     return f;
 }
 
-// Svf::process on both channels in one loop (shared coefficient ramps; per
-// channel the same operations in the same order as Svf::run, so each channel
-// is bit-identical to a mono filter). Requires equal fm / dp on both.
+// SampleFilter::process on both channels in one loop (shared coefficient
+// ramp; per channel the same operations in the same order as
+// SampleFilter::run, so each channel is bit-identical to a mono filter).
+// Requires equal coefficients on both.
 template <int kType>
-void svfRunSt(Svf& sl, Svf& sr, float* __restrict xl, float* __restrict xr, float fmTarget, float dpTarget) {
-    const float dfm = (fmTarget - sl.fm) / float(kBlock);
-    const float ddp = (dpTarget - sl.dp) / float(kBlock);
-    float f = sl.fm, d = sl.dp;
-    float l = sl.lp, b = sl.bp, ip = sl.inPrev;
-    float l2 = sr.lp, b2 = sr.bp, ip2 = sr.inPrev;
+void svfRunSt(SampleFilter& sl, SampleFilter& sr, float* __restrict xl, float* __restrict xr, const FiltCoef& ft) {
+    FiltRamp fr(sl.c, ft, kBlock);
+    float z1 = sl.s1, z2 = sl.s2, w1 = sr.s1, w2 = sr.s2;
     for (uint32_t i = 0; i < kBlock; ++i) {
-        f += dfm;
-        d += ddp;
-        {
-            const float in = xl[i];
-            l += f * b;
-            float h = (in + ip) * 0.5f - l - d * b;
-            ip = in;
-            b += f * h;
-            const float l1 = l, b1 = b, h1 = h;
-            l += f * b;
-            h = in - l - d * b;
-            b += f * h;
-            const float y = kType == 0 ? (l + l1) : (kType == 1 ? (h + h1) : (b + b1));
-            xl[i] = clampUnitFast(y * 0.5f);
-        }
-        {
-            const float in = xr[i];
-            l2 += f * b2;
-            float h = (in + ip2) * 0.5f - l2 - d * b2;
-            ip2 = in;
-            b2 += f * h;
-            const float l1 = l2, b1 = b2, h1 = h;
-            l2 += f * b2;
-            h = in - l2 - d * b2;
-            b2 += f * h;
-            const float y = kType == 0 ? (l2 + l1) : (kType == 1 ? (h + h1) : (b2 + b1));
-            xr[i] = clampUnitFast(y * 0.5f);
-        }
+        fr.step();
+        xl[i] = sampleFilterStep<kType>(xl[i], z1, z2, fr.a1, fr.a2, fr.a3, fr.k);
+        xr[i] = sampleFilterStep<kType>(xr[i], w1, w2, fr.a1, fr.a2, fr.a3, fr.k);
     }
-    sl.lp = l > 16.0f ? 16.0f : (l < -16.0f ? -16.0f : l);
-    sl.bp = b > 16.0f ? 16.0f : (b < -16.0f ? -16.0f : b);
-    sl.inPrev = ip;
-    sr.lp = l2 > 16.0f ? 16.0f : (l2 < -16.0f ? -16.0f : l2);
-    sr.bp = b2 > 16.0f ? 16.0f : (b2 < -16.0f ? -16.0f : b2);
-    sr.inPrev = ip2;
-    sl.fm = sr.fm = fmTarget;
-    sl.dp = sr.dp = dpTarget;
+    sl.s1 = sampleFilterBound(z1);
+    sl.s2 = sampleFilterBound(z2);
+    sr.s1 = sampleFilterBound(w1);
+    sr.s2 = sampleFilterBound(w2);
+    sl.c = sr.c = ft;
 }
 
-void svfStereo(Svf& sl, Svf& sr, float* xl, float* xr, int type, float fmTarget, float dpTarget) {
-    if (sl.fm != sr.fm || sl.dp != sr.dp) {   // not in step (never expected): one filter each
-        sl.process(xl, kBlock, type, fmTarget, dpTarget);
-        sr.process(xr, kBlock, type, fmTarget, dpTarget);
+void svfStereo(SampleFilter& sl, SampleFilter& sr, float* xl, float* xr, int type, const FiltCoef& ft) {
+    if (!sl.sameCoef(sr)) {   // not in step (never expected): one filter each
+        sl.process(xl, kBlock, type, ft);
+        sr.process(xr, kBlock, type, ft);
     } else if (type == 0) {
-        svfRunSt<0>(sl, sr, xl, xr, fmTarget, dpTarget);
+        svfRunSt<0>(sl, sr, xl, xr, ft);
     } else if (type == 1) {
-        svfRunSt<1>(sl, sr, xl, xr, fmTarget, dpTarget);
+        svfRunSt<1>(sl, sr, xl, xr, ft);
     } else {
-        svfRunSt<2>(sl, sr, xl, xr, fmTarget, dpTarget);
+        svfRunSt<2>(sl, sr, xl, xr, ft);
     }
 }
 
@@ -531,7 +470,7 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
         return true;
     }
     if (hs == 1.0f && mask_ == 0xFFFF && !(odGain_ > 0.0f) && filtOn_ && !filtXfade_ && mixL && mixR &&
-        svf_.fm == svfR_.fm && svf_.dp == svfR_.dp) {
+        svf_.sameCoef(svfR_)) {
         // Filter only: envelope, both filters, sends, volume, balance and
         // the dry-bus sum in one pass.
         OutRamps g;
@@ -551,12 +490,12 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
         float* ds = sd ? dsend : scratch;
         float* rs = sr ? rsend : scratch;
         const int t = filtType_ == 0 ? 0 : (filtType_ == 1 ? 1 : 2);
-        typedef void (*Fn)(const float*, const float*, const float*, OutRamps, Svf&, Svf&, float, float, float*,
+        typedef void (*Fn)(const float*, const float*, const float*, OutRamps, SampleFilter&, SampleFilter&, const FiltCoef&, float*,
                            float*, VoiceOut&, float*, float*, float&, float&);
         static const Fn kFn[3][2] = {{&fusedOutStF<0, false>, &fusedOutStF<0, true>},
                                      {&fusedOutStF<1, false>, &fusedOutStF<1, true>},
                                      {&fusedOutStF<2, false>, &fusedOutStF<2, true>}};
-        kFn[t][c.ampTap ? 1 : 0](xl, xr, eg, g, svf_, svfR_, fmTarget_, dpTarget_, ds, rs, o, mixL, mixR, filtLast_,
+        kFn[t][c.ampTap ? 1 : 0](xl, xr, eg, g, svf_, svfR_, fcTarget_, ds, rs, o, mixL, mixR, filtLast_,
                                  filtLastR_);
         peak_ = stereoPeak(o);
         return true;
@@ -589,7 +528,7 @@ OT_FASTRUN_FN bool Voice::renderSt(const VoiceControl& c, VoiceOut& o, float* ds
         overdriveBlock(xr, odGain_);
     }
     if (filtOn_) {
-        svfStereo(svf_, svfR_, xl, xr, filtType_, fmTarget_, dpTarget_);
+        svfStereo(svf_, svfR_, xl, xr, filtType_, fcTarget_);
     }
     if (filtXfade_) {
         const float lastL = filtLast_, lastR = filtLastR_;

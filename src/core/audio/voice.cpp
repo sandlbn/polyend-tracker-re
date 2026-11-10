@@ -61,7 +61,7 @@ void fusedOut(const float* __restrict p, const float* __restrict eg, OutRamps g,
 // crusher, overdrive, the SVF (kFilt = type + 1, 0 = off), sends, AMP clamp,
 // pan and the dry-bus sum in one pass. Every stage does the same operations
 // in the same order as the separate passes of the general path (and the SVF
-// as Svf::run), so the result is bit-identical; only o.l / o.r are not
+// as SampleFilter::run), so the result is bit-identical; only o.l / o.r are not
 // written (keepLR = false, like fusedOut). kExtra: headroom, crusher or
 // overdrive on (else those checks are compiled out). kSends: both sends are
 // fed; an inactive one goes to a scratch bus (the real bus is untouched).
@@ -69,25 +69,17 @@ struct ChainCfg {
     float hs;          // headroom gain (1 = none)
     int32_t mask;      // crusher AND mask (sign-extended)
     float od;          // overdrive pre-gain (0 = off)
-    float fmT, dpT;    // SVF coefficient targets
+    FiltCoef fT;       // filter coefficient target
 };
 template <int kFilt, bool kSends, bool kExtra>
-void fusedChain(const float* __restrict p, const float* __restrict eg, OutRamps g, const ChainCfg& cf, Svf& svf,
+void fusedChain(const float* __restrict p, const float* __restrict eg, OutRamps g, const ChainCfg& cf, SampleFilter& svf,
                 float* __restrict ds, float* __restrict rs, float* __restrict oa, float* __restrict mL,
                 float* __restrict mR, float& last) {
     const bool hsOn = kExtra && cf.hs != 1.0f, crush = kExtra && cf.mask != -1, odOn = kExtra && cf.od > 0.0f;
     const float hs = cf.hs, odg = cf.od;
     const int32_t m = cf.mask, half = (((~m) & 0xFFFF) + 1) >> 1;   // mid-tread rounding
-    float dfm = 0.0f, ddp = 0.0f, f = 0.0f, d = 0.0f, l = 0.0f, b = 0.0f, ip = 0.0f;
-    if (kFilt) {
-        dfm = (cf.fmT - svf.fm) / float(kBlock);
-        ddp = (cf.dpT - svf.dp) / float(kBlock);
-        f = svf.fm;
-        d = svf.dp;
-        l = svf.lp;
-        b = svf.bp;
-        ip = svf.inPrev;
-    }
+    FiltRamp fr(svf.c, cf.fT, kBlock);
+    float z1 = svf.s1, z2 = svf.s2;
     float x = 0.0f;
     for (uint32_t i = 0; i < kBlock; ++i) {
         x = hsOn ? p[i] * (eg[i] * hs) : p[i] * eg[i];
@@ -104,19 +96,8 @@ void fusedChain(const float* __restrict p, const float* __restrict eg, OutRamps 
             x = y < 0.0f ? -v : v;
         }
         if (kFilt) {
-            f += dfm;
-            d += ddp;
-            const float in = x;
-            l += f * b;
-            float h = (in + ip) * 0.5f - l - d * b;
-            ip = in;
-            b += f * h;
-            const float l1 = l, b1 = b, h1 = h;
-            l += f * b;
-            h = in - l - d * b;
-            b += f * h;
-            const float y = kFilt == 1 ? (l + l1) : (kFilt == 2 ? (h + h1) : (b + b1));
-            x = clampUnitFast(y * 0.5f);
+            fr.step();
+            x = sampleFilterStep<(kFilt > 0 ? kFilt - 1 : 0)>(x, z1, z2, fr.a1, fr.a2, fr.a3, fr.k);
         }
         if (kSends) {
             g.s0 += g.di;
@@ -134,14 +115,12 @@ void fusedChain(const float* __restrict p, const float* __restrict eg, OutRamps 
     }
     last = x;
     if (kFilt) {
-        svf.lp = l > 16.0f ? 16.0f : (l < -16.0f ? -16.0f : l);
-        svf.bp = b > 16.0f ? 16.0f : (b < -16.0f ? -16.0f : b);
-        svf.inPrev = ip;
-        svf.fm = cf.fmT;
-        svf.dp = cf.dpT;
+        svf.s1 = sampleFilterBound(z1);
+        svf.s2 = sampleFilterBound(z2);
+        svf.c = cf.fT;
     }
 }
-typedef void (*FusedChainFn)(const float*, const float*, OutRamps, const ChainCfg&, Svf&, float*, float*, float*,
+typedef void (*FusedChainFn)(const float*, const float*, OutRamps, const ChainCfg&, SampleFilter&, float*, float*, float*,
                              float*, float*, float&);
 // [kFilt][kSends * 2 + kExtra]; [0][0] (no filter, no extras) is fusedOut's case.
 const FusedChainFn kChain[4][4] = {
@@ -702,8 +681,7 @@ void Voice::control(const VoiceControl& c) {
     filtType_ = fType;
     filtCut_ = baseCut;
     const float cut = baseCut + mods_[kAutoCutoff].out;
-    fmTarget_ = svfFmult(cutoffHz(cut));
-    dpTarget_ = svfDamp(ins_->resonance);
+    fcTarget_ = sampleFilterCoef(cutoffHz(cut), ins_->resonance);
     // Overdrive, bit depth (§4.5, §4.6).
     odGain_ = overdrivePreGain(clampi((ov_.od >= 0 ? ov_.od : ins_->overdrive) + perf_.od, 0, 100));
     mask_ = bitMask(clampi((ov_.bits >= 0 ? ov_.bits : ins_->bitDepth) + perf_.bits, 4, 16));
@@ -753,12 +731,10 @@ void Voice::control(const VoiceControl& c) {
         panR_.jump(pr);
         sendD_.jump(gd);
         sendR_.jump(gr);
-        svf_.fm = fmTarget_;
-        svf_.dp = dpTarget_;
+        svf_.c = fcTarget_;
         // Stereo note: the right filter starts at the same coefficients (it
         // would otherwise ramp from the previous note's, 2x-04 §3).
-        svfR_.fm = fmTarget_;
-        svfR_.dp = dpTarget_;
+        svfR_.c = fcTarget_;
         firstBlock_ = false;
     } else {
         amp_.set(g);
@@ -1084,8 +1060,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         cf.hs = hs;
         cf.mask = int32_t(int16_t(mask_));
         cf.od = odGain_;
-        cf.fmT = fmTarget_;
-        cf.dpT = dpTarget_;
+        cf.fT = fcTarget_;
         const int ft = filtOn_ ? (filtType_ == 0 ? 1 : (filtType_ == 1 ? 2 : 3)) : 0;
         const bool extra = hs != 1.0f || mask_ != 0xFFFF || odGain_ > 0.0f;
         // One send off: it feeds a scratch bus with its (all-zero) ramp.
@@ -1131,7 +1106,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         }
     }
     // Filter (§4.4) with the enable/type change cross-fade.
-    if (filtOn_) svf_.process(x, kBlock, filtType_, fmTarget_, dpTarget_);
+    if (filtOn_) svf_.process(x, kBlock, filtType_, fcTarget_);
     if (filtXfade_) {
         const float last = filtLast_;
         for (uint32_t i = 0; i < kBlock; ++i)

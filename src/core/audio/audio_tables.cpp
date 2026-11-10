@@ -155,14 +155,20 @@ float cutoffHz(float c) {
     return clampf(gCutoff[k], 20.0f, 17647.06f);
 }
 
-float svfFmult(float hz) {
-    hz = clampf(hz, 20.0f, kSampleRate / 2.5f);
-    return 2.0f * std::sin(hz * kPi / (2.0f * kSampleRate));
-}
-
 float svfDamp(float resonance) {
     const float q = clampf(resonance + 0.7f, 0.7f, 5.0f);
     return 1.0f / q;
+}
+
+FiltCoef sampleFilterCoef(float hz, float resonance) {
+    hz = clampf(hz, 20.0f, 0.45f * kSampleRate);
+    const float g = std::tan(hz * kPi / kSampleRate);
+    FiltCoef c;
+    c.k = svfDamp(resonance);
+    c.a1 = 1.0f / (1.0f + g * (g + c.k));
+    c.a2 = g * c.a1;
+    c.a3 = g * c.a2;
+    return c;
 }
 
 float overdrivePreGain(int od) {

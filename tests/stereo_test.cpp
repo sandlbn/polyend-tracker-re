@@ -492,7 +492,9 @@ TEST(mono_path_byte_exact) {
         }
     }
     std::printf("  mono voice hash: %016llx\n", (unsigned long long)h);
-    CHECK_EQ(h, 0xd2404478ffae4c1bull);   // golden (host x86-64), re-recorded at 1.9.9 (bit depth rounds to nearest)
+    // golden (host x86-64), re-recorded for the 2.x sample filter (zero-delay-feedback SVF; was
+    // 0xd2404478ffae4c1b at 1.9.9).
+    CHECK_EQ(h, 0x44bf81b6c3f1648full);
 }
 
 // --- engine: stereo bank instrument plays stereo, stems keep the image ------------

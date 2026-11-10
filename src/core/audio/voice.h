@@ -269,13 +269,13 @@ private:
     Mod mods_[kAutomationCount];
 
     // processing state
-    Svf svf_;
+    SampleFilter svf_;
     uint8_t filtType_ = 0;
     bool filtOn_ = false;
     float filtCut_ = 1.0f;
     bool filtXfade_ = false;
     float filtLast_ = 0.0f;
-    float fmTarget_ = 0.0f, dpTarget_ = 1.0f / 0.7f;
+    FiltCoef fcTarget_;   // filter coefficient target (sampleFilterCoef)
     float odGain_ = 0.0f;
     uint16_t mask_ = 0xFFFF;
     Ramp amp_, panL_, panR_, sendD_, sendR_;
@@ -293,7 +293,7 @@ private:
     bool stBlock_ = false;     // stereo_ || a stereo note is pending: next block runs the stereo chain
     const int16_t* dataR_ = nullptr;   // right block (stereo instrument), else nullptr
     float filtLastR_ = 0.0f;
-    Svf svfR_;                 // right channel filter (stereo notes)
+    SampleFilter svfR_;                 // right channel filter (stereo notes)
     uint8_t sendsTouched_ = 0; // see sendsTouched()
 };
 
