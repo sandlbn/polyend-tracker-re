@@ -31,9 +31,6 @@ import tempfile
 import tomllib
 import zlib
 
-from elftools.elf.elffile import ELFFile
-from elftools.elf.relocation import RelocationSection
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 EXPORTS = os.path.join(ROOT, "src/core/modules/module_exports.txt")
@@ -56,6 +53,17 @@ R_ARM_NONE, R_ARM_ABS32, R_ARM_THM_CALL, R_ARM_THM_JUMP24 = 0, 2, 10, 30
 def fail(msg):
     print(f"make_otm: {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+def elftools():
+    """pyelftools, needed by build only (abi-header and exports-cpp run in every firmware build)."""
+    try:
+        from elftools.elf.elffile import ELFFile
+        from elftools.elf.relocation import RelocationSection
+    except ImportError:
+        fail("building a module needs pyelftools: python3 -m pip install pyelftools "
+             "(system-wide: make runs this tool with python3 -I, which skips the user site)")
+    return ELFFile, RelocationSection
 
 
 def run(cmd):
@@ -125,6 +133,7 @@ def compile_module(mdir, obj_dir, cxx, cxxflags):
 
 
 def undefined_symbols(ld, objs, entry, tmp):
+    ELFFile, _ = elftools()
     r = os.path.join(tmp, "partial.o")
     run([ld, "-r", "--gc-sections", "-e", entry, *objs, "-o", r])
     with open(r, "rb") as f:
@@ -144,6 +153,7 @@ def write_stubs(path, funcs):
 
 
 def build(args):
+    ELFFile, RelocationSection = elftools()
     exports = read_exports(args.exports)
     index = {s: k + 1 for k, s in enumerate(exports)}
     ld = tool(args.cxx, "ld")
@@ -197,11 +207,15 @@ def build(args):
             link(ld, allobjs, entry, funcs, data_imports, base, lambda s: fake_export(index[s]), elfr)
             with open(elfr, "rb") as f:
                 e = ELFFile(f)
-                img = e.get_section_by_name(".otm").data()
+                o = e.get_section_by_name(".otm")
+                img = o.data()
                 b = e.get_section_by_name(".otm_bss")
                 nb = b["sh_size"] if b else 0
+                # Memory as the linker laid it out, from base to the bss end
+                # (a gap before the bss shows up as a size mismatch).
+                gap = b["sh_addr"] - (o["sh_addr"] + len(img)) if b else 0
             with open(args.ref_out, "wb") as f:
-                f.write(img + bytes(nb))
+                f.write(img + bytes(gap + nb))
 
 
 def link(ld, objs, entry, funcs, data_imports, base, value, out):
@@ -214,7 +228,7 @@ def link(ld, objs, entry, funcs, data_imports, base, value, out):
             f.write(f"{s} = {value(s):#x};\n")
         f.write(f"""SECTIONS {{
   . = {base:#x};
-  .otm : {{ *(.text.otm_stubs) *(.text .text.* .fastrun .fastrun.*) *(.rodata .rodata.*) *(.data .data.*) }}
+  .otm : {{ *(.text.otm_stubs) *(.text .text.* .fastrun .fastrun.*) *(.rodata .rodata.*) *(.data .data.*) . = ALIGN(8); }}
   .otm_bss (NOLOAD) : ALIGN(8) {{ *(.bss .bss.* COMMON) }}
   /DISCARD/ : {{ *(.ARM.exidx* .ARM.extab* .comment .note*) }}
 }}
@@ -224,12 +238,17 @@ def link(ld, objs, entry, funcs, data_imports, base, value, out):
 
 def read_linked(path, entry, index):
     """(image, bss bytes, align, entry offset, fixups, exports needed) of a link at 0."""
+    ELFFile, _ = elftools()
     with open(path, "rb") as f:
         elf = ELFFile(f)
         otm = elf.get_section_by_name(".otm")
         image = otm.data()
         b = elf.get_section_by_name(".otm_bss")
         bss = b["sh_size"] if b else 0
+        # The loader zeroes the bss right after the image (otmLoad), and the
+        # next module goes after image + bss: no gap between the two.
+        if b and b["sh_addr"] != len(image):
+            fail(f".otm_bss at {b['sh_addr']:#x}, not right after the {len(image)} B image")
         align = 8
         for sec in elf.iter_sections():
             if sec["sh_flags"] & 2 and sec["sh_addralign"] > align:   # SHF_ALLOC

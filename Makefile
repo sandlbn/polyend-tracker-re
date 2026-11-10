@@ -16,6 +16,7 @@
 # make budget     -> the profile's declared module budgets (flash, SRAM) and their limits
 # make otm OTM_MODULE=<path> -> [I] build/<profile>/otm/<name>.otm, a module loadable from the card
 #                    (<path> as in a profile, relative to MODULES_DIR; tools/make_otm.py)
+# make otm-test   -> [I] tools/make_otm.py's images against the linker's (ARM toolchain, pyelftools)
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
 #                    the firmware's packed font_data_z.inc / font_adv.inc,
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
@@ -268,6 +269,12 @@ otm:
 	    --out $(BUILD)/otm/$(OTM_NAME).otm --cxx $(CXX) --cxxflags '$(CXXFLAGS)' \
 	    $(if $(OTM_REF),--reference $(OTM_REF) --ref-out $(BUILD)/otm/$(OTM_NAME).ref.bin)
 .PHONY: otm
+
+# [I] tools/make_otm.py against the linker (tools/make_otm_test.py): needs
+# the ARM toolchain and pyelftools.
+otm-test:
+	python3 -I tools/make_otm_test.py --cxx $(CXX) --cxxflags '$(CXXFLAGS)'
+.PHONY: otm-test
 
 # Synth preset pack (tools/make_patches/PRESETS.md): build/patches/Patches/<MODEL>/.
 patches:
