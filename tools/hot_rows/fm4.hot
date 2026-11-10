@@ -1,11 +1,11 @@
 # fm4: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
 # <function> <weight: mean share over the modes>, weight per byte first.
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi0EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.88970  # 632 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi2EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 628 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi1EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 632 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi3EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01156  # 636 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi7EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01154  # 636 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi4EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 640 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi5EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 644 B
-_ZN2ot5audio3fm412_GLOBAL__N_1L6kernelILi6EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 648 B
-# 5096 B, 84 modes, 97.1% of the weight
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi0EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.89021  # 632 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi2EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01156  # 632 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi1EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01156  # 636 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi7EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 636 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi3EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01156  # 640 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi4EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01156  # 640 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi5EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01155  # 644 B
+_ZN2ot5audio3fm412_GLOBAL__N_16kernelILi6EEEvPfS4_RNS2_10VoiceStateENS2_4RampEff 0.01156  # 652 B
+# 5112 B, 84 modes, 97.1% of the weight

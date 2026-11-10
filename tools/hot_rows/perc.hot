@@ -1,23 +1,23 @@
 # perc: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
 # <function> <weight: mean share over the modes>, weight per byte first.
-_ZN2ot5audio4perc12_GLOBAL__N_1L7mixHalfEPKfRfRKNS2_3OutERKNS2_3EnvE.isra.0 0.26658  # 152 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9waveBlockILi16EEEvPfRNS2_3OscEfm 0.15333  # 90 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L8envApplyEPfRKNS2_3EnvE 0.01410  # 90 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L6eqLoopILb0ELi7EEEvPfS4_S4_fffffff 0.01509  # 106 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L7mixDrumEPKfRKNS2_3OutERKNS2_3EnvE 0.02776  # 204 B
-_ZN2ot5audio4perc12_GLOBAL__N_110PercEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.37311  # 2832 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L8fastExp2Ef 0.02396  # 188 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9upsample2EPfRf 0.01033  # 82 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9waveBlockILi0EEEvPfRNS2_3OscEfm 0.01403  # 156 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L6wsLoopILi0ELb0EEEvPfS4_fRfRm 0.00475  # 62 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L10kickRenderERNS2_4KickERKNS0_11SynthParamsEffRmPfRKNS2_3OutE 0.04885  # 1006 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9waveBlockILi15EEEvPfRNS2_3OscEfm 0.00349  # 124 B
-_ZN2ot5audio4perc12_GLOBAL__N_110PercEngine9slotResetERNS0_16SynthSlotScratchE 0.00130  # 48 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9hatRenderERNS2_5MetalERKNS0_11SynthParamsERmRKNS2_3OutE 0.00413  # 896 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9cymRenderERNS2_5MetalERKNS0_11SynthParamsERmRKNS2_3OutE 0.00345  # 936 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L10sine2BlockEPfRNS2_3OscEfS5_fm 0.00040  # 116 B
-_ZN2ot5audio4perc12_GLOBAL__N_110PercEngine6noteOnERNS0_10SynthVoiceERKNS0_11SynthParamsERKNS0_9SynthNoteE 0.00165  # 976 B
-_ZZN2ot5audio4perc12_GLOBAL__N_1L11snareRenderERNS2_5SnareERKNS0_11SynthParamsEffRmPfRKNS2_3OutEENKUlRT_mmffE_clINS2_7SinkMixEEEDaSE_mmff 0.00118  # 784 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L10percRenderERNS2_4PercERKNS0_11SynthParamsERmPfRKNS2_3OutE 0.00218  # 1832 B
-_ZN2ot5audio4perc12_GLOBAL__N_1L9tomRenderERNS2_3TomERKNS0_11SynthParamsEffRmPfRKNS2_3OutE 0.00106  # 936 B
-# 11616 B, 47 modes, 97.1% of the weight
+_ZN2ot5audio4perc12_GLOBAL__N_19waveBlockILi16EEEvPfRNS2_3OscEfm 0.14413  # 82 B
+_ZN2ot5audio4perc12_GLOBAL__N_17mixHalfEPKfRfRKNS2_3OutERKNS2_3EnvE.isra.0 0.26977  # 154 B
+_ZN2ot5audio4perc12_GLOBAL__N_18envApplyEPfRKNS2_3EnvE 0.01428  # 92 B
+_ZN2ot5audio4perc12_GLOBAL__N_16eqLoopILb0ELi7EEEvPfS4_S4_fffffff 0.01524  # 106 B
+_ZN2ot5audio4perc12_GLOBAL__N_17mixDrumEPKfRKNS2_3OutERKNS2_3EnvE 0.02801  # 200 B
+_ZN2ot5audio4perc12_GLOBAL__N_110PercEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.37611  # 2698 B
+_ZN2ot5audio4perc12_GLOBAL__N_18fastExp2Ef 0.02424  # 188 B
+_ZN2ot5audio4perc12_GLOBAL__N_19upsample2EPfRf 0.01044  # 84 B
+_ZN2ot5audio4perc12_GLOBAL__N_19waveBlockILi0EEEvPfRNS2_3OscEfm 0.01403  # 156 B
+_ZN2ot5audio4perc12_GLOBAL__N_16wsLoopILi0ELb0EEEvPfS4_fRfRm 0.00481  # 62 B
+_ZN2ot5audio4perc12_GLOBAL__N_110kickRenderERNS2_4KickERKNS0_11SynthParamsEffRmPfRKNS2_3OutE 0.05017  # 1010 B
+_ZN2ot5audio4perc12_GLOBAL__N_110PercEngine9slotResetERNS0_16SynthSlotScratchE 0.00131  # 40 B
+_ZN2ot5audio4perc12_GLOBAL__N_19waveBlockILi15EEEvPfRNS2_3OscEfm 0.00334  # 116 B
+_ZN2ot5audio4perc12_GLOBAL__N_19hatRenderERNS2_5MetalERKNS0_11SynthParamsERmRKNS2_3OutE 0.00413  # 896 B
+_ZN2ot5audio4perc12_GLOBAL__N_19cymRenderERNS2_5MetalERKNS0_11SynthParamsERmRKNS2_3OutE 0.00345  # 924 B
+_ZN2ot5audio4perc12_GLOBAL__N_110sine2BlockEPfRNS2_3OscEfS5_fm 0.00040  # 112 B
+_ZN2ot5audio4perc12_GLOBAL__N_110PercEngine6noteOnERNS0_10SynthVoiceERKNS0_11SynthParamsERKNS0_9SynthNoteE 0.00165  # 1024 B
+_ZZN2ot5audio4perc12_GLOBAL__N_111snareRenderERNS2_5SnareERKNS0_11SynthParamsEffRmPfRKNS2_3OutEENKUlRT_mmffE_clINS2_7SinkMixEEEDaSE_mmff 0.00118  # 804 B
+_ZN2ot5audio4perc12_GLOBAL__N_110percRenderERNS2_4PercERKNS0_11SynthParamsERmPfRKNS2_3OutE 0.00218  # 1844 B
+_ZN2ot5audio4perc12_GLOBAL__N_19tomRenderERNS2_3TomERKNS0_11SynthParamsEffRmPfRKNS2_3OutE 0.00107  # 932 B
+# 11524 B, 47 modes, 97.0% of the weight

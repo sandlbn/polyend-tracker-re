@@ -1,17 +1,17 @@
 # arc: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
 # <function> <weight: mean share over the modes>, weight per byte first.
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi0EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.87055  # 1032 B
-_ZN2ot5audio2va8fastExp2Ef 0.01882  # 168 B
-_ZN2ot5audio2va6enumOfEfi 0.00072  # 32 B
-_ZN2ot5audio3arc12_GLOBAL__N_19ArcEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.00255  # 156 B
-_ZN2ot5audio3arc12_GLOBAL__N_19ArcEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.04081  # 2904 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi1EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1028 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi7EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00676  # 1032 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi2EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1036 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi6EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00676  # 1036 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi3EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1040 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi4EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1040 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L9runKernelILi5EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1040 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L7auxPassEPfS3_mRNS2_10VoiceStateEiNS0_2va3LinES7_.constprop.0 0.00114  # 412 B
-_ZN2ot5audio3arc12_GLOBAL__N_1L7refreshERNS2_9SlotStateERKNS0_11SynthParamsE 0.00062  # 756 B
-# 12712 B, 136 modes, 98.3% of the weight
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi0EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.87181  # 1004 B
+_ZN2ot5audio2va8fastExp2Ef 0.01930  # 176 B
+_ZN2ot5audio2va6enumOfEfi 0.00069  # 32 B
+_ZN2ot5audio3arc12_GLOBAL__N_19ArcEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.00245  # 156 B
+_ZN2ot5audio3arc12_GLOBAL__N_19ArcEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.03951  # 2924 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi1EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00678  # 1000 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi7EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1004 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi2EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00678  # 1008 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi4EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00678  # 1008 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi6EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00677  # 1008 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi3EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00678  # 1012 B
+_ZN2ot5audio3arc12_GLOBAL__N_19runKernelILi5EEEvRNS0_2fm3OpsERNS4_6OpRampEmRNS2_3OutE 0.00678  # 1012 B
+_ZN2ot5audio3arc12_GLOBAL__N_17auxPassEPfS3_mRNS2_10VoiceStateEiNS0_2va3LinES7_.constprop.0 0.00110  # 406 B
+_ZN2ot5audio3arc12_GLOBAL__N_17refreshERNS2_9SlotStateERKNS0_11SynthParamsE 0.00060  # 760 B
+# 12510 B, 136 modes, 98.3% of the weight
