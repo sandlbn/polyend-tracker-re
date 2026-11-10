@@ -10,8 +10,9 @@ namespace {
 inline int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 inline bool isMidiInstr(uint8_t i) { return i >= 48 && i < 64; }
-inline bool isMidiLike(uint8_t i) { return i >= 48; }          // 48..63 MIDI, 64..66 synths
-inline bool isSynth(uint8_t i) { return isSynthInstrument(i); }  // 64..66 = Synth 1..3 (MINI_PLAN §3)
+inline bool isMidiLike(uint8_t i) { return i >= 48; }          // 48..63 MIDI, 64..74 synths
+// 64..66 = Synth 1..3 (MINI_PLAN §3), [3.x] 67..74 = the presets P1..P8.
+inline bool isSynth(uint8_t i) { return isSynthInstrument(i); }
 // Release the track's note before a new note (MIDI tracks are monophonic).
 // A synth note following a synth note is left to the synth bank, which
 // releases the old voice or reuses it (polyphony-1 legato / glide).
@@ -55,6 +56,7 @@ void Sequencer::resetState() {
     songMode_ = perfMode_ = selection_ = false;
     tick_ = 1;
     masterMicro_ = 1;
+    for (auto& z : zState_) z = 0;
     masterStep_ = 0;
     accUs_ = 0;
     tempoOverride_ = stopAtStepEnd_ = false;
@@ -362,6 +364,9 @@ void Sequencer::microStep() {
             stepEnd = true;
         }
     }
+    // [3.x] Step 0 after a wrap has started on every track: a slot whose
+    // return the wrap left to a Z of it that did not come gets it now.
+    if (zPend_) zFlush(zPend_);
     if (stepEnd) advanceMaster();
 }
 
@@ -533,7 +538,13 @@ void Sequencer::stepStart(int t) {
         if (isPresetCmd(type, v)) {  // Z: an FX-only step uses the synth the track plays
             uint8_t in = p.rec.instr;
             if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-            if (isSynth(in) && sink_) sink_->synthPreset(uint8_t(synthSlotOf(in)), presetCmdIndex(v));
+            if (isSynthSlotInstrument(in) && sink_) {   // [3.x] a preset instrument has no slot: no target
+                const int slot = synthSlotOf(in);
+                const uint8_t n = presetCmdIndex(v);
+                zPend_ = uint8_t(zPend_ & ~(1u << slot));
+                if (sink_->synthPreset(uint8_t(slot), n)) setZ(slot, zStart(slot), n);
+                else sink_->synthPreset(uint8_t(slot), zCur(slot));   // ignored: the slot stays where it should be
+            }
             continue;
         }
         switch (type) {
@@ -581,7 +592,8 @@ void Sequencer::stepStart(int t) {
             case 6: {  // Random instrument, clamped inside its class
                 const int i = p.rec.instr;
                 int lo = 0, hi = 47;
-                if (i >= 64) { lo = 64; hi = 66; }
+                if (i >= kFirstPresetInstrument) { lo = kFirstPresetInstrument; hi = kLastPresetInstrument; }   // [3.x] P1..P8
+                else if (i >= 64) { lo = 64; hi = 66; }
                 else if (i >= 48) { lo = 48; hi = 63; }
                 p.rec.instr = uint8_t(clampi(rng_.rangeIncl(i - v, i + v), lo, hi));
                 break;
@@ -597,7 +609,13 @@ void Sequencer::stepStart(int t) {
                     // FX-only step uses the synth the track plays.
                     uint8_t in = p.rec.instr;
                     if (!isSynth(in) && p.rec.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
-                    if (isSynth(in)) sink_->synthMacroFx(uint8_t(synthSlotOf(in)), uint8_t(ccLetter(type)), v > 127 ? 127 : v);
+                    if (isSynthSlotInstrument(in)) {
+                        sink_->synthMacroFx(uint8_t(synthSlotOf(in)), uint8_t(ccLetter(type)), v > 127 ? 127 : v);
+                    } else if (isPresetInstrument(in) && p.rec.note < 0) {
+                        // [3.x] A preset instrument: the slot its sounding note
+                        // plays on (a note step's CC goes with the note).
+                        sink_->synthApplyFx(uint8_t(t), type, v);
+                    }
                 }
                 break;
             case 13:  // Break
@@ -744,10 +762,12 @@ void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chord
         tr.midiCount = 0;
         return;
     }
-    if (isSynth(rec.instr)) {  // Synth 1..3 on any track (MINI_PLAN §3)
+    if (isSynth(rec.instr)) {  // Synth 1..3 ([3.x] and P1..P8) on any track (MINI_PLAN §3)
         if (sink_) {
             SynthNoteOn n;
-            n.slot = uint8_t(synthSlotOf(rec.instr));
+            const int slot = synthSlotOf(rec.instr);
+            n.slot = uint8_t(slot < 0 ? 0 : slot);
+            n.preset = presetOfInstrument(rec.instr);
             int note = rec.note;
             if (perfMode_ && tr.transposeOn) note = clampi(note + tr.transpose, 0, 127);
             n.note = uint8_t(note);
@@ -757,13 +777,14 @@ void Sequencer::triggerNote(int t, const NoteRec& rec, bool chord, uint8_t chord
             n.fxA = rec.fxA;
             n.fxB = rec.fxB;
             n.tickPeriodUs = tickPeriodUs();
+            if (slot >= 0 && (zPend_ & (1u << n.slot))) zFlush(uint8_t(1u << n.slot));   // [3.x] a note before the step's Z
             sink_->synthNoteOn(uint8_t(t), n);
         }
         tr.sounding = true;
         tr.midiCount = 0;
         return;
     }
-    if (rec.instr >= 64) {  // 67..: no output (spec 03 §4.4)
+    if (rec.instr >= 64) {  // 75..: no output (spec 03 §4.4)
         tr.sounding = false;
         return;
     }
@@ -860,7 +881,7 @@ void Sequencer::rollRetrigger(int t) {
 // [3.x] The microsteps an arp note of a synth slot stays on: its Arp Gate of
 // the arp period, always shorter than the period; -1 = until the next note.
 int Sequencer::arpGateLimit(const TrackState& tr, uint8_t instr) const {
-    if (!host_ || !isSynth(instr)) return -1;
+    if (!host_ || !isSynthSlotInstrument(instr)) return -1;   // [3.x] a preset instrument: until the next note
     const int gate = host_->synthArpGate(uint8_t(synthSlotOf(instr)));
     if (gate >= 100) return -1;
     return clampi((int(tr.arpPeriod) * gate + 50) / 100, 1, int(tr.arpPeriod) - 1);
@@ -1068,6 +1089,10 @@ void Sequencer::patternEnd() {
         queued_ = 0;
         dropPreload();
         resetPositions(0);
+        // [3.x] Another pattern from here: every synth slot on its own patch.
+        static constexpr uint8_t kOwn[kSynthSlotCount] = {};
+        zReturn(kOwn);
+        for (int z = 0; z < kSynthSlotCount; ++z) setZ(z, 0, zCur(z));
         host_->onPatternEnd();
         host_->onPatternAdvanced();
         return;
@@ -1090,13 +1115,101 @@ void Sequencer::patternEnd() {
         curPatternNum_ = num;
         project_->setCurrentPattern(num);
         resetPositions(0);
+        // [3.x] The song starts over as it started from its top (every slot
+        // on its own patch); the next position goes on from the last Z. Either
+        // way that is what a Loop Pattern returns to at this pattern's end.
+        if (songWrapped) {
+            static constexpr uint8_t kOwn[kSynthSlotCount] = {};
+            zReturn(kOwn);
+        }
+        for (int z = 0; z < kSynthSlotCount; ++z) setZ(z, zCur(z), zCur(z));
         host_->onPatternEnd();
         if (!songWrapped) host_->onPatternAdvanced();
         return;
     }
     dropPreload();
+    // [3.x] The pattern (or selection) plays again as it did the first time.
+    {
+        uint8_t start[kSynthSlotCount];
+        for (int z = 0; z < kSynthSlotCount; ++z) start[z] = zStart(z);
+        zReturn(start);
+    }
     host_->onPatternEnd();
     host_->onPatternAdvanced();
+}
+
+void Sequencer::zReturn(const uint8_t* n) {
+    const uint8_t next = nextStepZ();
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        if (zCur(s) == n[s] || !sink_) continue;
+        // The step's Z follows within the step: going back first would bind
+        // the slot's patch for a block in between. An ignored Z (an empty
+        // preset) sends the tracked state then (stepStart). Step 0 may still
+        // not play that Z (Chance, a delayed note that changes the track's
+        // synth, an immediate track switch): a synth note of the slot before
+        // it, or the end of step 0's first micro, sends the tracked state.
+        if ((next >> s) & 1u) {
+            setZ(s, zStart(s), n[s]);
+            zPend_ = uint8_t(zPend_ | (1u << s));
+        } else if (sink_->synthPreset(uint8_t(s), n[s])) {
+            setZ(s, zStart(s), n[s]);
+        }
+    }
+}
+
+void Sequencer::zFlush(uint8_t mask) {
+    zPend_ = uint8_t(zPend_ & ~mask);
+    if (!sink_) return;
+    for (int s = 0; s < kSynthSlotCount; ++s)
+        if ((mask >> s) & 1u) sink_->synthPreset(uint8_t(s), zCur(s));
+}
+
+uint8_t Sequencer::nextStepZ() const {
+    // The rule of stepStart's FX pass, for the step each track starts next
+    // (muted / disabled tracks do not play a Z: not counted). A Chance step
+    // counts: when it fails, the slot's return comes in the same micro, before
+    // any note of the slot (zPend_).
+    uint8_t m = 0;
+    if (!cur_) return 0;
+    for (int t = 0; t < kTracks; ++t) {
+        const TrackState& tr = tracks_[t];
+        if (!tr.enabled || isMuted(t)) continue;
+        const Step& s = playTrack(t).steps[clampi(tr.step, 0, kStepCount - 1)];
+        for (int c = 0; c < 2; ++c) {
+            if (!isPresetCmd(s.fx[c].type, s.fx[c].value)) continue;
+            uint8_t in = s.instrument;
+            if (!isSynth(in) && s.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
+            if (isSynthSlotInstrument(in)) m = uint8_t(m | (1u << synthSlotOf(in)));
+        }
+    }
+    return m;
+}
+
+void Sequencer::chaseStart(int startStep, bool afterCountIn) {
+    // [3.x] A start plays the synth presets the song selected before it: the
+    // host reads the steps before the start (main loop). Step 0 of a pattern,
+    // or of the song's first position, has nothing before it; a count-in's
+    // start (audio context) is always step 0.
+    uint8_t z[kSynthSlotCount] = {};
+    uint8_t last[kTracks];
+    for (auto& l : last) l = 0xFF;
+    zPend_ = 0;
+    if (!afterCountIn && (startStep > 0 || (songMode_ && songPos_ > 0)))
+        host_->synthChase(songMode_, songPos_, curPatternNum_, startStep - 1, z, last);
+    for (int s = 0; s < kSynthSlotCount; ++s) {
+        const uint8_t n = z[s] <= kSynthPresetCount ? z[s] : 0;
+        const bool ok = sink_ && sink_->synthPreset(uint8_t(s), n);
+        if (!ok && n && sink_) sink_->synthPreset(uint8_t(s), 0);
+        setZ(s, ok ? n : 0, ok ? n : 0);
+    }
+    // A no-note Z right at the start targets the synth the track played
+    // before it in the song, not in an earlier run. A count-in keeps the
+    // record of a note played live during it (it still sounds).
+    if (afterCountIn) return;
+    for (int t = 0; t < kTracks; ++t) {
+        tracks_[t].last = NoteRec{};
+        tracks_[t].last.instr = last[t] != 0xFF ? last[t] : 0;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1107,6 +1220,7 @@ void Sequencer::startPlayback(int startStep, bool keepSongMode, bool afterCountI
     if (!keepSongMode) songMode_ = false;
     if (!(afterCountIn && recording_ && settings_.preRoll == 1)) releaseAllNotes();
     if (sink_) sink_->resetAllVoiceFx();
+    chaseStart(clampi(startStep, 0, kStepCount - 1), afterCountIn);
     selection_ = false;
     masterStep_ = 0;
     // Pending immediate per-track switches take effect from the first step.
@@ -1211,12 +1325,14 @@ void Sequencer::stop() {
     recording_ = false;
     armed_ = false;
     breakPending_ = breakPreloadDone_ = false;
+    zPend_ = 0;
     selection_ = false;
     queueActive_ = queueReady_ = false;   // a queued pattern change ends with the playback
     queued_ = 0;
     dropPreload();
     resetPositions(0);
     if (sink_) sink_->synthTransportStop();   // macro overrides -> page values
+    stops_ = uint8_t(stops_ + 1);              // [3.x] the stopped chase sets the slots again
     sendRealtime(settings_.transportOut, 0xFC);
     if (host_->exportActive()) host_->finaliseExport();
 }

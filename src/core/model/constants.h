@@ -3,6 +3,8 @@
 
 #include <cstdint>
 
+#include "model/fx.h"
+
 namespace ot {
 
 // 2.x (docs/M1_PLAN.md §1): a pattern has 16 tracks. Tracks 0..11 are the
@@ -31,6 +33,13 @@ constexpr int kFirstMidiInstrument = kSampleInstrumentCount;
 constexpr int kFirstSynthInstrument = kInstrumentCount;   // 64
 constexpr int kSynthSlotCount = 3;
 constexpr int kLastSynthInstrument = kFirstSynthInstrument + kSynthSlotCount - 1;   // 66
+// [3.x] Instrument bytes 67..74 play the synth presets P1..P8 (OpenTracker v3;
+// other firmware reads them as invalid instruments: silent). A note of one
+// borrows a synth slot for that preset (audio/synth_bank.h).
+constexpr int kFirstPresetInstrument = kLastSynthInstrument + 1;   // 67
+constexpr int kPresetInstrumentCount = 8;
+constexpr int kLastPresetInstrument = kFirstPresetInstrument + kPresetInstrumentCount - 1;   // 74
+static_assert(kPresetInstrumentCount == kSynthPresetCount, "one preset instrument per synth preset");
 
 // Step note sentinels (spec 02 §4.2). 0..127 are note numbers.
 constexpr int8_t kNoteEmpty = -1;
@@ -41,8 +50,15 @@ constexpr int8_t kNoteMax = 127;
 
 inline bool isSampleInstrument(uint8_t i) { return i < kSampleInstrumentCount; }
 inline bool isMidiInstrument(uint8_t i) { return i >= kSampleInstrumentCount && i < kInstrumentCount; }
-inline bool isSynthInstrument(uint8_t i) { return unsigned(i) - kFirstSynthInstrument < unsigned(kSynthSlotCount); }
-inline int synthSlotOf(uint8_t i) { return isSynthInstrument(i) ? int(i) - kFirstSynthInstrument : -1; }
+// [3.x] Synth instruments: the slots S1..S3 (64..66) and the presets P1..P8
+// (67..74). Only a slot instrument names a slot (synthSlotOf, -1 otherwise).
+inline bool isSynthSlotInstrument(uint8_t i) { return unsigned(i) - kFirstSynthInstrument < unsigned(kSynthSlotCount); }
+inline bool isPresetInstrument(uint8_t i) { return unsigned(i) - kFirstPresetInstrument < unsigned(kPresetInstrumentCount); }
+inline bool isSynthInstrument(uint8_t i) {
+    return unsigned(i) - kFirstSynthInstrument < unsigned(kSynthSlotCount + kPresetInstrumentCount);
+}
+inline int synthSlotOf(uint8_t i) { return isSynthSlotInstrument(i) ? int(i) - kFirstSynthInstrument : -1; }
+inline uint8_t presetOfInstrument(uint8_t i) { return isPresetInstrument(i) ? uint8_t(i - kFirstPresetInstrument + 1) : 0; }
 
 // Sample bank (spec 02 §8.2).
 constexpr uint32_t kSampleBankBytes = 0xB40000;   // 11 796 480 bytes

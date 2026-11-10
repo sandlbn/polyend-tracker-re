@@ -108,6 +108,11 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
     resetSynthPresets();
     engine.synth().bindPresets(presets::table());
+#if OT_SLOT_INSERTS
+    engine.synth().bindPresetInserts(presets::insertTable());
+#endif
+    engine.synth().bindPresetMix(presets::mixTable());
+    resetSynthChase();
     undo.attach(mem_.undo, mem_.undoNums, mem_.undoSlots);
     fileUndo.attach(mem_.fileUndo, mem_.fileUndoNums, mem_.fileUndoSlots);
     for (auto& in : instruments) in.setDefault();
@@ -319,6 +324,10 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
     if (voiceId < kAuditionMidiIn || voiceId >= kAuditionMidiIn + 128) previewOff(voiceId);
     const bool midi = isMidiInstrument(instrument);
     if (isSynthInstrument(instrument)) {
+        // [3.x] A preset instrument (P1..P8) names its preset; the bank picks
+        // the slot (synthSlotOf is -1 then: slot 0 is a placeholder).
+        const int slot = synthSlotOf(instrument) < 0 ? 0 : synthSlotOf(instrument);
+        const uint8_t preset = presetOfInstrument(instrument);
         // MIDI input notes and held pads (voiceId = pad number): one live
         // track per held note (polyphonic, up to the slot polyphony and the
         // voice cap); all held: the tracks are reused in turn. (Pads on the
@@ -335,13 +344,13 @@ int App::previewOn(uint16_t voiceId, uint8_t instrument, uint8_t note, uint8_t v
             synthLiveNext_ = uint8_t((k + 1) % audio::kSynthLiveTracks);
             synthLive_[k] = voiceId;
             const uint8_t vel = liveVelocity(uint8_t(velocity & 127));
-            engine.synth().liveOn(k, synthSlotOf(instrument), uint8_t(note & 127),
-                                  vel >= 127 ? int8_t(-1) : int8_t((vel * 100 + 63) / 127));
+            engine.synth().liveOn(k, slot, uint8_t(note & 127), vel >= 127 ? int8_t(-1) : int8_t((vel * 100 + 63) / 127),
+                                  preset);
             return -1;
         }
         // 2.x synth slots: the framework's audition track (one note at a time:
         // the Instrument / Loader previews, the note encoder).
-        engine.synth().auditionOn(synthSlotOf(instrument), uint8_t(note & 127));
+        engine.synth().auditionOn(slot, uint8_t(note & 127), -1, preset);
         synthAudVoice_ = voiceId;
         return -1;
     }
@@ -504,6 +513,7 @@ void App::loop() {
         patternEditedFromSeq_ = false;
         patternEdited();
     }
+    serviceSynthChase();
     serviceResample();
     // Project manager (spec 05 §1.3 step 5, appendix E3/E4): one bounded
     // step of the running job, else the periodic autosave check.
@@ -722,6 +732,7 @@ void App::handleControlChange(uint8_t cc, uint8_t value) {
 
 void App::setPresent(int num, bool on) {
     if (num < 1 || num > kPatternCount) return;
+    chaseInvalidate(num);
     if (on) present_[num >> 3] |= uint8_t(1u << (num & 7));
     else present_[num >> 3] &= uint8_t(~(1u << (num & 7)));
 }
@@ -756,6 +767,7 @@ int App::firstEmptyPattern() {
 
 void App::markPatternDirty(int num) {
     if (num < 1 || num > kPatternCount) return;
+    chaseInvalidate(num);
     patDirty_[num >> 3] |= uint8_t(1u << (num & 7));
     setPresent(num, true);
     unsaved_ = true;
@@ -794,6 +806,7 @@ void App::reportExtPoolFull() {
 
 Track& App::storedTrack(int num, int t) {
     if (!validNum(num) || t < 0 || t >= kTrackCount) return *extDiscard_;
+    chaseInvalidate(num);   // write access
     if (t < kStockTrackCount) return storedStock(num).tracks[t];
     const int e = t - kStockTrackCount;
     if (Track* b = ext_.find(num, e)) return *b;
@@ -824,6 +837,7 @@ void App::readStoredTrack(int num, int t, Track& out) const {
 
 bool App::storePattern(int num, const Pattern& p) {
     if (!validNum(num)) return false;
+    chaseInvalidate(num);
     PatternStock& st = storedStock(num);
     p.copyStockTo(st);
     bool ok = true;
@@ -870,12 +884,14 @@ int App::compactExtTracks(int num) {
 }
 
 void App::clearExtTracks(int num) {
+    chaseInvalidate(num);
     ext_.releasePattern(num);
     if (validNum(num)) extKeep_[num] = 0;   // dropped on purpose: nothing to keep from the file
 }
 
 void App::defaultStored(int num) {
     if (!validNum(num)) return;
+    chaseInvalidate(num);
     clearExtTracks(num);
     defaultPattern(storedStock(num));
 }
@@ -885,6 +901,7 @@ void App::resetPatternStore() {
     std::memset(extKeep_, 0, sizeof(extKeep_));
     extFullReported_ = 0;
     for (int n = 1; n <= kPatternCount; ++n) defaultPattern(storedStock(n));
+    chaseInvalidateAll();
 }
 
 void App::pushFileUndo(int num) {
@@ -1016,8 +1033,9 @@ void App::copyToClipboard(const SelRect& r, int col) {
 
 void App::setCurrentInstrument(int i) {
     if (i < 0) i = 0;
-    // 2.x: synth slots 64..66 are instruments too (Tracker Mini).
-    if (i >= kFirstSynthInstrument + kSynthSlotCount) i = kFirstSynthInstrument + kSynthSlotCount - 1;
+    // 2.x: synth slots 64..66 are instruments too (Tracker Mini); [3.x] and
+    // the presets P1..P8 (67..74).
+    if (i > kLastPresetInstrument) i = kLastPresetInstrument;
     if (project.u8(pf::kCurInstrument) != i) {
         project.setU8(pf::kCurInstrument, uint8_t(i));
         markProjectDirty();
@@ -1110,6 +1128,7 @@ void App::markInstrumentDirty(int i, bool sample) {
 void App::togglePlay(bool shift) {
     if (seq.isPlaying() || seq.isArmed()) {
         seq.stop();
+        chaseForget();   // Stop put every slot on its own patch
         allVoicesOff();
     } else if (shift) {
         seq.playSong(project.playlistPos);

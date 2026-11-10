@@ -32,13 +32,17 @@ struct VoiceNoteOn {
 };
 
 // Argument block for ISequencerSink::synthNoteOn (2.x M3, docs/MINI_PLAN.md §3):
-// a step with instrument 64..66 (Synth 1..3) on any of the 16 tracks.
+// a step with instrument 64..66 (Synth 1..3) on any of the 16 tracks, or
+// [3.x] 67..74 (the presets P1..P8).
 struct SynthNoteOn {
     uint8_t slot = 0;         // 0..2 = instrument 64..66
     uint8_t note = 0;         // 0..127 (performance transpose applied)
     int8_t volume = -1;       // -1 = none (Macro 7 full), else 0..100 (Volume / Random Volume FX)
     StepFx fxA;               // step FX columns (Slide, Glide, Tune, Micro-tune, Volume)
     StepFx fxB;
+    // [3.x] 1..8: a preset instrument (67..74), the bank picks the slot (slot
+    // is then not used); 0: the slot's own instrument.
+    uint8_t preset = 0;
     float tickPeriodUs = 0;
 };
 
@@ -76,8 +80,10 @@ public:
     // value until Stop.
     virtual void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) { (void)slot; (void)macro; (void)value; }
     // [3.x] Z: slot plays preset n (1..8) or its own patch (0) until the next
-    // Z or Stop. Runs before the same step's synthNoteOn.
-    virtual void synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; }
+    // Z or Stop. Runs before the same step's synthNoteOn. True when the slot
+    // takes it (0, or a preset that is not empty; a repeat counts); false =
+    // the slot plays on as it was.
+    virtual bool synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; return false; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
 };
@@ -127,6 +133,17 @@ public:
     virtual void markPatternDirty() {}
     // External Start chooses song play when the Song screen is active (spec 03 §4.3).
     virtual bool songScreenActive() { return false; }
+    // [3.x] Z chase, main loop only (a play start that is not a count-in's):
+    // what the song selected before the start, read as written (mutes,
+    // Chance and random FX aside). songMode: the playlist positions before
+    // songPos first, whole; then steps 0..lastStep (inclusive, -1 = none) of
+    // the current pattern `pattern`. Fills preset[s] (0 = own patch) and
+    // lastInstr[t], the instrument track t last played (0xFF = not known;
+    // only synth or not matters). Both arrive pre-set to "own" / 0xFF.
+    virtual void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStep, uint8_t preset[kSynthSlotCount],
+                            uint8_t lastInstr[kTrackCount]) {
+        (void)songMode; (void)songPos; (void)pattern; (void)lastStep; (void)preset; (void)lastInstr;
+    }
 };
 
 }  // namespace ot

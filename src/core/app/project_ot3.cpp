@@ -2,10 +2,12 @@
 // the Tracker Mini project files cannot hold -- a synth slot on a module
 // engine, the modules a project uses, module data -- in one OT3 container
 // next to them. Absent file = the Mini mapping for every slot.
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 
 #include "app/app.h"
+#include "app/synth_presets.h"
 #include "formats/file_io.h"
 #include "formats/ot3.h"
 #include "model/project.h"
@@ -44,6 +46,24 @@ InsertMemo* insertMemo(int s, const char* id, bool make) {
     for (InsertMemo& m : g_insertMemo[s])
         if (std::memcmp(m.id, kFree, 4) == 0) return &m;
     return &g_insertMemo[s][kInsertMemoMax - 1];
+}
+
+void keepInsertMemo(int s, const char* id, const audio::EffectSettings& set, bool off) {
+    InsertMemo* m = insertMemo(s, id, true);
+    std::memcpy(m->id, id, 4);
+    m->set = set;
+    m->off = off;
+}
+
+bool anyId(const char* id) { return id[0] || id[1] || id[2] || id[3]; }
+
+// Settings above an effect's ranges come down to them (an effect this build lacks: as they are).
+void clampSettings(const char* id, audio::EffectSettings& set) {
+    if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(id))
+        for (int i = 0; i < audio::kEffectMaxParams; ++i) {
+            const uint8_t max = i < fx->paramCount() ? fx->param(i).max : 0;
+            if (set.v[i] > max) set.v[i] = max;
+        }
 }
 #endif
 
@@ -103,23 +123,26 @@ void App::applySlotInsert(int s) {
     engine.synth().setSlotInsert(s, slotInsertEffect(s), slotInsert_[s].set, slotInsert_[s].off);
 }
 
+// [3.x] An edit of the slot's own insert is heard as a patch edit is: a slot
+// on a preset goes back to its own patch and insert (SynthBank::patchChanged);
+// the stopped chase leaves it there until its inputs change.
+void App::ownInsertEdited(int s) {
+    applySlotInsert(s);
+    engine.synth().patchChanged(s);
+}
+
 bool App::slotInsertOff(int s) const { return s >= 0 && s < kSynthSlotCount && slotInsertId(s) && slotInsert_[s].off; }
 
 void App::setSlotInsertOff(int s, bool off) {
     if (!slotInsertId(s) || slotInsert_[s].off == off) return;
     slotInsert_[s].off = off;
     sidecarDirty_ = true;
-    applySlotInsert(s);
+    ownInsertEdited(s);
 }
 
 void App::setSlotInsertKind(int s, const char* effectId) {
     if (s < 0 || s >= kSynthSlotCount) return;
-    if (const char* cur = slotInsertId(s)) {   // keep the one we leave
-        InsertMemo* m = insertMemo(s, cur, true);
-        std::memcpy(m->id, cur, 4);
-        m->set = slotInsert_[s].set;
-        m->off = slotInsert_[s].off;
-    }
+    if (const char* cur = slotInsertId(s)) keepInsertMemo(s, cur, slotInsert_[s].set, slotInsert_[s].off);   // the one we leave
     SlotInsertCfg c = {};
     if (effectId && effectId[0]) {
         std::memcpy(c.id, effectId, 4);
@@ -130,9 +153,28 @@ void App::setSlotInsertKind(int s, const char* effectId) {
             c.set = audio::effectDefaults(*fx);
         }
     }
-    if (std::memcmp(&c, &slotInsert_[s], sizeof c) != 0) sidecarDirty_ = true;
+    const bool changed = std::memcmp(&c, &slotInsert_[s], sizeof c) != 0;
+    if (changed) sidecarDirty_ = true;
     slotInsert_[s] = c;
-    applySlotInsert(s);
+    if (changed) ownInsertEdited(s);
+    else applySlotInsert(s);
+}
+
+void App::setSlotInsert(int s, const char* effectId, const audio::EffectSettings& set, bool off) {
+    if (s < 0 || s >= kSynthSlotCount) return;
+    if (const char* cur = slotInsertId(s)) keepInsertMemo(s, cur, slotInsert_[s].set, slotInsert_[s].off);
+    SlotInsertCfg c = {};
+    if (effectId && anyId(effectId)) {
+        std::memcpy(c.id, effectId, 4);
+        c.set = set;
+        c.off = off;
+        clampSettings(c.id, c.set);
+    }
+    const bool changed = std::memcmp(&c, &slotInsert_[s], sizeof c) != 0;
+    if (changed) sidecarDirty_ = true;
+    slotInsert_[s] = c;
+    if (changed) ownInsertEdited(s);
+    else applySlotInsert(s);
 }
 
 void App::setSlotInsertValue(int s, int i, uint8_t v) {
@@ -143,7 +185,124 @@ void App::setSlotInsertValue(int s, int i, uint8_t v) {
     if (slotInsert_[s].set.v[i] == c) return;
     slotInsert_[s].set.v[i] = c;
     sidecarDirty_ = true;
-    applySlotInsert(s);
+    ownInsertEdited(s);
+}
+
+// [3.x] The edit target's insert: a slot on a preset with insert data shows
+// and edits the preset's; one without shows the slot's own, and its first
+// edit gives the preset a copy of it.
+const audio::PresetInsert* App::targetInsert(int s, uint8_t t) const {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) return nullptr;
+    const audio::PresetInsert& pi = synthPresetInsert(n);
+    return (pi.flags & audio::kPresetInsertHas) ? &pi : nullptr;
+}
+
+// Called only for an edit that changes what the view shows (it is then marked).
+audio::PresetInsert* App::editTargetInsert(int s, uint8_t n) {
+    audio::PresetInsert& pi = presets::insertTable()[n - 1];
+    if (!(pi.flags & audio::kPresetInsertHas)) {
+        audio::PresetInsert c{};
+        if (const char* id = slotInsertId(s)) {
+            std::memcpy(c.id, id, 4);
+            c.set = slotInsert_[s].set;
+            c.fx = slotInsertEffect(s);
+            if (slotInsert_[s].off) c.flags = audio::kPresetInsertOff;
+        }
+        // The audio block may read the entry at any time: the flag last.
+        pi.fx = c.fx;
+        pi.set = c.set;
+        std::memcpy(pi.id, c.id, 4);
+        pi.flags = c.flags;
+        std::atomic_signal_fence(std::memory_order_seq_cst);
+        pi.flags = uint8_t(c.flags | audio::kPresetInsertHas);
+    }
+    return &pi;
+}
+
+void App::presetInsertEdited(uint8_t n) {
+    sidecarDirty_ = true;
+    unsaved_ = true;
+    engine.synth().presetChanged(n);
+}
+
+const char* App::synthTargetInsertId(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
+    if (!pi) return slotInsertId(s);
+    return anyId(pi->id) ? pi->id : nullptr;
+}
+
+audio::IEffect* App::synthTargetInsertEffect(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
+    return pi ? pi->fx : slotInsertEffect(s);
+}
+
+audio::EffectSettings App::synthTargetInsertSettings(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
+    return pi ? pi->set : slotInsertSettings(s);
+}
+
+bool App::synthTargetInsertOff(int s, uint8_t t) const {
+    const audio::PresetInsert* pi = targetInsert(s, t);
+    if (!pi) return slotInsertOff(s);
+    return anyId(pi->id) && (pi->flags & audio::kPresetInsertOff);
+}
+
+void App::setSynthTargetInsertKind(int s, const char* effectId, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) {
+        setSlotInsertKind(s, effectId);
+        return;
+    }
+    char id[4] = {};
+    audio::EffectSettings set{};
+    audio::IEffect* fx = nullptr;
+    if (effectId && effectId[0]) {
+        std::memcpy(id, effectId, 4);
+        fx = mod::ModuleHost::instance().effectById(id);
+        if (fx) set = audio::effectDefaults(*fx);
+    }
+    // The same kind keeps its settings (and a preset without insert data gets none).
+    const char* cur = synthTargetInsertId(s, n);
+    if (cur ? std::memcmp(id, cur, 4) == 0 : !anyId(id)) return;
+    audio::PresetInsert* pi = editTargetInsert(s, n);
+    // No insert while the entry changes, then the new kind (on).
+    pi->fx = nullptr;
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    pi->set = set;
+    std::memcpy(pi->id, id, 4);
+    pi->flags = audio::kPresetInsertHas;
+    std::atomic_signal_fence(std::memory_order_seq_cst);
+    pi->fx = fx;
+    presetInsertEdited(n);
+}
+
+void App::setSynthTargetInsertValue(int s, int i, uint8_t v, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) {
+        setSlotInsertValue(s, i, v);
+        return;
+    }
+    audio::IEffect* fx = synthTargetInsertEffect(s, n);
+    if (!fx || i < 0 || i >= fx->paramCount() || i >= audio::kEffectMaxParams) return;
+    const uint8_t max = fx->param(i).max;
+    const uint8_t c = v > max ? max : v;
+    if (synthTargetInsertSettings(s, n).v[i] == c) return;   // nothing changes: no insert data made
+    audio::PresetInsert* pi = editTargetInsert(s, n);
+    pi->set.v[i] = c;
+    presetInsertEdited(n);
+}
+
+void App::setSynthTargetInsertOff(int s, bool off, uint8_t t) {
+    const uint8_t n = synthTargetOf(s, t);
+    if (!n) {
+        setSlotInsertOff(s, off);
+        return;
+    }
+    if (!synthTargetInsertId(s, n) || synthTargetInsertOff(s, n) == off) return;
+    audio::PresetInsert* pi = editTargetInsert(s, n);
+    pi->flags = uint8_t(off ? (pi->flags | audio::kPresetInsertOff) : (pi->flags & ~audio::kPresetInsertOff));
+    presetInsertEdited(n);
 }
 #endif
 
@@ -169,7 +328,9 @@ void App::resetSidecar() {
     }
 #if OT_SLOT_INSERTS
     std::memset(g_insertMemo, 0, sizeof(g_insertMemo));
+    std::memset(static_cast<void*>(presets::insertTable()), 0, sizeof(audio::PresetInsert) * kSynthPresetCount);
 #endif
+    std::memset(static_cast<void*>(presets::mixTable()), 0, sizeof(audio::PresetMix) * kSynthPresetCount);
     mod::ModuleHost& h = mod::ModuleHost::instance();
     for (int i = 0; i < h.count(); ++i)
         if (mod::IProjectSection* sec = h.at(i)->section()) sec->reset();
@@ -224,7 +385,48 @@ bool App::encodeSidecar(uint8_t* out, uint32_t cap, uint32_t* len) {
         w.chunk(ot3::kTagSlotInsert, 0, &si, sizeof si);
         any = true;
     }
+    // [3.x] The insert of each used preset that has insert data.
+    for (int n = 1; n <= kSynthPresetCount; ++n) {
+        const audio::PresetInsert& pi = presets::insertTable()[n - 1];
+        if (!(pi.flags & audio::kPresetInsertHas) || !synthPresetUsed(n)) continue;
+        ot3::PresetInsert pc{};
+        pc.preset = uint8_t(n);
+        pc.flags = uint8_t(((pi.flags & audio::kPresetInsertOff) ? ot3::kPresetInsertOff : 0) |
+                           (anyId(pi.id) ? 0 : ot3::kPresetInsertNone));
+        std::memcpy(pc.effectId, pi.id, 4);
+        std::memcpy(pc.set, pi.set.v, sizeof pc.set);
+        w.chunk(ot3::kTagPresetInsert, 0, &pc, sizeof pc);
+        any = true;
+    }
 #endif
+    // [3.x] The mix of each used preset that has one.
+    for (int n = 1; n <= kSynthPresetCount; ++n) {
+        const audio::PresetMix& pm = presets::mixTable()[n - 1];
+        if (!(pm.flags & (audio::kPresetMixHas | audio::kPresetMixPoly)) || !synthPresetUsed(n)) continue;
+        ot3::PresetMix pc{};
+        pc.preset = uint8_t(n);
+        if (pm.flags & audio::kPresetMixPoly) {   // [3.x] its polyphony
+            pc.flags = ot3::kPresetMixPoly;
+            pc.polyphony = pm.polyphony;
+        }
+        pc.gainDb = pm.gainDb;
+        pc.pan = pm.pan;
+        pc.reverbSend = pm.reverbSend;
+        pc.delaySend = pm.delaySend;
+        w.chunk(ot3::kTagPresetMix, 0, &pc, sizeof pc);
+        any = true;
+    }
+    // [3.x] The name of each used preset that has one.
+    for (int n = 1; n <= kSynthPresetCount; ++n) {
+        const char* name = presets::mixTable()[n - 1].name;
+        if (!name[0] || !synthPresetUsed(n)) continue;
+        ot3::PresetName pc{};
+        pc.preset = uint8_t(n);
+        const size_t len = std::strlen(name);
+        std::memcpy(pc.name, name, len < sizeof pc.name ? len : sizeof pc.name);
+        w.chunk(ot3::kTagPresetName, 0, &pc, sizeof pc);
+        any = true;
+    }
     // Module sections with data: MODS lists them, then one chunk each.
     struct Pending {
         uint16_t tag, version;
@@ -309,16 +511,63 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
                 std::memcpy(cfg.id, si.effectId, 4);
                 std::memcpy(cfg.set.v, si.set, sizeof si.set);
                 cfg.off = (si.rsv & ot3::kSlotInsertOff) != 0;
-                if (audio::IEffect* fx = mod::ModuleHost::instance().effectById(cfg.id))
-                    for (int i = 0; i < audio::kEffectMaxParams; ++i) {
-                        const uint8_t max = i < fx->paramCount() ? fx->param(i).max : 0;
-                        if (cfg.set.v[i] > max) cfg.set.v[i] = max;
-                    }
+                clampSettings(cfg.id, cfg.set);
                 applySlotInsert(si.slot);
             }
             continue;
         }
+        if (c.tag == ot3::kTagPresetInsert && c.len >= 2) {
+            // Read before the presets themselves (the load's order): no slot plays them yet.
+            ot3::PresetInsert pc{};
+            std::memcpy(&pc, c.payload, c.len < sizeof pc ? c.len : sizeof pc);
+            if (pc.preset >= 1 && pc.preset <= kSynthPresetCount) {
+                audio::PresetInsert& pi = presets::insertTable()[pc.preset - 1];
+                pi = audio::PresetInsert{};
+                if (!(pc.flags & ot3::kPresetInsertNone) && anyId(pc.effectId)) {
+                    std::memcpy(pi.id, pc.effectId, 4);
+                    std::memcpy(pi.set.v, pc.set, sizeof pc.set);
+                    clampSettings(pi.id, pi.set);
+                    pi.fx = mod::ModuleHost::instance().effectById(pi.id);   // nullptr: not in this build
+                }
+                pi.flags = uint8_t(audio::kPresetInsertHas | ((pc.flags & ot3::kPresetInsertOff) ? audio::kPresetInsertOff : 0));
+            }
+            continue;
+        }
 #endif
+        if (c.tag == ot3::kTagPresetMix && c.len >= sizeof(ot3::PresetMix)) {
+            // Read before the presets themselves (the load's order): no slot plays them yet.
+            ot3::PresetMix pc;
+            std::memcpy(&pc, c.payload, sizeof pc);
+            SynthSlotRecord chk;   // the record's ranges (NaN fails)
+            chk.gainDb = pc.gainDb;
+            chk.pan = pc.pan;
+            chk.reverbSend = pc.reverbSend;
+            chk.delaySend = pc.delaySend;
+            if (pc.preset >= 1 && pc.preset <= kSynthPresetCount && chk.valid()) {
+                audio::PresetMix& pm = presets::mixTable()[pc.preset - 1];
+                pm.gainDb = pc.gainDb;   // the name (its own chunk) stays
+                pm.pan = pc.pan;
+                pm.reverbSend = pc.reverbSend;
+                pm.delaySend = pc.delaySend;
+                pm.polyphony = 0;
+                pm.flags = audio::kPresetMixHas;
+                if ((pc.flags & ot3::kPresetMixPoly) && pc.polyphony <= 8) {   // [3.x] absent: the slot's
+                    pm.polyphony = pc.polyphony;
+                    pm.flags = uint8_t(pm.flags | audio::kPresetMixPoly);
+                }
+            }
+            continue;
+        }
+        if (c.tag == ot3::kTagPresetName && c.len >= 2) {
+            ot3::PresetName pc{};
+            std::memcpy(&pc, c.payload, c.len < sizeof pc ? c.len : sizeof pc);
+            if (pc.preset >= 1 && pc.preset <= kSynthPresetCount) {
+                char* name = presets::mixTable()[pc.preset - 1].name;
+                std::memcpy(name, pc.name, sizeof pc.name);
+                name[sizeof pc.name] = 0;
+            }
+            continue;
+        }
         if (c.tag == ot3::kTagMods) {
             for (uint32_t o = 0; o + sizeof(ot3::ModEntry) <= c.len; o += sizeof(ot3::ModEntry)) {
                 const char* id = reinterpret_cast<const char*>(c.payload + o);

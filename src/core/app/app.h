@@ -312,7 +312,7 @@ public:
     void applySequencerSettings();
 
     // ---- dirty state / autosave (spec 02 §1.1) -----------------------------
-    void markProjectDirty() { projectDirty_ = true; unsaved_ = true; engineDirty_ = true; }
+    void markProjectDirty() { projectDirty_ = true; unsaved_ = true; engineDirty_ = true; chaseTouch(); }
     void markNamesDirty() { namesDirty_ = true; unsaved_ = true; }
     void markInstrumentDirty(int i, bool sample = false);
     void markConfigDirty() { configDirty_ = true; engineDirty_ = true; }
@@ -450,10 +450,12 @@ public:
     PatchSource synthPatchSource(int s) const { return s >= 0 && s < kSynthSlotCount ? patchSrc_[s] : PatchSource::None; }
     // [3.x] The project's synth presets (app/synth_presets.cpp), n = 1..8.
     const SynthPatch& synthPreset(int n) const;
+    // [3.x] The mix preset n (1..8) carries (app/synth_presets.cpp).
+    const audio::PresetMix& synthPresetMix(int n) const;
     bool synthPresetUsed(int n) const;
     bool synthPresetDirty() const;
     int synthPresetActive(int s) const;       // what Z left slot s on, 0 = its own patch
-    void storeSynthPreset(int n, int s);      // slot s's patch into preset n
+    void storeSynthPreset(int n, int s, uint8_t t = kTargetNow);   // what slot s plays (target t) into preset n
     bool loadSynthPreset(int s, int n);       // preset n into slot s, its engine too
     void clearSynthPreset(int n);
     void markSynthPatchDirty(int s) {
@@ -463,6 +465,41 @@ public:
         engine.synth().patchChanged(s);   // edits apply live (audio picks them up next block)
     }
     bool synthPatchDirty(int s) const { return s >= 0 && s < kSynthSlotCount && patchDirty_[s]; }
+    // [3.x] What the Synth pages and the Mixer edit for slot s: the preset it
+    // plays now (1..8: Z, the stopped chase, a preset instrument's note), or
+    // 0 = its own patch and record. While on a preset: its patch, engine,
+    // name and mix (gain, pan, sends, polyphony; the record's where the
+    // preset has none); the macro values stay the record's (what plays).
+    uint8_t synthEditTarget(int s) const;
+    // t: the target as resolved once for an edit (a Z, Stop or a preset
+    // instrument's bind in the audio block can move it at any time);
+    // kTargetNow resolves it here.
+    static constexpr uint8_t kTargetNow = 0xFF;
+    uint8_t synthTargetOf(int s, uint8_t t) const { return t == kTargetNow ? synthEditTarget(s) : (synthPresetUsed(t) ? t : 0); }
+    SynthPatch& synthTargetPatch(int s, uint8_t t = kTargetNow);
+    const SynthPatch& synthTargetPatch(int s, uint8_t t = kTargetNow) const;
+    int32_t synthTargetEngine(int s, uint8_t t = kTargetNow) const;
+    // The slot's record with the target's mix, polyphony and patch name.
+    SynthSlotRecord synthTargetRecord(int s, uint8_t t = kTargetNow) const;
+    // Mix and polyphony into the target (a preset's are heard at once and
+    // saved, the slot stays on it); the rest into the record.
+    void setSynthTargetRecord(int s, const SynthSlotRecord& r, uint8_t t = kTargetNow);
+    // The target's patch changed in place (a parameter): heard live, saved.
+    void markSynthTargetDirty(int s, uint8_t t = kTargetNow);
+    // A new engine for the target (the Init patch: library, else built in).
+    void setSynthTargetEngine(int s, int32_t engineId, uint8_t t = kTargetNow);
+    // Load Patch / Init Patch into the target (Patches/<target engine>/).
+    bool loadSynthTargetPatch(int s, const char* name, uint8_t t = kTargetNow);
+    void initSynthTargetPatch(int s, uint8_t t = kTargetNow);
+    // Preset n's patch replaced by src (engine and all) named `name`: the
+    // slots on it stay on it and restart on the new patch, their macro
+    // values back to its defaults.
+    void setSynthPresetPatch(int n, const SynthPatch& src, const char* name);
+    void markSynthPresetDirty(int n);
+    const char* synthPresetName(int n) const;   // "" = none
+    void setSynthPresetName(int n, const char* name);
+    // [3.x] Bumped when a project's presets are replaced (open, new, load).
+    uint32_t synthPresetsEpoch() const;
     // Synth screens (WP-G, app/synth_slots.cpp). The record setter stores
     // the project bytes and pushes them to the framework (engine sync).
     void setSynthSlotRecord(int s, const SynthSlotRecord& r);
@@ -476,8 +513,9 @@ public:
     // missing, damaged or of another engine (the slot is unchanged).
     bool loadSynthLibraryPatch(int s, const char* name);
     // Slot s's patch -> Patches/<MODEL>/<name>.patch (atomic; folders made),
-    // record name = name.
-    bool saveSynthLibraryPatch(int s, const char* name);
+    // record name = name. [3.x] The edit target's (synthEditTarget): on a
+    // preset, its patch and name.
+    bool saveSynthLibraryPatch(int s, const char* name, uint8_t t = kTargetNow);
     // Load Patch popup preview (Tracker+ 1.0; docs/SYNTH_UX_MINI_VS_OT.md
     // row 24): Patches/<MODEL>/<name>.patch plays in slot s (its patch and
     // the audio-side record with the patch's macro defaults) while the
@@ -485,7 +523,9 @@ public:
     // (no autosave of a previewed patch). The first preview keeps a copy of
     // the slot's patch; endSynthPreview() puts it back byte for byte. False
     // (slot unchanged) when the file is missing, damaged or another engine's.
-    bool previewSynthLibraryPatch(int s, const char* name);
+    // [3.x] On a slot that plays a preset, the preset's entry is previewed
+    // (and put back) instead.
+    bool previewSynthLibraryPatch(int s, const char* name, uint8_t t = kTargetNow);
     void endSynthPreview();
     int synthPreviewSlot() const { return previewSlot_; }
     // The load notice of a project whose slot has no engine in this build
@@ -530,10 +570,25 @@ public:
     void setSlotInsertKind(int s, const char* effectId);
     void setSlotInsertValue(int s, int i, uint8_t v);
     void setSlotInsertOff(int s, bool off);
+    // [3.x] Slot s's insert as a whole (a preset loaded into the slot): the
+    // effect by id (all zero = none), its settings (clamped) and Off.
+    void setSlotInsert(int s, const char* effectId, const audio::EffectSettings& set, bool off);
+    // [3.x] The insert preset n (1..8) carries (app/synth_presets.cpp).
+    const audio::PresetInsert& synthPresetInsert(int n) const;
     bool slotInsertOff(int s) const;
     const char* slotInsertId(int s) const;   // 4 characters, nullptr = none
     audio::IEffect* slotInsertEffect(int s) const;
     audio::EffectSettings slotInsertSettings(int s) const;
+    // [3.x] The insert the Synth Insert view edits (synthEditTarget): on a
+    // preset, the preset's (the slot's own where the preset has none);
+    // edits go into the preset's, heard at once and saved.
+    const char* synthTargetInsertId(int s, uint8_t t = kTargetNow) const;
+    audio::IEffect* synthTargetInsertEffect(int s, uint8_t t = kTargetNow) const;
+    audio::EffectSettings synthTargetInsertSettings(int s, uint8_t t = kTargetNow) const;
+    bool synthTargetInsertOff(int s, uint8_t t = kTargetNow) const;
+    void setSynthTargetInsertKind(int s, const char* effectId, uint8_t t = kTargetNow);
+    void setSynthTargetInsertValue(int s, int i, uint8_t v, uint8_t t = kTargetNow);
+    void setSynthTargetInsertOff(int s, bool off, uint8_t t = kTargetNow);
 #endif
     // Put slot s on any engine of the model list (modules/synth_models.h): a
     // Mini engine = setSynthModel; a module engine keeps the record's model.
@@ -634,6 +689,11 @@ public:
         engine.noteSeqWork(audio::kSeqLiveRecord);
     }
     bool songScreenActive() override { return ui.active() == kModSong; }
+    // [3.x] Z chase (app/synth_chase.cpp): the presets the Z before a play
+    // start selected, from the per-pattern summaries.
+    void synthChase(bool songMode, int songPos, uint8_t pattern, int lastStep, uint8_t preset[kSynthSlotCount],
+                    uint8_t lastInstr[kTrackCount]) override;
+    bool synthChaseSummarised(int num) const;   // pattern num's summary is up to date
 
     // Paths
     void workspacePath(char* out, int cap, const char* rel) const;
@@ -738,6 +798,17 @@ private:
     void loadPresetUnit(int n, uint32_t& cost);
     void leaveSynthPreset(int n);
     void resetSynthPresets();
+    // [3.x] Z chase bookkeeping (app/synth_chase.cpp): a write to stored
+    // pattern num, to every pattern or the presets (invalidate), any other
+    // input of the stopped chase (touch), the slots set elsewhere (forget).
+    void resetSynthChase();
+    void chaseInvalidate(int num);
+    void chaseInvalidateAll();
+    void chaseTouch();
+    void chaseForget();
+    void chaseReapply(int s);          // stopped: slot s to what the stopped chase gave it
+    void serviceSynthChase();   // loop(): stopped, the slots follow the cursor's chase
+    void chaseWarm(int maxScans);
     bool resolvePatch(int s, const uint8_t* buf, uint32_t len, bool haveFile);
     uint32_t patchCrc(int s);
     bool patchKeptOriginal(int s);
@@ -797,6 +868,10 @@ private:
     };
     SlotInsertCfg slotInsert_[kSynthSlotCount] = {};
     void applySlotInsert(int s);
+    void ownInsertEdited(int s);
+    const audio::PresetInsert* targetInsert(int s, uint8_t t) const;   // nullptr: the slot's own
+    audio::PresetInsert* editTargetInsert(int s, uint8_t t);   // preset t's, filled from the own first (t 1..8)
+    void presetInsertEdited(uint8_t n);
 #endif
     bool sidecarDirty_ = false;
     bool sidecarReadOnly_ = false;   // newer format / damaged chunk: never re-saved
@@ -805,7 +880,9 @@ private:
     int8_t previewSlot_ = -1;
     PatchSource previewSrc_ = PatchSource::None;
     bool previewDirty_ = false;
-    const SynthPatch* readSynthLibraryPatch(int s, const char* name);
+    const SynthPatch* readSynthLibraryPatch(int32_t engineId, const char* name);
+    SynthPatch* scratchPatch();   // the scratch decode slot (nullptr: no scratch)
+    void dropSynthPreview();      // [3.x] forget a preview without putting anything back (presets reset)
     // previewOn voice holding the synth audition track (kNoSynthAudition: none).
     static constexpr uint16_t kNoSynthAudition = 0xFFFF;
     uint16_t synthAudVoice_ = kNoSynthAudition;
