@@ -2,6 +2,7 @@
 #include "app/storage_stream_reader.h"
 
 #include <cstdio>
+#include <cstring>
 
 namespace ot {
 
@@ -13,8 +14,8 @@ bool StorageStreamReader::bind(const audio::StreamSource& s, const char* path, u
                                audio::StreamBindInfo* info) {
     audio::StreamBindInfo dummy;
     if (!info) info = &dummy;
-    if (failBind) {
-        info->reason = failBind;
+    if (failBind || (failBindPath && std::strcmp(path, failBindPath) == 0)) {
+        info->reason = failBind ? failBind : "fragmented";
         return false;
     }
     Binding* slot = audio::streamBindingSlot(b_, audio::kMaxStreams, s.instrument);
