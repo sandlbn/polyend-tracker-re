@@ -27,7 +27,7 @@ public:
 
 // [I] An effect's page starts with its on / mode row: value "Off" = off
 // ("On" / "Off"; BBD "I" / "II" / "Off"), the first step up turns it on
-// (the FX bank, fork #21).
+// (the FX bank).
 inline bool pageOn(IModulePage* p) {
     if (!p) return false;
     ModuleRow r{};

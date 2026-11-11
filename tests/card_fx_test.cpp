@@ -1,4 +1,4 @@
-// [I] Card master effects (fork #21, app/master_fx.cpp): the boot scan lists
+// [I] Card master effects (app/master_fx.cpp): the boot scan lists
 // them; Turn on loads one (while playing: at the next Stop), Off lets it
 // leave at the next Stop; its settings wait in the sidecar while it is out;
 // its SDRAM comes from the top of the sample memory while it is loaded;

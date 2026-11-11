@@ -51,7 +51,7 @@ public:
     bool setReserved(size_t samples);
     size_t reserved() const { return reserved_; }
     int16_t* reservedArea() { return pool_ && reserved_ ? pool_ + cap_ - reserved_ : nullptr; }
-    // [I] Card effects' memory (Echo's line, fork #21): the last `samples` of
+    // [I] Card effects' memory (Echo's line): the last `samples` of
     // the pool, above the reservation, while those effects are loaded. The
     // capacity the samples see (capacitySamples / capacityBytes) leaves it
     // out. Refused while a reservation is held (it would move) or when the
@@ -232,7 +232,7 @@ public:
     static constexpr uint8_t kTapLineIn = 9;
     // Master inserts of modules (audio/inserts.h), a chain in this order; main
     // loop. n = 0 removes them. [I] 8 (was 4): every master effect of
-    // opentracker-fx (6) may be on at once (card effects, fork #21).
+    // opentracker-fx (6) may be on at once (card effects).
     static constexpr int kMaxMasterInserts = 8;
     void setMasterInserts(IMasterInsert* const* ins, int n) {
         nIns_ = 0;   // the audio side sees an empty chain while it changes

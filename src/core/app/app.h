@@ -571,7 +571,7 @@ public:
     // "No room for it", ...); nullptr = not a card engine, or loaded.
     const char* cardSlotState(int s) const;
 
-    // ---- [I] master effects: the FX bank (app/master_fx.cpp, fork #21) ----
+    // ---- [I] master effects: the FX bank (app/master_fx.cpp) ----
     // Every effect with a settings page, compiled in or on the card (loaded
     // or not), in the master chain's order (ModuleHost::chainOrder). A card
     // effect loads while it is on: Turn on loads it (while playing: at the

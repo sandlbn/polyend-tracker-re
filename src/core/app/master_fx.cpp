@@ -1,4 +1,4 @@
-// [I] Master effects (fork #21): the FX bank's list and the card effects'
+// [I] Master effects: the FX bank's list and the card effects'
 // loading. A card effect (modules/module_files.h) loads while it is on, with
 // the card synths in one load set (App::syncCardSynths): Turn on loads it at
 // once while stopped, at the next Stop while playing; Off lets it leave at
