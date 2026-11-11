@@ -84,9 +84,10 @@ constexpr const char* kModulesDir = "Modules";
 constexpr uint32_t kOtmMaxShareCuts = 32;
 using OtmShareCut = uint16_t;
 // The row cuts of the files being loaded sit at the end of the loader's
-// scratch (only with a fast block to share): the file gets the rest.
+// scratch (only with a fast block to share): the file gets the rest. [I] With
+// each cut, the hot row cut it stands for (loadCardSynths).
 constexpr uint32_t kOtmCutScratchBytes =
-    OtmLoadReport::kMax * (kOtmMaxShareCuts * sizeof(OtmShareCut) + sizeof(uint32_t));
+    OtmLoadReport::kMax * (2 * kOtmMaxShareCuts * sizeof(OtmShareCut) + sizeof(uint32_t));
 
 // Shares a fast block of cap bytes between n modules' rows (cuts[i][0 ..
 // nCuts[i]) = module i's cuts, module_loader.h): they take turns, in order,

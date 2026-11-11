@@ -97,12 +97,6 @@ struct CardState {
     bool hotOk[OtmLoadReport::kMaxHot];
     int8_t hotWant[OtmLoadReport::kMaxHot];
     int nHotWant;
-    // One share: each taker's costs per cut (fast block bytes, 8-aligned)
-    // and, for a hot row, the row cut each cost stands for (both inside the
-    // fast block, so 16 bits).
-    OtmShareCut cost[OtmLoadReport::kMax][kOtmMaxShareCuts];
-    OtmShareCut rowCut[OtmLoadReport::kMax][kOtmMaxShareCuts];
-    uint32_t nCost[OtmLoadReport::kMax];
 };
 OT_SDRAM_BSS CardState g_card;
 
@@ -136,6 +130,9 @@ int wantedHot(const int32_t* engines, int n, int8_t* out) {
 struct CutTable {
     OtmShareCut cuts[OtmLoadReport::kMax][kOtmMaxShareCuts];
     uint32_t nCuts[OtmLoadReport::kMax];
+    // [I] loadCardSynths: for a hot row, the row cut each cost stands for
+    // (cuts[i] are then its spans: code, stubs, tables).
+    OtmShareCut rowCut[OtmLoadReport::kMax][kOtmMaxShareCuts];
 };
 static_assert(sizeof(CutTable) == kOtmCutScratchBytes, "kOtmCutScratchBytes");
 
@@ -409,33 +406,38 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
         if (!seen) taker[nTaker++] = t;
     }
     bool ok = true;
-    // Each taker's costs: a card file's cuts, a hot row's spans (code, stubs, tables).
+    // Each taker's costs: a card file's cuts, a hot row's spans (code, stubs,
+    // tables), at the scratch's end. No table: nothing shares the block (the
+    // hot rows run from flash, the card synths from the pool).
+    CutTable* t = cutTable(pool, scratch, &scratchCap);
     for (int i = 0; i < nTaker; ++i) {
-        g_card.nCost[i] = 0;
+        if (t) t->nCuts[i] = 0;
         if (taker[i] >= 0) {
+            if (!t) continue;
             const HotRow& row = pool.hotRows->rows[taker[i]];
             for (uint32_t k = 0; k < row.nCuts && k < kOtmMaxShareCuts; ++k) {
                 const uint32_t span = hotRowSpan(row, row.cuts[k]);
                 if (span == UINT32_MAX || span > 0xFFF8u || row.cuts[k] > 0xFFFFu) break;
-                g_card.cost[i][g_card.nCost[i]] = OtmShareCut((span + 7u) & ~7u);
-                g_card.rowCut[i][g_card.nCost[i]++] = OtmShareCut(row.cuts[k]);
+                t->cuts[i][t->nCuts[i]] = OtmShareCut((span + 7u) & ~7u);
+                t->rowCut[i][t->nCuts[i]++] = OtmShareCut(row.cuts[k]);
             }
             continue;
         }
         OtmLoadReport::Item& it = r.items[~taker[i]];
         uint32_t len = 0;
         OtmHeader hdr;
-        it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, g_card.cost[i], &g_card.nCost[i]);
+        it.error = readChecked(fs, pool, it.file, scratch, scratchCap, &len, &hdr, t ? t->cuts[i] : nullptr,
+                               t ? &t->nCuts[i] : nullptr);
     }
     uint32_t share[OtmLoadReport::kMax] = {};
-    if (pool.fastMem) shareFastBlock(g_card.cost, g_card.nCost, nTaker, pool.fastCap - g_card.keepFast, share);
+    if (t) shareFastBlock(t->cuts, t->nCuts, nTaker, pool.fastCap - g_card.keepFast, share);
     for (int i = 0; i < nTaker; ++i) {
         if (taker[i] >= 0) {
             if (!share[i]) continue;
             const HotRow& row = pool.hotRows->rows[taker[i]];
             uint32_t cut = 0;   // the longest cut that costs the share
-            for (uint32_t k = 0; k < g_card.nCost[i]; ++k)
-                if (g_card.cost[i][k] == share[i]) cut = g_card.rowCut[i][k];
+            for (uint32_t k = 0; k < t->nCuts[i]; ++k)
+                if (t->cuts[i][k] == share[i]) cut = t->rowCut[i][k];
             const uint32_t at = r.fastUsed;
             const OtmBlock dst{pool.fastMem + at, pool.fastCap - at, pool.fastBase + at};
             if (!cut || !hotRowMove(row, cut, dst)) continue;   // it runs from flash
