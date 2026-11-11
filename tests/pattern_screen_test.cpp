@@ -300,6 +300,46 @@ TEST(column_key_hold_popup_timings) {
     h.up(btn::Fx1);
 }
 
+// Issue #186: a column key held as a modifier (a pad while it is down, or
+// its hold popup) goes back to the column it came from on release; a tap
+// alone still moves the cursor to that column.
+TEST(column_key_held_as_modifier_returns_to_the_column) {
+    Harness h;
+    App& a = *h.app;
+    PatternScreen& p = pe(h);
+    CHECK_EQ(p.col, 0);
+    // Instr held, a pad picks instrument 6: back to the Note column.
+    h.down(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.pad(5);
+    CHECK_EQ(a.currentInstrument(), 5);
+    h.up(btn::Instr);
+    CHECK_EQ(p.col, 0);
+    // The pads play notes again: no instrument change.
+    h.pad(9);
+    CHECK_EQ(a.currentInstrument(), 5);
+    // Held into its popup: back too.
+    h.down(btn::Instr);
+    h.run(220);
+    CHECK(p.popup().isOpen());
+    h.up(btn::Instr);
+    CHECK(!p.popup().isOpen());
+    CHECK_EQ(p.col, 0);
+    // A tap alone moves to the column and stays.
+    h.tap(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.tap(btn::Note);
+    CHECK_EQ(p.col, 0);
+    // Fx1 held with a pad from the Instr column: back to Instr.
+    h.tap(btn::Instr);
+    h.tap(btn::Rec);
+    h.down(btn::Fx1);
+    CHECK_EQ(p.col, 2);
+    h.pad(3);
+    h.up(btn::Fx1);
+    CHECK_EQ(p.col, 1);
+}
+
 TEST(fill_rekey_wraps_and_note_defaults) {
     Harness h;
     App& a = *h.app;
