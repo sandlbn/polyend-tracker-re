@@ -46,7 +46,8 @@ struct OtmPool {
 // What happened to each Modules/*.otm: filled at boot, updated by every
 // loadCardSynths (serial counts the changes).
 struct OtmLoadReport {
-    static constexpr int kMax = 16;
+    // [I] 32 (was 16): 11 card synths + 6 effects already make 17 files.
+    static constexpr int kMax = 32;
     struct Item {
         char file[40];      // name in Modules/ (longer names are skipped)
         OtmError error;     // None = loaded and registered (a synth: when last wanted)

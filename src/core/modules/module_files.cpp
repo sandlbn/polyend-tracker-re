@@ -20,6 +20,9 @@ struct Names {
     int n = 0;
     int skipped = 0;   // .otm files past the first kMax
 };
+// One list at a time (main loop): SDRAM, not the stack; a trivial type (no
+// static constructor), reset before each use.
+OT_SDRAM_BSS Names g_names;
 
 bool isOtm(const char* s) {
     const size_t n = std::strlen(s);
@@ -288,13 +291,14 @@ void dropCardSynths() {
 
 int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_t scratchCap,
                     OtmLoadReport* report) {
-    OtmLoadReport local;
+    static OT_SDRAM_BSS OtmLoadReport local;   // no report given (tests)
     OtmLoadReport& r = report ? *report : local;
     // A scan again: the pool's start and the fast block are rewritten below,
     // so no engine may still point into them.
     restoreHotRows();
     std::memset(r.hotCut, 0, sizeof(r.hotCut));
     r.n = 0;
+    r.skipped = 0;
     r.used = 0;
     r.fastUsed = 0;
     r.noRoom = false;
@@ -313,7 +317,8 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
     for (int k = 0; k < hotRowCount(); ++k)
         if (hotRowCheck(pool.hotRows->rows[k])) g_card.hotOk |= uint8_t(1u << k);
     // Name order, so the master inserts chain the same way on every boot.
-    Names names;
+    Names& names = g_names;
+    names.n = names.skipped = 0;
     if (fs.listDir(kModulesDir, &collect, &names) < 0 || names.n == 0) return 0;
     r.skipped = names.skipped;
     // The whole block while loading, then only what the modules took: the
@@ -543,8 +548,9 @@ int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap) {
     const OtmPool& pool = *g_card.pool;
     OtmLoadReport& r = *g_card.r;
     ++r.serial;
-    Names names;
-    if (fs.listDir(kModulesDir, &collect, &names) < 0) names = Names{};
+    Names& names = g_names;
+    names.n = names.skipped = 0;
+    if (fs.listDir(kModulesDir, &collect, &names) < 0) names.n = names.skipped = 0;
     // The pool grows first: no room (the stack), and the list and the card
     // synths loaded stay as they are until a rescan with room.
     if (names.n > 0 && (!pool.cap || (pool.resize && !pool.resize(pool.cap)))) {
@@ -555,7 +561,7 @@ int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap) {
     g_card.nEng = 0;
     g_card.nFx = 0;
     // The modules loaded for good stay where they are, in the report too.
-    OtmLoadReport::Item kept[OtmLoadReport::kMax];
+    static OT_SDRAM_BSS OtmLoadReport::Item kept[OtmLoadReport::kMax];   // main loop only
     int nKept = 0;
     for (int i = 0; i < r.n; ++i)
         if (r.items[i].loaded) kept[nKept++] = r.items[i];
