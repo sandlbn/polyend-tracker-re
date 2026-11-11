@@ -28,12 +28,12 @@ struct Recents;
 // backs the time budget up when the clock does not advance (host tests).
 enum class JobOp : uint8_t { None = 0, LoadWorkspace, Open, Save, Autosave, External };
 
-// Issue #184: which instruments the autosave copies from the project file
-// they stream from into the Workspace. kNone: none (power-off; the markers
-// cover a restart); kDirty: the edited ones (their header is written next);
-// kIdle: all of them while nothing plays (the periodic autosave); kAll: all
-// of them (Save, USB Storage mode).
-enum class StreamCopies : uint8_t { kNone = 0, kDirty, kIdle, kAll };
+// Issue #184: whether the autosave copies the instruments that stream from
+// their project file into the Workspace. kNone: no (while playing, blocking
+// flushes, power-off: the markers and header files cover a restart); kIdle:
+// all of them while nothing plays (the periodic autosave); kAll: all of them,
+// also after a failed copy (Save, USB Storage mode).
+enum class StreamCopies : uint8_t { kNone = 0, kIdle, kAll };
 
 // External job (File > Import Mod / Export As .it, spec 11 §0.1): unit()
 // does one bounded piece of work and adds its byte cost; it returns 1 while

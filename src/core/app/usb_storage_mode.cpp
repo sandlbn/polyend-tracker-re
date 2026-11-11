@@ -3,6 +3,8 @@
 // app.h, IUsbStorage in hal_api.h).
 #include "app/app.h"
 
+#include <cstdio>
+
 namespace ot {
 
 App::UsbEnter App::enterUsbStorage() {
@@ -23,6 +25,14 @@ App::UsbEnter App::enterUsbStorage() {
     // Workspace first (the computer may change the project).
     finishJob();
     autosave(StreamCopies::kAll);
+    for (int i = 0; i < kSampleInstrumentCount; ++i) {
+        if (!instrPresent[i] || !bit(srcMarker_, i)) continue;
+        // Still read from its project folder (a copy failed): say so.
+        char msg[64];
+        std::snprintf(msg, sizeof(msg), "Instrument %u not copied: keep its project folder", unsigned(uint8_t(i + 1)));
+        ui.notify(msg, 6000);
+        break;
+    }
     saveConfig();
     configDirty_ = configForce_ = false;
     // 3.-5. Unmount, stop the app's SD access, present the card.
