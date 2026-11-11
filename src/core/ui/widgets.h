@@ -294,6 +294,9 @@ struct ListView {
     // edge in the row's text colour; the name column ends before it (the
     // Sample Loader's '~' for a file that will stream from the card).
     const char* (*tag)(void* ctx, int index) = nullptr;
+    // [I] (may be null): the row's text colour (0xRRGGBB), or -1 for the
+    // set's (the FX bank: effects that are on in green).
+    int32_t (*colour)(void* ctx, int index) = nullptr;
     void* ctx = nullptr;
 };
 // Rows that fit: (h - 4) / 27 (14 for a 394-px list).
