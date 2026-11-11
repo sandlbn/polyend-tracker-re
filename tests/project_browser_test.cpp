@@ -216,6 +216,64 @@ TEST(file_screen_save_as_into_subfolder_and_open) {
     CHECK(a.pattern().tracks[0].steps[0].note == 36);
 }
 
+// Issue #187: Play / Stop work while a browser is open.
+TEST(file_screen_play_in_the_browsers) {
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::File);
+    h.tap(btn::F2);   // Open browser
+    FileScreen& s = fileScr(h);
+    CHECK(s.state == 1);
+    h.tap(btn::Play);
+    CHECK(a.seq.isPlaying());
+    CHECK(s.state == 1);
+    h.tap(btn::Play);
+    CHECK(!a.seq.isPlaying());
+    h.tap(btn::F7);   // Cancel
+    h.tap(btn::F5);   // Save As browser
+    CHECK(s.state == 3);
+    h.tap(btn::Play);
+    CHECK(a.seq.isPlaying());
+    h.tap(btn::Play);
+    CHECK(!a.seq.isPlaying());
+}
+
+// Issue #187: the Open browser keeps its folder and cursor after another
+// screen; a folder gone since then falls back to Projects.
+TEST(file_screen_browser_kept_across_screens) {
+    Harness h;
+    App& a = *h.app;
+    addProject(h, "Projects/Live/set1");
+    addProject(h, "Projects/Live/set2");
+    h.tap(btn::File);
+    h.tap(btn::F2);
+    FileScreen& s = fileScr(h);
+    CHECK(s.state == 1 && s.count == 1);   // "Live"
+    h.tap(btn::F1);                        // Enter
+    CHECK(s.count == 3);                   // "..", set1, set2
+    h.tap(btn::Down);
+    h.tap(btn::Down);
+    CHECK_EQ(s.cursor, 2);
+    h.tap(btn::Song);
+    CHECK(a.ui.active() == kModSong);
+    h.tap(btn::File);
+    CHECK(a.ui.active() == kModFile);
+    CHECK(s.state == 1);
+    CHECK_STR(s.browserPath(), "Projects/Live");
+    CHECK_EQ(s.count, 3);
+    CHECK_EQ(s.cursor, 2);
+    // The folder goes (USB storage, another browser): back at Projects.
+    h.tap(btn::Song);
+    for (auto it = h.fs.files.begin(); it != h.fs.files.end();)
+        it = it->first.rfind("Projects/Live", 0) == 0 ? h.fs.files.erase(it) : std::next(it);
+    for (auto it = h.fs.dirs.begin(); it != h.fs.dirs.end();)
+        it = it->rfind("Projects/Live", 0) == 0 ? h.fs.dirs.erase(it) : std::next(it);
+    h.tap(btn::File);
+    CHECK(s.state == 1);
+    CHECK_STR(s.browserPath(), "Projects");
+    CHECK_EQ(s.cursor, 0);
+}
+
 TEST(file_screen_delete_folder_with_active_project_refused) {
     Harness h;
     App& a = *h.app;
