@@ -174,6 +174,13 @@ private:
     uint32_t colKeyAt_ = 0;
     uint8_t pickerKey_ = 0;
     int pickTrack_ = -1, pickStep_ = -1, pickPattern_ = -1;   // where the list picked (-1 none)
+    // Issue #186: the column key down now, the column before it, and whether
+    // it was used as a modifier (a pad, its hold popup): then its release goes
+    // back to that column.
+    uint8_t heldColKey_ = 0;
+    int8_t colBefore_ = -1;
+    bool colKeyUsed_ = false;
+    void releaseColKey(uint8_t id);
     int noteBase_ = 48;             // Note popup: note under F1 (window of 8)
     uint8_t noteKeysOn_ = 0;        // Note popup F-keys sounding (bit = F-key)
     bool encUsedInHold_ = false;

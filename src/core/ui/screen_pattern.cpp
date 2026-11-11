@@ -213,6 +213,8 @@ void PatternScreen::start(int opt) {
     recArmPage = false;
     colKey_ = 0;
     pickerKey_ = 0;
+    heldColKey_ = 0;
+    colBefore_ = -1;
     for (auto& v : padVoice_) v = -1;
     if (step >= len()) step = len() - 1;
     statusStep_ = step;   // Ui resets the status cursor step before start()
@@ -513,8 +515,10 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
         // spec 06 §1.6 step 3: only the opening column key stays bound; the
         // FX list (kind 3) also binds F7/F8 to its description window
         // (spec 05 popup binder 0x29a44; spec 16 §B.4).
-        if (id == pickerKey_ && state == kRelease) commitPicker();
-        else if (state == kPress && popupMove(id)) ui_.dirty();
+        if (id == pickerKey_ && state == kRelease) {
+            commitPicker();
+            releaseColKey(id);
+        } else if (state == kPress && popupMove(id)) ui_.dirty();
         else if (pop_.kind() == 0 && btn::isFKey(id)) noteKey(id, state);
         else if (pop_.kind() == 3 && state == kPress && (id == btn::F7 || id == btn::F8))
             pop_.toggleDescription();
@@ -556,14 +560,18 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
                 }
             } else {
                 if (colMask && !(colMask & (1u << ck))) colMask = uint8_t(1u << ck);
-                col = ck;
                 if (!ui_.shift()) {
                     colKey_ = id;
                     colKeyAt_ = ui_.now();
+                    heldColKey_ = id;
+                    colBefore_ = int8_t(col);
+                    colKeyUsed_ = false;
                 }
+                col = ck;
             }
         } else if (state == kRelease) {
             if (colKey_ == id) colKey_ = 0;
+            releaseColKey(id);
         }
         keepTrackVisible();
         refreshBar();
@@ -1163,6 +1171,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     // A pad pressed while a column key is held is the key + pad entry: the
     // key no longer opens its hold popup, so its release writes nothing more.
     colKey_ = 0;
+    if (heldColKey_) colKeyUsed_ = true;
     // Hold focus: pads pick values (spec 06 §1.6).
     if (focus == 0) {
         focusUsed_ = true;
@@ -1277,6 +1286,7 @@ void PatternScreen::openPicker(int which) {
     App& a = app_;
     pickerKey_ = colKey_;
     colKey_ = 0;
+    if (heldColKey_) colKeyUsed_ = true;
     const Step& st = a.pattern().tracks[track].steps[step];
     if (which == 0) {
         const int n = st.note >= 0 ? st.note : lastNote();
@@ -1354,6 +1364,19 @@ void PatternScreen::noteKeysOff() {
     for (int i = 0; i < kNoteKeys; ++i)
         if (noteKeysOn_ & (1u << i)) app_.previewOff(uint16_t(kNoteKeyVoice + i));
     noteKeysOn_ = 0;
+}
+
+// Issue #186: a column key used as a modifier goes back to the column it
+// came from (a tap alone stays on its column).
+void PatternScreen::releaseColKey(uint8_t id) {
+    if (id != heldColKey_) return;
+    if (colKeyUsed_ && colBefore_ >= 0) {
+        col = colBefore_;
+        keepTrackVisible();
+    }
+    heldColKey_ = 0;
+    colBefore_ = -1;
+    colKeyUsed_ = false;
 }
 
 void PatternScreen::commitPicker() {
