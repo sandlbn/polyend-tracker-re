@@ -382,7 +382,6 @@ void MixerScreen::refreshBar() {
         const int n = fxCount();
         if (n) {
             const bool in = !fxCard(fxSel_) || fxIn_[fxSel_];
-            b.set(0, "Effect");
             b.set(6, fxOn(fxSel_) ? "Turn off" : "Turn on");
             b.set(7, "Edit", nullptr, in);
         }
