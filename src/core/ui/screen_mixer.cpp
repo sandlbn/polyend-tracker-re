@@ -23,18 +23,13 @@ constexpr int kModPage0 = 4;
 mod::IModulePage* modulePage(int page) {
     return page >= kModPage0 ? mod::ModuleHost::instance().pageAt(page - kModPage0) : nullptr;
 }
-// [I] FX bank rows: the modules with a settings page (effects), in module
-// order = the master chain's order.
+// [I] FX bank rows: the modules with a settings page (effects), in the
+// master chain's order.
 int fxCount() {
     const int n = mod::ModuleHost::instance().pageCount();
     return n < MixerScreen::kMaxFx ? n : MixerScreen::kMaxFx;
 }
-mod::IModule* fxModule(int k) {
-    mod::ModuleHost& h = mod::ModuleHost::instance();
-    for (int i = 0; i < h.count(); ++i)
-        if (h.at(i)->page() && k-- == 0) return h.at(i);
-    return nullptr;
-}
+mod::IModule* fxModule(int k) { return mod::ModuleHost::instance().pageModule(k); }
 // On = row 0 of its page is not "Off" (every effect page starts with its
 // on / mode row: "On" / "Off", BBD "I" / "II" / "Off").
 bool fxOn(int k) {

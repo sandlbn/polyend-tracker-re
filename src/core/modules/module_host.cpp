@@ -126,6 +126,35 @@ audio::IEffect* ModuleHost::effectById(const char* id) {
     return nullptr;
 }
 
+// [I] The master chain's order, the same whether an effect is compiled in or
+// loaded from the card: drive and colour, modulation, time, tape last.
+// Effects not listed follow in module order.
+namespace {
+constexpr const char* kChainOrder[] = {"DIRT", "LOFI", "CHOR", "BBDC", "ECHO", "TAPE"};
+constexpr int kChainOrderN = int(sizeof(kChainOrder) / sizeof(kChainOrder[0]));
+int chainRank(const IModule& m) {
+    for (int r = 0; r < kChainOrderN; ++r)
+        if (std::strncmp(m.info().id, kChainOrder[r], 4) == 0) return r;
+    return kChainOrderN;
+}
+}  // namespace
+
+int ModuleHost::chainOrder(IModule** out) {
+    if (!inited_) init();
+    int n = 0;
+    for (int i = 0; i < n_; ++i) {
+        IModule* m = mods_[i];
+        if (!m->masterInsert() && !m->page()) continue;
+        int at = n++;   // stable insertion by rank
+        while (at > 0 && chainRank(*out[at - 1]) > chainRank(*m)) {
+            out[at] = out[at - 1];
+            --at;
+        }
+        out[at] = m;
+    }
+    return n;
+}
+
 int ModuleHost::pageCount() {
     if (!inited_) init();
     int n = 0;
@@ -133,29 +162,32 @@ int ModuleHost::pageCount() {
     return n;
 }
 
-IModulePage* ModuleHost::pageAt(int k) {
-    if (!inited_) init();
-    for (int i = 0; i < n_; ++i)
-        if (IModulePage* p = mods_[i]->page()) {
-            if (k == 0) return p;
-            --k;
-        }
+IModule* ModuleHost::pageModule(int k) {
+    IModule* order[kMaxModules];
+    const int n = chainOrder(order);
+    for (int i = 0; i < n; ++i)
+        if (order[i]->page() && k-- == 0) return order[i];
     return nullptr;
 }
 
+IModulePage* ModuleHost::pageAt(int k) {
+    IModule* m = pageModule(k);
+    return m ? m->page() : nullptr;
+}
+
 int ModuleHost::masterInserts(audio::IMasterInsert** out, int cap) {
-    if (!inited_) init();
+    IModule* order[kMaxModules];
+    const int k = chainOrder(order);
     int n = 0;
-    for (int i = 0; i < n_ && n < cap; ++i)
-        if (audio::IMasterInsert* ins = mods_[i]->masterInsert()) out[n++] = ins;
+    for (int i = 0; i < k && n < cap; ++i)
+        if (audio::IMasterInsert* ins = order[i]->masterInsert()) out[n++] = ins;
     return n;
 }
 
 audio::IMasterInsert* ModuleHost::masterInsert() {
-    if (!inited_) init();
-    for (int i = 0; i < n_; ++i)
-        if (audio::IMasterInsert* ins = mods_[i]->masterInsert()) return ins;
-    return nullptr;
+    audio::IMasterInsert* first = nullptr;
+    masterInserts(&first, 1);
+    return first;
 }
 
 bool ModuleHost::fromCard(const IModule& m) const {

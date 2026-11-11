@@ -133,10 +133,16 @@ public:
     const SynthDescriptor* synthDescriptor(int32_t engineId);
     int engineCount();
     const SynthDescriptor* engineAt(int k);
-    // Module settings pages in module order.
+    // [I] The effects (modules with a master insert or a page) in the master
+    // chain's order: a fixed order by id (module_host.cpp), the same for a
+    // compiled-in and a card effect; unknown ids after, in module order.
+    // out holds kMaxModules.
+    int chainOrder(IModule** out);
+    // Module settings pages in chain order.
     int pageCount();
     IModulePage* pageAt(int k);
-    // Master inserts of the profile's modules, in module order (a chain).
+    IModule* pageModule(int k);   // [I] the module of pageAt(k)
+    // Master inserts of the profile's modules, in chain order.
     int masterInserts(audio::IMasterInsert** out, int cap);
     audio::IMasterInsert* masterInsert();   // the first, or nullptr
     // [3.x] Per-instance effects of the profile's modules, in module order (no
