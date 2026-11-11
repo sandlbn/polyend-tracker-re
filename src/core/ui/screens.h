@@ -161,6 +161,13 @@ private:
     uint8_t colKey_ = 0;            // column key waiting for its hold popup
     uint32_t colKeyAt_ = 0;
     uint8_t pickerKey_ = 0;
+    // Issue #186: the column key down now, the column before it, and whether
+    // it was used as a modifier (a pad, its hold popup): then its release goes
+    // back to that column.
+    uint8_t heldColKey_ = 0;
+    int8_t colBefore_ = -1;
+    bool colKeyUsed_ = false;
+    void releaseColKey(uint8_t id);
     int noteBase_ = 48;             // Note popup: note under F1 (window of 8)
     uint8_t noteKeysOn_ = 0;        // Note popup F-keys sounding (bit = F-key)
     bool encUsedInHold_ = false;
@@ -513,6 +520,7 @@ public:
     void doNew();
     void doOpenSelected();
     void list();
+    const char* browserPath() const;   // the Open / Save browser's folder
 
     // Project cover preview (spec 05 appendix E1.6, spec 13 §I.3): 0 idle,
     // 1 waiting for the 2 s hold, 2 loaded (drawn), 3 no/invalid image.

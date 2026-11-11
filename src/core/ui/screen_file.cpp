@@ -256,9 +256,24 @@ void FileScreen::start(int opt) {
     (void)opt;
     g_app = &app_;
     projBrowser().bind(entries, ProjectBrowser::kMaxEntries);
-    state = 0;
+    // Issue #187: back from another screen, an open Open / Save browser stays
+    // in its folder at its row (listed anew: the list memory is shared); a
+    // folder gone meanwhile goes back to Projects.
+    if (state == 1 || state == 3) {
+        ProjectBrowser& br = projBrowser();
+        if (!br.atRoot() && !app_.fs().exists(br.path())) {
+            br.reset(app_, kProjectsDir);
+            focus = 0;
+            cursor = 0;
+        }
+        list();
+    } else {
+        state = 0;
+    }
     refreshBar();
 }
+
+const char* FileScreen::browserPath() const { return projBrowser().path(); }
 
 // spec 05 appendix E1.6 / spec 13 §I.3: when a project stays selected in the
 // browser for more than 2000 ms, "<project folder>/cover" (.jpg, else .jpeg;
@@ -470,7 +485,8 @@ static void saveNow(void* ctx, int key) {
         return;
     }
     // spec 05 appendix E3: Save As into the Save browser's current folder.
-    s->start(0);   // back to the File main page
+    s->state = 0;   // back to the File main page
+    s->start(0);
     if (!startSaveProjectInto(a, projBrowser().path(), g_saveName, saveDone, s)) {
         a.ui.notify("Save failed");
         s->pending = 0;
@@ -621,6 +637,11 @@ void FileScreen::onButton(uint8_t id, uint8_t st) {
     App& a = app_;
     g_app = &a;
     if (st != kPress) return;
+    // Issue #187: Play / Stop also with a browser or the Import Mod list open.
+    if (id == btn::Play && (state == 1 || state == 2 || state == 3)) {
+        Screen::onButton(id, st);
+        return;
+    }
     if (state == 0) {
         switch (id) {
             case btn::F1: doNew(); break;
