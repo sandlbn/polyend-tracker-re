@@ -513,6 +513,7 @@ public:
     void doNew();
     void doOpenSelected();
     void list();
+    const char* browserPath() const;   // the Open / Save browser's folder
 
     // Project cover preview (spec 05 appendix E1.6, spec 13 §I.3): 0 idle,
     // 1 waiting for the 2 s hold, 2 loaded (drawn), 3 no/invalid image.
