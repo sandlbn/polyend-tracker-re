@@ -1255,6 +1255,7 @@ void App::streamUnbindAll() {
         stream_.streamOf[i] = -1;
         stream_.warnedMode[i] = 0xFF;
     }
+    std::memset(streamSrc_, 0, sizeof(streamSrc_));
 }
 
 void App::serviceStreams(uint32_t nowMs) {
@@ -1280,6 +1281,12 @@ void App::streamUnbind(int slot) {
     engine.setStreamSource(slot, nullptr);
     if (hal_.streamReader) hal_.streamReader->unbind(uint8_t(slot));
     stream_.streamOf[slot] = -1;
+    setBitOf(streamSrc_, slot, false);
+}
+
+// Issue #184: nothing plays, records or streams (the copies run then).
+bool App::copyIdle() const {
+    return !seq.isPlaying() && !seq.isArmed() && streamActive() == 0 && !capture.active();
 }
 
 void App::refreshStreamSources() {
