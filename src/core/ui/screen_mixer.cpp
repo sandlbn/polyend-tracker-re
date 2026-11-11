@@ -15,11 +15,38 @@ namespace ot {
 
 namespace {
 // Master key pages: Master, Track Mixer, Global Mixer (the stock cycle), then
-// one per module settings page (modules/module_ui.h), reached with Shift + Master.
+// [I] the FX bank (Shift + Master) and one page per module settings page
+// (modules/module_ui.h), opened from the bank with Edit.
 constexpr int kFixedPages = 3;
-int masterPages() { return kFixedPages + mod::ModuleHost::instance().pageCount(); }
+constexpr int kFxPage = 3;
+constexpr int kModPage0 = 4;
 mod::IModulePage* modulePage(int page) {
-    return page >= kFixedPages ? mod::ModuleHost::instance().pageAt(page - kFixedPages) : nullptr;
+    return page >= kModPage0 ? mod::ModuleHost::instance().pageAt(page - kModPage0) : nullptr;
+}
+// [I] FX bank rows: the modules with a settings page (effects), in module
+// order = the master chain's order.
+int fxCount() {
+    const int n = mod::ModuleHost::instance().pageCount();
+    return n < MixerScreen::kMaxFx ? n : MixerScreen::kMaxFx;
+}
+mod::IModule* fxModule(int k) {
+    mod::ModuleHost& h = mod::ModuleHost::instance();
+    for (int i = 0; i < h.count(); ++i)
+        if (h.at(i)->page() && k-- == 0) return h.at(i);
+    return nullptr;
+}
+// On = row 0 of its page is not "Off" (every effect page starts with its
+// on / mode row: "On" / "Off", BBD "I" / "II" / "Off").
+bool fxOn(int k) {
+    mod::IModulePage* p = mod::ModuleHost::instance().pageAt(k);
+    if (!p) return false;
+    mod::ModuleRow r{};
+    p->row(0, r);
+    return std::strcmp(r.value, "Off") != 0;
+}
+bool fxCard(int k) {
+    const mod::IModule* m = fxModule(k);
+    return m && mod::ModuleHost::instance().fromCard(*m);
 }
 }  // namespace
 
@@ -351,6 +378,16 @@ void MixerScreen::refreshBar() {
     Project& p = a.project;
     b.clear();
     char v[24];
+    if (page == kFxPage) {
+        const int n = fxCount();
+        if (n) {
+            const bool in = !fxCard(fxSel_) || fxIn_[fxSel_];
+            b.set(0, "Effect");
+            b.set(6, fxOn(fxSel_) ? "Turn off" : "Turn on");
+            b.set(7, "Edit", nullptr, in);
+        }
+        return;
+    }
     if (mod::IModulePage* mp = modulePage(page)) {
         for (int i = 0; i < mp->rows() && i < 8; ++i) {
             mod::ModuleRow row{};
@@ -531,8 +568,61 @@ void MixerScreen::masterChange(int d) {
     a.markProjectDirty();
 }
 
+// [I] FX bank keys: F7 on / off, F8 Edit (the selected effect's page).
+// Mockup: a card effect "loads" at once when turned on (no memory moves);
+// the real load takes the module from the card, Echo's line from the top of
+// the sample memory.
+void MixerScreen::fxKey(int f) {
+    const int n = fxCount();
+    if (!n) return;
+    fxSel_ = clampi(fxSel_, 0, n - 1);
+    mod::IModulePage* p = mod::ModuleHost::instance().pageAt(fxSel_);
+    const bool card = fxCard(fxSel_);
+    if (f == 6) {
+        if (fxOn(fxSel_)) {
+            p->adjust(0, -100);   // Off: a card effect leaves at the next Stop
+        } else {
+            const mod::IModule* m = fxModule(fxSel_);
+            const uint32_t need = m ? m->info().sdramBytes : 0;
+            if (card && !fxIn_[fxSel_] && need && app_.bank.freeSamples() * 2u < need) {
+                ui_.notify("Not enough sample memory");
+                return;
+            }
+            if (card) fxIn_[fxSel_] = true;
+            p->adjust(0, 1);
+        }
+        app_.markProjectDirty();
+    } else if (f == 7) {
+        if (card && !fxIn_[fxSel_]) return;
+        page = kModPage0 + fxSel_;
+        param = 0;
+    }
+}
+
+// A card effect that is on is in memory; one that is off leaves once the
+// song is stopped.
+void MixerScreen::fxSync() {
+    const bool playing = app_.seq.isPlaying();
+    for (int k = 0; k < fxCount(); ++k) {
+        if (!fxCard(k)) continue;
+        const bool in = fxOn(k) || (fxIn_[k] && playing);
+        if (in != fxIn_[k]) {
+            fxIn_[k] = in;
+            refreshBar();
+            ui_.dirty();
+        }
+    }
+}
+
 void MixerScreen::change(int d) {
     App& a = app_;
+    if (page == kFxPage) {
+        const int n = fxCount();
+        if (n) fxSel_ = clampi(fxSel_ + d, 0, n - 1);
+        refreshBar();
+        ui_.dirty();
+        return;
+    }
     if (mod::IModulePage* mp = modulePage(page)) {
         if (param >= 0 && param < mp->rows()) mp->adjust(param, d);
         ui_.dirty();
@@ -640,13 +730,15 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
                 ui_.switchTo(ui_.previous());
                 return;
             }
-            // Master cycles the stock pages (a module page goes back to Master);
-            // Shift + Master steps through the module pages (modules/module_ui.h).
-            const int nMod = masterPages() - kFixedPages;
+            // Master cycles the stock pages (the FX bank or a module page goes
+            // back to Master); [I] Shift + Master opens the FX bank, and from
+            // the bank goes back to Master.
             if (!masterHoldFired_) {   // the hold already jumped
-                if (ui_.isDown(btn::Shift) && nMod > 0) {
-                    page = page >= kFixedPages ? kFixedPages + (page - kFixedPages + 1) % nMod : kFixedPages;
+                if (ui_.isDown(btn::Shift)) {
+                    page = page == kFxPage ? 0 : kFxPage;
+                    sub = 0;
                     param = 0;
+                    if (page == kFxPage) fxSync();
                 } else {
                     page = page >= kFixedPages ? 0 : (page + 1) % kFixedPages;
                 }
@@ -658,6 +750,11 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
     if (masterPending_ && state == kPress && ui_.isDown(btn::Master)) otherKeyDuringMaster_ = true;
     if (btn::isFKey(id)) {
         const int f = id;
+        if (page == kFxPage) {
+            if (state == kPress) fxKey(f);
+            refreshBar();
+            return;
+        }
         if (mod::IModulePage* mp = modulePage(page)) {   // module page: F-key = row
             if (state == kPress && f < mp->rows()) param = f;
             refreshBar();
@@ -699,6 +796,10 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
     switch (id) {
         case btn::Up:
         case btn::Down: {
+            if (page == kFxPage) {   // list: Up = the item above
+                change(id == btn::Up ? -1 : 1);
+                break;
+            }
             // Value bars: Up = +1, Down = -1. Option lists (drawn top to
             // bottom): Up = the item above, Down = the item below, like the
             // encoder (+ = next item down) [S owner test on 1.9.2].
@@ -763,7 +864,7 @@ void MixerScreen::onButton(uint8_t id, uint8_t state) {
 
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
 bool MixerScreen::encoderOnList() const {
-    return page == 0 && isListParam(sub, param);   // Master option lists
+    return (page == 0 && isListParam(sub, param)) || page == kFxPage;   // Master option lists, [I] FX bank
 }
 #endif
 
@@ -830,6 +931,10 @@ float MixerScreen::reductionDb(float meanGain) {
 }
 
 void MixerScreen::update(uint32_t now) {
+    if (page == kFxPage) {
+        fxSync();
+        return;
+    }
     if (page == 0 && sub == 3) {
         // Limiter gain-reduction meter (spec 06 §4.3), live.
         if (now - lastGr_ < 50) return;
@@ -907,9 +1012,78 @@ void MixerScreen::update(uint32_t now) {
     if (changed) ui_.dirty();
 }
 
+namespace {
+// [I] FX bank list rows: the effect's name, its state at the right edge.
+struct FxRows {
+    const bool* in;
+    uint32_t on;
+};
+void fxItem(void*, int k, char* out, int cap) {
+    const mod::IModule* m = fxModule(k);
+    std::snprintf(out, size_t(cap), "%s", m ? m->info().name : "");
+}
+const char* fxTag(void* ctx, int k) {
+    const FxRows& r = *static_cast<const FxRows*>(ctx);
+    if (fxOn(k)) return "On";
+    return fxCard(k) && !r.in[k] ? "Card" : "Off";
+}
+int32_t fxColour(void* ctx, int k) {
+    return fxOn(k) ? int32_t(static_cast<const FxRows*>(ctx)->on) : -1;
+}
+}  // namespace
+
 void MixerScreen::draw(Gfx& g) {
     App& a = app_;
     const Theme& th = ui_.th();
+    if (page == kFxPage) {
+        ui_.drawTitle(g, "Master FX");
+        const int n = fxCount();
+        fxSel_ = n ? clampi(fxSel_, 0, n - 1) : 0;
+        FxRows rows{fxIn_, th.good & 0xFFFFFFu};
+        wg::ListView v;
+        v.x = wg::columnX(0);
+        v.w = wg::columnW(3);
+        v.count = n;
+        v.sel = n ? fxSel_ : -1;
+        v.active = true;
+        fxTop_ = wg::listFollow(v.sel, v.count, wg::listVisibleRows(v.h), fxTop_);
+        v.top = fxTop_;
+        v.item = fxItem;
+        v.tag = fxTag;
+        v.colour = fxColour;
+        v.ctx = &rows;
+        wg::list(g, th, v);
+        // The selected effect: where it lives, what it costs, where it runs.
+        wg::panelColumn(g, th, 3, 5);
+        const mod::IModule* m = n ? fxModule(fxSel_) : nullptr;
+        if (!m) {
+            g.text(wg::columnX(3) + 20, 60, kFontText, th.dim, "No effects in this build");
+            return;
+        }
+        const bool card = fxCard(fxSel_), on = fxOn(fxSel_), in = !card || fxIn_[fxSel_];
+        const int x = wg::columnX(3) + 20;
+        int y = 50;
+        g.text(x, y, kFontTitle, on ? th.good : th.text, m->info().name);
+        y += 50;
+        g.text(x, y, kFontText, th.text,
+               !card ? "Built in" : in ? "From the card, loaded" : "On the card, not loaded");
+        y += 34;
+        char line[48];
+        const uint32_t kb = (m->info().sdramBytes + 1023u) / 1024u;
+        if (kb) {
+            std::snprintf(line, sizeof(line), "Uses %lu KB of sample memory", static_cast<unsigned long>(kb));
+            g.text(x, y, kFontText, th.text, line);
+            y += 26;
+            g.text(x, y, kFontSmall, th.dim, card ? "while loaded" : "");
+            y += 34;
+        }
+        std::snprintf(line, sizeof(line), "Master chain: %d of %d", fxSel_ + 1, n);
+        g.text(x, y, kFontText, th.dim, line);
+        y += 34;
+        if (card && in && !on) g.text(x, y, kFontText, th.dim, "Leaves memory at the next Stop");
+        else if (card && !in) g.text(x, y, kFontText, th.dim, "Turn on loads it");
+        return;
+    }
     if (mod::IModulePage* mp = modulePage(page)) {
         char title[32];
         std::snprintf(title, sizeof(title), "Master %s", mp->title());

@@ -422,7 +422,7 @@ public:
 #endif
     bool ownsModuleKey(uint8_t id) const override { return id == btn::Master; }
 
-    int page = 0;           // 0 master, 1 track mixer, 2 global mixer
+    int page = 0;           // 0 master, 1 track mixer, 2 global mixer, 3 FX bank, 4.. module pages
     int sub = 0;            // master sub-page: 0 main, 1 reverb, 2 delay, 3 limiter, 4 EQ
     int param = 0;          // selected parameter on the (sub-)page
     bool rename = false;
@@ -457,6 +457,7 @@ public:
     // True when parameter `param` of Master sub-page `sub` is an option list
     // (encoder + / Down = next item, Up = previous item) rather than a bar.
     static bool isListParam(int sub, int param);
+    static constexpr int kMaxFx = 16;   // [I] FX bank rows
 
 private:
     void refreshBar();
@@ -465,6 +466,15 @@ private:
     void mixerKey(int i, uint8_t state);
     void updateActivity(uint32_t now);
     void drawBankB(Gfx& g, uint32_t off);
+    // [I] FX bank (Shift + Master): every effect with a settings page, in
+    // chain order; F7 turns the selected one on or off, F8 edits it.
+    void fxKey(int f);
+    void fxSync();
+    int fxSel_ = 0;
+    int fxTop_ = 0;
+    // A card effect is in memory: on, or off while the song plays (it
+    // leaves at the next Stop). The sim mockup: loading is not built yet.
+    bool fxIn_[kMaxFx] = {};
     bool held_[8] = {};
     bool changed_[8] = {};
     // Master key (spec 06 §4.1): snapshot taken on press.

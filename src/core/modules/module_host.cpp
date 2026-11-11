@@ -64,6 +64,7 @@ void ModuleHost::init() {
         for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
             if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
     }
+    nInit_ = n_;
 #if defined(OT_SLOT_INSERTS) && OT_SLOT_INSERTS
     // The core's reservation in the same block (tools/profile.py sizes it).
     insertLines_ = sdram(uint32_t(audio::kSynthSlots) * audio::kEffectWorkMax);
@@ -157,6 +158,14 @@ audio::IMasterInsert* ModuleHost::masterInsert() {
     return nullptr;
 }
 
+bool ModuleHost::fromCard(const IModule& m) const {
+    for (int i = nInit_; i < n_; ++i)
+        if (mods_[i] == &m) return true;
+    for (int i = 0; kCardModuleIds[i]; ++i)
+        if (std::strncmp(m.info().id, kCardModuleIds[i], 4) == 0) return true;
+    return false;
+}
+
 bool ModuleHost::addForTest(IModule& m) { return addLoaded(m); }
 
 void ModuleHost::removeLoaded(IModule& m) {
@@ -189,6 +198,7 @@ bool ModuleHost::addLoaded(IModule& m, bool onDemand) {
         IModule* old = mods_[i];
         for (int k = i; k + 1 < n_; ++k) mods_[k] = mods_[k + 1];
         --n_;
+        if (i < nInit_) --nInit_;
         int w = 0;
         for (int k = 0; k < nDesc_; ++k) {
             bool mine = false;

@@ -109,6 +109,9 @@ public:
 using ModuleFactory = IModule& (*)();
 // Generated (module_registry.cpp): nullptr-terminated, constant-initialised.
 extern const ModuleFactory kModuleFactories[];
+// [I] Generated: ids of the profile's card modules among kModuleFactories
+// (host builds compile them in; device images have none), nullptr-terminated.
+extern const char* const kCardModuleIds[];
 
 class ModuleHost {
 public:
@@ -153,6 +156,9 @@ public:
     // [I] Takes a module addLoaded(m, true) registered out again (its engines
     // with it). Main loop, while the audio block runs none of its code.
     void removeLoaded(IModule& m);
+    // [I] A card module: loaded from the card (addLoaded), or one a host
+    // build compiled in (kCardModuleIds).
+    bool fromCard(const IModule& m) const;
     // Id of the last module refused at init ("" = none).
     const char* refused() const { return refused_; }
     // [3.x] Module memory in the SDRAM (docs/PLAN_TECHNO.md E1): `bytes` from
@@ -187,6 +193,7 @@ private:
     IModule* mods_[kMaxModules] = {};
     const SynthDescriptor* desc_[kMaxEngines] = {};
     int n_ = 0;
+    int nInit_ = 0;   // [I] modules registered by init() (the rest: addLoaded)
     int nDesc_ = 0;
     const SynthDescriptor* last_ = nullptr;   // the last synthDescriptor() result
     bool inited_ = false;

@@ -28,4 +28,8 @@ modules = [
     { id = "HND1", path = "modules/hand", card = true },
     { id = "BTY1", path = "modules/btype", card = true },
     { id = "ARC1", path = "modules/arc", card = true },
+    # [I] Card effects: master inserts after the built-in ones.
+    { id = "DIRT", path = "../opentracker-fx/modules/dirt", card = true },
+    { id = "LOFI", path = "../opentracker-fx/modules/lofi", card = true },
+    { id = "ECHO", path = "../opentracker-fx/modules/echo", card = true },
 ]
