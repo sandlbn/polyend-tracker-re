@@ -116,6 +116,31 @@ jobs:
           path: build/full/*.ptf
           if-no-files-found: error
 
+  # The other shipping profiles link and pass the same size checks: each has
+  # its own SDRAM and flash budget (profiles/*.toml), which the full build
+  # alone doesn't show.
+  profiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [classic, retro, techno, idm, mini, nofm, core]
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fetch the module repositories
+        run: |
+          for r in opentracker-synths opentracker-fx; do
+            git clone --depth 1 "https://github.com/opentracker-fw/$r" "$GITHUB_WORKSPACE/../../$r"
+          done
+      - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
+        with:
+          release: '14.2.Rel1'
+      - name: Build
+        run: make PROFILE=${{ matrix.profile }} -j"$(nproc)"
+      - name: Flash, stack headroom and libm checks
+        run: python3 tools/telemetry_check.py size --size-tool arm-none-eabi-size build/${{ matrix.profile }}/opentracker.elf
+
   # The PR (GitHub's merge commit) against its base: tools/size_report.py
   # writes a table to the job summary. Reports only; the limits are the
   # firmware job's checks.
