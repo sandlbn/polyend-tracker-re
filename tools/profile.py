@@ -18,6 +18,13 @@
       fit. gen runs the same check. [3.x] The module SDRAM (sdram_bytes: the
       block ModuleHost::sdram() hands out, OT_PROFILE_SDRAM_BYTES in
       .sdram_bss) against the optional sdram_modules_max.
+
+[I] Module entries: `in_tree = true` takes the path from the
+repository root (modules/<name>) instead of MODULES_DIR. `card = true` makes a
+card module: the device image leaves it out (make card builds it as
+build/<profile>/otm/<name>.otm for the card's Modules/ folder), while host
+builds (gen --host: tests, sim, tools) compile it in, as a device with the
+card's modules would have it. Budgets count only the image's modules.
 """
 import argparse
 import os
@@ -52,8 +59,12 @@ def load_toml(path):
         fail(f"{path}: {e}")
 
 
-def load(profile_path, modules_dir):
+def load(profile_path, modules_dir, host=True):
+    """The profile and its modules; host=False leaves the card modules out (as
+    the "card" list of the result's profile)."""
     prof = load_toml(profile_path)
+    root = os.path.dirname(os.path.dirname(os.path.abspath(profile_path)))
+    prof["card"] = []
     for key in ("name", "variant"):
         if not isinstance(prof.get(key), str):
             fail(f"{profile_path}: '{key}' missing")
@@ -72,7 +83,7 @@ def load(profile_path, modules_dir):
         mid, rel = entry.get("id"), entry.get("path")
         if not mid or not rel:
             fail(f"{profile_path}: module entries need id and path")
-        mdir = os.path.join(modules_dir, rel)
+        mdir = os.path.join(root if entry.get("in_tree") else modules_dir, rel)
         man = load_toml(os.path.join(mdir, "module.toml"))
         if man.get("id") != mid:
             fail(f"{mdir}/module.toml: id {man.get('id')!r} != profile id {mid!r}")
@@ -121,11 +132,15 @@ def load(profile_path, modules_dir):
             if b in basenames:
                 fail(f"module {mid}: file name {b} also in module {basenames[b]} (names must be unique)")
             basenames[b] = mid
-        mods.append({
-            "id": mid, "dir": os.path.abspath(mdir), "man": man,
+        m = {
+            "id": mid, "dir": os.path.abspath(mdir), "man": man, "card": bool(entry.get("card")),
             "srcs": [os.path.abspath(p) for p in srcs], "tests": [os.path.abspath(p) for p in tests],
             "benches": [os.path.abspath(p) for p in benches], "bench_entry": bench_entry,
-        })
+        }
+        if m["card"]:
+            prof["card"].append(m)
+        if host or not m["card"]:
+            mods.append(m)
     return prof, mods
 
 
@@ -191,7 +206,7 @@ def budget_check(prof, mods):
 
 
 def budget(args):
-    prof, mods = load(args.profile, args.modules_dir)
+    prof, mods = load(args.profile, args.modules_dir, host=False)
     print(f"profile {prof['name']} ({prof['variant']}, \"{prof['display_name']}\"): {len(mods)} modules")
     print(f"  {'id':4s} {'flash_max':>9s} {'sram':>6s} {'fastrun':>7s} {'sdram':>7s} {'cpu/unit':>8s}")
     for m in mods:
@@ -211,12 +226,12 @@ def budget(args):
 
 
 def gen(args):
-    prof, mods = load(args.profile, args.modules_dir)
+    prof, mods = load(args.profile, args.modules_dir, host=args.host)
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     rev = repo_rev(args.modules_dir) if mods else "none"
     sums = {k: sum(int(m["man"].get(k, 0)) for m in mods) for k in BUDGETS}
-    _, errors = budget_check(prof, mods)
+    _, errors = budget_check(prof, [m for m in mods if not m["card"]])
     if errors:
         fail(errors[0])
     ids = [m["id"] for m in mods]
@@ -237,6 +252,8 @@ def gen(args):
         f"MOD_TEST_SRCS := {' '.join(os.path.basename(p) for m in mods for p in m['tests'])}",
         f"MOD_BENCH_PATHS := {' '.join(p for m in mods for p in m['benches'])} {os.path.join(out, 'module_bench.cpp')}",
         f"MOD_INCS := -I{out} {' '.join('-I' + d for d in src_dirs)}",
+        # [I] The card modules' directories (make card), in profile order.
+        f"MOD_CARD_DIRS := {' '.join(m['dir'] for m in prof['card'])}",
     ]
     for m in mods:
         mk.append(f"MOD_OBJ_NAMES_{m['id']} := "
@@ -278,7 +295,7 @@ def gen(args):
 
 
 def sizes(args):
-    _, mods = load(args.profile, args.modules_dir)
+    _, mods = load(args.profile, args.modules_dir, host=False)
     per_obj = {}
     with open(args.size_output) as f:
         for line in f:
@@ -310,6 +327,7 @@ def main():
         if name == "gen":
             p.add_argument("--out", required=True)
             p.add_argument("--quiet", action="store_true")
+            p.add_argument("--host", action="store_true", help="[I] compile the card modules in (host builds)")
         elif name == "sizes":
             p.add_argument("--size-output", required=True)
     args = ap.parse_args()

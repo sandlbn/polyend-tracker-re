@@ -1,0 +1,25 @@
+# wtfm: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio4wtfm12_GLOBAL__N_19op1KernelILi0ELb0ELb0EEEvPfRfS5_S5_NS2_6OpRampENS2_10CarrierModE 0.33777  # 160 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi0ELi0ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.25995  # 196 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi0ELi0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.19815  # 172 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_16enumOfEfi 0.00539  # 32 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_15rowAtEiff 0.02145  # 408 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_110pitchToIncEfff 0.01150  # 268 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_110WtfmEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.01788  # 548 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_18evalDestEPKfRKNS2_9SlotStateES4_bffRNS2_4DestE 0.02640  # 856 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_110WtfmEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.05226  # 2228 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19op1KernelILi2ELb0ELb0EEEvPfRfS5_S5_NS2_6OpRampENS2_10CarrierModE 0.00547  # 316 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi0ELi2ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00447  # 264 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi1ELi0ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00388  # 232 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi2ELi0ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00380  # 228 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi3ELi0ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00380  # 228 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi1ELi2ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00459  # 280 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi2ELi2ELb1EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00469  # 288 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi1ELi0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00233  # 188 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi2ELi0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00223  # 184 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19op1KernelILi0ELb1ELb0EEEvPfRfS5_S5_NS2_6OpRampENS2_10CarrierModE 0.00278  # 264 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19svfKernelILi3ELi0ELb0EEEvPfS4_NS2_7SvfRampES4_S4_ff 0.00118  # 184 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19op2KernelILi1ELb1EEEvPfRfS5_S5_NS2_6OpRampEff 0.00166  # 324 B
+_ZN2ot5audio4wtfm12_GLOBAL__N_19op1KernelILi1ELb0ELb1EEEvPfRfS5_S5_NS2_6OpRampENS2_10CarrierModE 0.00196  # 392 B
+# 8240 B, 183 modes, 97.4% of the weight

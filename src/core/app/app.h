@@ -532,8 +532,22 @@ public:
     // ("Synth k (WTFM) not available", the first such slot; MINI_PLAN §3).
     // False (out untouched) when every slot is available.
     bool synthUnavailableNotice(char* out, size_t cap) const;
-    // [I] What happened to each Modules/*.otm at boot.
+    // [I] what happened to each Modules/*.otm (boot, then every card synth load).
     const mod::OtmLoadReport& moduleLoadReport() const { return moduleLoad_; }
+    // [I] card synths (modules/module_files.h): the card synths loaded
+    // are the ones the slots name. Project open loads them before the
+    // patches; a model change loads kCardSettleMs after the choice rests,
+    // while stopped (serviceCardSynths), then gives the slot its Init patch.
+    static constexpr uint32_t kCardSettleMs = 250;
+    void serviceCardSynths(uint32_t now);
+    bool syncCardSynths(bool initPatches);
+    // [I] After USB storage mode: Modules/ listed anew (rescanCardSynths),
+    // before boot() reopens the Workspace.
+    void rescanCardSynths();
+    void holdSynthEngines();   // no synth engine runs until holdEngines(false)
+    // Why slot s's card engine isn't loaded ("Loads at Stop", "Loading",
+    // "No room for it", ...); nullptr = not a card engine, or loaded.
+    const char* cardSlotState(int s) const;
 
     // ---- project operations (project_io.cpp) ------------------------------
     // The blocking calls below run the same background job as the start*()
@@ -860,6 +874,12 @@ private:
     // Mini record's model), module sections, foreign module chunks kept.
     int32_t slotEngine_[kSynthSlotCount] = {};
     uint8_t slotArpGate_[kSynthSlotCount] = {100, 100, 100};
+    // [I] the slot engines a card synth load last tried (it isn't
+    // retried for the same set) and since when the current set waits.
+    int32_t cardTried_[kSynthSlotCount] = {};
+    int32_t cardWaiting_[kSynthSlotCount] = {};
+    uint32_t cardSince_ = 0;
+    bool modulesStale_ = false;   // [I] #21: Modules/ may have changed (USB storage): boot() rescans
 #if OT_SLOT_INSERTS
     struct SlotInsertCfg {
         char id[4];                  // all zero = none

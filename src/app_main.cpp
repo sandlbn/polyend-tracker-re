@@ -157,10 +157,19 @@ void dlOverflow(const char* screen, uint32_t words, uint32_t dropped, bool lowDe
 
 // [I] What happened to each Modules/*.otm (diag log; the pool's use).
 void logModuleLoad(const ot::mod::OtmLoadReport& r) {
-    for (int i = 0; i < r.n; ++i)
-        ot::hal::diagLogf("modules: %s %s", r.items[i].file,
-                          r.items[i].refused ? "refused (id taken, api or attach)"
-                                             : ot::mod::otmErrorText(r.items[i].error));
+    for (int i = 0; i < r.n; ++i) {
+        const ot::mod::OtmLoadReport::Item& it = r.items[i];
+        const char* what = it.refused ? "refused (id taken, api or attach)" : ot::mod::otmErrorText(it.error);
+        if (it.synth && !it.loaded && it.error == ot::mod::OtmError::None && !it.refused)
+            what = "card synth, loads when a project uses it";   // [I]
+        if (it.loaded && it.rowBytes)
+            ot::hal::diagLogf("modules: %s %s, hot code %lu of %lu B in SRAM_L", it.file, what,
+                              static_cast<unsigned long>(it.fastBytes), static_cast<unsigned long>(it.rowBytes));
+        else
+            ot::hal::diagLogf("modules: %s %s", it.file, what);
+    }
+    if (r.fastUsed) ot::hal::diagLogf("modules: SRAM_L block %lu of %lu B used", static_cast<unsigned long>(r.fastUsed),
+                                      static_cast<unsigned long>(ot::hal::modulePool()->fastCap));
     if (r.noRoom) ot::hal::diagLog("modules: not loaded, no stack room for the pool");
     if (r.skipped)
         ot::hal::diagLogf("modules: %d more not loaded (the first %d by name only)", r.skipped,
@@ -313,6 +322,19 @@ void telemetryTick() {
     char line[448];
     ot::diag::formatTelemetry(line, sizeof line, s);
     ot::hal::diagLog(line);
+    {   // [I] a card synth load since the last line
+        static uint32_t seen = 0;
+        if (gApp.moduleLoadReport().serial != seen) {
+            seen = gApp.moduleLoadReport().serial;
+            logModuleLoad(gApp.moduleLoadReport());
+        }
+    }
+#if OT_POOL_TEST
+    {   // [I] measurement images: the boot log replay ends before the modules load
+        static unsigned n = 0;
+        if (n++ % 10 == 0) logModuleLoad(gApp.moduleLoadReport());
+    }
+#endif
     // SD streaming (C11, docs/HARDWARE_TESTING.md "SD streaming"): the 5 s
     // window of the stream service, while the option is on.
     if (gApp.streamingOn()) {

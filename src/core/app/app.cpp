@@ -165,6 +165,12 @@ bool App::boot() {
     loadConfig();
     restoreCustomTheme();
     applySequencerSettings();
+    // [I] #21: after USB storage mode the card synths are listed anew before
+    // the Workspace names its engines.
+    if (modulesStale_) {
+        modulesStale_ = false;
+        rescanCardSynths();
+    }
     // spec 02 §1.1 boot / resume.
     bool ok = false;
     if (f.exists("Workspace/project.mt")) ok = loadWorkspace();
@@ -515,6 +521,7 @@ void App::loop() {
     }
     serviceSynthChase();
     serviceResample();
+    serviceCardSynths(now);   // [I]
     // Project manager (spec 05 §1.3 step 5, appendix E3/E4): one bounded
     // step of the running job, else the periodic autosave check.
     if (jobBusy()) serviceProjectJob();

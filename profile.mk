@@ -6,13 +6,15 @@
 # (modules.mk, ot_profile.h, module_registry.cpp) when they change.
 PROFILE     ?= full
 MODULES_DIR ?= $(abspath $(ROOT)/../../opentracker-synths)
-GEN         := $(abspath $(ROOT)/build/$(PROFILE)/gen)
+# [I] Host builds (tests, sim, tools) set OT_HOST_BUILD := 1 before including this:
+# they compile the profile's card modules in (tools/profile.py).
+GEN         := $(abspath $(ROOT)/build/$(PROFILE)/gen$(if $(OT_HOST_BUILD),-host))
 export PROFILE MODULES_DIR
 ifeq ($(wildcard $(ROOT)/profiles/$(PROFILE).toml),)
 $(error no profile '$(PROFILE)' (reimpl/profiles/*.toml))
 endif
 PROFILE_GEN_RC := $(shell python3 -I $(ROOT)/tools/profile.py gen --profile $(ROOT)/profiles/$(PROFILE).toml \
-                     --modules-dir $(MODULES_DIR) --out $(GEN) 1>&2; echo $$?)
+                     --modules-dir $(MODULES_DIR) --out $(GEN) $(if $(OT_HOST_BUILD),--host) 1>&2; echo $$?)
 ifneq ($(PROFILE_GEN_RC),0)
 $(error tools/profile.py failed for profile '$(PROFILE)' (MODULES_DIR=$(MODULES_DIR)))
 endif

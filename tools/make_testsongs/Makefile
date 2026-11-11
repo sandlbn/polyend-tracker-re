@@ -6,6 +6,7 @@
 #   STEMS_SECONDS=180                          -> song 19's stems 180 s long (default 30)
 CXX      ?= g++
 ROOT     := ../..
+OT_HOST_BUILD := 1   # [I] card modules compiled in (profile.mk)
 include $(ROOT)/profile.mk
 ifneq ($(HAVE_SYNTH_PACK),1)
 $(error make_testsongs needs the synth pack (PROFILE=full))

@@ -9,6 +9,11 @@ extern void initialise_monitor_handles(void);
 extern int main(void);
 extern void exit(int);
 
+// Static destructors register against __dso_handle (__cxa_atexit). crtbegin
+// defines it, and -nostartfiles leaves it out: Arm's toolchain (CI's 14.2.Rel1)
+// then fails the link, a distribution gcc may not.
+void* __dso_handle = 0;
+
 void Reset_Handler(void) {
     // FPU on (CPACR CP10/CP11 full access) before any float code.
     *(volatile uint32_t*)0xE000ED88 |= (0xFu << 20);

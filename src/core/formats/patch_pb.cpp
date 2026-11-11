@@ -2,6 +2,7 @@
 #include "formats/patch_pb.h"
 
 #include "modules/module.h"
+#include "modules/module_files.h"
 #include "modules/synth_descriptor.h"
 
 #include <cmath>
@@ -558,7 +559,10 @@ const char* patchEngineName(int32_t engine) {
         default: break;
     }
     const mod::SynthDescriptor* d = mod::ModuleHost::instance().synthDescriptor(engine);
-    return d ? d->name : nullptr;
+    if (d) return d->name;
+    // [I] A card engine the project hasn't loaded yet (modules/module_files.h).
+    const mod::CardEngine* e = mod::cardEngine(engine);
+    return e ? e->name : nullptr;
 }
 
 int patchVolumeParam(int32_t engine) {

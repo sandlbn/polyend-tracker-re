@@ -56,6 +56,23 @@ const SongInfo kSongs[kSongCount] = {
     {SongId::PerfTracks, "OT Perf 01 - Tracks", "stock 1.9.2 / 2.x (Performance check)", true},
     {SongId::PerfFilters, "OT Perf 02 - Filters", "stock 1.9.2 / 2.x (Performance check)", true},
     {SongId::PerfSongLength, "OT Perf 03 - Song Length", "stock 1.9.2 / 2.x (Performance check)", true},
+    {SongId::PoolAcd, "OT Pool 1 - ACD", "M3 (synth engines)", kHasSynths},
+    {SongId::PoolPerc, "OT Pool 2 - PERC", "M3 (synth engines)", kHasSynths},
+#if defined(OT_MOD_FM4S)
+    {SongId::PoolFm4, "OT Pool 3 - FM4S", "the FM4S module", kHasSynths},
+#else
+    {SongId::PoolFm4, "OT Pool 3 - FM4S", "the FM4S module", false},
+#endif
+#if defined(OT_MOD_CST1)
+    {SongId::PoolCsType, "OT Pool 4 - CS-Type", "the CS-Type module", kHasSynths},
+#else
+    {SongId::PoolCsType, "OT Pool 4 - CS-Type", "the CS-Type module", false},
+#endif
+#if defined(OT_MOD_8TY1)
+    {SongId::PoolEight, "OT Pool 5 - 8-Type", "the 8-Type module", kHasSynths},
+#else
+    {SongId::PoolEight, "OT Pool 5 - 8-Type", "the 8-Type module", false},
+#endif
     {SongId::BgTitle, "BG Title", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld1, "BG World 1", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
     {SongId::BgWorld4, "BG World 4", "M3 (synth engines) + M1", kHasSynths && kHas16Tracks},
@@ -1049,6 +1066,7 @@ bool synthSong(Gen& g) {
 #include "idmsong.inc"
 #include "stemsong.inc"
 #include "perfsong.inc"
+#include "poolsong.inc"
 
 }  // namespace
 
@@ -1100,6 +1118,11 @@ bool generateSong(App& app, IStorage& fs, SongId id, const GenOptions& opt, std:
         case SongId::PerfTracks: built = perfcheck::tracksSong(g); break;
         case SongId::PerfFilters: built = perfcheck::filtersSong(g); break;
         case SongId::PerfSongLength: built = perfcheck::songLengthSong(g); break;
+        case SongId::PoolAcd: built = pooltest::poolSong(g, kSynthEngineAcd); break;
+        case SongId::PoolPerc: built = pooltest::poolSong(g, kSynthEnginePerc); break;
+        case SongId::PoolFm4: built = pooltest::poolSong(g, 0x80); break;
+        case SongId::PoolCsType: built = pooltest::poolSong(g, 0x83); break;
+        case SongId::PoolEight: built = pooltest::poolSong(g, 0x86); break;
     }
     if (built) built = g.finish(info->name);
     if (!built) err = g.err.empty() ? "generation failed" : g.err;

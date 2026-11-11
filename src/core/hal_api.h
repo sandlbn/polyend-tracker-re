@@ -304,6 +304,11 @@ public:
     // start-up project has loaded and mutes it around project loads, like
     // stock (spec 05 §1.9). Default: no mute line.
     virtual void setOutputEnabled(bool on) { (void)on; }
+    // [I] True when blocks render on their own (an interrupt, a thread) while
+    // the main loop waits for one (a card synth load waits for the
+    // block that lets go of the engines); false when the main loop's caller
+    // pulls them (tests, the headless simulator).
+    virtual bool blocksOnTheirOwn() const { return true; }
     // Codec post-processing for the Master EQ (5 band gains -1..1), Bass Boost
     // (0..100) and Space (0..8), spec 18 §1. Main-loop context, called every
     // pass with the project values; the driver writes only what changed. It

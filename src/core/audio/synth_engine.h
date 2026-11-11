@@ -137,7 +137,6 @@ struct alignas(8) SynthVoice {
 
 class ISynthEngine {
 public:
-    virtual ~ISynthEngine() = default;
     virtual int32_t id() const = 0;            // SynthEngineId
     virtual const char* name() const = 0;      // "ACD", ...
     // Once per block for every slot with sounding voices, before its voices
@@ -181,6 +180,13 @@ public:
         (void)slot; (void)sc; (void)p; (void)L; (void)R;
         return false;
     }
+
+protected:
+    // Not virtual: engines are static objects, never deleted through this
+    // interface. A trivial destructor keeps a card module's engine free of
+    // a static constructor (its exit-time destructor registration), which
+    // the .otm loader refuses (tools/make_otm.py).
+    ~ISynthEngine() = default;
 };
 
 // Engine registry keyed by the Tracker Mini engine id (synth_registry.cpp).

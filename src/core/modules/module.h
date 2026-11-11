@@ -143,9 +143,14 @@ public:
     // Host builds (tests): register one more module after init().
     bool addForTest(IModule& m);
     // [I] A module loaded from the card (modules/module_files.h),
-    // after init() and before the audio engine takes the master inserts: the
-    // same checks as init(); false = refused (refused() names it).
-    bool addLoaded(IModule& m);
+    // after init(): the same checks as init(); false = refused (refused()
+    // names it). onDemand: a card synth, which may leave again
+    // (removeLoaded); it gets no SDRAM (sdram() returns nullptr in its
+    // attach(): a block is never freed).
+    bool addLoaded(IModule& m, bool onDemand = false);
+    // [I] Takes a module addLoaded(m, true) registered out again (its engines
+    // with it). Main loop, while the audio block runs none of its code.
+    void removeLoaded(IModule& m);
     // Id of the last module refused at init ("" = none).
     const char* refused() const { return refused_; }
     // [3.x] Module memory in the SDRAM (docs/PLAN_TECHNO.md E1): `bytes` from
@@ -185,6 +190,7 @@ private:
     char refused_[5] = {};
     SdramArena sdram_ = {nullptr, 0, 0};   // the profile's block from init() (constant-initialised)
     void* insertLines_ = nullptr;
+    bool noSdram_ = false;   // [I] an on-demand module's attach() runs
     static SdramArena profileSdram();
 };
 

@@ -1,0 +1,17 @@
+# btype: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio5btype12_GLOBAL__N_17dacPassILb0EEEvPfS4_PKfS6_ffNS0_2va3LinE.constprop.0 0.31165  # 70 B
+_ZN2ot5audio5btype12_GLOBAL__N_18purePassILb0EEEvPfS4_mRNS2_4ChanENS0_2va3LinEfS8_ 0.43411  # 324 B
+_ZN2ot5audio5btype12_GLOBAL__N_19fusedPassILb0ELb0EEEvPfS4_mNS2_6PolyChES5_ffRff 0.09730  # 320 B
+_ZN2ot5audio5btype12_GLOBAL__N_111BtypeEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.00965  # 108 B
+_ZN2ot5audio5btype12_GLOBAL__N_17dacPassILb1EEEvPfS4_PKfS6_ffNS0_2va3LinE.constprop.0 0.00517  # 88 B
+_ZN2ot5audio5btype12_GLOBAL__N_19cleanPassEPfS3_PKfS5_ffNS0_2va3LinE 0.00460  # 80 B
+_ZN2ot5audio5btype7tunedHzEfiiPf 0.01054  # 192 B
+_ZN2ot5audio5btype12_GLOBAL__N_111BtypeEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.09812  # 2868 B
+_ZN2ot5audio5btype12_GLOBAL__N_18purePassILb1EEEvPfS4_mRNS2_4ChanENS0_2va3LinEfS8_ 0.01119  # 570 B
+_ZN2ot5audio5btype12_GLOBAL__N_17eventsTILi6EEEvRNS2_4ChanEiRKNS2_5StepsE 0.00029  # 96 B
+_ZN2ot5audio5btype12_GLOBAL__N_17eventsTILi5EEEvRNS2_4ChanEiRKNS2_5StepsE 0.00035  # 132 B
+_ZN2ot5audio5btype12_GLOBAL__N_17eventsTILi7EEEvRNS2_4ChanEiRKNS2_5StepsE 0.00034  # 140 B
+_ZN2ot5audio5btype12_GLOBAL__N_111BtypeEngine6noteOnERNS0_10SynthVoiceERKNS0_11SynthParamsERKNS0_9SynthNoteE 0.00094  # 724 B
+_ZN2ot5audio5btype12_GLOBAL__N_17refreshERNS2_9SlotStateERKNS0_11SynthParamsE 0.00077  # 684 B
+# 6396 B, 57 modes, 98.5% of the weight
