@@ -382,8 +382,8 @@ void MixerScreen::refreshBar() {
         const int n = fxCount();
         if (n) {
             const bool in = !fxCard(fxSel_) || fxIn_[fxSel_];
-            b.set(6, fxOn(fxSel_) ? "Turn off" : "Turn on");
-            b.set(7, "Edit", nullptr, in);
+            b.set(0, fxOn(fxSel_) ? "Turn off" : "Turn on");
+            b.set(1, "Edit", nullptr, in);
         }
         return;
     }
@@ -567,7 +567,8 @@ void MixerScreen::masterChange(int d) {
     a.markProjectDirty();
 }
 
-// [I] FX bank keys: F7 on / off, F8 Edit (the selected effect's page).
+// [I] FX bank keys: F1 on / off, F2 Edit (the selected effect's page), under
+// the list.
 // Mockup: a card effect "loads" at once when turned on (no memory moves);
 // the real load takes the module from the card, Echo's line from the top of
 // the sample memory.
@@ -577,7 +578,7 @@ void MixerScreen::fxKey(int f) {
     fxSel_ = clampi(fxSel_, 0, n - 1);
     mod::IModulePage* p = mod::ModuleHost::instance().pageAt(fxSel_);
     const bool card = fxCard(fxSel_);
-    if (f == 6) {
+    if (f == 0) {
         if (fxOn(fxSel_)) {
             p->adjust(0, -100);   // Off: a card effect leaves at the next Stop
         } else {
@@ -591,7 +592,7 @@ void MixerScreen::fxKey(int f) {
             p->adjust(0, 1);
         }
         app_.markProjectDirty();
-    } else if (f == 7) {
+    } else if (f == 1) {
         if (card && !fxIn_[fxSel_]) return;
         page = kModPage0 + fxSel_;
         param = 0;

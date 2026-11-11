@@ -1,5 +1,5 @@
 // Module settings pages (modules/module_ui.h): [I] Shift + Master opens the FX
-// bank (every effect with a page), Edit (F8) opens the selected one's page;
+// bank (every effect with a page), Edit (F2) opens the selected one's page;
 // F-keys pick a row, the encoder and Up / Down change it. Master keeps the
 // stock three-page cycle.
 #include "test.h"
@@ -61,7 +61,7 @@ TEST(module_page_in_master_cycle) {
     CHECK(h.disp.lastHasText("Master FX"));
     CHECK(h.disp.lastHasText("Test page"));
     h.enc(40);   // the probe registered last: the last row
-    h.tap(btn::F8);
+    h.tap(btn::F2);
     h.run(5);
     CHECK(h.disp.lastHasText("Master Probe"));
     CHECK(h.disp.lastHasText("Knob 1"));

@@ -467,7 +467,7 @@ private:
     void updateActivity(uint32_t now);
     void drawBankB(Gfx& g, uint32_t off);
     // [I] FX bank (Shift + Master): every effect with a settings page, in
-    // chain order; F7 turns the selected one on or off, F8 edits it.
+    // chain order; F1 turns the selected one on or off, F2 edits it.
     void fxKey(int f);
     void fxSync();
     int fxSel_ = 0;
