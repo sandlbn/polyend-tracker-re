@@ -27,11 +27,8 @@ import os
 import re
 import sys
 
-from elftools.elf.elffile import ELFFile
-from elftools.elf.relocation import RelocationSection
-
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import make_otm  # noqa: E402  (read_hot, clone_base, mangle_entry)
+import make_otm  # noqa: E402  (read_hot, clone_base, mangle_entry, elftools)
 
 R_ARM_NONE, R_ARM_ABS32, R_ARM_THM_CALL, R_ARM_THM_JUMP24 = 0, 2, 10, 30
 SHF_ALLOC, SHF_EXECINSTR, SHF_GROUP = 0x2, 0x4, 0x200
@@ -60,6 +57,7 @@ def parse_rows(specs, nparts):
 def functions(objs):
     """name -> (object, section name, size, movable) for every function."""
     out = {}
+    ELFFile, _ = make_otm.elftools()   # only with rows: a profile without any builds without pyelftools
     for o in objs:
         with open(o, "rb") as f:
             elf = ELFFile(f)
@@ -119,6 +117,7 @@ def layout(args):
 
 class Image:
     def __init__(self, path):
+        ELFFile, self.RelocationSection = make_otm.elftools()
         self.f = open(path, "rb")
         self.elf = ELFFile(self.f)
         self.secs = [s for s in self.elf.iter_sections() if s["sh_flags"] & SHF_ALLOC and s["sh_type"] != "SHT_NOBITS"]
@@ -131,7 +130,7 @@ class Image:
                             if s["st_info"]["type"] == "STT_FUNC" and s["st_size"])
         self.rels = []   # (address, type, value read there)
         for rs in self.elf.iter_sections():
-            if not isinstance(rs, RelocationSection) or ".debug" in rs.name:
+            if not isinstance(rs, self.RelocationSection) or ".debug" in rs.name:
                 continue
             target = self.elf.get_section(rs["sh_info"])
             if not target["sh_flags"] & SHF_ALLOC or target["sh_type"] == "SHT_NOBITS":
