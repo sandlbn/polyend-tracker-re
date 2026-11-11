@@ -186,8 +186,9 @@ built in. The rows come from every mode of every synth under the QEMU bench
 commit the new rows. `make OT_POOL_TEST=1 PROFILE=pooltest` builds a measurement image
 with a 12 KB fast block, for test songs 23-30 ("OT Pool N").
 
-**Shared fast pool** (`make OT_HOT_POOL=1`, build dir `build/full/hotpool`; a boot-layout
-change, so keep a fallback image on the card): the built-in synths join in. Each built-in
+**Shared fast pool** (on by default when the profile compiles in a synth with a hot row;
+`make OT_HOT_POOL=0` builds the old layout into `build/<profile>/nopool` as a fallback
+image): the built-in synths join in. Each built-in
 synth with a hot row keeps one section per function (`OT_FASTRUN_ROW=1`), and its row runs
 from flash, laid out back to back (`tools/hot_pool.py layout`). The SRAM_L room that the
 synths' `.fastrun` code took (13,696 B) becomes the fast block, and all the project's
