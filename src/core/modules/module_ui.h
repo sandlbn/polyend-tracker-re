@@ -5,6 +5,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 
 namespace ot {
 namespace mod {
@@ -23,6 +24,19 @@ public:
     virtual void row(int i, ModuleRow& out) = 0;
     virtual void adjust(int i, int detents) = 0;   // main loop; mark the module's data dirty
 };
+
+// [I] An effect's page starts with its on / mode row: value "Off" = off
+// ("On" / "Off"; BBD "I" / "II" / "Off"), the first step up turns it on
+// (the FX bank, fork #21).
+inline bool pageOn(IModulePage* p) {
+    if (!p) return false;
+    ModuleRow r{};
+    p->row(0, r);
+    return std::strcmp(r.value, "Off") != 0;
+}
+inline void pageTurn(IModulePage* p, bool on) {
+    if (p && pageOn(p) != on) p->adjust(0, on ? 1 : -100);
+}
 
 }  // namespace mod
 }  // namespace ot

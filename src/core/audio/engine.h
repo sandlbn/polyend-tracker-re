@@ -51,6 +51,14 @@ public:
     bool setReserved(size_t samples);
     size_t reserved() const { return reserved_; }
     int16_t* reservedArea() { return pool_ && reserved_ ? pool_ + cap_ - reserved_ : nullptr; }
+    // [I] Card effects' memory (Echo's line, fork #21): the last `samples` of
+    // the pool, above the reservation, while those effects are loaded. The
+    // capacity the samples see (capacitySamples / capacityBytes) leaves it
+    // out. Refused while a reservation is held (it would move) or when the
+    // samples don't leave room. 0 releases.
+    bool setModuleHold(size_t samples);
+    size_t moduleHold() const { return hold_; }
+    int16_t* moduleArea() { return pool_ && hold_ ? pool_ + cap_ : nullptr; }
     // Highest loaded slot (-1: none); a commit above it moves no other instrument.
     int lastLoaded() const;
     bool commitTail(int idx, uint32_t frames, bool stereo);
@@ -96,7 +104,9 @@ private:
     static bool valid(int i) { return i >= 0 && i < kSlots; }
     uint32_t startOf(int idx) const;
     int16_t* pool_ = nullptr;
-    size_t cap_ = 0;
+    size_t cap_ = 0;        // the samples' capacity: capFull_ - hold_
+    size_t capFull_ = 0;
+    size_t hold_ = 0;
     size_t reserved_ = 0;
     Slot slots_[kSlots];
 };
@@ -221,8 +231,9 @@ public:
     // blocks only.
     static constexpr uint8_t kTapLineIn = 9;
     // Master inserts of modules (audio/inserts.h), a chain in this order; main
-    // loop. n = 0 removes them.
-    static constexpr int kMaxMasterInserts = 4;
+    // loop. n = 0 removes them. [I] 8 (was 4): every master effect of
+    // opentracker-fx (6) may be on at once (card effects, fork #21).
+    static constexpr int kMaxMasterInserts = 8;
     void setMasterInserts(IMasterInsert* const* ins, int n) {
         nIns_ = 0;   // the audio side sees an empty chain while it changes
         for (int i = 0; i < kMaxMasterInserts; ++i) {

@@ -317,6 +317,7 @@ bool App::sidecarDirty() const {
 }
 
 void App::resetSidecar() {
+    releaseCardFx();   // [I] the last project's card effects leave first (samples first)
     for (int s = 0; s < kSynthSlotCount; ++s) {
         slotEngine_[s] = 0;
         engine.synth().setSlotEngine(s, 0);
@@ -616,6 +617,92 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
     if (g_opaqueLost && !loadNotice_[0])
         std::snprintf(loadNotice_, sizeof(loadNotice_), "Module data too large: not kept");
     return true;
+}
+
+namespace {
+
+// [I] The kept chunk of module id (a module chunk whose header names it):
+// its offset in g_opaque, -1 = none.
+int32_t opaqueFind(const char* id, uint32_t* size) {
+    for (uint32_t pos = 0; pos + ot3::kChunkHeaderSize <= g_opaqueLen;) {
+        const uint8_t* c = g_opaque + pos;
+        const uint16_t tag = uint16_t(c[0] | (c[1] << 8));
+        uint32_t l = 0;
+        std::memcpy(&l, c + 4, 4);
+        const uint32_t step = ot3::kChunkHeaderSize + ((l + 3u) & ~3u);
+        if (isModuleTag(tag) && l >= sizeof(ot3::ModuleChunkHeader) &&
+            std::memcmp(c + ot3::kChunkHeaderSize, id, 4) == 0) {
+            *size = step;
+            return int32_t(pos);
+        }
+        pos += step;
+    }
+    return -1;
+}
+
+void opaqueRemove(uint32_t pos, uint32_t size) {
+    std::memmove(g_opaque + pos, g_opaque + pos + size, g_opaqueLen - pos - size);
+    g_opaqueLen -= size;
+}
+
+}  // namespace
+
+bool App::sidecarHasModule(const char* id) const {
+    uint32_t size = 0;
+    return opaqueFind(id, &size) >= 0;
+}
+
+// [I] A card effect leaving: its data is kept like a module not in this
+// build's, so it is saved with the project and comes back when it loads.
+void App::stashModuleSection(mod::IModule& m) {
+    mod::IProjectSection* sec = m.section();
+    if (!sec) return;
+    const char* id = m.info().id;
+    uint32_t size = 0;
+    const int32_t at = opaqueFind(id, &size);
+    if (at >= 0) opaqueRemove(uint32_t(at), size);
+    uint8_t buf[256];   // effect payloads are tens of bytes
+    const uint32_t n = sec->encode(buf, sizeof buf);
+    if (!n) return;   // its defaults: nothing to keep
+    const uint32_t len = uint32_t(sizeof(ot3::ModuleChunkHeader)) + n;
+    const uint32_t need = ot3::kChunkHeaderSize + ((len + 3u) & ~3u);
+    if (g_opaqueLen + need > kOpaqueMax) {
+        g_opaqueLost = true;
+        return;
+    }
+    uint8_t* d = g_opaque + g_opaqueLen;
+    std::memset(d, 0, need);
+    const uint16_t tag = sec->tag(), fl = ot3::kFlagOpaque;
+    d[0] = uint8_t(tag);
+    d[1] = uint8_t(tag >> 8);
+    d[2] = uint8_t(fl);
+    d[3] = uint8_t(fl >> 8);
+    std::memcpy(d + 4, &len, 4);
+    ot3::ModuleChunkHeader mh{};
+    std::memcpy(mh.id, id, 4);
+    mh.version = sec->version();
+    std::memcpy(d + ot3::kChunkHeaderSize, &mh, sizeof mh);
+    std::memcpy(d + ot3::kChunkHeaderSize + sizeof mh, buf, n);
+    g_opaqueLen += need;
+}
+
+// [I] A card effect just loaded: its kept data, else its defaults.
+void App::restoreModuleSection(mod::IModule& m) {
+    mod::IProjectSection* sec = m.section();
+    if (!sec) return;
+    sec->reset();
+    uint32_t size = 0;
+    const int32_t at = opaqueFind(m.info().id, &size);
+    if (at < 0) return;
+    const uint8_t* c = g_opaque + at;
+    const uint16_t tag = uint16_t(c[0] | (c[1] << 8));
+    uint32_t l = 0;
+    std::memcpy(&l, c + 4, 4);
+    ot3::ModuleChunkHeader mh;
+    std::memcpy(&mh, c + ot3::kChunkHeaderSize, sizeof mh);
+    if (tag != sec->tag()) return;   // another layout of the id: kept as it is
+    sec->decode(c + ot3::kChunkHeaderSize + sizeof mh, l - uint32_t(sizeof mh), mh.version);
+    opaqueRemove(uint32_t(at), size);
 }
 
 void App::loadSidecarFile(const char* path) {

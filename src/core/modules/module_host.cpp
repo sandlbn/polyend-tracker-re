@@ -35,12 +35,14 @@ ModuleHost::SdramArena ModuleHost::profileSdram() {
 }
 
 void* ModuleHost::sdram(uint32_t bytes) {
-    if (!bytes || !sdram_.base || noSdram_) return nullptr;
-    const uintptr_t base = reinterpret_cast<uintptr_t>(sdram_.base);
-    const uintptr_t at = (base + sdram_.used + 15u) & ~uintptr_t(15u);
+    // [I] An on-demand module takes its memory from the card arena.
+    SdramArena& a = onDemand_ ? cardSdram_ : sdram_;
+    if (!bytes || !a.base) return nullptr;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(a.base);
+    const uintptr_t at = (base + a.used + 15u) & ~uintptr_t(15u);
     const uint64_t end = uint64_t(at - base) + bytes;
-    if (end > sdram_.size) return nullptr;
-    sdram_.used = uint32_t(end);
+    if (end > a.size) return nullptr;
+    a.used = uint32_t(end);
     return reinterpret_cast<void*>(at);
 }
 
@@ -132,12 +134,14 @@ audio::IEffect* ModuleHost::effectById(const char* id) {
 namespace {
 constexpr const char* kChainOrder[] = {"DIRT", "LOFI", "CHOR", "BBDC", "ECHO", "TAPE"};
 constexpr int kChainOrderN = int(sizeof(kChainOrder) / sizeof(kChainOrder[0]));
-int chainRank(const IModule& m) {
+int rankOf(const IModule& m) { return ModuleHost::chainRank(m.info().id); }
+}  // namespace
+
+int ModuleHost::chainRank(const char* id) {
     for (int r = 0; r < kChainOrderN; ++r)
-        if (std::strncmp(m.info().id, kChainOrder[r], 4) == 0) return r;
+        if (std::strncmp(id, kChainOrder[r], 4) == 0) return r;
     return kChainOrderN;
 }
-}  // namespace
 
 int ModuleHost::chainOrder(IModule** out) {
     if (!inited_) init();
@@ -146,7 +150,7 @@ int ModuleHost::chainOrder(IModule** out) {
         IModule* m = mods_[i];
         if (!m->masterInsert() && !m->page()) continue;
         int at = n++;   // stable insertion by rank
-        while (at > 0 && chainRank(*out[at - 1]) > chainRank(*m)) {
+        while (at > 0 && rankOf(*out[at - 1]) > rankOf(*m)) {
             out[at] = out[at - 1];
             --at;
         }
@@ -244,9 +248,9 @@ bool ModuleHost::addLoaded(IModule& m, bool onDemand) {
 #endif
     bool ok = in.api == kModuleApi && n_ < kMaxModules && !find(in.id) && descriptorsOk(m) && effectsOk(m);
     if (ok) {
-        noSdram_ = onDemand;
+        onDemand_ = onDemand;
         ok = m.attach(*this);
-        noSdram_ = false;
+        onDemand_ = false;
     }
     if (!ok) {
         std::memcpy(refused_, in.id, sizeof(refused_));

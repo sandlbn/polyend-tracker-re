@@ -9,6 +9,7 @@
 #include "app/perf_presets.h"
 #include "app/project_browser.h"
 #include "model/synth_patch.h"
+#include "modules/module.h"
 #include "modules/synth_descriptor.h"
 #include "ui/loader_list.h"
 #include "ui/ui.h"
@@ -422,7 +423,7 @@ public:
 #endif
     bool ownsModuleKey(uint8_t id) const override { return id == btn::Master; }
 
-    int page = 0;           // 0 master, 1 track mixer, 2 global mixer, 3 FX bank, 4.. module pages
+    int page = 0;           // 0 master, 1 track mixer, 2 global mixer, 3 FX bank, 4 an effect's page
     int sub = 0;            // master sub-page: 0 main, 1 reverb, 2 delay, 3 limiter, 4 EQ
     int param = 0;          // selected parameter on the (sub-)page
     bool rename = false;
@@ -457,7 +458,6 @@ public:
     // True when parameter `param` of Master sub-page `sub` is an option list
     // (encoder + / Down = next item, Up = previous item) rather than a bar.
     static bool isListParam(int sub, int param);
-    static constexpr int kMaxFx = 16;   // [I] FX bank rows
 
 private:
     void refreshBar();
@@ -469,12 +469,11 @@ private:
     // [I] FX bank (Shift + Master): every effect with a settings page, in
     // chain order; F1 turns the selected one on or off, F2 edits it.
     void fxKey(int f);
-    void fxSync();
+    mod::IModulePage* editPage() const;   // the page Edit opened (page 4), nullptr: none
     int fxSel_ = 0;
     int fxTop_ = 0;
-    // A card effect is in memory: on, or off while the song plays (it
-    // leaves at the next Stop). The sim mockup: loading is not built yet.
-    bool fxIn_[kMaxFx] = {};
+    char fxEdit_[5] = {};      // id of the effect Edit opened
+    uint32_t fxSerial_ = 0;    // the card load report's serial last drawn
     bool held_[8] = {};
     bool changed_[8] = {};
     // Master key (spec 06 §4.1): snapshot taken on press.

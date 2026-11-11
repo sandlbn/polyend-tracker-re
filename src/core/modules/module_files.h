@@ -1,9 +1,10 @@
 // [I] Modules loaded from the card (modules/module_loader.h has
-// the file format). At boot every Modules/*.otm is looked at: a module without
-// synth engines (master inserts, effects) loads into the device's module pool
-// for good; a synth module is only listed (its engines and their names), and
-// loads when the project names one of its engines (loadCardSynths). Both
-// register after the compiled-in modules (ModuleHost::addLoaded).
+// the file format). At boot every Modules/*.otm is looked at: a synth module
+// is only listed (its engines and their names), and loads when the project
+// names one of its engines; a master effect (a master insert or a settings
+// page) is only listed too, and loads while it is on (the App's FX bank);
+// any other module (slot effects only) loads into the device's module pool
+// for good. All register after the compiled-in modules (ModuleHost::addLoaded).
 #pragma once
 
 #include <cstdint>
@@ -51,6 +52,7 @@ struct OtmLoadReport {
         OtmError error;     // None = loaded and registered (a synth: when last wanted)
         bool refused;       // loaded, but ModuleHost refused it (id taken, api, ...)
         bool synth;         // a synth module: loads when a project names its engine
+        bool fx;            // [I] a master effect: loads while it is on
         bool loaded;        // in the pool now
         uint32_t rowBytes;  // its row: the code that may run from the fast block (0 = none)
         uint32_t fastBytes; // the part of the row in the fast block (the cut; 0 = none)
@@ -76,6 +78,15 @@ struct CardEngine {
     uint8_t file;           // OtmLoadReport item of its module
 };
 constexpr int kMaxCardEngines = OtmLoadReport::kMax;   // one per card module (more are skipped)
+
+// [I] A card master effect (the boot scan lists them, loaded or not).
+struct CardFx {
+    char id[5];             // ModuleInfo::id
+    char name[16];          // ModuleInfo::name
+    uint32_t sdramBytes;    // ModuleInfo::sdramBytes: its attach() takes this from the card arena
+    uint8_t file;           // OtmLoadReport item of its module
+};
+constexpr int kMaxCardFx = 16;
 
 constexpr const char* kModulesDir = "Modules";
 
@@ -113,8 +124,16 @@ const CardEngine* cardEngineAt(int k);
 const CardEngine* cardEngine(int32_t engineId);   // nullptr: not a card engine
 bool cardEngineLoaded(int32_t engineId);
 
+// [I] The card master effects the boot scan listed, and the loaded one's module.
+int cardFxCount();
+const CardFx* cardFxAt(int k);
+int cardFxIndex(const char* id);   // -1: not a card effect
+IModule* cardFxModule(int k);      // nullptr: not loaded
+
 // The card synth modules serving engines[0 .. n) are loaded, every other
-// card synth leaves (ids that are not card engines are skipped). The modules
+// card synth leaves (ids that are not card engines are skipped). [I] So are
+// the card effects fx[0 .. nFx) (cardFxAt indices), after the synths: the
+// others leave. Their attach() takes the card arena (ModuleHost::setCardSdram). The modules
 // are loaded in the order their engines come, so the first ones get the room
 // when not all fit. [I] The synths serving engines[0 .. n), card or compiled
 // in with a hot row (OtmPool::hotRows), share what the boot modules left of
@@ -124,18 +143,19 @@ bool cardEngineLoaded(int32_t engineId);
 // scratch holds one file at a time. Returns false when a wanted module
 // didn't load (no room, a damaged file: the report says); a built-in row
 // without room is not a failure.
-bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratch, uint32_t scratchCap);
+bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratch, uint32_t scratchCap,
+                    const int* fx = nullptr, int nFx = 0);
 // [I] After USB storage mode (the computer may have changed Modules/): every
-// card synth leaves and Modules/ is listed anew, so new and replaced synth
-// modules are what loadCardSynths loads next. The modules the boot loaded for
-// good (master inserts, effects) stay as they are: their memory is never
+// card synth and effect leaves and Modules/ is listed anew, so new and
+// replaced modules are what loadCardSynths loads next. The modules the boot
+// loaded for good (slot effects) stay as they are: their memory is never
 // given back, so a new, replaced or removed one takes a restart. The same
 // rules as loadCardSynths (no synth engine runs meanwhile, main loop).
 // Returns the number of card engines listed.
 int rescanCardSynths(IStorage& fs, uint8_t* scratch, uint32_t scratchCap);
-// True when loadCardSynths(engines, n) would change what's loaded or how the
-// fast block is shared.
-bool cardSynthsDiffer(const int32_t* engines, int n);
+// True when loadCardSynths(engines, n, fx, nFx) would change what's loaded or
+// how the fast block is shared.
+bool cardSynthsDiffer(const int32_t* engines, int n, const int* fx = nullptr, int nFx = 0);
 
 }  // namespace mod
 }  // namespace ot

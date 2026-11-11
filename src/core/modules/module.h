@@ -155,10 +155,18 @@ public:
     bool addForTest(IModule& m);
     // [I] A module loaded from the card (modules/module_files.h),
     // after init(): the same checks as init(); false = refused (refused()
-    // names it). onDemand: a card synth, which may leave again
-    // (removeLoaded); it gets no SDRAM (sdram() returns nullptr in its
-    // attach(): a block is never freed).
+    // names it). onDemand: a card synth or effect, which may leave again
+    // (removeLoaded); sdram() in its attach() hands out the card arena
+    // (setCardSdram; none: nullptr), never the profile's block.
     bool addLoaded(IModule& m, bool onDemand = false);
+    // [I] The memory the on-demand modules' attach() calls share (the App
+    // holds it back from the sample memory, zeroed); each load set starts it
+    // anew. nullptr / 0 = none.
+    void setCardSdram(void* base, uint32_t size) {
+        cardSdram_ = SdramArena{static_cast<uint8_t*>(base), base ? size : 0u, 0};
+    }
+    // [I] Chain position of a module id (ModuleHost::chainOrder).
+    static int chainRank(const char* id);
     // [I] Takes a module addLoaded(m, true) registered out again (its engines
     // with it). Main loop, while the audio block runs none of its code.
     void removeLoaded(IModule& m);
@@ -205,8 +213,9 @@ private:
     bool inited_ = false;
     char refused_[5] = {};
     SdramArena sdram_ = {nullptr, 0, 0};   // the profile's block from init() (constant-initialised)
+    SdramArena cardSdram_ = {nullptr, 0, 0};   // [I] setCardSdram
     void* insertLines_ = nullptr;
-    bool noSdram_ = false;   // [I] an on-demand module's attach() runs
+    bool onDemand_ = false;   // [I] an on-demand module's attach() runs
     static SdramArena profileSdram();
 };
 
