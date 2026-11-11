@@ -425,6 +425,7 @@ bool App::importFinalize() {
         markInstrumentDirty(slot);
         return false;
     }
+    dropStreamMarker(slot);   // the Workspace file is the slot's instrument now (issue #184)
     // Head (and loop head) into the bank: [L head | L loop][R head | R loop].
     const StreamResident r = streamResident(j.ins.playMode, j.frames, j.ins.loopPoint1);
     const uint32_t perCh = r.framesPerChannel();
