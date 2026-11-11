@@ -55,6 +55,10 @@ float synthSpreadPlace(uint8_t note);
 const PatchParamRange* synthParamRange(int32_t engine, int index);
 // Stored value of parameter `index` (the default when absent or out of range).
 float synthParamGet(const SynthPatch& p, int index);
+// Every parameter of the patch's engine, as synthParamGet reads each one
+// (Mini parameters, then the extension ones), into out[0..). Returns the
+// count, or 0 (nothing written) for an unknown engine or cap below the count.
+int synthParamGetAll(const SynthPatch& p, float* out, int cap);
 // Set parameter `index` (clamped to its range, marked present). False for a
 // bad index or a non-finite value. Call SynthBank::patchChanged() afterwards.
 bool synthParamSet(SynthPatch& p, int index, float v);

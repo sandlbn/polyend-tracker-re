@@ -70,6 +70,8 @@ bool patchInit(int32_t engine, SynthPatch* out);
 
 // True when v is finite and inside the stored range of parameter `index`.
 bool patchParamInRange(int32_t engine, int index, float v);
+// The same check against a range already looked up.
+bool patchValueInRange(const PatchParamRange& r, float v);
 
 struct PatchIssue {
     enum Kind : uint8_t {

@@ -601,23 +601,23 @@ void SynthBank::reloadParams(int s, bool jump) {
     if (!jump) catchUp(sl);
     // The Mini's parameters, then the [OT] extension ones (Width, FAT
     // Stereo; synth_params.h) for the engines that read them.
-    const int total = synthParamTotal(sl.engineId);
+    // One pass over the descriptor (not a lookup per parameter): a Z or a
+    // project's first note binds in the audio block.
+    const int total = synthParamGetAll(*sl.bound, p.end, kSynthParamMax);
     p.count = total;
-    for (int i = 0; i < total; ++i) {
-        p.end[i] = paramBase(sl, i);
-        if (jump) p.start[i] = p.end[i];
-    }
+    if (jump)
+        for (int i = 0; i < total; ++i) p.start[i] = p.end[i];
     p.moving = !jump;
     sl.fullCopy = !jump;
     sl.fresh = !jump;
     ++p.serial;
     // [OT] Width: not a macro target; a live edit ramps over one block.
     const int wi = synthWidthParam(sl.engineId);
-    sl.widthEnd = wi >= 0 ? paramBase(sl, wi) : 0.0f;
+    sl.widthEnd = wi >= 0 && wi < total ? p.end[wi] : 0.0f;
     if (jump) sl.widthCur = sl.widthEnd;
     // [3.x] Spread: read per note in render(), which ramps a change.
     const int si = synthSpreadParam(sl.engineId);
-    sl.spreadEnd = si >= 0 ? uint8_t(std::lround(255.0f * paramBase(sl, si))) : uint8_t(0);
+    sl.spreadEnd = si >= 0 && si < total ? uint8_t(std::lround(255.0f * p.end[si])) : uint8_t(0);
     sl.spreadTo = playable(s) > 1 ? sl.spreadEnd : uint8_t(0);
     if (jump) sl.spreadCur = sl.spreadTo;
     spreadLive_ = spreadLive_ || sl.spreadEnd || sl.spreadCur;

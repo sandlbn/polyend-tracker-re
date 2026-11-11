@@ -702,6 +702,8 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
             for (int s = 0; s < kSynthSlots; ++s) synthStems[s] = stems->data[StemBlock::kFirstSynthStem + s];
         anyVoice |= synth_.render(synthIn_, mL_, mR_, dsend_, rsend_, synthStems, tapTrack, tapL, tapR);
         sendsTouched = 3;   // (the slots' send taps: not tracked)
+    } else if (synth_.syncPending()) {
+        synth_.syncIdle();
     }
     const uint32_t pc4 = stamp();
     // 4. line input (§1.3 IG): channel mode, direct level, sends. A block of

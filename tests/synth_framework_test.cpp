@@ -1336,3 +1336,29 @@ TEST(synth_note_on_spreading) {
     CHECK_EQ(r.bank.queuedNotes(), 0);
     CHECK(r.bank.voiceOfTrack(6) != nullptr);
 }
+
+// The slots bind while nothing sounds (a project's open, a Z while stopped),
+// so the first note after Play does not carry every slot's reload in its block.
+TEST(synth_slots_bind_while_stopped) {
+    engineRig();
+    const PatchParamRange* r = synthParamRange(kSynthEngineAcd, 0);
+    CHECK(synthParamSet(gPatch[1], 0, r->max));
+    gEng.synth().patchChanged(1);
+    int16_t out[kBlock * 2];
+    gEng.renderLive(out);
+    CHECK_EQ(gEng.synth().sounding(), 0);
+    for (int s = 0; s < kSynthSlots; ++s) CHECK(gEng.synth().params(s).count > 0);
+    CHECK_NEAR(gEng.synth().params(1).end[0], r->max, 1e-6f);
+    uint32_t serial[kSynthSlots];
+    for (int s = 0; s < kSynthSlots; ++s) serial[s] = gEng.synth().params(s).serial;
+    gEng.renderLive(out);   // nothing pending: nothing reloads
+    for (int s = 0; s < kSynthSlots; ++s) CHECK_EQ(gEng.synth().params(s).serial, serial[s]);
+    SynthNoteOn n;
+    n.slot = 1;
+    n.note = 60;
+    n.volume = -1;
+    gEng.synthNoteOn(0, n);
+    gEng.renderLive(out);
+    CHECK_EQ(gEng.synth().sounding(), 1);
+    for (int s = 0; s < kSynthSlots; ++s) CHECK_EQ(gEng.synth().params(s).serial, serial[s]);   // bound already
+}

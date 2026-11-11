@@ -259,3 +259,38 @@ TEST(module_host_sdram_hands_out_aligned_pieces) {
     CHECK(h.sdramUsed() <= 128u);
     h.sdramArenaForTest(saved);
 }
+
+// The descriptor lookup remembers the last engine it served (the audio block
+// reads a slot's whole patch through it); a module that leaves takes its
+// engine with it, also when that was the one looked up last.
+namespace {
+PatchParamRange gSmlParams[1] = {{0.0f, 1.0f, 0.5f, 0}};
+synthui::ParamUi gSmlUi[1];
+const mod::SynthDescriptor kSmlDesc = {0xFD, "SML", 0, -1, 1, gSmlParams, gSmlUi, kBigSections, 8, 0, nullptr};
+class SmallModule final : public mod::IModule {
+public:
+    const mod::ModuleInfo& info() const override {
+        static const mod::ModuleInfo i = {"TSML", mod::kModuleApi, 100, "Small", mod::kCapSynthDescriptor,
+                                          0, 0, 0, 0, 1};
+        return i;
+    }
+    bool attach(mod::ModuleHost&) override { return true; }
+    const mod::SynthDescriptor* synthDescriptor(int i) const override { return i == 0 ? &kSmlDesc : nullptr; }
+};
+SmallModule gSml;
+}  // namespace
+
+TEST(module_host_lookup_forgets_a_removed_engine) {
+    mod::ModuleHost& h = mod::ModuleHost::instance();
+    h.init();
+    CHECK(h.addForTest(gSml));
+    CHECK(h.synthDescriptor(0xFD) == &kSmlDesc);
+    CHECK(h.synthDescriptor(0xFD) == &kSmlDesc);   // again: the remembered one
+    h.removeLoaded(gSml);
+    CHECK(h.synthDescriptor(0xFD) == nullptr);
+    for (int k = 0; k < h.engineCount(); ++k) {
+        const mod::SynthDescriptor* d = h.engineAt(k);
+        CHECK(h.synthDescriptor(d->engineId) == d);
+    }
+    CHECK(h.synthDescriptor(0x7F) == nullptr);
+}
