@@ -23,6 +23,27 @@ struct OutRamps {
 };
 
 inline float clampFast(float v);
+// Block peak of |a| over every 2nd sample on the bit pattern
+// (unsigned order == magnitude order for non-NaN floats): the same value as
+// the FPU compares, without them.
+inline float absPeak2(const float* a) {
+    uint32_t p = 0;
+    for (uint32_t i = 0; i < kBlock; i += 2) {
+        uint32_t b;
+        __builtin_memcpy(&b, &a[i], 4);
+        b &= 0x7FFFFFFFu;
+        p = b > p ? b : p;
+    }
+    float v;
+    __builtin_memcpy(&v, &p, 4);
+    return v;
+}
+// Max of the four pan gains for the meter (newlib's fmaxf goes
+// through __fpclassifyf twice per call; the gains are never NaN).
+inline float fmax4(float a, float b, float c, float d) {
+    const float ab = a > b ? a : b, cd = c > d ? c : d;
+    return ab > cd ? ab : cd;
+}
 
 // Fused output stage (Voice::render fast path): x = player * envelope,
 // sends (kD/kR), AMP clamp, pan, o.amp (+ o.l/o.r when kLR), dry-bus sum.
@@ -789,7 +810,8 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
     // a read leaves it: ~1 SDRAM word per 2 samples at rate 1 instead of 2
     // halfword accesses per sample. High rates read directly.
     constexpr int32_t kWin = 32;
-    int16_t win[kWin];
+    alignas(4) int16_t win[kWin + 2];
+    int16_t* wp = win;           // the window at the int16 parity of its pool position (word copies)
     uint32_t wb = 0x80000000u;   // window start (frame index); invalid
     // A streamed sample always reads through the window (its frames are not
     // all in memory: streamRead takes them from the head, loop head or ring).
@@ -800,8 +822,13 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
         if (b < 0) b = 0;
         wb = uint32_t(b);
         OT_SDRAM_ACCESS(kWin / 2 + 1);
-        if (st) streamRead(*st, ring_, streamGen_, b, uint32_t(kWin), win, nullptr);
-        else spanIn(d + b, win, uint32_t(kWin));
+        if (st) {
+            wp = win;
+            streamRead(*st, ring_, streamGen_, b, uint32_t(kWin), win, nullptr);
+        } else {
+            wp = win + ((reinterpret_cast<uintptr_t>(d + b) >> 1) & 1u);
+            spanIn(d + b, wp, uint32_t(kWin));
+        }
     };
     auto rd = [&](int32_t idx) -> int32_t {
         if (!useWin) {
@@ -813,7 +840,7 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
             fill(dir > 0 ? idx - 1 : idx - (kWin - 2));
             off = uint32_t(idx) - wb;
         }
-        return win[off];
+        return wp[off];
     };
     // Forward, interpolated, no glide: tight runs (same arithmetic as the
     // per-sample paths below, which handle every other case and the edges).
@@ -832,7 +859,7 @@ OT_FASTRUN_FN void Voice::renderPlayer(float* out, uint32_t n) {
         uint32_t f = frac;
         float* o = out + (i - k);
         do {
-            *o++ = s16ToF(interp(win[q], win[q + 1], f));
+            *o++ = s16ToF(interp(wp[q], wp[q + 1], f));
             f += sf;
             q += int32_t(si);
             if (f > 65534u) {
@@ -1021,8 +1048,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         g.ai = amp_.begin(g.a0);
         g.li = panL_.begin(g.l0);
         g.rri = panR_.begin(g.r0);
-        const float panMax =
-            std::fmax(std::fmax(g.l0, g.l0 + g.li * float(kBlock)), std::fmax(g.r0, g.r0 + g.rri * float(kBlock)));
+        const float panMax = fmax4(g.l0, g.l0 + g.li * float(kBlock), g.r0, g.r0 + g.rri * float(kBlock));
         const bool sd = g.s0 != 0.0f || g.di != 0.0f, sr = g.s1 != 0.0f || g.ri != 0.0f;
         sendsTouched_ = uint8_t((sd ? 1 : 0) | (sr ? 2 : 0));
         const int v = (sd ? 1 : 0) | (sr ? 2 : 0) | (keepLR ? 4 : 0);
@@ -1036,12 +1062,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
             case 6: fusedOut<false, true, true>(x, eg, g, dsend, rsend, o, mixL, mixR); break;
             default: fusedOut<true, true, true>(x, eg, g, dsend, rsend, o, mixL, mixR); break;
         }
-        float amax = 0.0f;
-        for (uint32_t i = 0; i < kBlock; i += 2) {
-            const float aa = oa[i] < 0.0f ? -oa[i] : oa[i];
-            amax = aa > amax ? aa : amax;
-        }
-        peak_ = amax * panMax;
+        peak_ = absPeak2(oa) * panMax;
         return true;
     }
     if (!filtXfade_ && mixL && mixR && !keepLR) {
@@ -1052,8 +1073,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         g.ai = amp_.begin(g.a0);
         g.li = panL_.begin(g.l0);
         g.rri = panR_.begin(g.r0);
-        const float panMax =
-            std::fmax(std::fmax(g.l0, g.l0 + g.li * float(kBlock)), std::fmax(g.r0, g.r0 + g.rri * float(kBlock)));
+        const float panMax = fmax4(g.l0, g.l0 + g.li * float(kBlock), g.r0, g.r0 + g.rri * float(kBlock));
         const bool sd = g.s0 != 0.0f || g.di != 0.0f, sr = g.s1 != 0.0f || g.ri != 0.0f;
         sendsTouched_ = uint8_t((sd ? 1 : 0) | (sr ? 2 : 0));
         ChainCfg cf;
@@ -1069,12 +1089,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
         float* rs = sr ? rsend : scratch;
         if (sd != sr) zeroFloats(scratch, kBlock);
         kChain[ft][((sd || sr) ? 2 : 0) | (extra ? 1 : 0)](x, eg, g, cf, svf_, ds, rs, oa, mixL, mixR, filtLast_);
-        float amax = 0.0f;
-        for (uint32_t i = 0; i < kBlock; i += 2) {
-            const float aa = oa[i] < 0.0f ? -oa[i] : oa[i];
-            amax = aa > amax ? aa : amax;
-        }
-        peak_ = amax * panMax;
+        peak_ = absPeak2(oa) * panMax;
         return true;
     }
     if (hs == 1.0f) {   // x * (eg * 1) == x * eg
@@ -1145,8 +1160,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     const float ai = amp_.begin(a0);
     const float li = panL_.begin(l0);
     const float rri = panR_.begin(r0);
-    const float panMax = std::fmax(std::fmax(l0, l0 + li * float(kBlock)), std::fmax(r0, r0 + rri * float(kBlock)));
-    float amax = 0.0f;
+    const float panMax = fmax4(l0, l0 + li * float(kBlock), r0, r0 + rri * float(kBlock));
     float* __restrict ol = o.l;
     float* __restrict orr = o.r;
     if (mixL && mixR) {
@@ -1175,11 +1189,7 @@ OT_FASTRUN_FN bool Voice::render(const VoiceControl& c, VoiceOut& o, float* dsen
     }
     // Block peak of the post-pan output for the UI meters: |amp| peak (every
     // 2nd sample) times the larger pan gain over the block (linear ramps).
-    for (uint32_t i = 0; i < kBlock; i += 2) {
-        const float aa = oa[i] < 0.0f ? -oa[i] : oa[i];
-        amax = aa > amax ? aa : amax;
-    }
-    peak_ = amax * panMax;
+    peak_ = absPeak2(oa) * panMax;
     return true;
 }
 

@@ -385,9 +385,10 @@ private:
     void renderBlock(bool offline, int16_t* master, StemBlock* stems);
     void updateParams();
     void controlBlock(float blockUs);
-    template <int kMode>
+    template <int kMode, bool kFx, bool kLine>
     void masterSum(float l0, float li);
-    void masterSumClean(float l0, float li);   // masterSum<0>
+    void masterSumClean(float l0, float li, bool fx);   // masterSum<0, fx, false> (.fastrun)
+    void masterSumLine(float l0, float li, bool fx);    // masterSum<0, fx, true> (flash)
 
     SampleBank bank_;
     StreamRing* rings_ = nullptr;

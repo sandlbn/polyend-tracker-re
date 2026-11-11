@@ -1488,6 +1488,43 @@ __attribute__((noinline)) void addTap(float* tl, float* tr, const float* vl, con
         tr[i] += vr[i] * gr;
     }
 }
+// A note's own pan, Spread and sends in one pass over its scratch
+// pair into the slot bus: the operations of the three separate loops (pan
+// scale, spreadVoice, bus + send sum) in the same order per sample, so the
+// result is bit-identical; the intermediate pair stays in registers. A note
+// with no own send (xd == xr == 0) skips the send terms (x + m * 0 == x for
+// the finite values on the buses). In flash, not .fastrun.
+template <bool kPan, bool kSpread, bool kSends>
+__attribute__((noinline)) void ownMix(float* __restrict bl, float* __restrict br, const float* __restrict vl,
+                                      const float* __restrict vr, float* __restrict ds, float* __restrict rs, float pl,
+                                      float pr, float sp, float spd, float xd, float xr) {
+    for (uint32_t i = 0; i < kBlock; ++i) {
+        float l = vl[i], r = vr[i];
+        if (kPan) {
+            l *= pl;
+            r *= pr;
+        }
+        if (kSpread) {
+            const float m = sp * (l + r);
+            l -= m;
+            r += m;
+            sp += spd;
+        }
+        bl[i] += l;
+        br[i] += r;
+        if (kSends) {
+            const float m = l + r;
+            ds[i] += m * xd;
+            rs[i] += m * xr;
+        }
+    }
+}
+using OwnMixFn = void (*)(float*, float*, const float*, const float*, float*, float*, float, float, float, float, float,
+                          float);
+const OwnMixFn kOwnMix[2][2][2] = {{{ownMix<false, false, false>, ownMix<false, false, true>},
+                                    {ownMix<false, true, false>, ownMix<false, true, true>}},
+                                   {{ownMix<true, false, false>, ownMix<true, false, true>},
+                                    {ownMix<true, true, false>, ownMix<true, true, true>}}};
 }  // namespace
 
 OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float* mR, float* dsend, float* rsend,
@@ -1609,7 +1646,7 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
             float* vl = busL_;
             float* vr = busR_;
             if (own) {
-                for (uint32_t i = 0; i < kBlock; ++i) vs_.f[0][i] = vs_.f[1][i] = 0.0f;
+                zeroWords(vs_.f, sizeof(vs_.f));   // out-of-line STM zero
                 vl = vs_.f[0];
                 vr = vs_.f[1];
             }
@@ -1636,25 +1673,22 @@ OT_FASTRUN_FN bool SynthBank::render(const SynthMixInputs& in, float* mL, float*
                 }
             }
             if (own) {
-                if (V.pan >= 0 && V.pan != 50) {
-                    float pl, pr;
-                    panGains(V.pan, pl, pr);
-                    for (uint32_t i = 0; i < kBlock; ++i) {
-                        vs_.f[0][i] *= pl;
-                        vs_.f[1][i] *= pr;
-                    }
+                // pan + Spread + bus / send sum in one pass (ownMix).
+                const bool pan = V.pan >= 0 && V.pan != 50;
+                float pl = 1.0f, pr = 1.0f;
+                if (pan) panGains(V.pan, pl, pr);
+                const bool spread = (sl.spreadCur | sl.spreadTo) != 0;
+                float sp = 0.0f, spd = 0.0f;
+                if (spread) {
+                    const float place = 0.5f / 255.0f * synthSpreadPlace(V.v.note);
+                    sp = float(sl.spreadCur) * place;
+                    spd = float(int(sl.spreadTo) - int(sl.spreadCur)) * place * (1.0f / float(kBlock));
                 }
-                if (sl.spreadCur | sl.spreadTo) spreadVoice(sl, V.v.note, vs_.f[0], vs_.f[1]);
                 // (A tapping engine sent this note's share through the tap.)
                 const float xd = V.sendD >= 0 && !tapped ? (0.5f * sendGain(V.sendD) - sl.mixD) * in.delayLevel : 0.0f;
                 const float xr = V.sendR >= 0 && !tapped ? (0.5f * sendGain(V.sendR) - sl.mixE) * in.reverbLevel : 0.0f;
-                for (uint32_t i = 0; i < kBlock; ++i) {
-                    const float m = vs_.f[0][i] + vs_.f[1][i];
-                    busL_[i] += vs_.f[0][i];
-                    busR_[i] += vs_.f[1][i];
-                    if (dsend) dsend[i] += m * xd;
-                    if (rsend) rsend[i] += m * xr;
-                }
+                const bool sends = (xd != 0.0f || xr != 0.0f) && dsend && rsend;
+                kOwnMix[pan][spread][sends](busL_, busR_, vs_.f[0], vs_.f[1], dsend, rsend, pl, pr, sp, spd, xd, xr);
                 if (tapV) addTap(tapL, tapR, vs_.f[0], vs_.f[1], gl, gr);
             }
             if (perfV) {
@@ -1833,12 +1867,19 @@ OT_FASTRUN_FN float SynthBank::mixSlot(Slot& sl, float* mL, float* mR, float* ds
     {
         const int s = int(&sl - slots_);
         const float gL = l0 + li * float(kBlock), gR = r0 + ri * float(kBlock);
-        float pl = 0.0f, pr = 0.0f;
+        uint32_t ul = 0, ur = 0;   // |x| on the bit pattern (non-NaN order)
         for (uint32_t i = 0; i < kBlock; i += 8) {
-            const float a = bl[i] < 0.0f ? -bl[i] : bl[i], b = br[i] < 0.0f ? -br[i] : br[i];
-            pl = a > pl ? a : pl;
-            pr = b > pr ? b : pr;
+            uint32_t a, b;
+            __builtin_memcpy(&a, &bl[i], 4);
+            __builtin_memcpy(&b, &br[i], 4);
+            a &= 0x7FFFFFFFu;
+            b &= 0x7FFFFFFFu;
+            ul = a > ul ? a : ul;
+            ur = b > ur ? b : ur;
         }
+        float pl, pr;
+        __builtin_memcpy(&pl, &ul, 4);
+        __builtin_memcpy(&pr, &ur, 4);
         const float pk = pl * (gL < 0.0f ? -gL : gL) > pr * (gR < 0.0f ? -gR : gR) ? pl * (gL < 0.0f ? -gL : gL)
                                                                                     : pr * (gR < 0.0f ? -gR : gR);
         if (pk > peak_[s]) peak_[s] = pk;
