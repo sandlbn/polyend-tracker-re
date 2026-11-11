@@ -434,7 +434,9 @@ public:
     void syncRecorderSettings();
     bool unsavedChanges() const { return unsaved_; }
     bool neverSaved() const { return neverSaved_; }
-    void autosave();                              // writes dirty items to Workspace now
+    // Writes dirty items to Workspace now; `copies`: the streamed
+    // instruments copied from their project file first (issue #184).
+    void autosave(StreamCopies copies = StreamCopies::kDirty);
     uint32_t lastAutosave() const { return lastAutosave_; }
 
     // ---- synth slots (Tracker Mini, spec 21 §3.3, §7; docs/MINI_PLAN.md §1)
@@ -564,7 +566,10 @@ public:
     bool startSaveProjectAs(const char* nameOrPath, JobDoneFn done = nullptr, void* ctx = nullptr);
     bool startSaveProject(JobDoneFn done = nullptr, void* ctx = nullptr);
     bool startLoadWorkspace(JobDoneFn done = nullptr, void* ctx = nullptr);
-    bool startAutosave();                         // false when nothing is dirty
+    bool startAutosave(StreamCopies copies = StreamCopies::kIdle);   // false when nothing is dirty
+    // Issue #184: the slot streams from its project file and its Workspace
+    // copy is not made yet (Workspace/instruments/instrument_NN.src names it).
+    bool streamCopyPending(int slot) const { return bit(streamSrc_, slot) && bit(srcMarker_, slot); }
     // ---- 3.x project sidecar (app/project_ot3.cpp) ----------------------
     // Engine of synth slot s: a module engine (>= 0x80) stored in the sidecar,
     // else the Tracker Mini record's model.
@@ -636,6 +641,7 @@ public:
     // Run the current job to completion (spec 05 appendix E3: every project
     // API call first flushes an in-progress autosave).
     void finishJob();
+    void runJob();   // finishJob() without limiting the autosave's copies
     // Card removed: drop the job (open handles closed, popup removed).
     void abortJob();
     bool projectExists(const char* folder, const char* name);
@@ -792,7 +798,17 @@ private:
     void jobEnd();
     void jobFail();
     void jobCloseFiles();
-    bool jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* failed);
+    bool jobCopyUnit(const char* from, const char* to, uint32_t& cost, bool* failed, bool reserve = false);
+    // Issue #184: one unit of the autosave's copies (false: none left), the
+    // stream moved to the finished copy, the instrument loaded whole.
+    bool jobStreamCopyUnit(uint32_t& cost);
+    void rebindToWorkspace(int slot, const char* wsPath);
+    bool loadWholeFrom(int slot, const char* path);
+    bool copyIdle() const;
+    void dropStreamMarker(int slot);
+    // The file a streamed slot's samples are read from (its project file
+    // while the copy is pending).
+    void streamFilePath(int slot, char* out, size_t cap);
     bool jobPtiWriteUnit(int slot, const char* path, uint32_t& cost, bool* failed);
     bool jobSamplesUnit(int slot, uint32_t& cost);
     int jobWipeUnit(uint32_t& cost);
@@ -921,6 +937,15 @@ private:
     bool recShadowValid_ = false;
     bool instrHeaderDirty_[kSampleInstrumentCount] = {};
     bool instrSampleDirty_[kSampleInstrumentCount] = {};
+    // Issue #184, bit per slot: the stream reads the project's own file;
+    // Workspace/instruments/instrument_NN.src exists (the .pti is incomplete).
+    uint8_t streamSrc_[(kSampleInstrumentCount + 7) / 8] = {};
+    uint8_t srcMarker_[(kSampleInstrumentCount + 7) / 8] = {};
+    static bool bit(const uint8_t* b, int n) { return n >= 0 && n < kSampleInstrumentCount && ((b[n >> 3] >> (n & 7)) & 1); }
+    static void setBitOf(uint8_t* b, int n, bool on) {
+        if (on) b[n >> 3] = uint8_t(b[n >> 3] | (1u << (n & 7)));
+        else b[n >> 3] = uint8_t(b[n >> 3] & ~(1u << (n & 7)));
+    }
     bool unsaved_ = false, neverSaved_ = true;
     bool clipValid_ = false;
     SelRect clipRect_;

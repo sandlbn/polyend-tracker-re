@@ -18,9 +18,11 @@ App::UsbEnter App::enterUsbStorage() {
     seq.stop();
     editMode = false;
     allVoicesOff();
-    // 2. Finish the background autosave and write everything that is dirty.
+    // 2. Finish the background autosave and write everything that is dirty;
+    // instruments streaming from their project file are copied to the
+    // Workspace first (the computer may change the project).
     finishJob();
-    autosave();
+    autosave(StreamCopies::kAll);
     saveConfig();
     configDirty_ = configForce_ = false;
     // 3.-5. Unmount, stop the app's SD access, present the card.

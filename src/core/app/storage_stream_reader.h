@@ -27,10 +27,12 @@ public:
     // Test hooks: calls made; failAfter >= 0 makes reads fail after that many
     // more (a card pulled mid-stream); failBind makes binds fail with that
     // reason (the device reader's "fragmented", "map check");
-    // failStreamable makes the import pre-check (streamable) fail so.
+    // failStreamable makes the import pre-check (streamable) fail so;
+    // failBindPath makes binds of that one file fail as "fragmented".
     uint32_t reads = 0, binds = 0;
     int failAfter = -1;
     const char* failBind = nullptr;
+    const char* failBindPath = nullptr;
     const char* failStreamable = nullptr;
 
 private:

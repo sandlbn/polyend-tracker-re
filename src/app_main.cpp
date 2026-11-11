@@ -405,7 +405,7 @@ bool selectInputThunk(void* ctx, uint8_t source, uint8_t gain) {
 void powerOffHook() {
     if (gApp.lastAutosave() == 0) return;
     if (gApp.usbStorageActive()) return;   // the computer owns the card: nothing of ours to write
-    gApp.autosave();
+    gApp.autosave(ot::StreamCopies::kNone);   // the markers name the streamed instruments' files
     gApp.saveConfig();
 }
 

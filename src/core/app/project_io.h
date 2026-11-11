@@ -28,6 +28,13 @@ struct Recents;
 // backs the time budget up when the clock does not advance (host tests).
 enum class JobOp : uint8_t { None = 0, LoadWorkspace, Open, Save, Autosave, External };
 
+// Issue #184: which instruments the autosave copies from the project file
+// they stream from into the Workspace. kNone: none (power-off; the markers
+// cover a restart); kDirty: the edited ones (their header is written next);
+// kIdle: all of them while nothing plays (the periodic autosave); kAll: all
+// of them (Save, USB Storage mode).
+enum class StreamCopies : uint8_t { kNone = 0, kDirty, kIdle, kAll };
+
 // External job (File > Import Mod / Export As .it, spec 11 §0.1): unit()
 // does one bounded piece of work and adds its byte cost; it returns 1 while
 // more work remains, 0 when finished, -1 on failure. percent() feeds the
@@ -107,7 +114,8 @@ struct ProjectJob {
     BankRange ranges[4];
     uint8_t nRanges = 0;
     bool streamThis = false;        // the current slot loads head-only
-    bool slotFromWorkspace = false; // Open: the slot restarts from its Workspace copy (bind fell back)
+    bool copyBad = false;           // the slot's Workspace copy was cut short (read or write error)
+    StreamCopies copies = StreamCopies::kNone;   // autosave / save: the copies to make (issue #184)
     bool overBudget = false;        // the project's samples do not fit the bank (Auto rule)
     uint32_t fullFrames = 0;        // streamed slot: the instrument's whole length
     uint32_t resHead = 0, resLoopStart = 0, resLoopFrames = 0;
