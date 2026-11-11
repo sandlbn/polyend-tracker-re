@@ -180,6 +180,24 @@ int workspaceInstrumentSlot(const char* n, int* kind) {
 void streamMarkerPath(char* out, size_t cap, int slot) {
     std::snprintf(out, cap, "%s/instruments/instrument_%02d.src", kWorkspace, slot + 1);
 }
+// instrument_NN.hdr: the header block of a slot whose copy is not made yet
+// (edits saved before the copy; applied over the project file's header).
+void streamHeaderPath(char* out, size_t cap, int slot) {
+    std::snprintf(out, cap, "%s/instruments/instrument_%02d.hdr", kWorkspace, slot + 1);
+}
+// A .pti as long as its own header says (data offset + payload).
+bool ptiComplete(IStorage& f, const char* path, uint8_t* hdr) {
+    IStorage::Handle h = f.open(path, IStorage::kRead);
+    if (h < 0) return false;
+    const int32_t size = f.size(h);
+    const int32_t got = size > 0 ? f.read(h, hdr, pti::kHeaderBlockSize) : 0;
+    f.close(h);
+    Instrument ins;
+    PtiLoadInfo li;
+    if (got <= 0 || decodePtiHeader(hdr, size_t(got), ins, &li) != FmtStatus::Ok || !ins.lengthFrames) return false;
+    const uint64_t need = uint64_t(li.dataOffset) + uint64_t(ins.lengthFrames) * 2u * (ins.stereo ? 2u : 1u);
+    return uint64_t(size) >= need;
+}
 bool readStreamMarker(IStorage& f, int slot, char* path, size_t cap, uint32_t* dataOff, uint32_t* payload) {
     char p[64], buf[400];
     streamMarkerPath(p, sizeof(p), slot);
@@ -621,6 +639,7 @@ bool App::newProject() {
     IStorage& f = fs();
     removeTree(kWorkspace);
     std::memset(srcMarker_, 0, sizeof(srcMarker_));
+    std::memset(copyFailed_, 0, sizeof(copyFailed_));
     if (!f.mkdir(kWorkspace)) return false;
     f.mkdir("Workspace/instruments");
     f.mkdir("Workspace/patterns");
@@ -1045,8 +1064,8 @@ bool App::serviceProjectJob() {
 }
 
 void App::finishJob() {
-    // A blocking caller waits for the edited instruments' copies only.
-    if (pj_.op == JobOp::Autosave && pj_.copies > StreamCopies::kDirty) pj_.copies = StreamCopies::kDirty;
+    // A blocking caller does not wait for copies of streamed instruments.
+    if (pj_.op == JobOp::Autosave) pj_.copies = StreamCopies::kNone;
     runJob();
 }
 
@@ -1336,7 +1355,23 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         pj_.streamThis = pj_.copyBad = false;
         char src[340];
         if (fromProject) {
-            if (!sourcePath(src, sizeof(src))) return marked ? sourceMissing() : true;
+            if (!sourcePath(src, sizeof(src))) {
+                if (!marked) return true;
+                // A damaged marker (cut while written): a complete Workspace
+                // file loads as usual, else the slot stays empty.
+                cost += kJobSmallCost;
+                const bool keep = ptiComplete(f, path, mem_.scratch);
+                dropStreamMarker(slot);
+                g_scan.src[slot >> 3] = uint8_t(g_scan.src[slot >> 3] & ~(1u << (slot & 7)));
+                if (keep) {
+                    g_scan.hasPti[slot] = true;
+                    return false;   // again, from the Workspace file
+                }
+                f.remove(path);
+                if (!loadNotice_[0])
+                    std::snprintf(loadNotice_, sizeof(loadNotice_), "Instrument %u could not be restored", unsigned(uint8_t(slot + 1)));
+                return true;
+            }
             if (marked) setBitOf(srcMarker_, slot, true);
         } else {
             if (!g_scan.hasPti[slot]) {
@@ -1385,6 +1420,21 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
             }
         }
         if (marked && pj_.kind[slot] != 1) return sourceMissing();
+        if (marked) {
+            // Header edits saved before the copy (instrument_NN.hdr).
+            char hp[64];
+            streamHeaderPath(hp, sizeof(hp), slot);
+            uint32_t hg = 0;
+            Instrument h;
+            if (readWholeFile(f, hp, mem_.scratch, pti::kHeaderBlockSize, &hg) == FmtStatus::Ok &&
+                decodePtiHeader(mem_.scratch, hg, h) == FmtStatus::Ok) {
+                h.lengthFrames = instruments[slot].lengthFrames;
+                h.stereo = instruments[slot].stereo;
+                instruments[slot] = h;
+                pj_.modes[slot] = h.playMode;
+            }
+            cost += kJobSmallCost;
+        }
         if (pj_.kind[slot] == 1) {
             const uint32_t off = pj_.dataOff[slot];
             const uint32_t payload = uint32_t(size) > off ? uint32_t(size) - off : 0;
@@ -1514,8 +1564,14 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
         if (pj_.out >= 0) g_unitClose = true;
         const bool copied = pj_.out >= 0 && !pj_.copyBad;
         jobCloseFiles();
-        // Issue #184: the Workspace copy of a marked slot is complete.
-        if (marked && copied) dropStreamMarker(slot);
+        // Issue #184: the Workspace copy of a marked slot is complete; it
+        // takes the slot's header (edits kept in instrument_NN.hdr).
+        if (marked && copied) {
+            Instrument hi = instruments[slot];
+            hi.lengthFrames = pj_.srcFrames;
+            hi.stereo = pj_.srcStereo;
+            if (pj_.kind[slot] != 1 || saveInstrumentHeader(f, path, hi) == FmtStatus::Ok) dropStreamMarker(slot);
+        }
         if (pj_.kind[slot] == 1) {
             ProfScope c(g_ticks.commit);
             if (!kLittleEndian) {
@@ -1665,6 +1721,8 @@ bool App::jobSamplesUnit(int slot, uint32_t& cost) {
 
 void App::dropStreamMarker(int slot) {
     char p[64];
+    streamHeaderPath(p, sizeof(p), slot);
+    fs().remove(p);
     streamMarkerPath(p, sizeof(p), slot);
     if (fs().remove(p) || !fs().exists(p)) setBitOf(srcMarker_, slot, false);
 }
@@ -1729,14 +1787,14 @@ void App::rebindToWorkspace(int slot, const char* wsPath) {
 
 bool App::jobStreamCopyUnit(uint32_t& cost) {
     IStorage& f = g_pfs;
-    // The periodic autosave copies the unedited ones only while nothing plays.
-    if (pj_.copies == StreamCopies::kIdle && !copyIdle()) pj_.copies = StreamCopies::kDirty;
+    // The periodic autosave copies only while nothing plays, and does not
+    // try again after a project file was found missing.
+    if (pj_.copies == StreamCopies::kIdle && !copyIdle()) pj_.copies = StreamCopies::kNone;
     auto wanted = [&](int i) {
         if (!bit(streamSrc_, i) || pj_.copies == StreamCopies::kNone) return false;
-        const bool all = pj_.copies >= StreamCopies::kIdle;
         // Copied before, still on the project file: bind again.
-        if (!bit(srcMarker_, i)) return all;
-        return all || instrHeaderDirty_[i] || instrSampleDirty_[i];
+        if (!bit(srcMarker_, i)) return true;
+        return pj_.copies == StreamCopies::kAll || !bit(copyFailed_, i);
     };
     char ws[340];
     int i = pj_.idx;
@@ -1775,13 +1833,23 @@ bool App::jobStreamCopyUnit(uint32_t& cost) {
         // the marker; a restart then loads the slot empty.
         f.remove(ws);
         ++pj_.loadErrors;
-        char msg[48];
-        std::snprintf(msg, sizeof(msg), "Instrument %u: project file missing", unsigned(uint8_t(i + 1)));
-        ui.notify(msg, 4000);
+        if (!bit(copyFailed_, i) || pj_.copies == StreamCopies::kAll) {
+            char msg[48];
+            std::snprintf(msg, sizeof(msg), "Instrument %u: project file missing", unsigned(uint8_t(i + 1)));
+            ui.notify(msg, 4000);
+        }
+        setBitOf(copyFailed_, i, true);
         return true;
     }
     g_unitClose = true;
-    dropStreamMarker(i);   // the Workspace file is whole: it is the instrument from here on
+    // The Workspace file is whole, with the slot's header: it is the
+    // instrument from here on.
+    if (saveInstrumentHeader(f, ws, instruments[i]) != FmtStatus::Ok) {
+        ++pj_.loadErrors;
+        return true;
+    }
+    setBitOf(copyFailed_, i, false);
+    dropStreamMarker(i);
     if (!bit(srcMarker_, i)) rebindToWorkspace(i, ws);
     return true;
 }
@@ -2122,6 +2190,7 @@ bool App::jobUnit(uint32_t& cost) {
             applyStreamOption();   // clears the bank; carves the stream rings when on
             std::memset(streamSrc_, 0, sizeof(streamSrc_));
             std::memset(srcMarker_, 0, sizeof(srcMarker_));
+            std::memset(copyFailed_, 0, sizeof(copyFailed_));
             for (int i = 0; i < kSampleInstrumentCount; ++i) {
                 instruments[i].setDefault();
                 instrPresent[i] = false;
@@ -2415,8 +2484,14 @@ bool App::jobUnit(uint32_t& cost) {
                     return true;
                 }
                 // Issue #184: no complete Workspace file yet (the copy is not
-                // made): the edit stays dirty until it is.
+                // made): the header goes to instrument_NN.hdr.
                 if (streamCopyPending(i)) {
+                    uint8_t hdr[pti::kHeaderBlockSize];
+                    encodePtiHeader(instruments[i], hdr);
+                    streamHeaderPath(dst, sizeof(dst), i);
+                    if (writeWholeFile(f, dst, hdr, sizeof(hdr)) == FmtStatus::Ok) instrHeaderDirty_[i] = instrSampleDirty_[i] = false;
+                    else ++pj_.loadErrors;
+                    cost += kJobSmallCost;
                     ++pj_.idx;
                     return true;
                 }
@@ -2518,6 +2593,16 @@ bool App::jobUnit(uint32_t& cost) {
             if (pj_.op == JobOp::Save) {
                 // spec 05 appendix E3: op 0x0d continues with stage 4.
                 if (pj_.loadErrors) {
+                    jobFail();
+                    return false;
+                }
+                // Issue #184: an instrument whose Workspace file is not whole
+                // would replace the project's own file with nothing.
+                for (int i = 0; i < kSampleInstrumentCount; ++i) {
+                    if (!instrPresent[i] || !bit(srcMarker_, i)) continue;
+                    char msg[48];
+                    std::snprintf(msg, sizeof(msg), "Instrument %u not copied: not saved", unsigned(uint8_t(i + 1)));
+                    ui.notify(msg, 4000);
                     jobFail();
                     return false;
                 }
@@ -2837,11 +2922,11 @@ bool App::openProject(const char* folder, const char* name) {
 bool App::startAutosave(StreamCopies copies) {
     if (pj_.op != JobOp::None) return false;
     lastAutosave_ = millis();
-    if (copies == StreamCopies::kIdle && !copyIdle()) copies = StreamCopies::kDirty;
+    if (copies == StreamCopies::kIdle && !copyIdle()) copies = StreamCopies::kNone;
     bool any = projectDirty_ || namesDirty_;
     // Issue #184: instruments still streaming from their project file.
-    for (int i = 0; i < kSampleInstrumentCount && !any && copies >= StreamCopies::kIdle; ++i)
-        any = streamCopyPending(i);
+    for (int i = 0; i < kSampleInstrumentCount && !any && copies != StreamCopies::kNone; ++i)
+        any = streamCopyPending(i) && (copies == StreamCopies::kAll || !bit(copyFailed_, i));
     for (int s = 0; s < kSynthSlotCount && !any; ++s) any = patchDirty_[s];
     any = any || synthPresetDirty();
     for (int i = 0; i < 32 && !any; ++i) any = patDirty_[i] != 0;
@@ -3225,20 +3310,32 @@ bool App::copyInstrument(int src, int dst) {
     finishJob();   // the bank moves under a running instrument write
     if (!instrPresent[src]) return false;
     allVoicesOff();
-    streamUnbind(dst);
-    if (streamed(src)) {
-        // A streamed source: a full RAM copy from its Workspace file, never
-        // a copy of the head.
-        bank.remove(dst);
+    // A refused copy leaves the target as it was (a streamed one keeps its
+    // stream and its project file); one that fails after it was dropped
+    // leaves an empty slot.
+    auto emptyTarget = [&]() {
         refreshStreamSources();
+        instruments[dst].setDefault();
+        instrPresent[dst] = false;
+        markInstrumentDirty(dst, true);
+        return false;
+    };
+    if (streamed(src)) {
+        // A streamed source: a full RAM copy from its file (read after the
+        // last instrument first), never a copy of the head.
         char path[340];
         streamFilePath(src, path, sizeof(path));
         Instrument ins;
         PtiSampleLayout lay;
-        if (loadInstrumentFile(fs(), path, ins, bank.tail(), uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
+        int16_t* at = bank.tail();
+        if (loadInstrumentFile(fs(), path, ins, at, uint32_t(bank.freeSamples()), true, &lay) != FmtStatus::Ok) {
             ui.notify("Not enough memory to copy the sample");
             return false;
         }
+        const uint32_t n = ins.lengthFrames * (ins.stereo ? 2u : 1u);
+        streamUnbind(dst);
+        bank.remove(dst);
+        std::memmove(bank.tail(), at, size_t(n) * sizeof(int16_t));
         bank.commitTail(dst, ins.lengthFrames, ins.stereo);
         refreshStreamSources();
         Instrument copy = instruments[src];
@@ -3249,7 +3346,14 @@ bool App::copyInstrument(int src, int dst) {
         markInstrumentDirty(dst, true);
         return true;
     }
-    if (!bank.copy(src, dst)) return false;
+    const uint64_t need = uint64_t(bank.frames(src)) * (bank.stereo(src) ? 2u : 1u);
+    const uint64_t own = bank.loaded(dst) ? uint64_t(bank.frames(dst)) * (bank.stereo(dst) ? 2u : 1u) : 0;
+    if (need > uint64_t(bank.freeSamples()) + own) {
+        ui.notify("Not enough memory to copy the sample");
+        return false;
+    }
+    streamUnbind(dst);
+    if (!bank.copy(src, dst)) return emptyTarget();
     refreshStreamSources();
     instruments[dst] = instruments[src];
     instrPresent[dst] = true;

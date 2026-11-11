@@ -23,6 +23,7 @@ const std::string kSrcShort = "Projects/P/instruments/2 short.pti";
 const std::string kWs = "Workspace/instruments/instrument_01.pti";
 const std::string kWsShort = "Workspace/instruments/instrument_02.pti";
 const std::string kMarker = "Workspace/instruments/instrument_01.src";
+const std::string kHdr = "Workspace/instruments/instrument_01.hdr";
 constexpr uint32_t kLongFrames = 300000;
 constexpr uint32_t kPayload = kLongFrames * 2;
 
@@ -155,7 +156,8 @@ TEST(copy_waits_while_playing) {
     CHECK(!has(h, kMarker));
 }
 
-TEST(header_edit_while_playing_forces_a_complete_copy) {
+TEST(header_edit_while_playing_waits_for_the_idle_copy) {
+    // The edit is kept in instrument_01.hdr; nothing is copied while playing.
     Harness h;
     openP(h, 2);
     App& a = *h.app;
@@ -165,8 +167,16 @@ TEST(header_edit_while_playing_forces_a_complete_copy) {
     a.markInstrumentDirty(0);
     playFor(h, 12000);
     CHECK(a.seq.isPlaying());
+    CHECK(!has(h, kWs));
+    CHECK(has(h, kMarker));
+    CHECK(has(h, kHdr));
+    CHECK(a.streamed(0));
+    CHECK_EQ(underruns(h), 0u);
+    a.seq.stop();
+    playFor(h, 11000);
     CHECK(has(h, kWs));
     CHECK(!has(h, kMarker));
+    CHECK(!has(h, kHdr));
     const std::vector<uint8_t>& ws = h.fs.files[kWs];
     const std::vector<uint8_t>& src = h.fs.files[kSrc];
     CHECK_EQ(ws.size(), src.size());
@@ -174,7 +184,44 @@ TEST(header_edit_while_playing_forces_a_complete_copy) {
     Instrument ins;
     CHECK(decodePtiHeader(ws.data(), ws.size(), ins) == FmtStatus::Ok);
     CHECK_EQ(ins.volume, 40);
-    CHECK_EQ(underruns(h), 0u);
+    CHECK(a.streamed(0));
+}
+
+TEST(header_edit_on_a_pending_slot_survives_power_off) {
+    Harness h;
+    openP(h, 2);
+    App& a = *h.app;
+    a.instruments[0].volume = 40;
+    a.markInstrumentDirty(0);
+    a.autosave(StreamCopies::kNone);   // power-off
+    CHECK(!has(h, kWs));
+    CHECK(has(h, kHdr));
+    CHECK(a.loadWorkspace());
+    CHECK_EQ(a.instruments[0].volume, 40);
+    CHECK_EQ(a.instruments[0].lengthFrames, kLongFrames);
+    CHECK(a.streamed(0));
+    CHECK(has(h, kMarker));
+    CHECK(!has(h, kWs));
+}
+
+TEST(header_edit_kept_when_the_reload_copies) {
+    Harness h;
+    openP(h, 2);
+    App& a = *h.app;
+    a.instruments[0].volume = 40;
+    a.markInstrumentDirty(0);
+    a.autosave(StreamCopies::kNone);
+    a.cfg.streamMode = 0;
+    CHECK(a.loadWorkspace());
+    CHECK(!a.streamed(0));
+    CHECK_EQ(a.instruments[0].volume, 40);
+    const std::vector<uint8_t>& ws = h.fs.files[kWs];
+    Instrument ins;
+    CHECK(decodePtiHeader(ws.data(), ws.size(), ins) == FmtStatus::Ok);
+    CHECK_EQ(ins.volume, 40);
+    CHECK_EQ(ws.size(), h.fs.files[kSrc].size());
+    CHECK(!has(h, kMarker));
+    CHECK(!has(h, kHdr));
 }
 
 TEST(save_as_over_the_source_keeps_the_sample) {
@@ -343,3 +390,92 @@ TEST(rebind_failure_falls_back_to_ram) {
     CHECK(renderHash(ram, 600) == renderHash(h, 600));
 }
 
+
+TEST(copy_onto_a_pending_slot_without_memory_keeps_it) {
+    // Instruments 1 and 3 stream from Projects/P; the sample memory is then
+    // nearly full: copying 1 onto 3 is refused and 3 stays as it was, so a
+    // Save over the folder still has its file.
+    Harness h;
+    App& a = *h.app;
+    addWav(h, "long.wav", kLongFrames, 3);
+    addWav(h, "long2.wav", kLongFrames, 5);
+    addWav(h, "short.wav", 20000, 9);
+    CHECK(a.importSample("long.wav", 0));
+    CHECK(a.importSample("short.wav", 1));
+    CHECK(a.importSample("long2.wav", 2));
+    CHECK(a.saveProjectAs("P"));
+    CHECK(a.newProject());
+    a.cfg.streamMode = 2;
+    CHECK(a.openProject("Projects", "P"));
+    const std::string src3 = "Projects/P/instruments/3 long2.pti";
+    const std::vector<uint8_t> orig = h.fs.files[src3];
+    CHECK(a.streamCopyPending(2));
+    addWav(h, "fill.wav", uint32_t(a.bank.freeSamples()) - 100000, 7);
+    CHECK(a.importSample("fill.wav", 10));
+    CHECK(!a.copyInstrument(0, 2));
+    CHECK(a.instrPresent[2]);
+    CHECK(a.streamed(2));
+    CHECK(a.streamCopyPending(2));
+    CHECK(a.saveProjectAs("P"));
+    CHECK(h.fs.files.count(src3) && h.fs.files[src3] == orig);
+    CHECK(sameFile(h, "Workspace/instruments/instrument_03.pti", src3));
+}
+
+TEST(save_with_a_copy_that_cannot_finish_keeps_the_project) {
+    Harness h;
+    openP(h, 2);
+    const std::vector<uint8_t> orig = h.fs.files[kSrc];
+    h.fs.capacity = h.fs.usedBytes() + 0x10000;   // the card fills during the copy
+    CHECK(!h.app->saveProjectAs("P"));
+    CHECK(h.fs.files.count(kSrc) && h.fs.files[kSrc] == orig);
+    CHECK(has(h, kMarker));
+    CHECK(h.app->streamed(0));
+}
+
+TEST(missing_project_file_is_reported_once) {
+    Harness h;
+    openP(h, 2);
+    App& a = *h.app;
+    h.fs.files.erase(kSrc);
+    h.run(11000);
+    CHECK(std::strstr(a.ui.notice(), "project file missing") != nullptr);
+    a.ui.notify("other", 60000);
+    h.run(25000);   // idle autosaves do not try again
+    CHECK_STR(a.ui.notice(), "other");
+    CHECK(has(h, kMarker));
+}
+
+TEST(usb_mode_names_an_instrument_it_could_not_copy) {
+    Harness h;
+    openP(h, 2);
+    App& a = *h.app;
+    h.fs.files.erase(kSrc);
+    CHECK(a.enterUsbStorage() == App::UsbEnter::kOk);
+    CHECK(std::strstr(a.ui.notice(), "Instrument 1 not copied") != nullptr);
+}
+
+TEST(damaged_marker_leaves_the_slot_empty) {
+    Harness h;
+    openP(h, 2);
+    App& a = *h.app;
+    h.fs.files[kMarker] = std::vector<uint8_t>{'3', '9'};   // cut while written
+    CHECK(a.loadWorkspace());
+    CHECK(!a.instrPresent[0]);
+    CHECK(std::strstr(a.ui.notice(), "could not be restored") != nullptr);
+    CHECK(!has(h, kMarker));
+    CHECK(a.instrPresent[1]);
+}
+
+TEST(damaged_marker_keeps_a_complete_workspace_file) {
+    Harness h;
+    openP(h, 2);
+    App& a = *h.app;
+    h.fs.files[kWs] = h.fs.files[kSrc];
+    h.fs.files[kMarker] = std::vector<uint8_t>{'3', '9'};
+    CHECK(a.loadWorkspace());
+    CHECK(a.instrPresent[0]);
+    CHECK(a.streamed(0));
+    CHECK(!a.streamCopyPending(0));
+    CHECK(!has(h, kMarker));
+    CHECK(sameFile(h, kWs, kSrc));
+}

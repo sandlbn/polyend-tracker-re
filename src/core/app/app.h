@@ -433,7 +433,7 @@ public:
     bool neverSaved() const { return neverSaved_; }
     // Writes dirty items to Workspace now; `copies`: the streamed
     // instruments copied from their project file first (issue #184).
-    void autosave(StreamCopies copies = StreamCopies::kDirty);
+    void autosave(StreamCopies copies = StreamCopies::kNone);
     uint32_t lastAutosave() const { return lastAutosave_; }
 
     // ---- synth slots (Tracker Mini, spec 21 §3.3, §7; docs/MINI_PLAN.md §1)
@@ -845,6 +845,7 @@ private:
     // Workspace/instruments/instrument_NN.src exists (the .pti is incomplete).
     uint8_t streamSrc_[(kSampleInstrumentCount + 7) / 8] = {};
     uint8_t srcMarker_[(kSampleInstrumentCount + 7) / 8] = {};
+    uint8_t copyFailed_[(kSampleInstrumentCount + 7) / 8] = {};   // its project file was gone (told once)
     static bool bit(const uint8_t* b, int n) { return n >= 0 && n < kSampleInstrumentCount && ((b[n >> 3] >> (n & 7)) & 1); }
     static void setBitOf(uint8_t* b, int n, bool on) {
         if (on) b[n >> 3] = uint8_t(b[n >> 3] | (1u << (n & 7)));
