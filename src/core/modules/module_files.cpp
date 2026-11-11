@@ -17,8 +17,8 @@ namespace {
 // The first kMax names in name order (kept sorted), whatever the directory order.
 struct Names {
     char name[OtmLoadReport::kMax][40];
-    int n = 0;
-    int skipped = 0;   // .otm files past the first kMax
+    int n;
+    int skipped;   // .otm files past the first kMax
 };
 // One list at a time (main loop): SDRAM, not the stack; a trivial type (no
 // static constructor), reset before each use.
