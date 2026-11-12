@@ -97,12 +97,27 @@ struct CardState {
     bool hotOk[OtmLoadReport::kMaxHot];
     int8_t hotWant[OtmLoadReport::kMaxHot];
     int nHotWant;
+    // The rows in the fast block now (their vtable pointers point there),
+    // kept here rather than in the report: a scan again puts them back first.
+    const HotRows* movedFrom;
+    bool moved[OtmLoadReport::kMaxHot];
 };
 OT_SDRAM_BSS CardState g_card;
 
 int hotRowCount() {
     const HotRows* h = g_card.pool ? g_card.pool->hotRows : nullptr;
     return h ? (h->n < uint32_t(OtmLoadReport::kMaxHot) ? int(h->n) : OtmLoadReport::kMaxHot) : 0;
+}
+
+// Every moved hot row back to flash (its vtable pointers too).
+void restoreHotRows() {
+    if (!g_card.movedFrom) return;
+    for (int k = 0; k < OtmLoadReport::kMaxHot; ++k)
+        if (g_card.moved[k]) {
+            hotRowRestore(g_card.movedFrom->rows[k]);
+            g_card.moved[k] = false;
+        }
+    g_card.movedFrom = nullptr;
 }
 
 // The usable hot row whose module serves engineId; -1 = none.
@@ -234,13 +249,9 @@ int wantedFiles(const int32_t* engines, int n, int* want) {
 // Every hot row back to flash and every card synth out of the pool: the
 // pool and the fast block hold only what the boot loaded for good.
 void dropCardSynths() {
-    const OtmPool& pool = *g_card.pool;
     OtmLoadReport& r = *g_card.r;
-    for (int k = 0; k < hotRowCount(); ++k)
-        if (r.hotCut[k]) {
-            hotRowRestore(pool.hotRows->rows[k]);
-            r.hotCut[k] = 0;
-        }
+    restoreHotRows();
+    std::memset(r.hotCut, 0, sizeof(r.hotCut));
     for (int i = 0; i < r.n; ++i)
         if (g_card.mod[i]) {
             ModuleHost::instance().removeLoaded(*g_card.mod[i]);
@@ -260,6 +271,10 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
                     OtmLoadReport* report) {
     OtmLoadReport local;
     OtmLoadReport& r = report ? *report : local;
+    // A scan again: the pool's start and the fast block are rewritten below,
+    // so no engine may still point into them.
+    restoreHotRows();
+    std::memset(r.hotCut, 0, sizeof(r.hotCut));
     r.n = 0;
     r.used = 0;
     r.fastUsed = 0;
@@ -443,6 +458,8 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
             if (!cut || !hotRowMove(row, cut, dst)) continue;   // it runs from flash
             if (pool.sync) pool.sync(dst.mem, share[i]);
             r.hotCut[taker[i]] = cut;
+            g_card.moved[taker[i]] = true;
+            g_card.movedFrom = pool.hotRows;
             r.fastUsed = at + share[i];
             continue;
         }

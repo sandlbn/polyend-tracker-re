@@ -281,6 +281,10 @@ void App::serviceCardSynths(uint32_t now) {
 void App::holdSynthEngines() {
     // No card engine runs from here on: the next block drops the synth
     // voices (a block is 2.9 ms); when no block runs on its own, this does.
+    // The 50 ms fallback is safe with the hot rows in the fast block too: the
+    // main loop never runs inside a block (the audio ISR), and after
+    // dropEngines nothing in a block reaches an engine: render and noteOn
+    // check hold_, noteOff and applyFx find no voice, stopAll no engine.
     audio::SynthBank& bank = engine.synth();
     bank.holdEngines(true);
     const uint32_t t0 = millis();

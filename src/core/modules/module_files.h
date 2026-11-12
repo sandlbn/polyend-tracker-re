@@ -64,7 +64,7 @@ struct OtmLoadReport {
     uint32_t serial = 0;    // +1 on every change
     // [I] Bytes of each compiled-in hot row (OtmPool::hotRows order) in the
     // fast block now: its code up to the cut (0 = it runs from flash).
-    static constexpr int kMaxHot = 8;
+    static constexpr int kMaxHot = 8;   // tools/hot_pool.py refuses more rows
     uint32_t hotCut[kMaxHot] = {};
 };
 

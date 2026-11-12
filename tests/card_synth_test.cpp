@@ -180,6 +180,7 @@ struct FakeRow {
 FakeRow g_acdRow(0x00010000u), g_vapRow(0x00020000u);
 HotRow g_rows[2];
 HotRows g_hot = {2, g_rows};
+OtmPool g_hotPool;
 
 struct HotRig {
     explicit HotRig(uint32_t fastCap) {
@@ -187,15 +188,12 @@ struct HotRig {
         g_rows[1] = g_vapRow.row(&vapModule, 0x00020000u);
         g_acdRow.vptr = 0x00011000u;
         g_vapRow.vptr = 0x00021000u;
-        static OtmPool pool;
-        pool = OtmPool{g_pool, 0x20030000u, sizeof(g_pool), kCore, nullptr, &enterCard, nullptr};
-        pool.fastMem = g_fast;
-        pool.fastBase = kFastBase;
-        pool.fastCap = fastCap;
-        pool.hotRows = &g_hot;
-        static OtmPool* p;
-        p = &pool;
-        Harness::beforeInit = [](Harness&, HalRefs& r) { r.modulePool = p; };
+        g_hotPool = OtmPool{g_pool, 0x20030000u, sizeof(g_pool), kCore, nullptr, &enterCard, nullptr};
+        g_hotPool.fastMem = g_fast;
+        g_hotPool.fastBase = kFastBase;
+        g_hotPool.fastCap = fastCap;
+        g_hotPool.hotRows = &g_hot;
+        Harness::beforeInit = [](Harness&, HalRefs& r) { r.modulePool = &g_hotPool; };
     }
     ~HotRig() { Harness::beforeInit = nullptr; }
 };
@@ -236,3 +234,22 @@ TEST(hot_row_without_room_runs_from_flash) {
     CHECK_EQ(g_vapRow.vptr, kFastBase + 16);   // the first slot's synth got the block
     CHECK_EQ(g_acdRow.vptr, 0x00011000u);
 }
+
+TEST(boot_scan_again_puts_moved_rows_back_in_flash) {
+    HotRig rig(sizeof(g_fast));
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.setSynthEngine(0, engineOf(acdModule()));
+    h.run(400);
+    CHECK_EQ(g_acdRow.vptr, kFastBase + 16);
+    // A scan again (the pool's start is rewritten): the moved row goes back
+    // to flash first, and the report shows nothing in the block.
+    static uint8_t scratch[4096];
+    OtmLoadReport r;
+    r.hotCut[0] = 99;
+    loadModuleFiles(h.fs, g_hotPool, scratch, sizeof(scratch), &r);
+    CHECK_EQ(g_acdRow.vptr, 0x00011000u);
+    CHECK_EQ(r.hotCut[0], 0u);
+}
+

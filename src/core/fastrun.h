@@ -24,8 +24,9 @@
 // [I] shared fast pool: a synth module with a hot row (tools/hot_rows/,
 // compiled with OT_FASTRUN_ROW=1) keeps each function in its own .text.<name>
 // section, in flash. The row's functions move into the SRAM_L pool when the
-// project uses the synth (modules/hot_rows.h); OT_FASTRUN_FN only keeps them
-// out of line, so the row's pieces are the ones the bench measured.
+// project uses the synth (modules/hot_rows.h); OT_FASTRUN_FN adds nothing
+// there, so GCC may inline a hot function into its caller (tools/hot_pool.py
+// names the .hot functions it doesn't find).
 #if defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE && defined(OT_FASTRUN) && OT_FASTRUN && defined(OT_FASTRUN_ROW) && OT_FASTRUN_ROW
 #define OT_FASTRUN_FN
 #define OT_FASTRUN_INLINE(tag) __attribute__((section(".fastrun." #tag), noinline, noclone))
