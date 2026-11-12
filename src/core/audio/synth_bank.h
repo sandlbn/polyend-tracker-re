@@ -311,6 +311,8 @@ public:
     void setTrackPerf(int t, const SynthPerf& p);
     SynthPerf trackPerf(int t) const;
     void applyFx(int track, uint8_t type, uint8_t value);
+    // [3.x] Steal ahead (header): the next step's notes, a block before it.
+    void expect(const SynthExpectNote* notes, int count);
     void macroFx(int slot, int macro, uint8_t value);
     void transportStop();     // macro overrides -> page values
     void resetFx();           // pitch FX state of every track (play start)

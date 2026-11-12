@@ -1337,6 +1337,146 @@ TEST(synth_note_on_spreading) {
     CHECK(r.bank.voiceOfTrack(6) != nullptr);
 }
 
+// The next step's notes, announced a block ahead: the voices they will take
+// fade in this block, so the step's block renders the new notes alone.
+TEST(synth_expect_fades_the_step_victims_a_block_early) {
+    BankRig r(2, 2, 2, 4, 3);
+    r.on(0, 0, 60);
+    r.on(1, 0, 62);
+    r.block();
+    r.block();
+    const SynthExpectNote ex[2] = {{0, 0, 64, false}, {1, 0, 65, false}};
+    r.bank.expect(ex, 2);
+    CHECK_EQ(r.bank.steals(), 2u);
+    CHECK_EQ(r.bank.busyRecords(), 2);   // fading now
+    CHECK(r.bank.voiceOfTrack(0) == nullptr);
+    int r0 = r.spy.renders;
+    r.block();   // the fades, in place of the old notes' render
+    CHECK_EQ(r.spy.renders - r0, 2);
+    r.on(0, 0, 64);   // the step: room for both, on time
+    r.on(1, 0, 65);
+    CHECK_EQ(r.bank.steals(), 2u);
+    CHECK_EQ(r.bank.busyRecords(), 2);
+    CHECK_EQ(r.bank.queuedNotes(), 0);
+    CHECK_EQ(int(r.bank.voiceOfTrack(0)->note), 64);
+    CHECK_EQ(int(r.bank.voiceOfTrack(1)->note), 65);
+    r0 = r.spy.renders;
+    r.block();
+    CHECK_EQ(r.spy.renders - r0, 2);
+    // A step that steals nothing fades nothing.
+    BankRig q(4, 4, 4, 8, 3);
+    q.on(0, 0, 60);
+    q.block();
+    const SynthExpectNote one[1] = {{1, 0, 62, false}};
+    q.bank.expect(one, 1);
+    CHECK_EQ(q.bank.steals(), 0u);
+    CHECK(q.bank.voiceOfTrack(0) != nullptr);
+}
+
+// A wrong guess costs nothing: more notes than announced steal in their block
+// as before; a mono slot reuses its voice and is never faded ahead.
+TEST(synth_expect_miss_falls_back) {
+    BankRig r(2, 2, 1, 4, 3);
+    r.on(0, 0, 60);
+    r.on(1, 0, 62);
+    r.on(2, 2, 40);
+    r.block();
+    const SynthExpectNote ex[2] = {{0, 0, 64, false}, {2, 2, 41, false}};
+    r.bank.expect(ex, 2);
+    CHECK_EQ(r.bank.steals(), 1u);   // track 0's note; the mono slot keeps its voice
+    CHECK(r.bank.voiceOfTrack(2) != nullptr);
+    r.block();
+    r.on(0, 0, 64);
+    r.on(1, 0, 65);   // not announced: steals now
+    r.on(2, 2, 41);
+    CHECK_EQ(r.bank.steals(), 2u);
+    CHECK_EQ(r.bank.voicesOf(0), 2);
+    CHECK_EQ(int(r.bank.voiceOfTrack(2)->note), 41);
+}
+
+// Announced or not, the same notes end up on the same tracks: the rules run
+// ahead are the step's rules. Exact where the choice does not depend on the
+// voices' levels (held notes, steals inside the slot): random steps on slots of
+// polyphony 2, 3 and 1, up to 6 notes a step (past the start cap).
+TEST(synth_expect_matches_the_in_block_choice) {
+    uint32_t seed = 12345;
+    auto rnd = [&seed](int n) {
+        seed = seed * 1103515245u + 12345u;
+        return int((seed >> 16) % uint32_t(n));
+    };
+    for (int round = 0; round < 20; ++round) {
+        BankRig a(2, 3, 1, 8, 3), b(2, 3, 1, 8, 3);
+        for (int step = 0; step < 24; ++step) {
+            SynthExpectNote ex[6];
+            int n = 0;
+            for (int t = 0; t < 6; ++t)
+                if (rnd(10) < 6) ex[n++] = SynthExpectNote{uint8_t(t), uint8_t(rnd(3)), uint8_t(40 + rnd(30)), 0};
+            a.block();
+            b.bank.expect(ex, n);
+            b.block();
+            for (int i = 0; i < n; ++i) {
+                a.on(ex[i].track, ex[i].slot, ex[i].note);
+                b.on(ex[i].track, ex[i].slot, ex[i].note);
+            }
+            for (int k = 0; k < 2; ++k) {
+                a.block();
+                b.block();
+            }
+            for (int t = 0; t < 6; ++t) {
+                const SynthVoice* va = a.bank.voiceOfTrack(t);
+                const SynthVoice* vb = b.bank.voiceOfTrack(t);
+                CHECK_EQ(va == nullptr, vb == nullptr);
+                if (va && vb) CHECK_EQ(int(va->note), int(vb->note));
+            }
+            for (int s = 0; s < 3; ++s) CHECK_EQ(a.bank.voicesOf(s), b.bank.voicesOf(s));
+            CHECK_EQ(a.bank.steals(), b.bank.steals());
+        }
+    }
+}
+
+// With note-offs and the global cap (choices by level, which moves in the
+// block between the announcement and the step): the limits always hold and
+// announcing never steals more than the steps steal on their own.
+TEST(synth_expect_keeps_the_limits) {
+    uint32_t seed = 777;
+    auto rnd = [&seed](int n) {
+        seed = seed * 1103515245u + 12345u;
+        return int((seed >> 16) % uint32_t(n));
+    };
+    for (int round = 0; round < 20; ++round) {
+        BankRig a(2, 3, 1, 4, 3), b(2, 3, 1, 4, 3);
+        int worstB = 0;
+        for (int step = 0; step < 24; ++step) {
+            SynthExpectNote ex[6];
+            int n = 0;
+            for (int t = 0; t < 6; ++t) {
+                const int k = rnd(10);
+                if (k < 5) ex[n++] = SynthExpectNote{uint8_t(t), uint8_t(rnd(3)), uint8_t(40 + rnd(30)), 0};
+                else if (k < 7) ex[n++] = SynthExpectNote{uint8_t(t), 0, 0, 1};
+            }
+            a.block();
+            b.bank.expect(ex, n);
+            b.block();
+            for (int i = 0; i < n; ++i) {
+                for (BankRig* r : {&a, &b}) {
+                    if (ex[i].off) r->bank.noteOff(ex[i].track, NoteOffMode::Off);
+                    else r->on(ex[i].track, ex[i].slot, ex[i].note);
+                }
+            }
+            for (int k = 0; k < 2; ++k) {
+                a.block();
+                const int before = b.spy.renders;
+                b.block();
+                worstB = std::max(worstB, b.spy.renders - before);
+                CHECK(b.bank.sounding() <= 4);
+                for (int s = 0; s < 3; ++s) CHECK(b.bank.voicesOf(s) <= (s == 0 ? 2 : (s == 1 ? 3 : 1)));
+            }
+        }
+        CHECK(b.bank.steals() <= a.bank.steals() + 2);
+        CHECK(worstB <= kSynthMaxVoices);
+    }
+}
+
 // The slots bind while nothing sounds (a project's open, a Z while stopped),
 // so the first note after Play does not carry every slot's reload in its block.
 TEST(synth_slots_bind_while_stopped) {
