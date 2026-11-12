@@ -227,7 +227,7 @@ $(HOT_LD): $(HOT_ROW_OBJS) $(wildcard $(HOT_ROWS)/*.hot) tools/hot_pool.py tools
 
 ifeq ($(OT_HOT_POOL),1)
 HOT_LINK = $(CXX) $(LDFLAGS) -Wl,-q $(OBJS) $(1) -L$(CORE) -L$(BUILD) $(LIBS) -o $(2) -Wl,-Map=$(BUILD)/opentracker.map
-$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD)
+$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD) $(GEN)/modules.mk
 	python3 -I tools/hot_pool.py table --out $(BUILD)/hot_rows0.S
 	$(CC) $(CPUFLAGS) -c $(BUILD)/hot_rows0.S -o $(BUILD)/hot_rows0.o
 	$(call HOT_LINK,$(BUILD)/hot_rows0.o,$@.pass1)
@@ -236,7 +236,7 @@ $(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD)
 	$(call HOT_LINK,$(BUILD)/hot_rows.o,$@)
 	python3 -I tools/hot_pool.py table --elf $@ --out $(BUILD)/hot_rows.check.S --expect $(BUILD)/hot_rows.S --quiet $(HOT_TABLE) || { rm -f $@; exit 1; }
 else
-$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD)
+$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD) $(GEN)/modules.mk
 	$(CXX) $(LDFLAGS) $(OBJS) -L$(CORE) -L$(BUILD) $(LIBS) -o $@ -Wl,-Map=$(BUILD)/opentracker.map
 endif
 	$(SIZE) $@

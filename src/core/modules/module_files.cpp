@@ -111,6 +111,8 @@ int hotRowCount() {
 
 // Every moved hot row back to flash (its vtable pointers too).
 void restoreHotRows() {
+    // None moved: g_card.pool may be a past scan's (host tests), not read.
+    if (!g_card.moved) return;
     for (int k = 0; k < hotRowCount(); ++k)
         if (g_card.moved & (1u << k)) hotRowRestore(g_card.pool->hotRows->rows[k]);
     g_card.moved = 0;
