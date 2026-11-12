@@ -3,11 +3,16 @@
 // own top-level field 16 (`repeated ParamValue ot_ext`), so the Mini's
 // parameter count and macro targets are untouched. Absent = default 0 (mono,
 // today's sound); a patch without them encodes byte-exact as before.
+#include <cmath>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 #include "audio/synth_params.h"
 #include "formats/patch_pb.h"
+#include "audio/synth_engine.h"
+#include "modules/module.h"
+#include "modules/synth_descriptor.h"
 #include "test.h"
 
 using namespace ot;
@@ -132,4 +137,59 @@ TEST(older_build_keeps_field16_as_unknown) {
     CHECK_EQ(int(q.opaqueLen), 0);
     CHECK(synthParamGet(q, synthWidthParam(kSynthEngineWtfm)) == 0.5f);
     CHECK(encode(q) == b);
+}
+
+// synthParamGetAll reads a whole patch the way synthParamGet reads one
+// parameter (the audio block's reload): absent entries, out-of-range and
+// non-finite values give the default, a stored value inside its range (or the
+// half-precision bounds of a Mini patch) is kept, extension entries follow
+// the Mini ones; an engine without a descriptor gives nothing.
+TEST(param_get_all_matches_param_get) {
+    mod::ModuleHost& h = mod::ModuleHost::instance();
+    h.init();
+    for (int e = 0; e < h.engineCount(); ++e) {
+        const mod::SynthDescriptor* d = h.engineAt(e);
+        SynthPatch p;
+        CHECK(patchInit(d->engineId, &p));
+        const int n = d->paramCount, total = n + d->extCount;
+        for (int i = 0; i < n; ++i) {
+            const PatchParamRange& r = d->params[i];
+            float v;
+            switch (i % 5) {
+                case 0: v = r.max + 1.0f + std::fabs(r.max); break;          // above the range
+                case 1: v = std::numeric_limits<float>::quiet_NaN(); break;  // not finite
+                case 2: v = r.min + 0.25f * (r.max - r.min); break;          // inside
+                case 3: v = r.max; break;
+                default: v = r.min; break;
+            }
+            p.params[i].bits = patchFloatToBits(v);
+            p.params[i].present = (i % 7) != 6;
+        }
+        p.extCount = uint8_t(d->extCount);
+        for (int k = 0; k < d->extCount; ++k) {
+            p.ext[k].bits = patchFloatToBits(k & 1 ? d->ext[k].max : d->ext[k].max + 10.0f);
+            p.ext[k].present = k != 1;
+        }
+        float all[audio::kSynthParamMax + 4];
+        for (float& a : all) a = -12345.0f;
+        CHECK_EQ(synthParamGetAll(p, all, audio::kSynthParamMax), total);
+        for (int i = 0; i < total; ++i) {
+            const float want = synthParamGet(p, i), got = all[i];
+            CHECK(std::memcmp(&want, &got, sizeof want) == 0);
+        }
+        CHECK(all[total] == -12345.0f);
+        // A patch shorter than the engine: the missing entries are defaults.
+        p.paramCount = uint16_t(n / 2);
+        p.extCount = 0;
+        CHECK_EQ(synthParamGetAll(p, all, audio::kSynthParamMax), total);
+        for (int i = 0; i < total; ++i) {
+            const float want = synthParamGet(p, i), got = all[i];
+            CHECK(std::memcmp(&want, &got, sizeof want) == 0);
+        }
+        CHECK_EQ(synthParamGetAll(p, all, total - 1), 0);   // no room: nothing read
+    }
+    SynthPatch none;
+    none.engine = 0x7F;
+    float all[4];
+    CHECK_EQ(synthParamGetAll(none, all, 4), 0);
 }

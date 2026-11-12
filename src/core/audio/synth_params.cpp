@@ -4,6 +4,8 @@
 #include <cmath>
 
 #include "formats/patch_pb.h"
+#include "modules/module.h"
+#include "modules/synth_descriptor.h"
 
 namespace ot {
 namespace audio {
@@ -75,6 +77,32 @@ float synthParamGet(const SynthPatch& p, int index) {
         if (patchParamInRange(p.engine, index, v)) return v;
     }
     return r->def;
+}
+
+int synthParamGetAll(const SynthPatch& p, float* out, int cap) {
+    const mod::SynthDescriptor* d = mod::ModuleHost::instance().synthDescriptor(p.engine);
+    if (!d || !d->params) return 0;
+    const int n = d->paramCount, ne = d->ext ? int(d->extCount) : 0;
+    if (n + ne > cap) return 0;
+    for (int i = 0; i < n; ++i) {
+        const PatchParamRange& r = d->params[i];
+        float v = r.def;
+        if (i < p.paramCount && p.params[i].present) {
+            const float s = patchBitsToFloat(p.params[i].bits);
+            if (patchValueInRange(r, s)) v = s;
+        }
+        out[i] = v;
+    }
+    for (int k = 0; k < ne; ++k) {
+        const PatchParamRange& r = d->ext[k];
+        float v = r.def;
+        if (k < p.extCount && p.ext[k].present) {
+            const float s = patchBitsToFloat(p.ext[k].bits);
+            if (patchValueInRange(r, s)) v = s;
+        }
+        out[n + k] = v;
+    }
+    return n + ne;
 }
 
 bool synthParamSet(SynthPatch& p, int index, float v) {

@@ -186,6 +186,7 @@ private:
     const SynthDescriptor* desc_[kMaxEngines] = {};
     int n_ = 0;
     int nDesc_ = 0;
+    const SynthDescriptor* last_ = nullptr;   // the last synthDescriptor() result
     bool inited_ = false;
     char refused_[5] = {};
     SdramArena sdram_ = {nullptr, 0, 0};   // the profile's block from init() (constant-initialised)

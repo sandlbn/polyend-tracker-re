@@ -311,6 +311,8 @@ public:
     void setTrackPerf(int t, const SynthPerf& p);
     SynthPerf trackPerf(int t) const;
     void applyFx(int track, uint8_t type, uint8_t value);
+    // [3.x] Steal ahead (header): the next step's notes, a block before it.
+    void expect(const SynthExpectNote* notes, int count);
     void macroFx(int slot, int macro, uint8_t value);
     void transportStop();     // macro overrides -> page values
     void resetFx();           // pitch FX state of every track (play start)
@@ -325,6 +327,22 @@ public:
     void holdEngines(bool on);
     bool enginesHeld() const { return held_; }
     bool holdPending() const { return hold_ && !held_; }
+    // A main-loop change (patch, record, preset, insert, macro release) waits
+    // for sync(). syncIdle() applies it in a block with nothing sounding (the
+    // engine does not render the bank then), so the first note after Play
+    // does not bind every slot in its own block.
+    bool syncPending() const {
+        for (int s = 0; s < kSynthSlots; ++s) {
+            if (rebind_[s] || recDirty_[s]) return true;
+#if OT_SLOT_INSERTS
+            if (insDirty_[s]) return true;
+#endif
+            for (int k = 0; k < kSynthSeqMacros; ++k)
+                if (ovrRelease_[s][k]) return true;
+        }
+        return false;
+    }
+    void syncIdle() { blockSync(); }
     void dropEngines();
     // True when a voice sounds or a slot ramp is still moving, a UI
     // audition request waits (it is taken in render's sync) or note-ons are

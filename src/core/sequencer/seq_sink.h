@@ -46,6 +46,16 @@ struct SynthNoteOn {
     float tickPeriodUs = 0;
 };
 
+// [3.x] One synth note of the next step, announced a block ahead
+// (ISequencerSink::synthExpect): track, slot (instrument 64..66), note, or a
+// note-off of the track's synth note (off: 1 = Off / Fade, 2 = Cut).
+struct SynthExpectNote {
+    uint8_t track = 0;
+    uint8_t slot = 0;
+    uint8_t note = 0;
+    uint8_t off = 0;
+};
+
 // MIDI output port mask; bit values follow the Clock/Transport/MIDI-out
 // settings (spec 03 §4.1): 1 = port A, 2 = port B, 3 = both.
 // Port A is taken to be USB and port B the DIN jack (spec 03 §7 item 1, I).
@@ -86,6 +96,11 @@ public:
     virtual bool synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; return false; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
+    // [3.x] The synth notes and note-offs the next step will play, in track
+    // order, sent in the block before that step's block (internal clock, only
+    // when every one of them is certain). The bank fades now the voices those
+    // notes will take, so the step's block does not render both.
+    virtual void synthExpect(const SynthExpectNote* notes, int count) { (void)notes; (void)count; }
 };
 
 // Routes a sink MIDI message onto the HAL ports (A = USB, B = DIN).

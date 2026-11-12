@@ -444,6 +444,10 @@ void AudioEngine::synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) {
     synth_.macroFx(slot, macro, value);
 }
 bool AudioEngine::synthPreset(uint8_t slot, uint8_t n) { return synth_.presetSelect(slot, n); }
+void AudioEngine::synthExpect(const SynthExpectNote* notes, int count) {
+    NoteStamp st(inHook_ ? &prof_.synOn : nullptr);
+    if (ready_) synth_.expect(notes, count);
+}
 void AudioEngine::synthTransportStop() { synth_.transportStop(); }
 
 void AudioEngine::metronomeClick(bool accent, uint8_t velocity) {
@@ -615,19 +619,45 @@ void AudioEngine::controlBlock(float blockUs) {
 // --- block render (spec 04 §1.3 graph) ----------------------------------------
 
 // Step 6 of renderBlock for one saturation mode (spec 04 §5.4).
-template <int kMode>
+// kFx: the delay / reverb returns carry sound (else they are all
+// zero and x + 0 + 0 == x); kLine: the line input does (else its term is
+// 0 * l0, which adds nothing). With neither, saturate() is idempotent and one
+// pass suffices. The same operations in the same order where they run.
+template <int kMode, bool kFx, bool kLine>
 inline __attribute__((always_inline)) void AudioEngine::masterSum(float l0, float li) {
     for (uint32_t i = 0; i < kBlock; ++i) {
-        l0 += li;
         const float dl = saturate(mL_[i], kMode), dr = saturate(mR_[i], kMode);
-        mL_[i] = saturate(dl + dL_[i] + rL_[i] + lineL_[i] * l0, kMode);
-        mR_[i] = saturate(dr + dR_[i] + rR_[i] + lineR_[i] * l0, kMode);
+        if (!kFx && !kLine) {
+            mL_[i] = dl;
+            mR_[i] = dr;
+            continue;
+        }
+        float sl = dl, sr = dr;
+        if (kFx) {
+            sl = sl + dL_[i] + rL_[i];
+            sr = sr + dR_[i] + rR_[i];
+        }
+        if (kLine) {
+            l0 += li;
+            sl = sl + lineL_[i] * l0;
+            sr = sr + lineR_[i] * l0;
+        }
+        mL_[i] = saturate(sl, kMode);
+        mR_[i] = saturate(sr, kMode);
     }
 }
 
 // Saturation mode 0 (the default) runs from SRAM_L (fastrun.h); the other
 // modes stay inlined in renderBlock (flash).
-OT_FASTRUN_FN void AudioEngine::masterSumClean(float l0, float li) { masterSum<0>(l0, li); }
+OT_FASTRUN_FN void AudioEngine::masterSumClean(float l0, float li, bool fx) {
+    if (fx) masterSum<0, true, false>(l0, li);
+    else masterSum<0, false, false>(l0, li);
+}
+// With the line input (Recorder monitor / line level): flash.
+__attribute__((noinline)) void AudioEngine::masterSumLine(float l0, float li, bool fx) {
+    if (fx) masterSum<0, true, true>(l0, li);
+    else masterSum<0, false, true>(l0, li);
+}
 
 void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     const float blockSeconds = offline ? kRenderBlockSeconds : kLiveBlockSeconds;
@@ -702,6 +732,8 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
             for (int s = 0; s < kSynthSlots; ++s) synthStems[s] = stems->data[StemBlock::kFirstSynthStem + s];
         anyVoice |= synth_.render(synthIn_, mL_, mR_, dsend_, rsend_, synthStems, tapTrack, tapL, tapR);
         sendsTouched = 3;   // (the slots' send taps: not tracked)
+    } else if (synth_.syncPending()) {
+        synth_.syncIdle();
     }
     const uint32_t pc4 = stamp();
     // 4. line input (§1.3 IG): channel mode, direct level, sends. A block of
@@ -764,14 +796,11 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
                 dynActive_ = !(dynL_.settled() && dynR_.settled());
             }
             // A send no voice added into is still all zero: no clamp pass.
-            if (sendsTouched == 3) {
-                for (uint32_t i = 0; i < kBlock; ++i) {
-                    dsend_[i] = clampUnitFast(dsend_[i]);
-                    rsend_[i] = clampUnitFast(rsend_[i]);
-                }
-            } else if (sendsTouched) {
-                float* s = sendsTouched == 1 ? dsend_ : rsend_;
-                for (uint32_t i = 0; i < kBlock; ++i) s[i] = clampUnitFast(s[i]);
+            // The delay send needs none at all: Delay::process
+            // reads it through toS16(), which saturates to the same int16
+            // as toS16(clampUnitFast(x)) for every float (NaN -> 0 both).
+            if (sendsTouched & 2u) {
+                for (uint32_t i = 0; i < kBlock; ++i) rsend_[i] = clampUnitFast(rsend_[i]);
             }
         }
     }
@@ -790,13 +819,19 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
         if (anyVoice || dly || rev || line) {
             // Global Mixer meters: the four MSUM inputs before the sum (every
             // 8th frame, a UI reading like the synth slot meters; delay / reverb returns, the dry bus, line in x level).
+            // |x| as the sign-cleared bit pattern: unsigned order ==
+            // magnitude order for non-NaN floats, no FPU compares.
             auto peak = [](const float* a, float g) {
-                float p = 0.0f;
+                uint32_t p = 0;
                 for (uint32_t i = 0; i < kBlock; i += 8) {
-                    const float v = a[i] < 0.0f ? -a[i] : a[i];
-                    p = v > p ? v : p;
+                    uint32_t b;
+                    __builtin_memcpy(&b, &a[i], 4);
+                    b &= 0x7FFFFFFFu;
+                    p = b > p ? b : p;
                 }
-                return p * g;
+                float v;
+                __builtin_memcpy(&v, &p, 4);
+                return v * g;
             };
             const float* bus[4][2] = {{dL_, dR_}, {rL_, rR_}, {mL_, mR_}, {lineL_, lineR_}};
             for (int ch = 0; ch < 4; ++ch)
@@ -805,11 +840,14 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
                     if (p > busPeak_[ch][sd]) busPeak_[ch][sd] = p;
                 }
             switch (m.saturationMode) {
-                case 1: masterSum<1>(l0, li); break;
-                case 2: masterSum<2>(l0, li); break;
-                case 3: masterSum<3>(l0, li); break;
-                case 4: masterSum<4>(l0, li); break;
-                default: masterSumClean(l0, li); break;   // the default mode, from SRAM_L (.fastrun)
+                case 1: masterSum<1, true, true>(l0, li); break;
+                case 2: masterSum<2, true, true>(l0, li); break;
+                case 3: masterSum<3, true, true>(l0, li); break;
+                case 4: masterSum<4, true, true>(l0, li); break;
+                default:   // the default mode, from SRAM_L (.fastrun) unless the line input plays
+                    if (line) masterSumLine(l0, li, dly || rev);
+                    else masterSumClean(l0, li, dly || rev);
+                    break;
             }
         }
     }
@@ -919,6 +957,12 @@ void AudioEngine::renderBlock(bool offline, int16_t* master, StemBlock* stems) {
     if (!limL && !limR && !raw && !click) {
         if (!(reinterpret_cast<uintptr_t>(master) & 3u)) zeroWords(master, kBlock * 2 * sizeof(int16_t));   // silence
         else std::memset(master, 0, kBlock * 2 * sizeof(int16_t));
+    } else if (!raw && !click) {   // the common case: limiter x master volume
+        for (uint32_t i = 0; i < kBlock; ++i) {
+            g0 += gi;
+            master[2 * i] = toS16(limOutL[i] * g0);
+            master[2 * i + 1] = toS16(limOutR[i] * g0);
+        }
     } else {
         const float* ca = vout_[kMetronomeVoice].amp;
         for (uint32_t i = 0; i < kBlock; ++i) {

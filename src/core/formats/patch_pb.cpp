@@ -609,7 +609,11 @@ bool patchParamInRange(int32_t engine, int index, float v) {
     const PatchParamRange* t = patchEngineParams(engine, &n);
     const PatchParamRange* x = patchEngineExtParams(engine, &ne);
     if (!t || index < 0 || index >= n + ne || !std::isfinite(v)) return false;
-    const PatchParamRange& r = index < n ? t[index] : x[index - n];
+    return patchValueInRange(index < n ? t[index] : x[index - n], v);
+}
+
+bool patchValueInRange(const PatchParamRange& r, float v) {
+    if (!std::isfinite(v)) return false;
     if (r.flags & kParamFlagNoRange) return true;
     // Our patches store full floats, Mini patches halves: a bound is in range
     // either way (half 0.1 is 0.09998, half 0.01 is 0.0100021). The float

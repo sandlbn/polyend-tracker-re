@@ -1,6 +1,7 @@
 // Sequencer tests (spec 03).
 #include "test.h"
 
+#include <cmath>
 #include <cstring>
 #include <memory>
 #include <vector>
@@ -16,7 +17,7 @@ using namespace ot;
 namespace {
 
 struct Ev {
-    enum Kind { NoteOn, NoteOff, ApplyFx, ResetFx, Click, Midi, SynthOn, SynthOff, SynthPreset } kind;
+    enum Kind { NoteOn, NoteOff, ApplyFx, ResetFx, Click, Midi, SynthOn, SynthOff, SynthPreset, SynthExpect } kind;
     int track;
     int a, b, c;          // NoteOn: note, instr, volume; NoteOff: mode; ApplyFx: slot,type,value; Midi: bytes
     int len;
@@ -61,6 +62,14 @@ struct FakeSink : ISequencerSink {
         Ev e = base(Ev::SynthOn, track);
         e.a = n.note; e.b = n.slot;
         ev.push_back(e);
+    }
+    // One event per expected note (a: note, b: slot, c: 1 = release only).
+    void synthExpect(const SynthExpectNote* notes, int count) override {
+        for (int i = 0; i < count; ++i) {
+            Ev e = base(Ev::SynthExpect, notes[i].track);
+            e.a = notes[i].note; e.b = notes[i].slot; e.c = notes[i].off ? 1 : 0;
+            ev.push_back(e);
+        }
     }
     void synthNoteOff(uint8_t track, NoteOffMode mode) override {
         Ev e = base(Ev::SynthOff, track);
@@ -2241,4 +2250,142 @@ TEST(a_step_0_z_with_chance_that_passes_keeps_its_preset_and_one_that_fails_goes
             CHECK_EQ(presetAtOn(r, 1, 2, 0), 0);
         }
     }
+}
+
+// --- [3.x] the next step's synth notes, one block ahead ------------------------
+
+namespace {
+// Synth notes on tracks 0 and 1 (slot 0) on every step of a 16-step pattern.
+void synthSteps(Rig& r) {
+    for (int s = 0; s < 16; ++s) {
+        r.setNote(0, s, 48 + s, 64);
+        r.setNote(1, s, 60 + s, 64);
+    }
+    r.step(0, 15).note = 0;
+    r.seq.currentPattern()->tracks[0].lastStep = 15;
+}
+}  // namespace
+
+// The notes of a step arrive in the block before the step's own block, exactly
+// those notes, for every step at tempos where the step's counter moves at least
+// a block before it starts; at faster tempos some steps go without (never wrong).
+TEST(synth_expect_one_block_before_the_step) {
+    const float bpms[] = {60.0f, 92.0f, 110.0f, 130.0f, 250.0f};
+    for (float bpm : bpms) {
+        for (int swing = 0; swing < 2; ++swing) {
+            Rig r(bpm);
+            synthSteps(r);
+            if (swing) r.fxA(0, 0, 17, 70);
+            r.seq.play(0);
+            r.blocks(int(40 * 15.0 / bpm / kBlockS));   // ~40 steps
+            const auto on = r.sink.of(Ev::SynthOn);
+            const auto ex = r.sink.of(Ev::SynthExpect);
+            CHECK(on.size() >= 60);
+            size_t covered = 0, onSteps = 0;
+            for (size_t i = 0; i < on.size(); ++i) {
+                if (on[i].track != 0) continue;
+                ++onSteps;
+                // The expectation for this step: one block earlier, both notes.
+                int found = 0;
+                for (const Ev& e : ex)
+                    if (std::fabs(e.time - (on[i].time - kBlockS)) < kBlockS * 0.25) {
+                        bool match = false;
+                        for (const Ev& o : on)
+                            if (o.time == on[i].time && o.track == e.track && o.a == e.a && o.b == e.b) match = true;
+                        CHECK(match);
+                        ++found;
+                    }
+                CHECK(found == 0 || found == 2);
+                if (found == 2) ++covered;
+            }
+            // Every expectation is followed by its notes one block later (but
+            // the one in the run's last block).
+            for (const Ev& e : ex) {
+                if (e.time > r.sink.time - 1.5 * kBlockS) continue;
+                bool next = false;
+                for (const Ev& o : on)
+                    if (std::fabs(o.time - (e.time + kBlockS)) < kBlockS * 0.25 && o.track == e.track && o.a == e.a)
+                        next = true;
+                CHECK(next);
+            }
+            // Up to ~108 BPM a block holds at most 12 ticks: every step but the
+            // first after Play is announced; faster, the counter can move and the
+            // step start in one block (about 1/2 of the steps at 250 BPM).
+            if (bpm <= 92.0f) CHECK(covered + 1 >= onSteps);
+            else CHECK(covered * 3 >= onSteps);
+        }
+    }
+}
+
+// A step whose notes are not certain one block ahead is not announced.
+TEST(synth_expect_skips_uncertain_steps) {
+    struct Case { int type, value; };
+    const Case cases[] = {{4, 50},   // Chance
+                          {2, 50},   // Micro-move
+                          {5, 3},    // Random note
+                          {6, 1}};   // Random instrument
+    for (const Case& c : cases) {
+        Rig r(92.0f);
+        synthSteps(r);
+        r.fxA(0, 4, c.type, c.value);
+        r.seq.play(0);
+        r.blocks(int(8 * 15.0 / 92.0 / kBlockS));
+        bool step4 = false;
+        for (const Ev& e : r.sink.of(Ev::SynthExpect))
+            if (e.a == 52 || e.a == 64) step4 = true;   // step 4's notes
+        CHECK(!step4);
+        CHECK(!r.sink.of(Ev::SynthExpect).empty());   // the other steps still are
+    }
+    {   // A Z on the step.
+        Rig r(92.0f);
+        synthSteps(r);
+        zA(r, 1, 4, 2);
+        r.seq.play(0);
+        r.blocks(int(8 * 15.0 / 92.0 / kBlockS));
+        for (const Ev& e : r.sink.of(Ev::SynthExpect)) CHECK(e.a != 52 && e.a != 64);
+    }
+    {   // A Z that repeats the slot's preset changes nothing: still announced.
+        Rig r(92.0f);
+        synthSteps(r);
+        zA(r, 1, 2, 2);
+        zA(r, 1, 4, 2);
+        r.seq.play(0);
+        r.blocks(int(8 * 15.0 / 92.0 / kBlockS));
+        bool step4 = false;
+        for (const Ev& e : r.sink.of(Ev::SynthExpect)) step4 = step4 || e.a == 52;
+        CHECK(step4);
+    }
+    {   // A preset instrument note.
+        Rig r(92.0f);
+        synthSteps(r);
+        r.setNote(1, 4, 64, kFirstPresetInstrument);
+        r.seq.play(0);
+        r.blocks(int(8 * 15.0 / 92.0 / kBlockS));
+        for (const Ev& e : r.sink.of(Ev::SynthExpect)) CHECK(e.a != 52 && e.a != 64);
+    }
+    {   // External clock: never.
+        Rig r(92.0f);
+        synthSteps(r);
+        r.seq.settings().clockIn = 1;
+        r.seq.play(0);
+        for (int i = 0; i < 400; ++i) {
+            if (i % 4 == 0) r.seq.midiRealtimeIn(MidiPortId::kUsb, 0xF8);
+            r.block();
+        }
+        CHECK(!r.sink.of(Ev::SynthOn).empty());
+        CHECK(r.sink.of(Ev::SynthExpect).empty());
+    }
+}
+
+// A note-off step of a sounding synth track is announced as a release.
+TEST(synth_expect_carries_note_offs) {
+    Rig r(92.0f);
+    synthSteps(r);
+    r.step(1, 4).note = int8_t(kNoteOff);
+    r.seq.play(0);
+    r.blocks(int(8 * 15.0 / 92.0 / kBlockS));
+    bool off = false;
+    for (const Ev& e : r.sink.of(Ev::SynthExpect, 1))
+        if (e.c == 1) off = true;
+    CHECK(off);
 }

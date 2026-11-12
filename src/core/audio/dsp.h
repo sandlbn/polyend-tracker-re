@@ -70,8 +70,31 @@ inline int16_t toS16(float x) {
 #define OT_NO_LIBCALL() __asm__ volatile("")
 
 // Zero `bytes` (a multiple of 16, 4-byte aligned) with word stores.
-inline void zeroWords(void* p, uint32_t bytes) {
+// out of line: the eight pinned registers of the STM would otherwise
+// pessimise the caller's register allocation (measured: +500..700 insn/block).
+inline __attribute__((noinline)) void zeroWords(void* p, uint32_t bytes) {
     uint32_t* w = static_cast<uint32_t*>(p);
+#if defined(__arm__) && defined(__thumb2__)
+    // 32 bytes per STM of eight zero registers.
+    if (uint32_t n = bytes / 32u) {
+        register uint32_t r4 __asm__("r4") = 0;
+        register uint32_t r5 __asm__("r5") = 0;
+        register uint32_t r6 __asm__("r6") = 0;
+        register uint32_t r7 __asm__("r7") = 0;
+        register uint32_t r8 __asm__("r8") = 0;
+        register uint32_t r9 __asm__("r9") = 0;
+        register uint32_t r10 __asm__("r10") = 0;
+        register uint32_t r11 __asm__("r11") = 0;
+        do {
+            __asm__ volatile("stmia %[d]!, {%[a], %[b], %[c], %[e], %[f], %[g], %[h], %[k]}"
+                             : [d] "+r"(w)
+                             : [a] "r"(r4), [b] "r"(r5), [c] "r"(r6), [e] "r"(r7), [f] "r"(r8), [g] "r"(r9),
+                               [h] "r"(r10), [k] "r"(r11)
+                             : "memory");
+        } while (--n);
+        bytes &= 31u;
+    }
+#endif
     for (uint32_t n = bytes / 16u; n; --n) {
         OT_NO_LIBCALL();
         w[0] = 0;
@@ -81,7 +104,11 @@ inline void zeroWords(void* p, uint32_t bytes) {
         w += 4;
     }
 }
-inline void zeroFloats(float* p, uint32_t n) {
+inline __attribute__((noinline)) void zeroFloats(float* p, uint32_t n) {
+    if (!(n & 3u) && !(reinterpret_cast<uintptr_t>(p) & 3u)) {   // whole 16-byte groups
+        zeroWords(p, n * 4u);
+        return;
+    }
     for (uint32_t i = 0; i < n; ++i) {
         OT_NO_LIBCALL();
         p[i] = 0.0f;
@@ -136,6 +163,20 @@ struct Ramp {
         return inc;
     }
 };
+
+// One envelope group: g[i] = (m + (i + 1) * step) * sc, accumulated
+// as the loop did. Unrolled out of line: inlined, the eight live products
+// cost group() 316 B of spills; as a call it is 8 x 3 instructions.
+__attribute__((noinline)) inline void envFill8(float* __restrict g, float m, float step, float sc) {
+    m += step; g[0] = m * sc;
+    m += step; g[1] = m * sc;
+    m += step; g[2] = m * sc;
+    m += step; g[3] = m * sc;
+    m += step; g[4] = m * sc;
+    m += step; g[5] = m * sc;
+    m += step; g[6] = m * sc;
+    m += step; g[7] = m * sc;
+}
 
 // PJRC AudioEffectEnvelope (spec 04 §4.7) with the firmware extensions:
 // no-attack, bypass, loop/gate (volume LFO), FORCED retrigger with pending note.
@@ -248,10 +289,7 @@ public:
         // Linear per-sample interpolation inside the group (PJRC: mult += inc/8 first).
         const float step = inc_ * 0.125f;
         float m = level_;
-        for (int i = 0; i < 8; ++i) {
-            m += step;
-            g[i] = m * scale_;
-        }
+        envFill8(g, m, step, scale_);   // out of line, unrolled
         level_ += inc_;
         --count_;
         return ev;

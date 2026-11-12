@@ -24,8 +24,13 @@ inline uint32_t mag(int32_t v) { return uint32_t(v ^ (v >> 31)); }
 
 // Block working buffers (SRAM). One engine renders at a time.
 int16_t gX[kBlock];
-int16_t gR0[kBlock], gR1[kBlock], gR2[kBlock];
-int16_t gW0[kBlock], gW1[kBlock], gW2[kBlock];
+// +2: the span starts at the int16 parity of its ring position, so
+// ringIn / ringOut take their 32-bit word path (as the reverb's spans do).
+alignas(4) int16_t gR0[kBlock + 2], gR1[kBlock + 2], gR2[kBlock + 2];
+alignas(4) int16_t gW0[kBlock + 2], gW1[kBlock + 2], gW2[kBlock + 2];
+inline int16_t* spanAt(int16_t* store, const int16_t* ring, uint32_t pos) {
+    return store + ((reinterpret_cast<uintptr_t>(ring + pos) >> 1) & 1u);
+}
 }  // namespace
 
 // --- Delay (spec 04 §5.1) ----------------------------------------------------
@@ -164,19 +169,25 @@ OT_FASTRUN_FN bool Delay::process(const float* in, float* outL, float* outR) {
         const int16_t* x = gX + i0;
         float* oL = outL + i0;
         float* oR = outR + i0;
-        ringIn(a_, kDMask, r, gR0, n);
-        ringIn(b_, kDMask, r, gR1, n);
-        ringIn(c_, kDMask, r, gR2, n);
+        int16_t* const rA = spanAt(gR0, a_, r);
+        int16_t* const rB = spanAt(gR1, b_, r);
+        int16_t* const rC = spanAt(gR2, c_, r);
+        int16_t* const wA = spanAt(gW0, a_, w);
+        int16_t* const wB = spanAt(gW1, b_, w);
+        int16_t* const wC = spanAt(gW2, c_, w);
+        ringIn(a_, kDMask, r, rA, n);
+        ringIn(b_, kDMask, r, rB, n);
+        ringIn(c_, kDMask, r, rC, n);
         if (pp) {
-            loud |= delayChunkAB<true>(x, n, b, c, k, sab, gR0, gR1, gW0, gW1, oL, oR);
-            loud |= delayChunkC<false>(x, n, b, c, k, sc, gR2, gW2, oL, oR);
+            loud |= delayChunkAB<true>(x, n, b, c, k, sab, rA, rB, wA, wB, oL, oR);
+            loud |= delayChunkC<false>(x, n, b, c, k, sc, rC, wC, oL, oR);
         } else {
-            loud |= delayChunkAB<false>(x, n, b, c, k, sab, gR0, gR1, gW0, gW1, oL, oR);
-            loud |= delayChunkC<true>(x, n, b, c, k, sc, gR2, gW2, oL, oR);
+            loud |= delayChunkAB<false>(x, n, b, c, k, sab, rA, rB, wA, wB, oL, oR);
+            loud |= delayChunkC<true>(x, n, b, c, k, sc, rC, wC, oL, oR);
         }
-        ringOut(a_, kDMask, w, gW0, n);
-        ringOut(b_, kDMask, w, gW1, n);
-        ringOut(c_, kDMask, w, gW2, n);
+        ringOut(a_, kDMask, w, wA, n);
+        ringOut(b_, kDMask, w, wB, n);
+        ringOut(c_, kDMask, w, wC, n);
         w = (w + n) & kDMask;
         i0 += n;
     }
@@ -655,9 +666,10 @@ OT_FASTRUN_FN bool Limiter::process(const float* x, const float* sc, float* out)
     // Look-ahead: dl[i] = x[i - 4] (history first, oldest at hp_).
     float dl[kBlock + 4];
     for (uint32_t j = 0; j < 4; ++j) dl[j] = hist_[(hp_ + j) & 3u];
-    for (uint32_t i = 0; i < kBlock; ++i) {
-        OT_NO_LIBCALL();
-        dl[i + 4] = x[i];
+    {   // dl[4..] = x[0..kBlock) as an LDM/STM word copy
+        u32_alias* d = reinterpret_cast<u32_alias*>(dl + 4);
+        const u32_alias* sp = reinterpret_cast<const u32_alias*>(x);
+        wordCopy(d, sp, kBlock);
     }
     float g = 1.0f;
     const float sum = sc ? limiterRun<true>(x, sc, out, dl, env_, gs_, g, ca_, cr_, thr_)
