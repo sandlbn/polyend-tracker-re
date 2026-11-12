@@ -78,6 +78,9 @@ public:
     bool wholeCol = false;
     bool allTracks = false;
     int focus = -1;                 // -1 none, 0 pattern, 1 length, 2 step jump, 5 undo, 6 redo
+    // The Instruments list picked the current instrument with the cursor
+    // here (Rec off): the module keys keep it instead of the step's (Ui::switchTo).
+    bool pickedHere() const;
     int page = 0;
     bool fillOpen = false;
     void fillValueText(int val, char* out) const;   // From/To display text (8 bytes)
@@ -170,6 +173,7 @@ private:
     uint8_t colKey_ = 0;            // column key waiting for its hold popup
     uint32_t colKeyAt_ = 0;
     uint8_t pickerKey_ = 0;
+    int pickTrack_ = -1, pickStep_ = -1, pickPattern_ = -1;   // where the list picked (-1 none)
     int noteBase_ = 48;             // Note popup: note under F1 (window of 8)
     uint8_t noteKeysOn_ = 0;        // Note popup F-keys sounding (bit = F-key)
     bool encUsedInHold_ = false;
