@@ -648,10 +648,11 @@ void Ui::switchTo(int module, int opt) {
     // screen with Rec off, Instrument Params, Sample Playback and Sample
     // Editor open the instrument of the step under the cursor and make it the
     // current instrument. A step without a note (empty, OFF, CUT, FADE) keeps
-    // the current one.
+    // the current one, and so does a step the Instruments list just picked
+    // an instrument on (the cursor hasn't moved since).
     if (active_ == kModPattern && !app.editMode &&
         (module == kModInstrument || module == kModPlayback || module == kModEditor)) {
-        if (const auto* p = static_cast<const PatternScreen*>(screen(kModPattern))) {
+        if (const auto* p = static_cast<const PatternScreen*>(screen(kModPattern)); p && !p->pickedHere()) {
             const Step& st = app.pattern().tracks[p->track < 0 ? 0 : (p->track >= kTrackCount ? kTrackCount - 1 : p->track)]
                                  .steps[p->step < 0 ? 0 : (p->step >= kStepCount ? kStepCount - 1 : p->step)];
             if (st.note >= 0) app.setCurrentInstrument(st.instrument);
