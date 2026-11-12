@@ -1,0 +1,33 @@
+# Monokai Vibrant: Sublime Text Monokai, with brighter tracker accents.
+# Copy to the Themes folder at the root of the SD card.
+base = original
+
+background = #20211D
+title_bg = #35362C
+title_text = #FFFFFF
+text = #FFF9E8
+dim = #D4CBA7
+label_text = #FFF18A
+label_bg = #35362C
+panel = #2A2B25
+panel2 = #393A30
+strip = #1A1B18
+accent = #FF397C
+good = #B5F542
+alert = #FF397C
+yellow = #FFE881
+orange = #FFA63D
+cyan = #76E8FF
+note = #B5F542
+instrument = #FFE881
+fx1 = #FF397C
+fx2 = #76E8FF
+note_empty = #435326
+instrument_empty = #554B29
+fx1_empty = #542638
+fx2_empty = #264953
+grid_bg = #24251F
+grid_beat = #36382C
+grid_muted = #2B2D25
+wave = #76E8FF
+focus_fill = #56513F

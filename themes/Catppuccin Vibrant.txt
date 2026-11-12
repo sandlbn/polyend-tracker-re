@@ -1,0 +1,33 @@
+# Catppuccin Vibrant: vivid Mocha pastels on deep aubergine.
+# Palette source: https://catppuccin.com/palette/
+base = original
+
+background = #1B1B2B
+title_bg = #313147
+title_text = #F0F1FF
+text = #E1E6FF
+dim = #B6BEDB
+label_text = #FFE6B8
+label_bg = #313147
+panel = #252537
+panel2 = #37374D
+strip = #141421
+accent = #DBB5FF
+good = #B4EEAE
+alert = #FF9BB7
+yellow = #FFE6B8
+orange = #FFC19B
+cyan = #A5F2E5
+note = #B4EEAE
+instrument = #FFE6B8
+fx1 = #FFCFED
+fx2 = #9DC5FF
+note_empty = #365039
+instrument_empty = #554A39
+fx1_empty = #523F55
+fx2_empty = #344763
+grid_bg = #202032
+grid_beat = #37374E
+grid_muted = #2B2B40
+wave = #A5F2E5
+focus_fill = #53506A

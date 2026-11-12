@@ -411,8 +411,11 @@ TEST(theme_view_reads_its_slots) {
 TEST(shipped_example_themes_parse_cleanly) {
     // reimpl/themes/*.txt (the release's Themes folder): every file parses
     // with no bad lines, keeps its text readable and differs from its base.
-    const char* names[] = {"Neon",      "Amber", "Paper", "Bubblegum", "Barbie", "Matrix",
-                           "GameBoy",   "Vaporwave", "Lava", "Ocean", "C64"};
+    const char* names[] = {"Neon",                "Amber",               "Paper",              "Bubblegum",
+                           "Barbie",              "Matrix",              "GameBoy",            "Vaporwave",
+                           "Lava",                "Ocean",               "C64",                "Monokai Vibrant",
+                           "Dracula Vibrant",     "One Dark Vibrant",    "Tokyo Night Vibrant", "Catppuccin Vibrant",
+                           "Night Owl Vibrant"};
     MemStorage fs;
     for (const char* n : names) {
         const std::string path = std::string("../themes/") + n + ".txt";

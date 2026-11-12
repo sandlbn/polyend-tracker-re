@@ -1,0 +1,33 @@
+# Dracula Vibrant: brighter take on the Dracula editor palette.
+# Palette source: https://github.com/dracula/dracula-theme
+base = original
+
+background = #242633
+title_bg = #34364A
+title_text = #FFFFFF
+text = #F8F8F2
+dim = #A9B2D0
+label_text = #F4FFA0
+label_bg = #34364A
+panel = #2B2D3E
+panel2 = #383A50
+strip = #1E202C
+accent = #D5A6FF
+good = #69FF94
+alert = #FF6E6E
+yellow = #F4FFA0
+orange = #FFC98A
+cyan = #A4F4FF
+note = #69FF94
+instrument = #F4FFA0
+fx1 = #FF92D0
+fx2 = #A4F4FF
+note_empty = #25513D
+instrument_empty = #4A4E36
+fx1_empty = #522F4D
+fx2_empty = #2B4C59
+grid_bg = #282A39
+grid_beat = #3B3E53
+grid_muted = #303244
+wave = #A4F4FF
+focus_fill = #555477
