@@ -16,8 +16,14 @@
 //   3. else steal inside the slot (same note, then the quietest voice in
 //      release, then the oldest), else globally by the governor rule.
 // A stolen voice fades out over one block (2.9 ms) and stops counting at
-// once; the new note takes a free record at once, or the stolen record
-// after its fade when the pool is exhausted. A victim that started in the
+// once. Steal spreading (CPU peaks): the sequencer's note then waits in the
+// note-on queue below and starts first in the next block, so a fade and the
+// note that caused it never render in the same block (a pattern start that
+// replaces every note of a slot would render the slot twice). The waiting
+// note keeps its voice: a later note of the block steals as if it had
+// started. Without a start cap (tests) or when the queue itself starts it,
+// the new note takes a free record at once, or the stolen record after its
+// fade when the pool is exhausted. A victim that started in the
 // same block (it has not rendered a frame yet) is freed at once instead:
 // its fade would be a 2.9 ms blip of a note nobody hears and costs a whole
 // voice render (CPU peak work, docs/OPTIMIZATION_2X.md "Peak attribution").
@@ -539,6 +545,7 @@ private:
     const SynthPatch* presets_ = nullptr;
     const PresetMix* presetMix_ = nullptr;   // [3.x] bindPresetMix
     uint8_t nDefer_ = 0;
+    uint8_t stealWait_[kSynthSlots] = {};   // queued notes that wait for a steal fade, per slot
     uint8_t startCap_ = kStartsPerBlock;
     uint8_t starts_ = 0;          // voice starts in the current block
     bool flushDue_ = false;       // a render ended since the queue was filled

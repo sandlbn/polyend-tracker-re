@@ -1337,6 +1337,85 @@ TEST(synth_note_on_spreading) {
     CHECK(r.bank.voiceOfTrack(6) != nullptr);
 }
 
+// A note that steals a sounding voice starts after that voice's fade, in the
+// next block: the fade and the new note never render in the same block (a
+// pattern start that steals every note of a slot would render the slot twice).
+TEST(synth_steal_starts_after_the_fade) {
+    BankRig r(2, 2, 2, 4, 3);
+    r.on(0, 0, 60);
+    r.on(1, 0, 62);
+    r.block();
+    r.block();
+    const int renders0 = r.spy.renders;
+    r.on(0, 0, 64);   // both voices of slot 0 are taken by the new notes
+    r.on(1, 0, 65);
+    CHECK_EQ(r.bank.steals(), 2u);
+    CHECK_EQ(r.bank.queuedNotes(), 2);
+    CHECK_EQ(r.bank.busyRecords(), 2);   // the two victims, fading
+    CHECK(r.bank.voiceOfTrack(0) == nullptr);
+    r.block();   // the fades alone
+    CHECK_EQ(r.spy.renders - renders0, 2);
+    r.block();   // the new notes start first in this block
+    CHECK_EQ(r.spy.renders - renders0, 4);
+    CHECK_EQ(r.bank.queuedNotes(), 0);
+    CHECK_EQ(r.bank.busyRecords(), 2);
+    CHECK(r.bank.voiceOfTrack(0) != nullptr);
+    CHECK_EQ(int(r.bank.voiceOfTrack(0)->note), 64);
+    CHECK_EQ(int(r.bank.voiceOfTrack(1)->note), 65);
+    CHECK_EQ(r.bank.steals(), 2u);
+    // A victim that started in this block is freed at once: no fade, no wait.
+    BankRig q(2, 2, 2, 4, 3);
+    q.on(0, 0, 60);
+    q.on(1, 0, 62);
+    q.on(2, 0, 64);
+    CHECK_EQ(q.bank.steals(), 1u);
+    CHECK_EQ(q.bank.queuedNotes(), 0);
+    CHECK(q.bank.voiceOfTrack(2) != nullptr);
+}
+
+// The waiting note keeps its note-off of the block and its Glide FX start
+// pitch (the track's previous note).
+TEST(synth_steal_wait_keeps_note_off_and_glide) {
+    BankRig r(2, 2, 2, 4, 3);
+    r.on(0, 0, 48);
+    r.on(1, 0, 50);
+    r.block();
+    r.on(0, 0, 60, -1, StepFx{19, 20});   // Glide FX from 48
+    r.on(1, 0, 62);
+    r.bank.noteOff(1, NoteOffMode::Off);
+    CHECK_EQ(r.bank.queuedNotes(), 2);
+    r.block();
+    r.block();
+    const SynthVoice* v = r.bank.voiceOfTrack(0);
+    CHECK(v != nullptr);
+    CHECK_EQ(int(v->note), 60);
+    CHECK(v->bendStart < -11.0f);   // starts at 48
+    bool glide = false;
+    for (const SynthNote& n : r.spy.ons)
+        if (n.note == 60) glide = n.fxGlide;
+    CHECK(glide);
+    CHECK(r.bank.voiceOfTrack(1) == nullptr);   // started, then released by its note-off
+}
+
+// A slot whose notes are all replaced at every step renders at most its
+// polyphony in any block.
+TEST(synth_steals_never_double_a_slot) {
+    BankRig r(2, 2, 2, 4, 3);
+    int worst = 0;
+    for (int step = 0; step < 12; ++step) {
+        r.on(0, 0, 50 + step);
+        r.on(1, 0, 60 + step);
+        for (int k = 0; k < 4; ++k) {
+            const int before = r.spy.renders;
+            r.block();
+            worst = std::max(worst, r.spy.renders - before);
+        }
+    }
+    CHECK_EQ(worst, 2);
+    CHECK_EQ(r.bank.queuedNotes(), 0);
+    CHECK(r.bank.sounding() <= 4);
+}
+
 // The slots bind while nothing sounds (a project's open, a Z while stopped),
 // so the first note after Play does not carry every slot's reload in its block.
 TEST(synth_slots_bind_while_stopped) {
