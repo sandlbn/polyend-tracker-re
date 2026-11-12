@@ -33,7 +33,6 @@ void SynthBank::reset() {
     for (auto& o : owner_) o = -1;
     for (auto& p : pend_) p = Pending{};
     for (auto& d : defer_) d = Deferred{};
-    for (auto& w : stealWait_) w = 0;
     nDefer_ = 0;
     starts_ = 0;
     flushDue_ = false;
@@ -458,7 +457,6 @@ void SynthBank::dropEngines() {
     }
     for (auto& p : pend_) p.record = -1;
     for (auto& d : defer_) d = Deferred{};
-    for (auto& w : stealWait_) w = 0;
     nDefer_ = 0;
     flushDue_ = false;
     for (int t = 0; t < kSynthAllTracks; ++t) {
@@ -1086,7 +1084,6 @@ SynthBank::Deferred* SynthBank::deferredOf(int track) {
 __attribute__((noinline)) void SynthBank::flushDeferred() {
     flushDue_ = false;
     bindNow_ = 0;   // the notes of the binds so far start now
-    for (auto& w : stealWait_) w = 0;   // their voices are free now
     const int n = nDefer_;
     nDefer_ = 0;
     for (int i = 0; i < n; ++i) {
@@ -1185,38 +1182,6 @@ void SynthBank::noteOnNow(int track, const SynthNoteOn& n, bool forced) {
         return;
     }
     Slot& sl = slots_[s];
-    // Steal spreading (header): a note that must take a sounding voice
-    // starts after that voice's fade, first in the next block, so the fade
-    // and the new voice never render in one block. Not the mono reuse (and
-    // C1 priority) of a polyphony-1 slot, not a kit (PERC hits never wait).
-    // A note waiting for a fade holds its voice: the next note of the block
-    // steals as it would have.
-    int waits = 0;
-    for (int k = 0; k < kSynthSlots; ++k) waits += stealWait_[k];
-    if (!forced && startCap_ > 0 && !sl.kit && (voicesOf(s) + stealWait_[s] >= P || sounding() + waits >= cap())) {
-        bool reuse = false;
-        if (P == 1)
-            for (int q = 0; q < kSynthMaxVoices && !reuse; ++q)
-                reuse = voices_[q].state == kOn && voices_[q].v.slot == s;
-        if (!reuse && !(P == 1 && sl.prio)) {
-            releaseTrack(track);
-            const uint8_t nn = n.note > 127 ? 127 : n.note;
-            const int victim = voicesOf(s) + stealWait_[s] >= P ? victimInSlot(s, nn) : victimGlobal();
-            if (victim >= 0) {
-                fade(victim, true);
-                ++steals_;
-                if (voices_[victim].state == kFading) {
-                    Deferred* d = &defer_[nDefer_++];   // (no entry of this track: it would have waited above)
-                    *d = Deferred{};
-                    d->track = int8_t(track);
-                    d->n = n;
-                    ++stealWait_[s];
-                    if (prof_) BlockProfile::inc(prof_->nDeferred);
-                    return;
-                }
-            }
-        }
-    }
     if (n.preset) {   // [3.x] the note's CC a..f: the slot it plays on (as the sequencer's for a slot)
         const StepFx cc[2] = {n.fxB, n.fxA};
         for (const StepFx& f : cc)
@@ -1484,7 +1449,6 @@ void SynthBank::stopAll() {
     }
     for (auto& p : pend_) p.record = -1;
     for (auto& d : defer_) d = Deferred{};
-    for (auto& w : stealWait_) w = 0;
     nDefer_ = 0;
     flushDue_ = false;
     for (int t = 0; t < kSynthAllTracks; ++t) {

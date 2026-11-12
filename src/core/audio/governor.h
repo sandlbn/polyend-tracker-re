@@ -43,7 +43,7 @@ public:
     // Synth voices currently sounding (all slots; stolen ones excluded).
     virtual int sounding() const = 0;
     // Steal one voice by the §3.3 rule (release phase quietest first, then
-    // quietest, then oldest); it fades out over one block. False: none left.
+    // quietest, then oldest); it fades out over 64 frames. False: none left.
     virtual bool stealOne() = 0;
 };
 
