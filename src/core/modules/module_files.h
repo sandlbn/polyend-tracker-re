@@ -65,7 +65,7 @@ struct OtmLoadReport {
     // [I] Bytes of each compiled-in hot row (OtmPool::hotRows order) in the
     // fast block now: its code up to the cut (0 = it runs from flash).
     static constexpr int kMaxHot = 8;   // tools/hot_pool.py refuses more rows
-    uint32_t hotCut[kMaxHot] = {};
+    uint16_t hotCut[kMaxHot] = {};   // a cut is at most 0xFFFF (loadCardSynths)
 };
 
 // A card synth engine (the boot scan lists them, loaded or not).

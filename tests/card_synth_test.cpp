@@ -250,6 +250,6 @@ TEST(boot_scan_again_puts_moved_rows_back_in_flash) {
     r.hotCut[0] = 99;
     loadModuleFiles(h.fs, g_hotPool, scratch, sizeof(scratch), &r);
     CHECK_EQ(g_acdRow.vptr, 0x00011000u);
-    CHECK_EQ(r.hotCut[0], 0u);
+    CHECK_EQ(int(r.hotCut[0]), 0);
 }
 

@@ -92,16 +92,16 @@ struct CardState {
     CardEngine eng[kMaxCardEngines];
     int nEng;
     uint32_t keepUsed, keepFast;         // what the modules loaded for good take
-    // [I] The compiled-in hot rows (pool->hotRows): usable (hotRowCheck at
-    // boot), the ones the last share served, in turn order.
-    bool hotOk[OtmLoadReport::kMaxHot];
+    // [I] The compiled-in hot rows (pool->hotRows): the ones the last share
+    // served, in turn order; usable (hotRowCheck at boot, bit k = row k); in
+    // the fast block now (their vtable pointers point there; kept here, not
+    // in the report: a scan again puts them back first).
     int8_t hotWant[OtmLoadReport::kMaxHot];
-    int nHotWant;
-    // The rows in the fast block now (their vtable pointers point there),
-    // kept here rather than in the report: a scan again puts them back first.
-    const HotRows* movedFrom;
-    bool moved[OtmLoadReport::kMaxHot];
+    int8_t nHotWant;
+    uint8_t hotOk;
+    uint8_t moved;
 };
+static_assert(OtmLoadReport::kMaxHot <= 8, "CardState keeps the hot rows as bits of a byte");
 OT_SDRAM_BSS CardState g_card;
 
 int hotRowCount() {
@@ -111,20 +111,16 @@ int hotRowCount() {
 
 // Every moved hot row back to flash (its vtable pointers too).
 void restoreHotRows() {
-    if (!g_card.movedFrom) return;
-    for (int k = 0; k < OtmLoadReport::kMaxHot; ++k)
-        if (g_card.moved[k]) {
-            hotRowRestore(g_card.movedFrom->rows[k]);
-            g_card.moved[k] = false;
-        }
-    g_card.movedFrom = nullptr;
+    for (int k = 0; k < hotRowCount(); ++k)
+        if (g_card.moved & (1u << k)) hotRowRestore(g_card.pool->hotRows->rows[k]);
+    g_card.moved = 0;
 }
 
 // The usable hot row whose module serves engineId; -1 = none.
 int hotRowFor(int32_t engineId) {
     for (int k = 0; k < hotRowCount(); ++k) {
         const HotRow& row = g_card.pool->hotRows->rows[k];
-        if (g_card.hotOk[k] && row.module && row.module().synthEngine(engineId)) return k;
+        if ((g_card.hotOk & (1u << k)) && row.module && row.module().synthEngine(engineId)) return k;
     }
     return -1;
 }
@@ -291,7 +287,8 @@ int loadModuleFiles(IStorage& fs, const OtmPool& pool, uint8_t* scratch, uint32_
         g_card.r = report;
     }
     // [I] The hot rows share the fast block with no card files too.
-    for (int k = 0; k < hotRowCount(); ++k) g_card.hotOk[k] = hotRowCheck(pool.hotRows->rows[k]);
+    for (int k = 0; k < hotRowCount(); ++k)
+        if (hotRowCheck(pool.hotRows->rows[k])) g_card.hotOk |= uint8_t(1u << k);
     // Name order, so the master inserts chain the same way on every boot.
     Names names;
     if (fs.listDir(kModulesDir, &collect, &names) < 0 || names.n == 0) return 0;
@@ -406,7 +403,7 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
     // Every hot row back to flash and every card synth leaves, then the
     // wanted ones take the fast block anew (a new set shares it out anew).
     dropCardSynths();
-    g_card.nHotWant = wantedHot(engines, n, g_card.hotWant);
+    g_card.nHotWant = int8_t(wantedHot(engines, n, g_card.hotWant));
     // The takers in the engines' order: a hot row (>= 0) or a card file (~item).
     int taker[OtmLoadReport::kMax], nTaker = 0;
     for (int k = 0; k < n && nTaker < OtmLoadReport::kMax; ++k) {
@@ -457,9 +454,8 @@ bool loadCardSynths(IStorage& fs, const int32_t* engines, int n, uint8_t* scratc
             const OtmBlock dst{pool.fastMem + at, pool.fastCap - at, pool.fastBase + at};
             if (!cut || !hotRowMove(row, cut, dst)) continue;   // it runs from flash
             if (pool.sync) pool.sync(dst.mem, share[i]);
-            r.hotCut[taker[i]] = cut;
-            g_card.moved[taker[i]] = true;
-            g_card.movedFrom = pool.hotRows;
+            r.hotCut[taker[i]] = uint16_t(cut);
+            g_card.moved |= uint8_t(1u << taker[i]);
             r.fastUsed = at + share[i];
             continue;
         }

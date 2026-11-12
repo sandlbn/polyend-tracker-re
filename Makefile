@@ -70,7 +70,8 @@ endif
 HOT_ROWS  := tools/hot_rows
 HOT_ROWS_IN := $(strip $(foreach i,$(MOD_IDS),$(wildcard $(HOT_ROWS)/$(notdir $(MOD_DIR_$(i))).hot)))
 OT_HOT_POOL ?= $(if $(filter 1,$(OT_POOL_TEST)),0,$(if $(HOT_ROWS_IN),1,0))
-HOT_POOL_BYTES := 13696
+# The block's size: profiles/<name>.toml hot_pool_bytes (tools/profile.py).
+HOT_POOL_BYTES := $(or $(OT_HOT_POOL_BYTES),13696)
 ifeq ($(OT_HOT_POOL),1)
 OTM_FAST_BYTES := $(HOT_POOL_BYTES)
 else ifneq ($(OT_POOL_TEST),1)
