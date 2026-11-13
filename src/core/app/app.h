@@ -542,6 +542,7 @@ public:
     // while stopped (serviceCardSynths), then gives the slot its Init patch.
     static constexpr uint32_t kCardSettleMs = 250;
     void serviceCardSynths(uint32_t now);
+    void slotEngines(int32_t* out) const;   // slotEngineId of every slot
     bool syncCardSynths(bool initPatches);
     // [I] After USB storage mode: Modules/ listed anew (rescanCardSynths),
     // before boot() reopens the Workspace.

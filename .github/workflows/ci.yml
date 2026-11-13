@@ -100,7 +100,8 @@ jobs:
         with:
           release: '14.2.Rel1'
       - name: Install pyelftools
-        # make otm-test (tools/make_otm.py builds modules for the card); plain make doesn't need it.
+        # make (the shared fast pool: tools/hot_pool.py lays out and checks the hot
+        # rows of a profile with synths that have one) and make otm-test.
         # System-wide: make runs it with python3 -I, which skips the user site.
         run: sudo python3 -m pip install --break-system-packages pyelftools==0.33
       - name: Build
@@ -136,6 +137,9 @@ jobs:
       - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
+      - name: Install pyelftools
+        # make: the shared fast pool (tools/hot_pool.py); see the firmware job.
+        run: sudo python3 -m pip install --break-system-packages pyelftools==0.33
       - name: Build
         run: make PROFILE=${{ matrix.profile }} -j"$(nproc)"
       - name: Flash, stack headroom and libm checks
@@ -163,6 +167,9 @@ jobs:
       - uses: carlosperate/arm-none-eabi-gcc-action@49f4db4520f840e77ab1e99b24cfac2c540a21b1   # v1.14.1
         with:
           release: '14.2.Rel1'
+      - name: Install pyelftools
+        # make: the shared fast pool (tools/hot_pool.py); see the firmware job.
+        run: sudo python3 -m pip install --break-system-packages pyelftools==0.33
       - name: Build this PR
         run: |
           make -j"$(nproc)"

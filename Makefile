@@ -61,6 +61,24 @@ OTM_FAST_BYTES := $(if $(filter 1,$(OT_POOL_TEST)),12288,0)
 ifeq ($(OT_POOL_TEST),1)
 BUILD     := $(BUILD)/pooltest
 endif
+# [I] shared fast pool (src/core/modules/hot_rows.h): the built-in
+# synths' hot code is linked in flash as rows (tools/hot_rows/<name>.hot) and
+# one SRAM_L block is the pool every synth shares, built in or from the card.
+# On by default when the profile compiles in a synth with a row (not core, not
+# the OT_POOL_TEST image); OT_HOT_POOL=0 builds the old layout (each synth's
+# .fastrun code in SRAM_L) in build/<profile>/nopool, the fallback image.
+HOT_ROWS  := tools/hot_rows
+HOT_ROWS_IN := $(strip $(foreach i,$(MOD_IDS),$(wildcard $(HOT_ROWS)/$(notdir $(MOD_DIR_$(i))).hot)))
+OT_HOT_POOL ?= $(if $(filter 1,$(OT_POOL_TEST)),0,$(if $(HOT_ROWS_IN),1,0))
+# The block's size: profiles/<name>.toml hot_pool_bytes (tools/profile.py).
+HOT_POOL_BYTES := $(or $(OT_HOT_POOL_BYTES),13696)
+ifeq ($(OT_HOT_POOL),1)
+OTM_FAST_BYTES := $(HOT_POOL_BYTES)
+else ifneq ($(OT_POOL_TEST),1)
+ifneq ($(HOT_ROWS_IN),)
+BUILD     := $(BUILD)/nopool
+endif
+endif
 # USB Storage mode (docs/PLAN_2X.md, Tracker Mini manual §13.10): 1 = the USB
 # device adds a mass-storage interface (third_party/teensy3/usb_msc.h) next to
 # MIDI + Serial; 0 = the old MIDI + Serial descriptors exactly (fallback image).
@@ -89,7 +107,7 @@ CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
-             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_POOL_TEST=$(OT_POOL_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
+             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_POOL_TEST=$(OT_POOL_TEST) -DOT_HOT_POOL=$(OT_HOT_POOL) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs $(MOD_INCS) -I$(BUILD)/otm-gen
 COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD
 CFLAGS    := $(COMMON) -std=gnu11
@@ -106,10 +124,23 @@ APP_C     := $(shell find src -name '*.c') third_party/fatfs/ff.c third_party/fa
 APP_CXX   := $(shell find src -name '*.cpp')
 OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX))
 # Profile modules (profile.mk): sources from MODULES_DIR and the generated
-# registry, found through vpath; -O2 (audio path). The .fastrun groups in
-# src/hal/opentracker.ld match these objects by file name.
+# registry, found through vpath; -O2 (audio path).
 MOD_OBJS  := $(patsubst %.cpp,$(BUILD)/mod/%.cpp.o,$(MOD_SRCS))
 OBJS      += $(MOD_OBJS)
+
+# [I] hot rows (OT_HOT_POOL=1): the image's modules with a row, their
+# objects (compiled with OT_FASTRUN_ROW=1: a section per function, no
+# .fastrun), the linker fragment that lays the rows out (empty otherwise:
+# src/hal/opentracker.ld includes it) and the move tables, linked twice
+# (tools/hot_pool.py; the second link must give the same tables).
+comma     := ,
+space     := $(subst ,, )
+HOT_ROW_IDS := $(if $(filter 1,$(OT_HOT_POOL)),$(foreach i,$(MOD_IDS),$(if $(wildcard $(HOT_ROWS)/$(notdir $(MOD_DIR_$(i))).hot),$(i))))
+HOT_ROW_OBJS := $(foreach i,$(HOT_ROW_IDS),$(addprefix $(BUILD)/mod/,$(MOD_OBJ_NAMES_$(i))))
+$(HOT_ROW_OBJS): ROWDEF := -DOT_FASTRUN_ROW=1
+HOT_LAYOUT := $(foreach i,$(HOT_ROW_IDS),--row $(notdir $(MOD_DIR_$(i))):$(HOT_ROWS)/$(notdir $(MOD_DIR_$(i))).hot:$(subst $(space),$(comma),$(addprefix $(BUILD)/mod/,$(MOD_OBJ_NAMES_$(i)))))
+HOT_TABLE := $(foreach i,$(HOT_ROW_IDS),--row $(notdir $(MOD_DIR_$(i))):$(MOD_ENTRY_$(i)))
+HOT_LD    := $(BUILD)/hot_pool_text.ld
 
 # [I] Modules from the card (tools/make_otm.py): the core's export table and
 # the versions a loadable module must match, generated for src/hal/module_pool.cpp.
@@ -188,10 +219,26 @@ $(BUILD)/%.cpp.o: %.cpp
 
 $(BUILD)/mod/%.cpp.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) -fstack-usage -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(ROWDEF) -fstack-usage -c $< -o $@
 
-$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT)
-	$(CXX) $(LDFLAGS) $(OBJS) -L$(CORE) $(LIBS) -o $@ -Wl,-Map=$(BUILD)/opentracker.map
+$(HOT_LD): $(HOT_ROW_OBJS) $(wildcard $(HOT_ROWS)/*.hot) tools/hot_pool.py tools/make_otm.py
+	@mkdir -p $(dir $@)
+	python3 -I tools/hot_pool.py layout --out $@ $(HOT_LAYOUT)
+
+ifeq ($(OT_HOT_POOL),1)
+HOT_LINK = $(CXX) $(LDFLAGS) -Wl,-q $(OBJS) $(1) -L$(CORE) -L$(BUILD) $(LIBS) -o $(2) -Wl,-Map=$(BUILD)/opentracker.map
+$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD) $(GEN)/modules.mk
+	python3 -I tools/hot_pool.py table --out $(BUILD)/hot_rows0.S
+	$(CC) $(CPUFLAGS) -c $(BUILD)/hot_rows0.S -o $(BUILD)/hot_rows0.o
+	$(call HOT_LINK,$(BUILD)/hot_rows0.o,$@.pass1)
+	python3 -I tools/hot_pool.py table --elf $@.pass1 --out $(BUILD)/hot_rows.S $(HOT_TABLE)
+	$(CC) $(CPUFLAGS) -c $(BUILD)/hot_rows.S -o $(BUILD)/hot_rows.o
+	$(call HOT_LINK,$(BUILD)/hot_rows.o,$@)
+	python3 -I tools/hot_pool.py table --elf $@ --out $(BUILD)/hot_rows.check.S --expect $(BUILD)/hot_rows.S --quiet $(HOT_TABLE) || { rm -f $@; exit 1; }
+else
+$(BUILD)/opentracker.elf: $(OBJS) $(LDSCRIPT) $(HOT_LD) $(GEN)/modules.mk
+	$(CXX) $(LDFLAGS) $(OBJS) -L$(CORE) -L$(BUILD) $(LIBS) -o $@ -Wl,-Map=$(BUILD)/opentracker.map
+endif
 	$(SIZE) $@
 	@# No static constructor may touch SDRAM (it is not running before main()).
 	python3 -I tools/check_ctors.py $(CROSS)objdump $@ || { rm -f $@; exit 1; }
@@ -296,7 +343,6 @@ otm-test:
 # [I] The profile's card modules (profiles/*.toml card = true), each as
 # build/<profile>/otm/<name>.otm for the card's Modules/ folder, with its hot row
 # from tools/hot_rows/<name>.hot when there is one (make hot-rows).
-HOT_ROWS := tools/hot_rows
 card:
 	@mkdir -p $(BUILD)/otm
 	@$(if $(MOD_CARD_DIRS),,echo "profile $(PROFILE) has no card modules")

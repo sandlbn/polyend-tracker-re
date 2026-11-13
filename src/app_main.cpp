@@ -168,6 +168,13 @@ void logModuleLoad(const ot::mod::OtmLoadReport& r) {
         else
             ot::hal::diagLogf("modules: %s %s", it.file, what);
     }
+    // [I] The built-in synths' hot rows (modules/hot_rows.h): what is in the block.
+    if (const ot::mod::HotRows* hot = ot::hal::modulePool()->hotRows)
+        for (uint32_t k = 0; k < hot->n && k < uint32_t(ot::mod::OtmLoadReport::kMaxHot); ++k)
+            if (r.hotCut[k])
+                ot::hal::diagLogf("modules: built-in %s, hot code %lu of %lu B in SRAM_L",
+                                  hot->rows[k].module().info().id, static_cast<unsigned long>(r.hotCut[k]),
+                                  static_cast<unsigned long>(hot->rows[k].bytes));
     if (r.fastUsed) ot::hal::diagLogf("modules: SRAM_L block %lu of %lu B used", static_cast<unsigned long>(r.fastUsed),
                                       static_cast<unsigned long>(ot::hal::modulePool()->fastCap));
     if (r.noRoom) ot::hal::diagLog("modules: not loaded, no stack room for the pool");

@@ -32,8 +32,7 @@ static_assert(ot::hal::hw::sdramRefreshCount(ot::board::kFlexBusHz, 15625) ==
 // Linker script symbols (opentracker.ld): the .fastrun code in SRAM_L.
 extern "C" char __fastrun_start[], __fastrun_end[];
 // Area boundaries inside .fastrun (opentracker.ld), in link order.
-extern "C" char __fastrun_smp[], __fastrun_fx[], __fastrun_mix[], __fastrun_vap[], __fastrun_acd[],
-    __fastrun_perc[], __fastrun_fat[], __fastrun_other[];
+extern "C" char __fastrun_smp[], __fastrun_fx[], __fastrun_mix[], __fastrun_other[];
 
 namespace ot {
 namespace hal {
@@ -320,15 +319,15 @@ const BootReport& boardInit() {
         const uint32_t n = uint32_t(__fastrun_end - __fastrun_start);
 #if defined(OT_FASTRUN) && OT_FASTRUN
         // Per area (opentracker.ld): sample voices, delay / reverb / limiter,
-        // master sum + synth framework, the four engines, the rest (memset,
-        // veneers). docs/OPTIMIZATION_2X.md "CPU round 3" lists the functions.
+        // master sum + synth framework, the rest (memset, veneers, and the
+        // synth engines with OT_HOT_POOL=0; otherwise their hot code is in
+        // the shared fast pool, app_main "modules:"). docs/OPTIMIZATION_2X.md
+        // "CPU round 3" lists the functions.
         auto sz = [](const char* a, const char* b) { return static_cast<unsigned long>(b - a); };
-        diagLogf("fastrun: %lu B of audio code in SRAM_L at 0x%08lX (OT_FASTRUN=1): smp %lu fx %lu mix %lu vap %lu "
-                 "acd %lu perc %lu fat %lu other %lu",
+        diagLogf("fastrun: %lu B of audio code in SRAM_L at 0x%08lX (OT_FASTRUN=1): smp %lu fx %lu mix %lu other %lu",
                  static_cast<unsigned long>(n), static_cast<unsigned long>(reinterpret_cast<uintptr_t>(__fastrun_start)),
-                 sz(__fastrun_smp, __fastrun_fx), sz(__fastrun_fx, __fastrun_mix), sz(__fastrun_mix, __fastrun_vap),
-                 sz(__fastrun_vap, __fastrun_acd), sz(__fastrun_acd, __fastrun_perc), sz(__fastrun_perc, __fastrun_fat),
-                 sz(__fastrun_fat, __fastrun_other), sz(__fastrun_other, __fastrun_end));
+                 sz(__fastrun_smp, __fastrun_fx), sz(__fastrun_fx, __fastrun_mix), sz(__fastrun_mix, __fastrun_other),
+                 sz(__fastrun_other, __fastrun_end));
 #else
         diagLogf("fastrun: off (OT_FASTRUN=0), %lu B in SRAM_L", static_cast<unsigned long>(n));
 #endif

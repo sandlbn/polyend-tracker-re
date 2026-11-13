@@ -8,6 +8,10 @@ name = "idm"
 variant = "i"                 # image PolyendTrackerOTi<ver>.ptf (24 characters)
 display_name = "IDM"          # shown with the version: boot splash, Config, diag log
 flash_modules_max = 125000     # sum of the modules' declared flash_max_bytes
+# [I] The shared fast pool's SRAM_L block: the room this profile's synths'
+# .fastrun code took without the pool (OT_HOT_POOL=0), so the pool costs the
+# stack nothing.
+hot_pool_bytes = 8384
 
 modules = [
     { id = "ACD1", path = "modules/acd" },

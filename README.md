@@ -170,9 +170,12 @@ says "Loads at Stop"). Every load stops the synth voices. A synth that doesn't f
 pool stays unloaded, with "Card memory full" on its slot; the first slot gets the room
 first, and two slots on one engine load it once. A profile entry with `card = true`
 stays out of the image, and `make card` builds it into `build/<profile>/otm/`; the host
-builds (tests, simulator, tools) compile it in. Leaving USB Storage mode lists `Modules/`
-again, so a synth module added, replaced or removed from a computer takes effect without
-a restart; an effect module stays as the boot loaded it and still needs one.
+builds (tests, simulator, tools) compile it in. `full` lists the ten synths it doesn't
+build in (FM4S, JU6S, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand, B-Type, ARC) as card
+modules, so its image stays the same and any of them can come from the card.
+Leaving USB Storage mode lists `Modules/` again, so a synth module added, replaced or
+removed from a computer takes effect without a restart; an effect module stays as the
+boot loaded it and still needs one.
 
 A synth's `.otm` carries its **hot row**: the functions that do most of its work, hottest
 first, from `tools/hot_rows/<module>.hot`. When the image has a fast block in SRAM_L, the
@@ -181,7 +184,23 @@ runs from the pool. Without it a card synth costs about a quarter more CPU per v
 built in. The rows come from every mode of every synth under the QEMU bench
 (`profiles/allsynths.toml`): run `make hot-rows` after changing a synth's DSP code and
 commit the new rows. `make OT_POOL_TEST=1 PROFILE=pooltest` builds a measurement image
-with a 12 KB fast block, for test songs 23-27 ("OT Pool N").
+with a 12 KB fast block, for test songs 23-30 ("OT Pool N").
+
+**Shared fast pool** (on by default when the profile compiles in a synth with a hot row;
+`make OT_HOT_POOL=0` builds the old layout into `build/<profile>/nopool` as a fallback
+image): the built-in synths join in. Each built-in
+synth with a hot row keeps one section per function (`OT_FASTRUN_ROW=1`), and its row runs
+from flash, laid out back to back (`tools/hot_pool.py layout`). The SRAM_L room that the
+synths' `.fastrun` code took (13,696 B) becomes the fast block, and all the project's
+synths take turns in it, built in or from the card, in slot order. A built-in row moves
+into its share when the slots change (Open, or a Model change while stopped); its calls
+back into flash go through stubs, and its tables and vtable pointer follow it
+(`src/core/modules/hot_rows.h`). A row with no room keeps running from flash: slower,
+never wrong. The image links twice with `--emit-relocs`: `tools/hot_pool.py table` writes
+the move tables from the first link, and the second link must give the same ones. The
+table step lists what still reaches a row from flash only; that code runs the flash copy
+(for example PERC's snare path). Changing a synth while stopped re-shares the block,
+which cuts synth notes still ringing.
 
 ## Known limitations
 

@@ -112,7 +112,9 @@ extern const ModuleFactory kModuleFactories[];
 
 class ModuleHost {
 public:
-    static constexpr int kMaxModules = 16;
+    // [I] 32 (stock 3.x: 16): the profile's modules plus the card's (host
+    // builds compile every card module in).
+    static constexpr int kMaxModules = 32;
     static ModuleHost& instance();
     // Walks kModuleFactories: API check, duplicate-id check, attach().
     // Idempotent; main loop only (not audio-safe on the first call).
@@ -124,7 +126,7 @@ public:
     audio::ISynthEngine* synthEngine(int32_t engineId);
     // Engine descriptors of the profile's modules (registered at init; a module
     // whose descriptor repeats an engine id or has too many parameters is refused).
-    static constexpr int kMaxEngines = 16;
+    static constexpr int kMaxEngines = 32;   // [I] 32 (stock 3.x: 16), as kMaxModules
     const SynthDescriptor* synthDescriptor(int32_t engineId);
     int engineCount();
     const SynthDescriptor* engineAt(int k);

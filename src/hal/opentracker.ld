@@ -58,9 +58,16 @@ SECTIONS
 		/* TODO: does linker detect startup overflow onto flashconfig? */
 		. = 0x400;
 		KEEP(*(.flashconfig*))
+		/* [I] shared fast pool (default; OT_HOT_POOL=0 = off): the built-in synths'
+		 * hot rows, back to back (tools/hot_pool.py layout; empty otherwise). */
+		INCLUDE hot_pool_text.ld
 		*(.text*)
 		KEEP(*(.rodata.otSdramLayoutEnd))   /* read by tools/size_report.py (CI) */
 		*(.rodata*)
+		/* [I] the rows' move tables (modules/hot_rows.h): after every
+		 * other flash contents, so their size moves nothing they describe. */
+		. = ALIGN(4);
+		KEEP(*(.ot_hot_rows))
 		. = ALIGN(4);
 		KEEP(*(.init))
 		. = ALIGN(4);
@@ -100,8 +107,9 @@ SECTIONS
 		. = ALIGN(4);
 		_sdata = .; 
 		/* OT_FASTRUN_FN code (src/core/fastrun.h): runs from SRAM_L. Grouped
-		 * by area for the boot log line (src/hal/board.cpp "fastrun:"); the synth
-		 * engine modules (build/<profile>/mod/) match by file name. */
+		 * by area for the boot log line (src/hal/board.cpp "fastrun:"). The
+		 * synth engines' hot code is in the shared fast pool (.otm_fast);
+		 * with make OT_HOT_POOL=0 their .fastrun code lands in "other". */
 		__fastrun_start = .;
 		__fastrun_smp = .;
 		*/audio/voice.cpp.o(.fastrun*) */audio/voice_stereo.cpp.o(.fastrun*)
@@ -109,14 +117,6 @@ SECTIONS
 		*/audio/effects.cpp.o(.fastrun*)
 		__fastrun_mix = .;
 		*/audio/engine.cpp.o(.fastrun*) */audio/synth_bank.cpp.o(.fastrun*)
-		__fastrun_vap = .;
-		*/vap.cpp.o(.fastrun*)
-		__fastrun_acd = .;
-		*/acd.cpp.o(.fastrun*)
-		__fastrun_perc = .;
-		*/perc.cpp.o(.fastrun*)
-		__fastrun_fat = .;
-		*/fat.cpp.o(.fastrun*)
 		__fastrun_other = .;
 		*(.fastrun*)
 		__fastrun_end = .;
