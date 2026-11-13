@@ -11,6 +11,7 @@
 
 #include "modules/hot_rows.h"
 #include "modules/module_loader.h"
+#include "ot_profile.h"   // OT_PROFILE_CARD_FILES, OT_PROFILE_CARD_FX
 
 namespace ot {
 class IStorage;
@@ -46,8 +47,9 @@ struct OtmPool {
 // What happened to each Modules/*.otm: filled at boot, updated by every
 // loadCardSynths (serial counts the changes).
 struct OtmLoadReport {
-    // [I] 32 (was 16): 11 card synths + 6 effects already make 17 files.
-    static constexpr int kMax = 32;
+    // [I] Per profile (tools/profile.py): its card modules plus room for
+    // more, in steps of 8 (full: 16 files -> 24; no card modules: 8).
+    static constexpr int kMax = OT_PROFILE_CARD_FILES;
     struct Item {
         char file[40];      // name in Modules/ (longer names are skipped)
         OtmError error;     // None = loaded and registered (a synth: when last wanted)
@@ -87,7 +89,7 @@ struct CardFx {
     uint32_t sdramBytes;    // ModuleInfo::sdramBytes: its attach() takes this from the card arena
     uint8_t file;           // OtmLoadReport item of its module
 };
-constexpr int kMaxCardFx = 16;
+constexpr int kMaxCardFx = OT_PROFILE_CARD_FX;   // [I] as kMax, the profile's card effects
 
 constexpr const char* kModulesDir = "Modules";
 
@@ -100,6 +102,12 @@ using OtmShareCut = uint16_t;
 // each cut, the hot row cut it stands for (loadCardSynths).
 constexpr uint32_t kOtmCutScratchBytes =
     OtmLoadReport::kMax * (2 * kOtmMaxShareCuts * sizeof(OtmShareCut) + sizeof(uint32_t));
+// [I] The scan's lists sit there too, before the cut table: the file names
+// (kOtmListScratchBytes); a rescan, the modules it keeps; no report given
+// (tests), the report. Each with its alignment.
+constexpr uint32_t kOtmListScratchBytes = OtmLoadReport::kMax * 40 + 2 * sizeof(int) + 8;
+constexpr uint32_t kOtmScanScratchBytes =
+    kOtmListScratchBytes + OtmLoadReport::kMax * sizeof(OtmLoadReport::Item) + 8 + sizeof(OtmLoadReport) + 8;
 
 // Shares a fast block of cap bytes between n modules' rows (cuts[i][0 ..
 // nCuts[i]) = module i's cuts, module_loader.h): they take turns, in order,

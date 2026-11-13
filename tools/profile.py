@@ -235,6 +235,12 @@ def hot_pool_bytes(prof, profile_path):
     return n
 
 
+def card_room(n):
+    """[I] Card file / card effect table sizes: n plus room for more, in steps
+    of 8 (0 -> 8, 16 -> 24): the loader's tables are sized by the profile."""
+    return (n // 8 + 1) * 8
+
+
 def gen(args):
     prof, mods = load(args.profile, args.modules_dir, host=args.host)
     out = os.path.abspath(args.out)
@@ -286,6 +292,10 @@ def gen(args):
         f"#define OT_PROFILE_MODULE_COUNT {len(mods)}",
         f"#define OT_PROFILE_SDRAM_BYTES {sums['sdram_bytes'] + core_sdram(prof, mods)}",
         f"#define OT_SLOT_INSERTS {1 if slot_inserts(prof, mods) else 0}",
+        # [I] modules/module_files.h: Modules/*.otm files and card effects listed
+        f"#define OT_PROFILE_CARD_FILES {card_room(len(prof['card']))}",
+        f"#define OT_PROFILE_CARD_FX "
+        f"{card_room(sum(1 for m in prof['card'] if 'synthEngine' not in m['man'].get('caps', [])))}",
         f'#define OT_MODULES_REV "{rev}"',
     ] + [f"#define OT_MOD_{i} 1" for i in ids]
     changed |= write_if_changed(os.path.join(out, "ot_profile.h"), "\n".join(h) + "\n")
