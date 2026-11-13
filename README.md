@@ -151,8 +151,8 @@ make otm OTM_MODULE=../opentracker-fx/modules/tape
 make otm OTM_MODULE=modules/fm4
 ```
 
-The modules run from a pool at the bottom of the stack (up to 32 KB), and the stack guard
-moves above it. A module is refused when it doesn't fit, when its id is already loaded
+The modules run from a pool at the bottom of the stack (all the room the 25 KB stack floor
+leaves, about 54 KB), and the stack guard moves above it. A module is refused when it doesn't fit, when its id is already loaded
 (compiled in or an earlier file), or when it was built for another firmware or needs a
 symbol the firmware doesn't export (`src/core/modules/module_exports.txt`): "needs
 updating". The screen names the first refused module on boot. At most sixteen files load,

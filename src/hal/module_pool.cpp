@@ -19,14 +19,17 @@ namespace hal {
 namespace {
 
 // The pool borrows the bottom of the stack's room in SRAM_U (stack_guard.h:
-// the guard moves up over the part in use). The most it may take ("Card code
-// memory"); less when the stack floor needs it. Not zeroed: the loader writes
-// or zeroes every byte a module uses.
+// the guard moves up over the part in use). It may take all the room the
+// stack floor leaves (a project's card synths together: D-Type, A-Type,
+// CS-Type and JU6 are 45.8 KB), up to 64 KB: a cut is a 16-bit offset into
+// a module's image, and an image is inside the pool (module_files.h). Not zeroed: the loader writes or zeroes every
+// byte a module uses.
 #if defined(OT_POOL_TEST) && OT_POOL_TEST
 constexpr uint32_t kPoolCapBytes = 48 * 1024;   // [I] measurement images (profiles/pooltest.toml)
 #else
-constexpr uint32_t kPoolCapBytes = 32 * 1024;
+constexpr uint32_t kPoolCapBytes = 64 * 1024 - 32;   // 16-bit cuts; the SYSMPU granule
 #endif
+static_assert(kPoolCapBytes <= 0xFFFFu, "a cut (OtmShareCut) is 16 bits");
 
 mod::OtmPool gOtmPool = {};   // constant-initialised (= {}: the fast fields have initialisers); filled by modulePool()
 
