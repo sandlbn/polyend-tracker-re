@@ -15,6 +15,7 @@
 # make patches    -> build/patches/Patches/<MODEL>/ (synth preset pack, tools/make_patches/PRESETS.md)
 # make budget     -> the profile's declared module budgets (flash, SRAM) and their limits
 # make card          -> [I] the profile's card modules as build/<profile>/otm/<name>.otm
+# make firmware      -> [I] the image and the card modules (all + card): Firmware/ and Modules/ on the card
 # make hot-rows      -> [I] tools/hot_rows/*.hot, the synths' hot code for the fast block
 # make otm OTM_MODULE=<path> -> [I] build/<profile>/otm/<name>.otm, a module loadable from the card
 #                    (<path> as in a profile, relative to MODULES_DIR; tools/make_otm.py)
@@ -350,6 +351,14 @@ card:
 	    --out $(BUILD)/otm/$(notdir $(d)).otm --cxx $(CXX) --cxxflags '$(CXXFLAGS)' \
 	    $(if $(wildcard $(HOT_ROWS)/$(notdir $(d)).hot),--hot $(HOT_ROWS)/$(notdir $(d)).hot) &&) true
 .PHONY: card
+
+# [I] Everything for the card: the image (build/<profile>/PolyendTrackerOT*.ptf
+# for Firmware/) and the card modules (build/<profile>/otm/*.otm for Modules/).
+firmware: all
+	$(MAKE) card
+	@echo "Firmware/: $(PTF)"
+	@echo "Modules/:  $(BUILD)/otm/*.otm"
+.PHONY: firmware
 
 # [I] The synths' hot rows: every mode of every synth under the QEMU bench
 # (profiles/allsynths.toml), folded into tools/hot_rows/<module>.hot by tools/synth_hot.py.
