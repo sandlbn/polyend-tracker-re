@@ -2280,6 +2280,10 @@ bool App::jobUnit(uint32_t& cost) {
                 loadPresetUnit(pj_.idx++, cost);
                 return true;
             }
+            // [I] and the card synths the presets name (a preset's patch
+            // doesn't need its synth to load).
+            syncCardSynths(false);
+            cost += kJobSmallCost;
             pj_.stage = kLPatterns;
             pj_.idx = 1;
             pj_.phase = 0;

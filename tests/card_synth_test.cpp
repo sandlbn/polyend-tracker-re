@@ -14,6 +14,8 @@
 #include "modules/synth_descriptor.h"
 #include "modules/synth_models.h"
 #include "modules/thumb_branch.h"
+#include "model/fx.h"
+#include "ui/screens.h"
 #include "ui_fakes.h"
 
 using namespace ot;
@@ -142,6 +144,68 @@ TEST(card_synth_loads_with_the_project) {
     CHECK(cardEngineLoaded(kCardEng));    // before the patches: the slot's patch is its own
     CHECK_EQ(a.slotEngineId(0), kCardEng);
     CHECK_EQ(a.synthPatch(0).engine, kCardEng);
+}
+
+// A preset names a card synth no slot plays: it loads too (a Z or a
+// preset instrument plays it), on Open and when stored.
+TEST(card_synth_of_a_preset_loads_with_it) {
+    CardRig rig;
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.setSynthEngine(0, kCardEng);
+    h.run(400);
+    CHECK(cardEngineLoaded(kCardEng));
+    a.storeSynthPreset(3, 0);
+    a.setSynthModel(0, int(SynthModel::VAP));
+    h.run(400);
+    CHECK(cardEngineLoaded(kCardEng));   // P3 still names it
+    CHECK(a.saveProjectAs("CardP"));
+    CHECK(a.newProject());
+    h.run(400);
+    CHECK(!cardEngineLoaded(kCardEng));
+    CHECK(a.openProject("Projects", "CardP"));
+    CHECK(a.slotEngineId(0) != kCardEng);
+    CHECK_EQ(a.synthPreset(3).engine, kCardEng);
+    CHECK_EQ(int(a.synthPreset(3).paramCount), 2);
+    CHECK(cardEngineLoaded(kCardEng));
+    h.run(400);
+    CHECK(cardEngineLoaded(kCardEng));   // and it stays
+    // The preset cleared: nothing names it, it leaves.
+    a.clearSynthPreset(3);
+    h.run(400);
+    CHECK(!cardEngineLoaded(kCardEng));
+}
+
+// A slot on a preset (a Z, stopped) stays on it when a preset change
+// loads a card synth: the Synth page keeps editing the preset.
+TEST(slot_on_a_preset_stays_on_it_across_a_card_load) {
+    CardRig rig;
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.storeSynthPreset(3, 1);   // P3: slot 2's built-in sound
+    // A Synth 1 note with a Z3 at the cursor: Synth 1 is on P3 (the stopped chase).
+    Step& st = a.pattern().tracks[0].steps[0];
+    st.note = 60;
+    st.instrument = uint8_t(kFirstSynthInstrument);
+    st.fx[1] = StepFx{0, uint8_t(kFxPresetCmdBase + 3)};
+    a.patternEdited();
+    static_cast<PatternScreen*>(h.app->ui.screen(kModPattern))->step = 0;
+    h.run();
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.setSynthEngine(2, kCardEng);
+    h.run(400);
+    CHECK(cardEngineLoaded(kCardEng));
+    const SynthPatch card = a.synthPatch(2);
+    a.setSynthModel(2, int(SynthModel::VAP));
+    h.run(400);
+    CHECK(!cardEngineLoaded(kCardEng));
+    CHECK_EQ(a.synthPresetActive(0), 3);
+    a.setSynthPresetPatch(4, card, "Card");   // P4 now names the card synth
+    h.run(400);
+    CHECK(cardEngineLoaded(kCardEng));
+    CHECK_EQ(a.synthPresetActive(0), 3);
 }
 
 // ---- [I] built-in synths' hot rows share the fast block (modules/hot_rows.h) ----
