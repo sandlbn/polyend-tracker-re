@@ -135,7 +135,7 @@ void perform(Slot& s, const presets::Preset& p, int poly) {
     if (p.engine == presets::kJu6Engine) m = SynthModel::VAP;
     else if (p.engine == presets::kDtypeEngine || p.engine == presets::kAtypeEngine) m = SynthModel::ACD;
     else if (p.engine == presets::kCstypeEngine || p.engine == presets::kEightEngine || p.engine == presets::kBtypeEngine ||
-             p.engine == presets::kArcEngine)
+             p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine)
         m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
     else if (p.engine == presets::kHandEngine) m = handKit(p) ? SynthModel::PERC : SynthModel::ACD;
     else if (m == SynthModel::FAT || m == SynthModel::WTFM) m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
@@ -223,7 +223,7 @@ void perform(Slot& s, const presets::Preset& p, int poly) {
 int polyFor(const presets::Preset& p) {
     if (p.engine == presets::kTtypeEngine) return 1;   // one voice owns the kit
     if (p.engine == presets::kEightEngine || p.engine == presets::kHandEngine || p.engine == presets::kBtypeEngine ||
-        p.engine == presets::kArcEngine)
+        p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine)
         return p.playPoly;
     if (p.engine == presets::kJu6Engine) return 4;
     if (p.engine == presets::kDtypeEngine || p.engine == presets::kAtypeEngine) return 1;
