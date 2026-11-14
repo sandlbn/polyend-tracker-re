@@ -191,7 +191,8 @@ the project as it was. A module that needs SDRAM (Echo's 48 KB line) gets it fro
 of the sample memory while it is loaded (`SampleBank::setModuleHold`, `ModuleHost::
 setCardSdram`; the `.otm` header carries the size): samples come first, and the bank says
 "Not enough sample memory" when they don't leave room. Card effects and card synths share
-the pool; when it is full the bank says "Card memory full" (five of the six fit at once).
+the pool; when it is full the bank says "Card memory full" (all six take about 29 KB of
+the ~54 KB, so a few card synths fit beside them).
 Without `Modules/` there are no master effects; projects still open and play.
 
 A synth's `.otm` carries its **hot row**: the functions that do most of its work, hottest
