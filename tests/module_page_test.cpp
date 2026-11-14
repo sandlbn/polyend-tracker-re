@@ -1,7 +1,7 @@
-// Module settings pages (modules/module_ui.h) after Master, Track Mixer and
-// Global Mixer; F-keys pick a
-// row, the encoder and Up / Down change it. Shift + Master opens them; Master
-// keeps the stock three-page cycle.
+// Module settings pages (modules/module_ui.h): [I] Shift + Master opens the FX
+// bank (every effect with a page), Edit (F2) opens the selected one's page;
+// F-keys pick a row, the encoder and Up / Down change it. Master keeps the
+// stock three-page cycle.
 #include "test.h"
 
 #include <cstdio>
@@ -46,24 +46,24 @@ TEST(module_page_in_master_cycle) {
     if (!reg) reg = mod::ModuleHost::instance().addForTest(g_page);
     CHECK(reg);
     Harness h;
-    const int pages = 3 + mod::ModuleHost::instance().pageCount();
-    // Master keeps the stock cycle (3 pages); Shift + Master steps through
-    // the module pages.
+    // Master keeps the stock cycle (3 pages); Shift + Master opens the FX bank.
     h.tap(btn::Master);
     for (int k = 0; k < 4; ++k) {
         h.run(5);
         CHECK(!h.disp.lastHasText("Master Probe"));
+        CHECK(!h.disp.lastHasText("Master FX"));
         h.tap(btn::Master);
     }
-    bool found = false;
-    for (int k = 0; k < pages && !found; ++k) {
-        h.down(btn::Shift);
-        h.tap(btn::Master);
-        h.up(btn::Shift);
-        h.run(5);
-        found = h.disp.lastHasText("Master Probe");
-    }
-    CHECK(found);
+    h.down(btn::Shift);
+    h.tap(btn::Master);
+    h.up(btn::Shift);
+    h.run(5);
+    CHECK(h.disp.lastHasText("Master FX"));
+    CHECK(h.disp.lastHasText("Test page"));
+    h.enc(40);   // the probe registered last: the last row
+    h.tap(btn::F2);
+    h.run(5);
+    CHECK(h.disp.lastHasText("Master Probe"));
     CHECK(h.disp.lastHasText("Knob 1"));
     h.tap(btn::F2);
     h.enc(5);

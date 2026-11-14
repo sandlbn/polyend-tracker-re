@@ -309,7 +309,7 @@ TEST(boot_scan_again_puts_moved_rows_back_in_flash) {
     CHECK_EQ(g_acdRow.vptr, kFastBase + 16);
     // A scan again (the pool's start is rewritten): the moved row goes back
     // to flash first, and the report shows nothing in the block.
-    static uint8_t scratch[4096];
+    static uint8_t scratch[4096 + mod::kOtmScanScratchBytes];
     OtmLoadReport r;
     r.hotCut[0] = 99;
     loadModuleFiles(h.fs, g_hotPool, scratch, sizeof(scratch), &r);

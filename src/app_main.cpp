@@ -162,6 +162,8 @@ void logModuleLoad(const ot::mod::OtmLoadReport& r) {
         const char* what = it.refused ? "refused (id taken, api or attach)" : ot::mod::otmErrorText(it.error);
         if (it.synth && !it.loaded && it.error == ot::mod::OtmError::None && !it.refused)
             what = "card synth, loads when a project uses it";   // [I]
+        if (it.fx && !it.loaded && it.error == ot::mod::OtmError::None && !it.refused)
+            what = "card effect, loads when it is on";
         if (it.loaded && it.rowBytes)
             ot::hal::diagLogf("modules: %s %s, hot code %lu of %lu B in SRAM_L", it.file, what,
                               static_cast<unsigned long>(it.fastBytes), static_cast<unsigned long>(it.rowBytes));

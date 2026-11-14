@@ -109,6 +109,9 @@ public:
 using ModuleFactory = IModule& (*)();
 // Generated (module_registry.cpp): nullptr-terminated, constant-initialised.
 extern const ModuleFactory kModuleFactories[];
+// [I] Generated: ids of the profile's card modules among kModuleFactories
+// (host builds compile them in; device images have none), nullptr-terminated.
+extern const char* const kCardModuleIds[];
 
 class ModuleHost {
 public:
@@ -130,10 +133,16 @@ public:
     const SynthDescriptor* synthDescriptor(int32_t engineId);
     int engineCount();
     const SynthDescriptor* engineAt(int k);
-    // Module settings pages in module order.
+    // [I] The effects (modules with a master insert or a page) in the master
+    // chain's order: a fixed order by id (module_host.cpp), the same for a
+    // compiled-in and a card effect; unknown ids after, in module order.
+    // out holds kMaxModules.
+    int chainOrder(IModule** out);
+    // Module settings pages in chain order.
     int pageCount();
     IModulePage* pageAt(int k);
-    // Master inserts of the profile's modules, in module order (a chain).
+    IModule* pageModule(int k);   // [I] the module of pageAt(k)
+    // Master inserts of the profile's modules, in chain order.
     int masterInserts(audio::IMasterInsert** out, int cap);
     audio::IMasterInsert* masterInsert();   // the first, or nullptr
     // [3.x] Per-instance effects of the profile's modules, in module order (no
@@ -146,13 +155,24 @@ public:
     bool addForTest(IModule& m);
     // [I] A module loaded from the card (modules/module_files.h),
     // after init(): the same checks as init(); false = refused (refused()
-    // names it). onDemand: a card synth, which may leave again
-    // (removeLoaded); it gets no SDRAM (sdram() returns nullptr in its
-    // attach(): a block is never freed).
+    // names it). onDemand: a card synth or effect, which may leave again
+    // (removeLoaded); sdram() in its attach() hands out the card arena
+    // (setCardSdram; none: nullptr), never the profile's block.
     bool addLoaded(IModule& m, bool onDemand = false);
+    // [I] The memory the on-demand modules' attach() calls share (the App
+    // holds it back from the sample memory, zeroed); each load set starts it
+    // anew. nullptr / 0 = none.
+    void setCardSdram(void* base, uint32_t size) {
+        cardSdram_ = SdramArena{static_cast<uint8_t*>(base), base ? size : 0u, 0};
+    }
+    // [I] Chain position of a module id (ModuleHost::chainOrder).
+    static int chainRank(const char* id);
     // [I] Takes a module addLoaded(m, true) registered out again (its engines
     // with it). Main loop, while the audio block runs none of its code.
     void removeLoaded(IModule& m);
+    // [I] A card module: loaded from the card (addLoaded), or one a host
+    // build compiled in (kCardModuleIds).
+    bool fromCard(const IModule& m) const;
     // Id of the last module refused at init ("" = none).
     const char* refused() const { return refused_; }
     // [3.x] Module memory in the SDRAM (docs/PLAN_TECHNO.md E1): `bytes` from
@@ -187,13 +207,15 @@ private:
     IModule* mods_[kMaxModules] = {};
     const SynthDescriptor* desc_[kMaxEngines] = {};
     int n_ = 0;
+    int nInit_ = 0;   // [I] modules registered by init() (the rest: addLoaded)
     int nDesc_ = 0;
     const SynthDescriptor* last_ = nullptr;   // the last synthDescriptor() result
     bool inited_ = false;
     char refused_[5] = {};
     SdramArena sdram_ = {nullptr, 0, 0};   // the profile's block from init() (constant-initialised)
+    SdramArena cardSdram_ = {nullptr, 0, 0};   // [I] setCardSdram
     void* insertLines_ = nullptr;
-    bool noSdram_ = false;   // [I] an on-demand module's attach() runs
+    bool onDemand_ = false;   // [I] an on-demand module's attach() runs
     static SdramArena profileSdram();
 };
 

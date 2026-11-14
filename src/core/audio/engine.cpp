@@ -26,8 +26,17 @@ inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi 
 void SampleBank::init(int16_t* pool, size_t cap) {
     pool_ = pool;
     const size_t maxSamples = kSampleBankBytes / 2;
-    cap_ = cap > maxSamples ? maxSamples : cap;
+    capFull_ = cap_ = cap > maxSamples ? maxSamples : cap;
+    hold_ = 0;
     clear();
+}
+
+bool SampleBank::setModuleHold(size_t samples) {
+    if (samples == hold_) return true;
+    if (reserved_ || samples > capFull_ || capFull_ - samples < usedSamples()) return false;
+    hold_ = samples;
+    cap_ = capFull_ - samples;
+    return true;
 }
 
 void SampleBank::clear() {

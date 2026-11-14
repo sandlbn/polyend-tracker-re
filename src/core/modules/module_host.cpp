@@ -35,12 +35,14 @@ ModuleHost::SdramArena ModuleHost::profileSdram() {
 }
 
 void* ModuleHost::sdram(uint32_t bytes) {
-    if (!bytes || !sdram_.base || noSdram_) return nullptr;
-    const uintptr_t base = reinterpret_cast<uintptr_t>(sdram_.base);
-    const uintptr_t at = (base + sdram_.used + 15u) & ~uintptr_t(15u);
+    // [I] An on-demand module takes its memory from the card arena.
+    SdramArena& a = onDemand_ ? cardSdram_ : sdram_;
+    if (!bytes || !a.base) return nullptr;
+    const uintptr_t base = reinterpret_cast<uintptr_t>(a.base);
+    const uintptr_t at = (base + a.used + 15u) & ~uintptr_t(15u);
     const uint64_t end = uint64_t(at - base) + bytes;
-    if (end > sdram_.size) return nullptr;
-    sdram_.used = uint32_t(end);
+    if (end > a.size) return nullptr;
+    a.used = uint32_t(end);
     return reinterpret_cast<void*>(at);
 }
 
@@ -64,6 +66,7 @@ void ModuleHost::init() {
         for (int i = 0; const SynthDescriptor* d = m.synthDescriptor(i); ++i)
             if (nDesc_ < kMaxEngines) desc_[nDesc_++] = d;
     }
+    nInit_ = n_;
 #if defined(OT_SLOT_INSERTS) && OT_SLOT_INSERTS
     // The core's reservation in the same block (tools/profile.py sizes it).
     insertLines_ = sdram(uint32_t(audio::kSynthSlots) * audio::kEffectWorkMax);
@@ -125,6 +128,37 @@ audio::IEffect* ModuleHost::effectById(const char* id) {
     return nullptr;
 }
 
+// [I] The master chain's order, the same whether an effect is compiled in or
+// loaded from the card: drive and colour, modulation, time, tape last.
+// Effects not listed follow in module order.
+namespace {
+constexpr const char* kChainOrder[] = {"DIRT", "LOFI", "CHOR", "BBDC", "ECHO", "TAPE"};
+constexpr int kChainOrderN = int(sizeof(kChainOrder) / sizeof(kChainOrder[0]));
+int rankOf(const IModule& m) { return ModuleHost::chainRank(m.info().id); }
+}  // namespace
+
+int ModuleHost::chainRank(const char* id) {
+    for (int r = 0; r < kChainOrderN; ++r)
+        if (std::strncmp(id, kChainOrder[r], 4) == 0) return r;
+    return kChainOrderN;
+}
+
+int ModuleHost::chainOrder(IModule** out) {
+    if (!inited_) init();
+    int n = 0;
+    for (int i = 0; i < n_; ++i) {
+        IModule* m = mods_[i];
+        if (!m->masterInsert() && !m->page()) continue;
+        int at = n++;   // stable insertion by rank
+        while (at > 0 && rankOf(*out[at - 1]) > rankOf(*m)) {
+            out[at] = out[at - 1];
+            --at;
+        }
+        out[at] = m;
+    }
+    return n;
+}
+
 int ModuleHost::pageCount() {
     if (!inited_) init();
     int n = 0;
@@ -132,29 +166,40 @@ int ModuleHost::pageCount() {
     return n;
 }
 
-IModulePage* ModuleHost::pageAt(int k) {
-    if (!inited_) init();
-    for (int i = 0; i < n_; ++i)
-        if (IModulePage* p = mods_[i]->page()) {
-            if (k == 0) return p;
-            --k;
-        }
+IModule* ModuleHost::pageModule(int k) {
+    IModule* order[kMaxModules];
+    const int n = chainOrder(order);
+    for (int i = 0; i < n; ++i)
+        if (order[i]->page() && k-- == 0) return order[i];
     return nullptr;
 }
 
+IModulePage* ModuleHost::pageAt(int k) {
+    IModule* m = pageModule(k);
+    return m ? m->page() : nullptr;
+}
+
 int ModuleHost::masterInserts(audio::IMasterInsert** out, int cap) {
-    if (!inited_) init();
+    IModule* order[kMaxModules];
+    const int k = chainOrder(order);
     int n = 0;
-    for (int i = 0; i < n_ && n < cap; ++i)
-        if (audio::IMasterInsert* ins = mods_[i]->masterInsert()) out[n++] = ins;
+    for (int i = 0; i < k && n < cap; ++i)
+        if (audio::IMasterInsert* ins = order[i]->masterInsert()) out[n++] = ins;
     return n;
 }
 
 audio::IMasterInsert* ModuleHost::masterInsert() {
-    if (!inited_) init();
-    for (int i = 0; i < n_; ++i)
-        if (audio::IMasterInsert* ins = mods_[i]->masterInsert()) return ins;
-    return nullptr;
+    audio::IMasterInsert* first = nullptr;
+    masterInserts(&first, 1);
+    return first;
+}
+
+bool ModuleHost::fromCard(const IModule& m) const {
+    for (int i = nInit_; i < n_; ++i)
+        if (mods_[i] == &m) return true;
+    for (int i = 0; kCardModuleIds[i]; ++i)
+        if (std::strncmp(m.info().id, kCardModuleIds[i], 4) == 0) return true;
+    return false;
 }
 
 bool ModuleHost::addForTest(IModule& m) { return addLoaded(m); }
@@ -189,6 +234,7 @@ bool ModuleHost::addLoaded(IModule& m, bool onDemand) {
         IModule* old = mods_[i];
         for (int k = i; k + 1 < n_; ++k) mods_[k] = mods_[k + 1];
         --n_;
+        if (i < nInit_) --nInit_;
         int w = 0;
         for (int k = 0; k < nDesc_; ++k) {
             bool mine = false;
@@ -202,9 +248,9 @@ bool ModuleHost::addLoaded(IModule& m, bool onDemand) {
 #endif
     bool ok = in.api == kModuleApi && n_ < kMaxModules && !find(in.id) && descriptorsOk(m) && effectsOk(m);
     if (ok) {
-        noSdram_ = onDemand;
+        onDemand_ = onDemand;
         ok = m.attach(*this);
-        noSdram_ = false;
+        onDemand_ = false;
     }
     if (!ok) {
         std::memcpy(refused_, in.id, sizeof(refused_));

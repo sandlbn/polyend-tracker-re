@@ -268,12 +268,18 @@ void App::cardWantedEngines(int32_t* out) const {
 void App::serviceCardSynths(uint32_t now) {
     int32_t engines[kCardWanted];
     cardWantedEngines(engines);
-    if (std::memcmp(cardTried_, engines, sizeof(cardTried_)) == 0) {
+    const bool synthsTried = std::memcmp(cardTried_, engines, sizeof(cardTried_)) == 0;
+    const bool fxWaiting = cardFxWaiting(now);   // [I] the card effects that are on changed
+    if (synthsTried && !fxWaiting) {
         cardSince_ = 0;
         return;
     }
-    if (!cardSince_ || std::memcmp(cardWaiting_, engines, sizeof(cardWaiting_)) != 0) {
+    if (!synthsTried && (!cardSince_ || std::memcmp(cardWaiting_, engines, sizeof(cardWaiting_)) != 0)) {
         std::memcpy(cardWaiting_, engines, sizeof(cardWaiting_));
+        cardSince_ = now ? now : 1;
+        return;
+    }
+    if (!cardSince_) {
         cardSince_ = now ? now : 1;
         return;
     }
@@ -303,8 +309,11 @@ void App::rescanCardSynths() {
     if (!mem_.scratch) return;
     if (previewSlot_ >= 0) endSynthPreview();
     holdSynthEngines();
+    engine.setMasterInserts(nullptr, 0);   // [I] card effects leave too
     mod::rescanCardSynths(fs(), mem_.scratch, mem_.scratchBytes);
     engine.synth().holdEngines(false);
+    bank.setModuleHold(0);
+    bindMasterInserts();
     // Nothing tried yet: the project load (or a model change) loads anew.
     std::memset(cardTried_, 0, sizeof(cardTried_));
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().patchChanged(s);
@@ -316,7 +325,15 @@ bool App::syncCardSynths(bool initPatches) {
     int32_t engines[kCardWanted];
     cardWantedEngines(engines);
     std::memcpy(cardTried_, engines, sizeof(cardTried_));
-    if (!mod::cardSynthsDiffer(engines, kCardWanted)) return true;
+    // [I] With the card effects that are on, waiting to load or have project
+    // data (app/master_fx.cpp).
+    int fx[mod::kMaxCardFx];
+    int nFx = wantedCardFx(fx);
+    markCardFxTried(fx, nFx);
+    if (!mod::cardSynthsDiffer(engines, kCardWanted, fx, nFx)) {
+        settleCardFx();
+        return true;
+    }
     // The scratch is free: serviceCardSynths waits for the job to end, the
     // project load calls this between its units.
     if (!mem_.scratch) return false;
@@ -326,8 +343,11 @@ bool App::syncCardSynths(bool initPatches) {
     uint8_t onPreset[kSynthSlotCount];
     for (int s = 0; s < kSynthSlotCount; ++s) onPreset[s] = uint8_t(bank.presetOf(s));
     holdSynthEngines();
-    const bool ok = mod::loadCardSynths(fs(), engines, kCardWanted, mem_.scratch, mem_.scratchBytes);
+    beginCardFx(fx, &nFx);
+    const bool ok =
+        mod::loadCardSynths(fs(), engines, kCardWanted, mem_.scratch, mem_.scratchBytes, fx, nFx);
     bank.holdEngines(false);
+    const bool again = endCardFx(fx, nFx);
     for (int s = 0; s < kSynthSlotCount; ++s) {
         const int32_t eng = slotEngineId(s);
         // A slot that took its card engine before it loaded: its Init patch now.
@@ -345,6 +365,8 @@ bool App::syncCardSynths(bool initPatches) {
         if (synthUnavailableNotice(t, sizeof(t))) ui.notify(t, 4000);
     }
     ui.dirty();
+    // [I] Card effects Open loaded for their data that are off leave again.
+    if (again) syncCardSynths(initPatches);
     return ok;
 }
 

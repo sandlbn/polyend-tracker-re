@@ -550,9 +550,54 @@ public:
     // before boot() reopens the Workspace.
     void rescanCardSynths();
     void holdSynthEngines();   // no synth engine runs until holdEngines(false)
+    // [I] Card effects: their project data into / out of the sidecar's kept
+    // chunks while they are not loaded (app/project_ot3.cpp).
+    void stashModuleSection(mod::IModule& m);
+    void restoreModuleSection(mod::IModule& m);
+    bool sidecarHasModule(const char* id) const;
+    // [I] Every card effect leaves, its sample memory hold goes back (a new
+    // project: their data is not kept).
+    void releaseCardFx();
+    // [I] Card effect loading around a card load (app/master_fx.cpp).
+    int wantedCardFx(int* fx) const;   // cardFxAt indices, chain order
+    uint32_t cardFxMask() const;
+    void markCardFxTried(const int* fx, int nFx);
+    void settleCardFx();
+    void beginCardFx(int* fx, int* nFx);
+    bool endCardFx(const int* fx, int nFx);   // true: an effect Open loaded is off
+    void openCardFx();
+    bool cardFxWaiting(uint32_t now);
     // Why slot s's card engine isn't loaded ("Loads at Stop", "Loading",
     // "No room for it", ...); nullptr = not a card engine, or loaded.
     const char* cardSlotState(int s) const;
+
+    // ---- [I] master effects: the FX bank (app/master_fx.cpp) ----
+    // Every effect with a settings page, compiled in or on the card (loaded
+    // or not), in the master chain's order (ModuleHost::chainOrder). A card
+    // effect loads while it is on: Turn on loads it (while playing: at the
+    // next Stop), Off lets it leave at the next Stop; Open loads the ones
+    // the project has data for. Its SDRAM (Echo's line) comes from the top
+    // of the sample memory (SampleBank::setModuleHold) while it is loaded.
+    enum class FxError : uint8_t { kNone, kSampleMemory, kModuleMemory, kFailed };
+    struct MasterFx {
+        char id[5];
+        const char* name;
+        mod::IModule* module;   // nullptr: on the card, not loaded
+        int card;               // mod::cardFxAt index, -1: compiled in
+        bool fromCard;          // a card module (also compiled-in ones in host builds)
+        bool on;
+        bool pending;           // Turn on while playing: loads at the next Stop
+        uint32_t sdramBytes;
+        FxError error;          // why the last load of it failed
+    };
+    int masterFxCount() const;
+    bool masterFx(int k, MasterFx& out) const;
+    // Turn effect k on or off; a notice text when it can't (nullptr = done,
+    // or waiting for Stop: masterFx().pending).
+    const char* turnMasterFx(int k, bool on);
+    static const char* fxErrorText(FxError e);   // "Not enough sample memory", ...
+    // The modules' master inserts to the engine, in chain order.
+    void bindMasterInserts();
 
     // ---- project operations (project_io.cpp) ------------------------------
     // The blocking calls below run the same background job as the start*()

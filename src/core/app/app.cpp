@@ -80,12 +80,9 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
         return false;
     for (auto& v : stream_.streamOf) v = -1;   // SD streaming: every slot in RAM
     engine.setMidiOut(hal_.midi);
-    // Modules' master inserts (audio/inserts.h), a chain in profile order.
-    {
-        audio::IMasterInsert* ins[audio::AudioEngine::kMaxMasterInserts];
-        const int n = mod::ModuleHost::instance().masterInserts(ins, audio::AudioEngine::kMaxMasterInserts);
-        engine.setMasterInserts(ins, n);
-    }
+    // Modules' master inserts (audio/inserts.h), a chain in its fixed order
+    // ([I] ModuleHost::chainOrder).
+    bindMasterInserts();
 #if OT_SLOT_INSERTS
     // Synth slot inserts: one delay line per slot from the profile's SDRAM
     // block (the core's reservation, tools/profile.py).

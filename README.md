@@ -155,15 +155,15 @@ The modules run from a pool at the bottom of the stack (all the room the 25 KB s
 leaves, about 54 KB), and the stack guard moves above it. A module is refused when it doesn't fit, when its id is already loaded
 (compiled in or an earlier file), or when it was built for another firmware or needs a
 symbol the firmware doesn't export (`src/core/modules/module_exports.txt`): "needs
-updating". The screen names the first refused module on boot. At most sixteen files load,
-the first sixteen by name. A module from the card gets no SDRAM (the profile's module SDRAM
+updating". The screen names the first refused module on boot. Files load in name order, up
+to the profile's card modules rounded up to the next multiple of 8 (`full`: 24; a
+profile with none: 8); the rest are skipped. A module from the card gets no SDRAM (the profile's module SDRAM
 is sized for the compiled-in modules), so one that needs it has to be compiled in.
 `profiles/sdtest.toml` is the `full` profile without ACD and Tape, for trying the loader
 with those two (and FM4S) from the card. `make otm-test` checks the tool's images against
 the linker's.
 
-**Card synths** load when the project uses them. At boot an effect module loads for good;
-a synth module is only listed, so its engines show in the Model list. Open loads the
+**Card synths** load when the project uses them. At boot a synth module is only listed, so its engines show in the Model list. Open loads the
 card synths the project's slots use, before the slots' patches, and a Model change loads
 the new one once the choice has rested for 1/4 s, while stopped (while playing, the slot
 says "Loads at Stop"). Every load stops the synth voices. A synth that doesn't fit the
@@ -176,6 +176,24 @@ modules, so its image stays the same and any of them can come from the card.
 Leaving USB Storage mode lists `Modules/` again, so a synth module added, replaced or
 removed from a computer takes effect without a restart; an effect module stays as the
 boot loaded it and still needs one.
+
+**Card effects** load while they are on. `full` builds no effects in: Dirt, LoFi, Chorus,
+BBD, Echo and Tape are card modules (`make card`). **Shift + Master** opens the FX bank,
+every master effect in the order the mix runs through them (Dirt, LoFi, Chorus, BBD, Echo,
+Tape, fixed: `ModuleHost::chainOrder`, built in or from the card alike). Each row says On,
+Off or Card (not loaded); the right panel shows where the effect lives, its memory and its
+place in the chain. Up/Down or the encoder picks, F1 turns it on or off, F2 opens its own
+settings page, and Shift + Master goes back (settings page to bank, bank to Master).
+Turn on loads it at once while stopped, or at the next Stop while playing ("At Stop");
+Turn off silences it at once and it leaves memory at the next Stop. Open loads the effects
+the project has data for that are on; the data of an effect that isn't loaded is kept in
+the project as it was. A module that needs SDRAM (Echo's 48 KB line) gets it from the top
+of the sample memory while it is loaded (`SampleBank::setModuleHold`, `ModuleHost::
+setCardSdram`; the `.otm` header carries the size): samples come first, and the bank says
+"Not enough sample memory" when they don't leave room. Card effects and card synths share
+the pool; when it is full the bank says "Card memory full" (all six take about 29 KB of
+the ~54 KB, so a few card synths fit beside them).
+Without `Modules/` there are no master effects; projects still open and play.
 
 A synth's `.otm` carries its **hot row**: the functions that do most of its work, hottest
 first, from `tools/hot_rows/<module>.hot`. When the image has a fast block in SRAM_L, the

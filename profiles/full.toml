@@ -12,10 +12,6 @@ modules = [
     { id = "VAP1", path = "modules/vap" },
     { id = "PRC1", path = "modules/perc" },
     { id = "WTF1", path = "modules/wtfm" },
-    # Effects (opentracker-fx, next to opentracker-synths): master inserts run in this order.
-    { id = "CHOR", path = "../opentracker-fx/modules/chorus" },
-    { id = "BBDC", path = "../opentracker-fx/modules/bbd" },
-    { id = "TAPE", path = "../opentracker-fx/modules/tape" },
     # [I] Card modules: not in the image; make card builds them for the
     # card's Modules/ folder, host builds (tests, sim) compile them in.
     { id = "FM4S", path = "modules/fm4", card = true },
@@ -28,4 +24,13 @@ modules = [
     { id = "HND1", path = "modules/hand", card = true },
     { id = "BTY1", path = "modules/btype", card = true },
     { id = "ARC1", path = "modules/arc", card = true },
+    # [I] Effects (opentracker-fx, next to opentracker-synths) as card modules:
+    # each loads while it is on (the FX bank, Shift + Master); the master chain
+    # runs them in a fixed order (ModuleHost::chainOrder).
+    { id = "DIRT", path = "../opentracker-fx/modules/dirt", card = true },
+    { id = "LOFI", path = "../opentracker-fx/modules/lofi", card = true },
+    { id = "CHOR", path = "../opentracker-fx/modules/chorus", card = true },
+    { id = "BBDC", path = "../opentracker-fx/modules/bbd", card = true },
+    { id = "ECHO", path = "../opentracker-fx/modules/echo", card = true },
+    { id = "TAPE", path = "../opentracker-fx/modules/tape", card = true },
 ]
