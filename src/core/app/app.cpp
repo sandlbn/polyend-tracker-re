@@ -29,12 +29,14 @@ struct AppSdram {
     alignas(SynthPatch) unsigned char patches[sizeof(SynthPatch) * kSynthSlotCount];
     unsigned char extKeep[kPatternCount + 1];
     alignas(mod::OtmLoadReport) unsigned char moduleLoad[sizeof(mod::OtmLoadReport)];   // [I]
+    alignas(PadNotes) unsigned char padNotes[sizeof(PadNotes)];   // [I]
 };
 OT_SDRAM_BSS AppSdram gAppSdram;
 }  // namespace
 
 App::App()
-    : names(*reinterpret_cast<PatternNames*>(gAppSdram.names)), bank(engine.bank()), ui(*this),
+    : names(*reinterpret_cast<PatternNames*>(gAppSdram.names)), bank(engine.bank()),
+      padNotes(*reinterpret_cast<PadNotes*>(gAppSdram.padNotes)), ui(*this),
       extKeep_(*reinterpret_cast<ExtKeep*>(gAppSdram.extKeep)),
       patches_(*reinterpret_cast<SynthPatches*>(gAppSdram.patches)),
       moduleLoad_(*reinterpret_cast<mod::OtmLoadReport*>(gAppSdram.moduleLoad)), pj_(*reinterpret_cast<ProjectJob*>(gAppSdram.pj)) {}
@@ -50,6 +52,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     new (&pj_) ProjectJob();
     for (SynthPatch& p : patches_) new (&p) SynthPatch();
     new (&moduleLoad_) mod::OtmLoadReport();
+    new (&padNotes) PadNotes();
 #else
     for (SynthPatch& p : patches_) p = SynthPatch{};   // plain member without an initialiser
 #endif

@@ -211,7 +211,7 @@ public:
     audio::SampleBank& bank;          // engine.bank(): spec 02 §8.2 packing
     Config cfg;
     Sequencer seq;
-    PadNotes padNotes;
+    OT_APP_SDRAM_MEMBER(PadNotes, padNotes);   // [I] pad -> note map and key lights (main loop)
     UndoRing undo;
     FileUndo fileUndo;
     Ui ui;
