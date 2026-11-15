@@ -59,6 +59,9 @@
 #if defined(OT_MOD_ARC1)
 #include "arc.h"
 #endif
+#if defined(OT_MOD_FM4S)
+#include "fm4.h"
+#endif
 #include "audio/synth_params.h"
 #include "modules/synth_models.h"
 #include "formats/patch_pb.h"
@@ -1858,6 +1861,143 @@ std::vector<Preset> btypePresets() {
 }
 #endif  // OT_MOD_BTY1
 
+#if defined(OT_MOD_FM4S)
+// ---------------------------------------------------------------------------
+// FM4 (module FM4S, engine 0x80, Patches/FM4/): four sine operators, eight
+// algorithms, feedback on operator 1, per operator Mult / Detune / Level and
+// a 5-stage envelope (Attack, Decay, Sustain, Sus Rate, Release), one LFO for
+// vibrato and tremolo, glide. A modulator's Level is its output in cycles of
+// phase (0.1 is mild, 0.5 is harsh); the carriers are summed and divided by
+// their count. M1 Brightness (the modulators' Level), M2 Feedback, M3 the
+// patch's envelope (attack or decay), M4 Release, M5 Vibrato, M6 its own.
+
+namespace f4 = ot::audio::fm4;
+static_assert(kFm4Engine == f4::kEngineId, "presets.h kFm4Engine");
+
+// Mult is the enum index: 0 = 0.5, n = n.
+std::vector<Edit> f4Op(int k, int mult, float level, float att, float dec, float sus, float susRate, float rel,
+                       float detune = 0.0f, bool am = false) {
+    using f4::op;
+    return {{op(k, f4::kMult), float(mult)},   {op(k, f4::kDetune), detune}, {op(k, f4::kLevel), level},
+            {op(k, f4::kAttack), att},         {op(k, f4::kDecay), dec},     {op(k, f4::kSustain), sus},
+            {op(k, f4::kSusRate), susRate},    {op(k, f4::kRelease), rel},   {op(k, f4::kAm), am ? 1.0f : 0.0f}};
+}
+std::vector<Edit> f4Join(std::initializer_list<std::vector<Edit>> parts) {
+    std::vector<Edit> out;
+    for (const auto& p : parts) out.insert(out.end(), p.begin(), p.end());
+    return out;
+}
+// Macro amounts x stored range: Level 0..1, Feedback 0..7, times 0..10 s, Vibrato 0..1.
+Macro f4Bright(std::initializer_list<int> ops, float a = 0.2f) {
+    Macro m{"Brightness", true, {}};
+    for (int k : ops) m.targets.push_back({f4::op(k, f4::kLevel), a});
+    return m;
+}
+Macro f4Fb() { return {"Feedback", true, {{f4::kFeedback, 0.3f}}}; }
+Macro f4Rel(std::initializer_list<int> ops, float a = 0.05f) {
+    Macro m{"Release", true, {}};
+    for (int k : ops) m.targets.push_back({f4::op(k, f4::kRelease), a});
+    return m;
+}
+Macro f4Decay(std::initializer_list<int> ops, float a = 0.05f) {
+    Macro m{"Decay", true, {}};
+    for (int k : ops) m.targets.push_back({f4::op(k, f4::kDecay), a});
+    return m;
+}
+Macro f4Attack(std::initializer_list<int> ops, float a = 0.04f) {
+    Macro m{"Attack", true, {}};
+    for (int k : ops) m.targets.push_back({f4::op(k, f4::kAttack), a});
+    return m;
+}
+Macro f4Vib() { return {"Vibrato", false, {{f4::kVibrato, 0.3f}}}; }
+
+std::vector<Preset> fm4Presets() {
+    const SynthModel F = SynthModel::ACD;   // the Mini fallback model of the slot record
+    const int32_t E = kFm4Engine;
+    using f4::op;
+    const float H = 0.0f;   // Sus Rate 0: hold the sustain level
+    return {
+        {F, "OT 4-Op E-Piano", "1 > 2 + 3 > 4: a x14 tine that dies fast over a soft x1 body, the two carriers a few cents apart; velocity to brightness.", 4,
+         f4Join({{{f4::kAlgorithm, 4.0f}, {f4::kLfoRate, 4.5f}, {f4::kVolume, 1.0f}},
+                 f4Op(0, 14, 0.07f, 0, 0.25f, 0.0f, H, 0.3f), f4Op(1, 1, 1.0f, 0, 1.6f, 0.25f, 6.0f, 0.5f, 1.0f, true),
+                 f4Op(2, 1, 0.14f, 0, 0.9f, 0.25f, H, 0.5f), f4Op(3, 1, 0.9f, 0, 2.2f, 0.35f, 7.0f, 0.6f, -1.0f, true)}),
+         {f4Bright({0, 2}), f4Fb(), f4Decay({1, 3}, 0.1f), f4Rel({1, 3}), {"Tremolo", false, {{f4::kTremolo, 0.5f}}},
+          {"Tine", true, {{op(0, f4::kLevel), 0.1f}}}},
+         E, {{op(2, f4::kLevel), 0.2f}, {op(0, f4::kLevel), 0.08f}}},
+        {F, "OT 4-Op Bass", "1 > 2 > 3 > 4 with feedback: a modulator decaying into the carrier gives the slap; mono with a short glide.", 1,
+         f4Join({{{f4::kAlgorithm, 0.0f}, {f4::kFeedback, 3.0f}, {f4::kVolume, 1.7f}},
+                 f4Op(0, 1, 0.08f, 0, 0.3f, 0.2f, H, 0.1f), f4Op(1, 1, 0.12f, 0, 0.3f, 0.3f, H, 0.1f),
+                 f4Op(2, 1, 0.35f, 0, 0.18f, 0.12f, H, 0.1f), f4Op(3, 1, 1.0f, 0, 0.8f, 0.7f, H, 0.12f)}),
+         {f4Bright({1, 2}), f4Fb(), f4Decay({2}, 0.03f), f4Rel({3}), f4Vib(), {"Glide", false, {{f4::kGlideTime, 0.01f}}}},
+         E, {{op(2, f4::kLevel), 0.2f}}},
+        {F, "OT 4-Op Bell", "1 > 2 + 3 > 4: x7 into x2 and x5 into x1, detuned: an inharmonic bell with a long ring.", 4,
+         f4Join({{{f4::kAlgorithm, 4.0f}, {f4::kVolume, 1.1f}},
+                 f4Op(0, 5, 0.18f, 0, 2.5f, 0.0f, H, 2.0f, 3.0f), f4Op(1, 1, 0.8f, 0, 3.5f, 0.0f, H, 2.5f),
+                 f4Op(2, 7, 0.25f, 0, 1.8f, 0.0f, H, 2.0f, -2.0f), f4Op(3, 2, 1.0f, 0, 4.0f, 0.0f, H, 3.0f)}),
+         {f4Bright({0, 2}), f4Fb(), f4Decay({1, 3}, 0.15f), f4Rel({1, 3}, 0.1f), f4Vib(),
+          {"Clang", true, {{op(2, f4::kLevel), 0.2f}}}},
+         E, {{op(2, f4::kLevel), 0.15f}}},
+        {F, "OT 4-Op Brass", "(1 + 2) > 3 > 4 with slow modulator attacks: the brightness swells after the note; feedback on 1.", 4,
+         f4Join({{{f4::kAlgorithm, 1.0f}, {f4::kFeedback, 4.0f}, {f4::kLfoRate, 5.5f}, {f4::kVolume, 1.0f}},
+                 f4Op(0, 1, 0.1f, 0.12f, 0.4f, 0.8f, H, 0.2f), f4Op(1, 1, 0.08f, 0.1f, 0.4f, 0.8f, H, 0.2f),
+                 f4Op(2, 1, 0.22f, 0.08f, 0.5f, 0.75f, H, 0.2f), f4Op(3, 1, 1.0f, 0.03f, 0.5f, 0.85f, H, 0.25f)}),
+         {f4Bright({0, 1, 2}), f4Fb(), f4Attack({0, 1, 2}), f4Rel({3}), f4Vib(),
+          {"Swell", true, {{op(2, f4::kAttack), 0.03f}}}},
+         E, {{op(2, f4::kLevel), 0.15f}}},
+        {F, "OT 4-Op Organ", "1 + 2 + 3 + 4 at x0.5 / x1 / x2 / x4, held: drawbar-style registers; M6 the top one.", 4,
+         f4Join({{{f4::kAlgorithm, 7.0f}, {f4::kLfoRate, 6.0f}, {f4::kVibrato, 0.08f}, {f4::kVolume, 1.6f}},
+                 f4Op(0, 0, 0.6f, 0.005f, 0, 1.0f, H, 0.06f), f4Op(1, 1, 1.0f, 0.005f, 0, 1.0f, H, 0.06f),
+                 f4Op(2, 2, 0.55f, 0.005f, 0, 1.0f, H, 0.06f), f4Op(3, 4, 0.35f, 0.005f, 0, 1.0f, H, 0.06f)}),
+         {{"Sub", true, {{op(0, f4::kLevel), 0.3f}}}, f4Fb(), {"Click", true, {{op(2, f4::kLevel), 0.2f}}}, f4Rel({0, 1, 2, 3}, 0.03f),
+          f4Vib(), {"Top", true, {{op(3, f4::kLevel), 0.3f}}}},
+         E},
+        {F, "OT 4-Op Clav", "(1 > 2 + 3) > 4: bright x3 and x5 modulators snapping shut into a short carrier: a funky clav.", 4,
+         f4Join({{{f4::kAlgorithm, 3.0f}, {f4::kFeedback, 2.0f}, {f4::kVolume, 1.0f}},
+                 f4Op(0, 1, 0.1f, 0, 0.12f, 0.1f, H, 0.05f), f4Op(1, 3, 0.3f, 0, 0.15f, 0.15f, H, 0.05f),
+                 f4Op(2, 5, 0.12f, 0, 0.1f, 0.05f, H, 0.05f), f4Op(3, 1, 1.0f, 0, 0.6f, 0.3f, 1.5f, 0.06f)}),
+         {f4Bright({1, 2}), f4Fb(), f4Decay({1, 2}, 0.02f), f4Rel({3}), f4Vib(), {"Snap", true, {{op(2, f4::kLevel), 0.15f}}}},
+         E, {{op(1, f4::kLevel), 0.2f}}},
+        {F, "OT 4-Op Glass Pad", "1 > 2 + 3 + 4: a slow x2 shimmer on one carrier, two more detuned around it; soft attack, slow vibrato.", 4,
+         f4Join({{{f4::kAlgorithm, 6.0f}, {f4::kLfoRate, 3.5f}, {f4::kVibrato, 0.06f}, {f4::kVolume, 1.4f}},
+                 f4Op(0, 2, 0.12f, 1.2f, 2.0f, 0.6f, H, 1.5f), f4Op(1, 1, 0.9f, 0.9f, 1.0f, 0.9f, H, 1.8f),
+                 f4Op(2, 1, 0.7f, 1.0f, 1.0f, 0.9f, H, 1.8f, 3.0f), f4Op(3, 2, 0.4f, 1.3f, 1.0f, 0.8f, H, 1.8f, -3.0f)}),
+         {f4Bright({0}), f4Fb(), f4Attack({1, 2, 3}, 0.1f), f4Rel({1, 2, 3}, 0.1f), f4Vib(),
+          {"Shimmer", true, {{op(0, f4::kLevel), 0.15f}, {op(3, f4::kLevel), 0.2f}}}},
+         E},
+        {F, "OT 4-Op Marimba", "1 > 2 + 3 > 4: x4 and x10 modulators gone in 60 ms over decaying sines: wooden mallets.", 4,
+         f4Join({{{f4::kAlgorithm, 4.0f}, {f4::kVolume, 1.1f}},
+                 f4Op(0, 10, 0.06f, 0, 0.05f, 0.0f, H, 0.05f), f4Op(1, 1, 0.6f, 0, 0.5f, 0.0f, H, 0.4f),
+                 f4Op(2, 4, 0.2f, 0, 0.06f, 0.0f, H, 0.05f), f4Op(3, 1, 1.0f, 0, 0.6f, 0.0f, H, 0.5f)}),
+         {f4Bright({0, 2}), f4Fb(), f4Decay({1, 3}, 0.08f), f4Rel({1, 3}), f4Vib(), {"Hardness", true, {{op(2, f4::kDecay), 0.01f}}}},
+         E, {{op(2, f4::kLevel), 0.2f}}},
+        {F, "OT 4-Op Saw Lead", "(1 + 2 > 3) > 4 with feedback 6 on 1: a buzzy, saw-like lead; mono, glide, delayed vibrato on M5.", 1,
+         f4Join({{{f4::kAlgorithm, 2.0f}, {f4::kFeedback, 6.0f}, {f4::kLfoRate, 5.5f}, {f4::kVolume, 1.6f}},
+                 f4Op(0, 1, 0.3f, 0, 0.5f, 0.8f, H, 0.15f), f4Op(1, 1, 0.0f, 0, 0, 1.0f, H, 0.15f),
+                 f4Op(2, 2, 0.12f, 0, 0.4f, 0.6f, H, 0.15f), f4Op(3, 1, 1.0f, 0.005f, 0.3f, 0.9f, H, 0.2f)}),
+         {f4Bright({0, 2}), f4Fb(), f4Attack({3}, 0.02f), f4Rel({3}), f4Vib(), {"Glide", false, {{f4::kGlideTime, 0.02f}}}},
+         E, {{op(0, f4::kLevel), 0.15f}}},
+        {F, "OT 4-Op Metal Hit", "1 > (2, 3, 4) at x11 into x1, x3 and x7, all decaying fast: a metallic perc hit for one-shots.", 2,
+         f4Join({{{f4::kAlgorithm, 5.0f}, {f4::kFeedback, 5.0f}, {f4::kVolume, 1.6f}},
+                 f4Op(0, 11, 0.3f, 0, 0.2f, 0.0f, H, 0.15f), f4Op(1, 1, 1.0f, 0, 0.35f, 0.0f, H, 0.2f),
+                 f4Op(2, 3, 0.6f, 0, 0.25f, 0.0f, H, 0.15f, 2.0f), f4Op(3, 7, 0.4f, 0, 0.15f, 0.0f, H, 0.1f, -2.0f)}),
+         {f4Bright({0}), f4Fb(), f4Decay({1, 2, 3}, 0.03f), f4Rel({1, 2, 3}), f4Vib(), {"Ring", true, {{op(0, f4::kMult), 0.1f}}}},
+         E, {{op(0, f4::kLevel), 0.2f}}},
+        {F, "OT 4-Op Sub", "1 > 2 + 3 > 4: a clean x0.5 sine with a touch of x1 harmonics on the attack: sub bass for house and dub.", 1,
+         f4Join({{{f4::kAlgorithm, 4.0f}, {f4::kVolume, 2.0f}},
+                 f4Op(0, 1, 0.0f, 0, 0, 0.0f, H, 0.1f), f4Op(1, 0, 1.0f, 0.003f, 0.5f, 0.9f, H, 0.1f),
+                 f4Op(2, 1, 0.1f, 0, 0.12f, 0.02f, H, 0.08f), f4Op(3, 1, 0.5f, 0.003f, 0.5f, 0.85f, H, 0.1f)}),
+         {f4Bright({2}), f4Fb(), f4Decay({2}, 0.02f), f4Rel({1, 3}), f4Vib(), {"Upper", true, {{op(3, f4::kLevel), 0.3f}}}},
+         E, {{op(2, f4::kLevel), 0.1f}}},
+        {F, "OT 4-Op Flute", "1 > 2 > 3 > 4 at low levels with a slow attack and vibrato: a breathy, hollow flute; mono.", 1,
+         f4Join({{{f4::kAlgorithm, 0.0f}, {f4::kFeedback, 2.0f}, {f4::kLfoRate, 5.0f}, {f4::kVibrato, 0.12f}, {f4::kVolume, 1.7f}},
+                 f4Op(0, 1, 0.04f, 0.05f, 0.3f, 0.8f, H, 0.15f), f4Op(1, 2, 0.05f, 0.08f, 0.3f, 0.8f, H, 0.15f),
+                 f4Op(2, 1, 0.1f, 0.06f, 0.3f, 0.85f, H, 0.15f), f4Op(3, 1, 1.0f, 0.07f, 0.3f, 0.95f, H, 0.2f)}),
+         {f4Bright({1, 2}), f4Fb(), f4Attack({3}, 0.03f), f4Rel({3}), f4Vib(), {"Breath", true, {{f4::kFeedback, 0.4f}, {op(0, f4::kLevel), 0.1f}}}},
+         E, {{op(2, f4::kLevel), 0.1f}}},
+    };
+}
+#endif  // OT_MOD_FM4S
+
 #if defined(OT_MOD_ARC1)
 // ---------------------------------------------------------------------------
 // Arc-Type (module ARC1, engine 0x89, Patches/ARCTYPE/): a home-console
@@ -2026,6 +2166,9 @@ const std::vector<Preset>& all() {
 #if defined(OT_MOD_ARC1)
         add(arcPresets());
 #endif
+#if defined(OT_MOD_FM4S)
+        add(fm4Presets());
+#endif
         (void)add;
         return out;
     }();
@@ -2186,6 +2329,13 @@ std::string markdown() {
                      "uneven steps), and the Aux square or noise voice. Chords at Poly 4, basses and leads at Poly 1.\n"
                      "M1 Brightness (the modulators' Level), M2 Feedback, M3 Release (on the plucks and hits: decays),\n"
                      "M4 Vibrato.\n\n";
+            if (cur == kFm4Engine)
+                o += "FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight\n"
+                     "algorithms, feedback on operator 1, per operator Mult (x0.5, x1 .. x15), Detune, Level and a\n"
+                     "5-stage envelope (Attack, Decay, Sustain, Sus Rate, Release; Sus Rate 0 holds), one LFO for\n"
+                     "vibrato and tremolo (per operator), glide. Keys and pads at Poly 4, basses and leads at Poly 1.\n"
+                     "M1 Brightness (the modulators' Level), M2 Feedback, M3 the envelope (Attack or Decay), M4\n"
+                     "Release, M5 Vibrato.\n\n";
             if (cur == kHandEngine)
                 o += "Hand-Type is a module engine (3.x, module HND1, folder `Patches/HANDTYPE/`): a 4-channel handheld\n"
                      "console style voice. One patch is one channel: Pulse (duty, a frequency sweep that can end the\n"

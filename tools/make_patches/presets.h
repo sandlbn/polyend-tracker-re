@@ -49,6 +49,8 @@ constexpr int32_t kEightEngine = 0x86;
 constexpr int32_t kHandEngine = 0x87;
 constexpr int32_t kBtypeEngine = 0x88;
 constexpr int32_t kArcEngine = 0x89;
+// The FM4 module engine (modules/fm4, module FM4S, Patches/FM4/).
+constexpr int32_t kFm4Engine = 0x80;
 
 struct Preset {
     ot::SynthModel model;   // the Mini model (a module engine: the slot record's fallback)
@@ -62,7 +64,7 @@ struct Preset {
 };
 
 // Every preset of the pack, ACD first, then FAT, VAP, WTFM, PERC, JU6, D-Type, CS-Type, A-Type, T-Type,
-// 8-Type, Hand-Type, B-Type, Arc-Type:
+// 8-Type, Hand-Type, B-Type, Arc-Type, FM4:
 // the models whose modules are in the build profile.
 const std::vector<Preset>& all();
 

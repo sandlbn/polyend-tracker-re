@@ -360,4 +360,28 @@ M4 Vibrato.
 | OT Twin Square | A soft FM tone with the Aux square an octave down under it: the console's two chips together (Poly 1). | 1 | Brightness (+-), Aux Decay, Release (+-), Vibrato, Aux Level (+-), Octave (+-) |
 | OT Noise Burst | A short FM hit with the Aux noise decaying in frames: snares and zaps (Poly 2). | 2 | Brightness (+-), Feedback (+-), Length (+-), Vibrato, Aux Level (+-), Decay (+-) |
 
-Total: 190 patches.
+## FM4 (12)
+
+FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight
+algorithms, feedback on operator 1, per operator Mult (x0.5, x1 .. x15), Detune, Level and a
+5-stage envelope (Attack, Decay, Sustain, Sus Rate, Release; Sus Rate 0 holds), one LFO for
+vibrato and tremolo (per operator), glide. Keys and pads at Poly 4, basses and leads at Poly 1.
+M1 Brightness (the modulators' Level), M2 Feedback, M3 the envelope (Attack or Decay), M4
+Release, M5 Vibrato.
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT 4-Op E-Piano | 1 > 2 + 3 > 4: a x14 tine that dies fast over a soft x1 body, the two carriers a few cents apart; velocity to brightness. | 4 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Tremolo, Tine (+-) |
+| OT 4-Op Bass | 1 > 2 > 3 > 4 with feedback: a modulator decaying into the carrier gives the slap; mono with a short glide. | 1 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Glide |
+| OT 4-Op Bell | 1 > 2 + 3 > 4: x7 into x2 and x5 into x1, detuned: an inharmonic bell with a long ring. | 4 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Clang (+-) |
+| OT 4-Op Brass | (1 + 2) > 3 > 4 with slow modulator attacks: the brightness swells after the note; feedback on 1. | 4 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Swell (+-) |
+| OT 4-Op Organ | 1 + 2 + 3 + 4 at x0.5 / x1 / x2 / x4, held: drawbar-style registers; M6 the top one. | 4 | Sub (+-), Feedback (+-), Click (+-), Release (+-), Vibrato, Top (+-) |
+| OT 4-Op Clav | (1 > 2 + 3) > 4: bright x3 and x5 modulators snapping shut into a short carrier: a funky clav. | 4 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Snap (+-) |
+| OT 4-Op Glass Pad | 1 > 2 + 3 + 4: a slow x2 shimmer on one carrier, two more detuned around it; soft attack, slow vibrato. | 4 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Shimmer (+-) |
+| OT 4-Op Marimba | 1 > 2 + 3 > 4: x4 and x10 modulators gone in 60 ms over decaying sines: wooden mallets. | 4 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Hardness (+-) |
+| OT 4-Op Saw Lead | (1 + 2 > 3) > 4 with feedback 6 on 1: a buzzy, saw-like lead; mono, glide, delayed vibrato on M5. | 1 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Glide |
+| OT 4-Op Metal Hit | 1 > (2, 3, 4) at x11 into x1, x3 and x7, all decaying fast: a metallic perc hit for one-shots. | 2 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Ring (+-) |
+| OT 4-Op Sub | 1 > 2 + 3 > 4: a clean x0.5 sine with a touch of x1 harmonics on the attack: sub bass for house and dub. | 1 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Upper (+-) |
+| OT 4-Op Flute | 1 > 2 > 3 > 4 at low levels with a slow attack and vibrato: a breathy, hollow flute; mono. | 1 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Breath (+-) |
+
+Total: 202 patches.

@@ -297,3 +297,14 @@ TEST(slot_insert_needs_its_memory) {
 #else
 TEST(slot_inserts_not_in_this_build) { CHECK(true); }
 #endif
+
+// The one firmware for every song (profile full) has the slot inserts and the
+// four flavours' insert effects: Drive, Chorus (BBD), Phaser, Tremolo, Bitcrush.
+#if defined(OT_PROFILE_NAME)
+#include "modules/module.h"
+TEST(full_image_has_slot_inserts) {
+    if (std::strcmp(OT_PROFILE_NAME, "full") != 0) return;
+    CHECK(OT_SLOT_INSERTS == 1);
+    for (const char* id : {"DRIV", "BBDC", "PHAS", "TREM", "CRSH"}) CHECK(ot::mod::ModuleHost::instance().effectById(id) != nullptr);
+}
+#endif
