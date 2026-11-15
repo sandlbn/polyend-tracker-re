@@ -106,7 +106,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
         },
         this);
     seq.setPerfPatternMemory(mem_.perfPatterns);   // spec 12 §C.1 staging (SDRAM)
-    engine.setExportScratch(mem_.exportStems);
+    engine.setExportScratch(mem_.exportStems, mem_.exportHistory);
     // Synth slots play the App's patches (2.x M3, audio/synth_bank.h).
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
     resetSynthPresets();

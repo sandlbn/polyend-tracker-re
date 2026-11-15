@@ -97,6 +97,7 @@ struct AppMemory {
     uint32_t scratchBytes = 0;
     PerfPatternMemory* perfPatterns = nullptr;   // per-track pattern overrides (spec 12 §C.1)
     audio::StemBlock* exportStems = nullptr;     // optional: WAV export stem buffer (else allocated per export)
+    audio::ExportResampler::History* exportHistory = nullptr;   // [I] optional: its 44.1 kHz history (kMaxStems)
 };
 
 // Main-loop members of App that live in the SDRAM on the device (CPU round 3,

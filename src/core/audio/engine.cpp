@@ -1091,9 +1091,6 @@ bool patchRate(IStorage& fs, const char* path) {
     return ok;
 }
 
-// [I] The 44.1 kHz conversion's history (export_resampler.h): the last
-// kTaps input frames of each stem. Main-loop data, so SDRAM on the device.
-OT_SDRAM_BSS alignas(4) ExportResampler::History gExportHistory[ExportResampler::kMaxStems];
 static_assert(ExportResampler::kMaxStems == StemBlock::kStems, "one conversion history per stem");
 
 // ExportResampler::Sink: ctx = exportWav's writers.
@@ -1139,8 +1136,20 @@ int32_t AudioEngine::exportWav(IStorage& fs, const char* path, bool stems, uint3
     int16_t masterBuf[kBlock * 2];
     const int16_t* srcs[StemBlock::kStems];
     for (int i = 0; i < nw; ++i) srcs[i] = stems ? stemBuf->data[i] : masterBuf;
+    // [I] The 44.1 kHz conversion's history (export_resampler.h): the last
+    // kTaps input frames of each stem, from the layout, else allocated here.
+    ExportResampler::History* history = exportHistory_;
+    std::unique_ptr<ExportResampler::History[]> ownHistory;
+    if (resampleTo44100 && !history) {
+        ownHistory.reset(new (std::nothrow) ExportResampler::History[ExportResampler::kMaxStems]);
+        history = ownHistory.get();
+        if (!history) {
+            for (int i = 0; i < nw; ++i) writers[i].close();
+            return -1;
+        }
+    }
     ExportResampler rs;
-    if (resampleTo44100) rs.begin(nw, gExportHistory);
+    if (resampleTo44100) rs.begin(nw, history);
     uint32_t n = 0;
     bool ok = true;
     while (n < maxBlocks && (!running || running(ctx))) {

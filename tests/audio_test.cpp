@@ -5,6 +5,7 @@
 
 #include "audio/dsp.h"
 #include "audio/engine.h"
+#include "audio/export_resampler.h"
 #include "audio/synth_engine.h"
 #include "formats/patch_pb.h"
 #include "formats/wav.h"
@@ -1244,6 +1245,34 @@ TEST(export_device_rate_writes_the_rendered_blocks) {
             for (size_t k = 0; k < ref[i].size(); ++k) nonzero += ref[i][k] != 0;
         }
         CHECK(nonzero > 1000);   // there was something to compare
+    }
+}
+
+// [I] The 44.1 kHz conversion's history in the layout's buffer (on the device
+// the SDRAM layout next to the stems, app_main.cpp), when one is given: the
+// same files as with the engine's own, and the history is the given one.
+TEST(export_converts_with_the_given_history) {
+    for (int stems = 0; stems < 2; ++stems) {
+        Rig a, b;
+        ExportScript::prepare(a);
+        ExportScript::prepare(b);
+        MemStorage fa, fb;
+        ExportScript ca{&a, 0}, cb{&b, 0};
+        std::unique_ptr<StemBlock> sa(new StemBlock), sb(new StemBlock);
+        std::unique_ptr<ExportResampler::History[]> hist(new ExportResampler::History[ExportResampler::kMaxStems]);
+        for (int i = 0; i < ExportResampler::kMaxStems; ++i)
+            for (int16_t& v : hist[i]) v = 0x1234;   // a marker the export overwrites
+        a.eng->setExportScratch(sa.get());
+        b.eng->setExportScratch(sb.get(), hist.get());
+        const char* path = stems ? "Export/p/stems" : "Export/p/master.wav";
+        CHECK_EQ(a.eng->exportWav(fa, path, stems != 0, 1000, ExportScript::running, &ca, true), 50);
+        CHECK_EQ(b.eng->exportWav(fb, path, stems != 0, 1000, ExportScript::running, &cb, true), 50);
+        CHECK_EQ(fa.files.size(), fb.files.size());
+        for (const auto& kv : fa.files) CHECK(fb.files[kv.first] == kv.second);
+        int marks = 0;   // the export used the given history: no marker is left in its stems'
+        for (int i = 0; i < (stems ? StemBlock::kStems : 1); ++i)
+            for (int16_t v : hist[i]) marks += v == 0x1234;
+        CHECK_EQ(marks, 0);
     }
 }
 

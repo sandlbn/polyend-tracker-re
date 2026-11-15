@@ -13,6 +13,7 @@
 #include "audio/block_profile.h"
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
+#include "audio/export_resampler.h"
 #include "audio/governor.h"
 #include "audio/inserts.h"
 #include "audio/stream_source.h"
@@ -330,7 +331,13 @@ public:
                       void* ctx, bool resampleTo44100);
     // Stem block buffer for exportWav (~7 KB; SDRAM on the device). Without
     // one, exportWav allocates it for the export.
-    void setExportScratch(StemBlock* s) { exportScratch_ = s; }
+    // Export buffers from the memory layout (on the device the SDRAM layout,
+    // app_main.cpp): the stems and the 44.1 kHz conversion's history
+    // (ExportResampler::kMaxStems). Null: allocated per export.
+    void setExportScratch(StemBlock* s, ExportResampler::History* h = nullptr) {
+        exportScratch_ = s;
+        exportHistory_ = h;
+    }
 
     // Meters.
     float limiterGainReduction() const { return limL_.meanGain(); }
@@ -445,6 +452,7 @@ private:
 
     PreBlockFn hook_ = nullptr;
     StemBlock* exportScratch_ = nullptr;
+    ExportResampler::History* exportHistory_ = nullptr;   // [I] kMaxStems, or null
     void* hookCtx_ = nullptr;
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;

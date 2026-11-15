@@ -64,7 +64,10 @@ constexpr uint32_t kOffScratch = align(kOffNums + 64);
 // Per-track pattern staging for the Performance screen (spec 12 §C.1).
 constexpr uint32_t kOffPerf = align(kOffScratch + kScratch);
 constexpr uint32_t kOffStems = align(kOffPerf + sizeof(ot::PerfPatternMemory));
-constexpr uint32_t kOffPresets = align(kOffStems + sizeof(ot::audio::StemBlock));   // WAV export stems (was SRAM)
+// [I] WAV export stems (was SRAM), then the 44.1 kHz conversion's history.
+constexpr uint32_t kOffExportHist = align(kOffStems + sizeof(ot::audio::StemBlock));
+constexpr uint32_t kOffPresets =
+    align(kOffExportHist + sizeof(ot::audio::ExportResampler::History) * ot::audio::ExportResampler::kMaxStems);
 // [3.x] The mix each synth preset carries (app/synth_presets.h), read by the synth bank.
 constexpr uint32_t kOffPresetMix = align(kOffPresets + sizeof(ot::SynthPatch) * ot::kSynthPresetCount);
 #if OT_SLOT_INSERTS
@@ -453,6 +456,7 @@ void otAppMain(ot::hal::HalSet& hal) {
     mem.scratchBytes = kScratch;
     mem.perfPatterns = reinterpret_cast<PerfPatternMemory*>(sd + kOffPerf);
     mem.exportStems = reinterpret_cast<audio::StemBlock*>(sd + kOffStems);
+    mem.exportHistory = reinterpret_cast<audio::ExportResampler::History*>(sd + kOffExportHist);
     presets::bind(reinterpret_cast<SynthPatch*>(sd + kOffPresets));
     presets::bindMix(reinterpret_cast<audio::PresetMix*>(sd + kOffPresetMix));
 #if OT_SLOT_INSERTS
