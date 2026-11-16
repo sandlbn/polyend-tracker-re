@@ -123,7 +123,7 @@ const char* App::turnMasterFx(int k, bool on) {
     }
     g_fx.pending |= fxBit(fx.card);
     g_fx.error[fx.card] = FxError::kNone;
-    if (seq.isPlaying() || seq.isArmed() || jobBusy()) return nullptr;   // loads at the next Stop
+    if (seq.isPlaying() || seq.isArmed() || jobBusy() || sampleTailBusy()) return nullptr;   // loads at the next Stop, or once the sample memory is free
     syncCardSynths(true);
     if (g_fx.error[fx.card] != FxError::kNone) {
         OT_SDRAM_BSS static char t[48];   // main-loop text: SDRAM on the device

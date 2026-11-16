@@ -547,6 +547,11 @@ public:
     static constexpr int kCardWanted = kSynthSlotCount + kSynthPresetCount;
     void cardWantedEngines(int32_t* out) const;   // every slot's engine, then every preset's (0 = none)
     bool syncCardSynths(bool initPatches);
+    // [I] The free top of the sample memory is in use (a recording, a preview
+    // decode, a render, Games): a card effect's SDRAM hold waits for it.
+    bool sampleTailBusy() const {
+        return sampleBankLent || sampleTailHeld || rendering_ || capture.active() || engine.previewBufferActive();
+    }
     // [I] After USB storage mode: Modules/ listed anew (rescanCardSynths),
     // before boot() reopens the Workspace.
     void rescanCardSynths();
@@ -675,6 +680,9 @@ public:
     // to the NES emulator; the periodic autosave is held so garbage sample
     // data is never written. The lender reloads the Workspace afterwards.
     bool sampleBankLent = false;
+    // [I] A screen keeps data in the free sample memory while it is open (the
+    // Recorder's take, the Loader's trim, the Editor's undo and preview).
+    bool sampleTailHeld = false;
     // External background job with the progress popup `title` (spec 11
     // §0.1 import / export state machines); false when another job runs.
     bool startExternalJob(const char* title, JobUnitFn unit, JobPercentFn percent, void* unitCtx,

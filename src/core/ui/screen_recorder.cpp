@@ -104,6 +104,7 @@ const char* RecorderScreen::sourceName(int src) const {
 
 void RecorderScreen::start(int opt) {
     App& a = app_;
+    a.sampleTailHeld = true;   // the take lives in the free sample memory
     // Coming back from Config opened by F4 Metronome (appendix C §2.2 start
     // argument / §2.9 flag +0x71a): the setup state with Metronome selected.
     const bool fromConfig = configReturn_ && opt == kModConfig;
@@ -163,6 +164,7 @@ void RecorderScreen::enter() {
 
 void RecorderScreen::stop() {
     App& a = app_;
+    a.sampleTailHeld = false;
     a.capture.stop();
     a.capture.setMetering(false);
     a.inputMonitorMuted = false;

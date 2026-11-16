@@ -13,6 +13,7 @@
 #include "modules/module.h"
 #include "modules/module_files.h"
 #include "modules/module_ui.h"
+#include "ui/ui.h"
 #include "ui_fakes.h"
 
 using namespace ot;
@@ -289,4 +290,51 @@ TEST(card_fx_open_has_no_missing_module_notice) {
     h.run(100);
     CHECK(ModuleHost::instance().find("CFX1"));
     CHECK(std::strstr(a.ui.notice(), "not in this build") == nullptr);
+}
+
+// The top of the sample memory in use (here: lent to Games; a recording or
+// a preview decode alike): Turn on waits, the effect loads once it is free.
+TEST(card_fx_waits_while_the_free_sample_memory_is_in_use) {
+    FxRig rig;
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.sampleBankLent = true;
+    CHECK(a.turnMasterFx(bankRow(a), true) == nullptr);
+    h.run(400);
+    CHECK(!ModuleHost::instance().find("CFX1"));
+    CHECK_EQ(int(a.bank.moduleHold()), 0);
+    a.sampleBankLent = false;
+    h.run(400);
+    CHECK(ModuleHost::instance().find("CFX1"));
+    CHECK(inChain(a));
+}
+
+// A screen that keeps data there (a finished Recorder take): a load that
+// waits for the Stop waits until the screen closes.
+TEST(card_fx_waits_while_a_screen_holds_the_free_sample_memory) {
+    FxRig rig;
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    a.sampleTailHeld = true;
+    CHECK(a.turnMasterFx(bankRow(a), true) == nullptr);
+    h.run(400);
+    CHECK(!ModuleHost::instance().find("CFX1"));
+    a.sampleTailHeld = false;
+    h.run(400);
+    CHECK(ModuleHost::instance().find("CFX1"));
+}
+
+// The screens that keep data in the free sample memory hold it while open.
+TEST(card_fx_recorder_loader_editor_hold_the_free_sample_memory) {
+    FxRig rig;
+    Harness h;
+    App& a = *h.app;
+    for (int m : {kModRecorder, kModLoader, kModEditor}) {
+        a.ui.switchTo(m);
+        CHECK(a.sampleTailHeld);
+        a.ui.switchTo(kModPattern);
+        CHECK(!a.sampleTailHeld);
+    }
 }

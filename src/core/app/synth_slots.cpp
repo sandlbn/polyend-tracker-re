@@ -283,7 +283,7 @@ void App::serviceCardSynths(uint32_t now) {
         cardSince_ = now ? now : 1;
         return;
     }
-    if (now - cardSince_ < kCardSettleMs || seq.isPlaying() || seq.isArmed() || jobBusy()) return;
+    if (now - cardSince_ < kCardSettleMs || seq.isPlaying() || seq.isArmed() || jobBusy() || sampleTailBusy()) return;
     cardSince_ = 0;
     syncCardSynths(true);
 }
