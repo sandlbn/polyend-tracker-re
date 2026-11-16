@@ -48,7 +48,7 @@ struct OtmPool {
 // loadCardSynths (serial counts the changes).
 struct OtmLoadReport {
     // [I] Per profile (tools/profile.py): its card modules plus room for
-    // more, in steps of 8 (full: 16 files -> 24; no card modules: 8).
+    // more, in steps of 8, and at least 16 (full: 13 -> 16; none: 16).
     static constexpr int kMax = OT_PROFILE_CARD_FILES;
     struct Item {
         char file[40];      // name in Modules/ (longer names are skipped)

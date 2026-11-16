@@ -293,7 +293,8 @@ def gen(args):
         f"#define OT_PROFILE_SDRAM_BYTES {sums['sdram_bytes'] + core_sdram(prof, mods)}",
         f"#define OT_SLOT_INSERTS {1 if slot_inserts(prof, mods) else 0}",
         # [I] modules/module_files.h: Modules/*.otm files and card effects listed
-        f"#define OT_PROFILE_CARD_FILES {card_room(len(prof['card']))}",
+        # at least 16, as v3 read on every image: any image reads the card set
+        f"#define OT_PROFILE_CARD_FILES {max(16, card_room(len(prof['card'])))}",
         f"#define OT_PROFILE_CARD_FX "
         f"{card_room(sum(1 for m in prof['card'] if 'synthEngine' not in m['man'].get('caps', [])))}",
         f'#define OT_MODULES_REV "{rev}"',
