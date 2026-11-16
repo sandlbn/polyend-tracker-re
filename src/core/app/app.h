@@ -97,6 +97,7 @@ struct AppMemory {
     uint32_t scratchBytes = 0;
     PerfPatternMemory* perfPatterns = nullptr;   // per-track pattern overrides (spec 12 §C.1)
     audio::StemBlock* exportStems = nullptr;     // optional: WAV export stem buffer (else allocated per export)
+    audio::ExportResampler::History* exportHistory = nullptr;   // [I] optional: its 44.1 kHz history (kMaxStems)
 };
 
 // Main-loop members of App that live in the SDRAM on the device (CPU round 3,
@@ -211,7 +212,7 @@ public:
     audio::SampleBank& bank;          // engine.bank(): spec 02 §8.2 packing
     Config cfg;
     Sequencer seq;
-    PadNotes padNotes;
+    OT_APP_SDRAM_MEMBER(PadNotes, padNotes);   // [I] pad -> note map and key lights (main loop)
     UndoRing undo;
     FileUndo fileUndo;
     Ui ui;
@@ -307,7 +308,7 @@ public:
     void setStepJump(int v);
     bool trackMuted(int t) const;
     void setTrackMute(int t, bool m);
-    uint8_t padNote(uint8_t pad);                 // current scale map, slice-aware
+    uint8_t padNote(uint8_t pad);                 // current scale map, slice-aware; PadNotes::kNoNote = piano gap
     void refreshPadNotes();
     void applySequencerSettings();
 

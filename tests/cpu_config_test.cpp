@@ -36,8 +36,8 @@ TEST(cpu_config_extension_record) {
     CHECK(std::equal(stock.begin(), stock.end(), nv.mem.begin()));
     // Payload v3: cpuMeter, synthVoices (2.x M3, OP-8), streamMode,
     // streamThreshold (SD streaming), radioStereo, then the 8-bit sum.
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 1, 4, 0, 1, 0, 1, 0);   // v5: + themeFile[21]
-    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 7);   // sum (the empty name adds 0)
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 29, 1, 4, 0, 1, 0, 1, 0);   // v5: + themeFile[21], padLayout, noteNames
+    CHECK_EQ(nv.mem[0xF4 + 5 + 29], 7);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.cpuMeter, 1);
@@ -79,8 +79,8 @@ TEST(synth_voices_config) {
     CHECK_EQ(c.synthVoices, 4);
     c.synthVoices = 6;   // a non-default budget alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 0, 6, 0, 1, 0, 1, 0);   // v5: + themeFile[21]
-    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 8);   // sum (the empty name adds 0)
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 29, 0, 6, 0, 1, 0, 1, 0);   // v5: + themeFile[21], padLayout, noteNames
+    CHECK_EQ(nv.mem[0xF4 + 5 + 29], 8);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.synthVoices, 6);
@@ -186,8 +186,8 @@ TEST(radio_stereo_config_record) {
     CHECK_EQ(c.radioStereo, 0);
     c.radioStereo = 1;   // alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 0, 4, 0, 1, 1, 1, 0);   // v5: + themeFile[21]
-    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 7);   // sum (the empty name adds 0)
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 29, 0, 4, 0, 1, 1, 1, 0);   // v5: + themeFile[21], padLayout, noteNames
+    CHECK_EQ(nv.mem[0xF4 + 5 + 29], 7);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.radioStereo, 1);
@@ -212,8 +212,8 @@ TEST(export_rate_config_record) {
     CHECK_EQ(c.exportRate, 1);
     c.exportRate = 0;   // alone writes the record
     CHECK(c.save(nv));
-    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 27, 0, 4, 0, 1, 0, 0, 0);   // v5: + themeFile[21]
-    CHECK_EQ(nv.mem[0xF4 + 5 + 27], 5);   // sum (the empty name adds 0)
+    CHECK_BYTES(nv.mem.data() + 0xF4, 'O', 'T', 'X', 5, 29, 0, 4, 0, 1, 0, 0, 0);   // v5: + themeFile[21], padLayout, noteNames
+    CHECK_EQ(nv.mem[0xF4 + 5 + 29], 5);   // sum (the empty name adds 0)
     Config r;
     CHECK(r.load(nv));
     CHECK_EQ(r.exportRate, 0);

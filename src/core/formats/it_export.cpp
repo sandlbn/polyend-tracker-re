@@ -29,7 +29,6 @@
 #include "audio/audio_tables.h"
 #include "formats/bytes.h"
 #include "model/fx.h"
-#include "sdram_bss.h"
 
 namespace ot {
 
@@ -306,10 +305,7 @@ void buildSampleHeader(uint8_t* b, int index, const Instrument& in, uint32_t fra
 namespace {
 // Built on first use (an export job, main loop); SDRAM on the device (2.0.1:
 // SRAM for the USB Storage ring).
-const Instrument& emptyInstrument() {
-    OT_SDRAM_BSS static const Instrument def;
-    return def;
-}
+const Instrument& emptyInstrument() { return defaultInstrument(); }
 }  // namespace
 
 bool ItExport::fail(const char* msg) {

@@ -83,9 +83,9 @@ uint32_t wavResampledFrames(uint32_t srcFrames, uint32_t srcRate);
 int16_t wavDecodeSample(const uint8_t* p, uint16_t format, uint16_t bits);
 
 // One output sample of the 4-point cubic between p1 (mu = 0) and p2 (mu = 1):
-// truncation toward zero, then clamp (spec 07 Q8). Shared by the WAV import
-// (CubicResampler) and the export rate conversion (AudioEngine::exportWav),
-// so both interpolate the same way.
+// truncation toward zero, then clamp (spec 07 Q8). The WAV import's
+// interpolation (CubicResampler); the export converts with its own 32-tap
+// sinc (audio/export_resampler.h).
 inline int16_t cubicS16(float p0, float p1, float p2, float p3, float mu) {
     const float a0 = p3 - p2 - p0 + p1;
     const float a1 = p0 - p1 - a0;

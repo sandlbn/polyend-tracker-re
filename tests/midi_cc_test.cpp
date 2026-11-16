@@ -461,7 +461,7 @@ TEST(midi_instrument_cc_columns_are_lists) {
         a.ui.dirty();
         h.run(40);
         std::printf("MIDI instrument page, %s fonts: %u DL words\n", fonts ? "custom" : "ROM", unsigned(a.ui.lastDlWords()));
-        CHECK(a.ui.lastDlWords() < 1900);
+        CHECK(a.ui.lastDlWords() < Ui::kDlTargetWords);
     }
     h.disp.customFonts = false;
     applyFontSet(&h.disp, 0);

@@ -300,6 +300,46 @@ TEST(column_key_hold_popup_timings) {
     h.up(btn::Fx1);
 }
 
+// Issue #186: a column key held as a modifier (a pad while it is down, or
+// its hold popup) goes back to the column it came from on release; a tap
+// alone still moves the cursor to that column.
+TEST(column_key_held_as_modifier_returns_to_the_column) {
+    Harness h;
+    App& a = *h.app;
+    PatternScreen& p = pe(h);
+    CHECK_EQ(p.col, 0);
+    // Instr held, a pad picks instrument 6: back to the Note column.
+    h.down(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.pad(5);
+    CHECK_EQ(a.currentInstrument(), 5);
+    h.up(btn::Instr);
+    CHECK_EQ(p.col, 0);
+    // The pads play notes again: no instrument change.
+    h.pad(9);
+    CHECK_EQ(a.currentInstrument(), 5);
+    // Held into its popup: back too.
+    h.down(btn::Instr);
+    h.run(220);
+    CHECK(p.popup().isOpen());
+    h.up(btn::Instr);
+    CHECK(!p.popup().isOpen());
+    CHECK_EQ(p.col, 0);
+    // A tap alone moves to the column and stays.
+    h.tap(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.tap(btn::Note);
+    CHECK_EQ(p.col, 0);
+    // Fx1 held with a pad from the Instr column: back to Instr.
+    h.tap(btn::Instr);
+    h.tap(btn::Rec);
+    h.down(btn::Fx1);
+    CHECK_EQ(p.col, 2);
+    h.pad(3);
+    h.up(btn::Fx1);
+    CHECK_EQ(p.col, 1);
+}
+
 TEST(fill_rekey_wraps_and_note_defaults) {
     Harness h;
     App& a = *h.app;
@@ -342,6 +382,69 @@ TEST(focus_blocks_note_entry_and_pattern_right) {
     h.tap(btn::Down);
     CHECK_EQ(a.patternNumber(), 1);
     h.up(btn::F1);
+}
+
+TEST(pattern_pads_latch_on_f1_tap) {
+    // F1 tapped alone keeps the Pattern focus: the pads pick patterns with
+    // one finger, the current pattern's pad blinks. F1 again ends it.
+    Harness h;
+    App& a = *h.app;
+    const uint8_t full = uint8_t(a.cfg.padFull() > 31 ? 255 : a.cfg.padFull() * 255 / 31);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.pad(4);
+    CHECK_EQ(a.patternNumber(), 5);
+    h.pad(1);
+    CHECK_EQ(a.patternNumber(), 2);
+    CHECK_EQ(pe(h).focus, 0);
+    int on = 0, off = 0;
+    for (int i = 0; i < 40; ++i) {
+        h.run(10);
+        if (h.leds.level[1] == full) ++on;
+        else if (h.leds.level[1] == 0) ++off;
+    }
+    CHECK(on > 0);
+    CHECK(off > 0);
+    // Play keeps the pads on patterns; a pad then queues the pattern, its
+    // pad lit full while the current one keeps blinking.
+    h.tap(btn::Play);
+    CHECK_EQ(pe(h).focus, 0);
+    h.pad(6);
+    CHECK_EQ(a.seq.queuedPattern(), 7);
+    h.run(10);
+    CHECK_EQ(h.leds.level[6], full);
+    h.tap(btn::Play);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, -1);
+    // Held F1 with a pad is the stock hold: released, the focus ends.
+    h.down(btn::F1);
+    h.pad(2);
+    h.up(btn::F1);
+    CHECK_EQ(a.patternNumber(), 3);
+    CHECK_EQ(pe(h).focus, -1);
+    // Another F-key ends the latch.
+    h.tap(btn::F1);
+    h.tap(btn::F2);
+    CHECK_EQ(pe(h).focus, -1);
+}
+
+TEST(pattern_latch_ends_through_the_rec_arm_page) {
+    // F1 on the rec-arm page arms a track; the latch it ends must not come
+    // back, so the next F1 tap latches again at once.
+    Harness h;
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.down(btn::Shift);
+    h.tap(btn::Rec);
+    CHECK(pe(h).recArmPage);
+    h.tap(btn::F1);
+    h.up(btn::Shift);
+    CHECK(!pe(h).recArmPage);
+    CHECK_EQ(pe(h).focus, -1);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, 0);
+    h.tap(btn::F1);
+    CHECK_EQ(pe(h).focus, -1);
 }
 
 TEST(pattern_up_down_switch_immediately_while_playing) {

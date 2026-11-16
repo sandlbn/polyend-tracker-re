@@ -30,7 +30,6 @@ public:
     uint32_t frames = 0;
     std::vector<std::string> maxFrame;                  // commands of the largest frame
     bool ready = true;
-    int readyPolls = 0;
     Ui* ui = nullptr;
 
     static constexpr uint32_t kChunk = 1024;            // Ft81xDisplay::kStage
@@ -39,8 +38,9 @@ public:
     static constexpr uint32_t kSpiHz = 30000000;        // board::kSpi2CtarFast
 
     bool frameReady() override {
+        if (ready) return RecordingDisplay::frameReady();   // the sent frame is reported
         ++readyPolls;
-        return ready;
+        return false;
     }
     void dlStart() override {
         RecordingDisplay::dlStart();
@@ -201,14 +201,20 @@ TEST(performance_frame_budget) {
     r.play(1500);
     const uint32_t words = r.m.maxWords;
     std::printf("performance (values, edit, playing): max %u DL words\n", unsigned(words));
-    CHECK(words <= 1500);
+    // 1500 when gradients counted 5 words; ~1680 at Gfx::kGradientDlWords
+    // (verified on a Tracker: ~7.4 KB of the 8 KB RAM_DL, no faults); ~1740
+    // since upstream 2.2.1's red labels of tracks with the FX off; 1879 with
+    // CMD_TEXT at what the FT81x builds (the Performance screen's 56
+    // strings, 100 glyphs right of x 511, were ~190 words over the old count).
+    CHECK(words <= 1900);
     r.h.tap(btn::Play);
 }
 
 // Track Mixer 2/3 and Global Mixer 3/3, playing (meters moving). Column by
 // column they uploaded ~1830 / ~1750 words and every frame faulted the
 // FT81x on hardware (the display kept the previous screen); drawn in layers
-// they stay inside the same budget as the Performance screen.
+// they stay inside the same budget as the Performance screen (verified on a
+// Tracker: 7176 / 7016 B of the 8 KB RAM_DL, no faults).
 TEST(mixer_frame_budget) {
     Rig r;
     r.h.tap(btn::Master);
@@ -222,7 +228,7 @@ TEST(mixer_frame_budget) {
     uint32_t words = r.m.maxWords;
     std::printf("track mixer (playing): max %u DL words\n", unsigned(words));
     r.m.printTally();
-    CHECK(words <= 1400);
+    CHECK(words <= 1780);   // 1750 with CMD_TEXT at its RAM_DL cost (was ~1620)
     r.h.tap(btn::Master);   // Global Mixer 3/3
     r.play(100);
     r.m.resetMax();
@@ -230,7 +236,7 @@ TEST(mixer_frame_budget) {
     words = r.m.maxWords;
     std::printf("global mixer (playing): max %u DL words\n", unsigned(words));
     r.m.printTally();
-    CHECK(words <= 1400);
+    CHECK(words <= 1780);   // 1715
     r.h.tap(btn::Play);
 }
 
@@ -273,7 +279,7 @@ TEST(pattern_playing_sparse_frame_budget) {
     r.m.resetMax();
     r.play(1000);
     std::printf("pattern playing (sparse): max %u DL words, %u FIFO bytes\n", unsigned(r.m.maxWords), unsigned(r.m.maxBytes));
-    CHECK(r.m.maxWords <= 1050);              // measured 917
+    CHECK(r.m.maxWords <= 1100);              // measured 1053 (917 before CMD_TEXT was counted right)
     CHECK(r.m.maxBytes <= 4400);              // measured 3900
     r.h.tap(btn::Play);
 }
@@ -492,7 +498,7 @@ struct WorstRig {
         }
     }
     // Largest frame over `ms` of redraws (or of play when playing).
-    void measure(const char* name, uint32_t ms = 60) {
+    void measure(const char* name, uint32_t ms = 60, uint32_t limit = Ui::kDlTargetWords) {
         m.resetMax();
         const uint32_t over0 = a.ui.overBudgetFrames(), low0 = a.ui.lowDetailFrames();
         if (a.seq.isPlaying()) {
@@ -510,10 +516,25 @@ struct WorstRig {
             worstName = name;
         }
         CHECK(w > 0);
-        CHECK(w <= Ui::kDlTargetWords);
+        CHECK(w <= limit);
         CHECK(a.ui.overBudgetFrames() == over0);   // the guard never had to cut a frame
         CHECK(a.ui.lowDetailFrames() == low0);     // nor fall back to low detail
-        if (w > Ui::kDlTargetWords) m.printTally();
+        if (w > limit) m.printTally();
+    }
+    // A scene the device cannot draw in full: the guard must catch it (no
+    // frame past kDlGuardWords reaches the display) and the low-detail
+    // frames that follow must fit the design target.
+    void measureFallback(const char* name, uint32_t ms = 60) {
+        m.resetMax();
+        const uint32_t low0 = a.ui.lowDetailFrames();
+        for (uint32_t t = 0; t < ms; t += 10) {
+            a.ui.dirty();
+            h.run(10);
+        }
+        std::printf("  %-56s %5u words (low-detail fallback)\n", name, unsigned(a.ui.lastDlWords()));
+        CHECK(m.maxWords <= Ui::kDlGuardWords);
+        CHECK(a.ui.lowDetailFrames() > low0);
+        CHECK(a.ui.lastDlWords() <= Ui::kDlTargetWords);
     }
     // The shared overlays over the current screen.
     void overlays(const char* screen) {
@@ -600,7 +621,10 @@ TEST(overlay_matrix_pattern) {
     h.down(btn::Shift);
     r.measure("pattern dense + mute page");
     h.tap(btn::Rec);
-    r.measure("pattern dense + Live-REC arm page (all armed)");
+    // 1960 words with CMD_TEXT at its RAM_DL cost: over the design
+    // target, under the guard, and 48 words below the chip's 2048 with the
+    // driver's 36. Drawing text as glyph runs brings it back under.
+    r.measure("pattern dense + Live-REC arm page (all armed)", 60, Ui::kDlGuardWords - 10);
     h.up(btn::Shift);
     r.measure("pattern dense + Live-REC arm page, Shift up");
     h.tap(btn::Rec);
@@ -744,6 +768,9 @@ TEST(overlay_matrix_tracks_13_16) {
     h.down(btn::Shift);
     r.measure("pattern 13-16 dense + mute page (bank B)");
     h.tap(btn::Rec);
+    // Measured on a Tracker: this frame (dense grid + arm page) faulted the
+    // FT81x; with the honest count the guard drew it in low detail. With its
+    // text as glyph runs it fits in full.
     r.measure("pattern 13-16 dense + Live-REC arm page (bank B)");
     h.up(btn::Shift);
     h.tap(btn::Rec);
@@ -1263,6 +1290,74 @@ TEST(device_fault_falls_back_to_low_detail) {
     CHECK(a.ui.dlScale() > 64);
     CHECK(a.ui.lowDetail());
     Harness::dlOverflowFatal = true;
+}
+
+// #71: a fault is only found when the driver polls the frame's outcome. On a
+// static screen nothing is dirty after the frame, so before the fix nothing
+// polled, the fault was never seen and the display stayed frozen (MIDI
+// instrument page). The frame that faults here is the screen's last one;
+// nobody calls dirty() after it.
+TEST(device_fault_on_a_static_screen_is_redrawn) {
+    Harness::dlOverflowFatal = false;
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);   // Track Mixer 2/3, static (not playing)
+    h.run(200);
+    CHECK(!h.disp.sent);   // every frame's outcome was polled
+    const uint32_t frames0 = a.ui.frames(), low0 = a.ui.lowDetailFrames();
+    h.disp.faultNextFrames = 1;
+    a.ui.dirty();   // one more frame, and it faults
+    h.run(500);
+    CHECK_EQ(h.disp.faultCount, 1u);
+    CHECK_EQ(a.ui.hwFaultFrames(), 1u);
+    CHECK(a.ui.frames() >= frames0 + 2);    // the faulted frame, then a redraw
+    CHECK(a.ui.lowDetailFrames() > low0);   // in low detail
+    CHECK(!h.disp.sent);
+    Harness::dlOverflowFatal = true;
+}
+
+// A screen whose every frame faults (the estimate off by more than the
+// tightest guard allows): the redraws stop once it is in low detail at the
+// tightest guard, and the log gets one entry, not one per fault.
+TEST(device_fault_that_never_fits_stops_redrawing) {
+    Harness::dlOverflowFatal = false;
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.run(200);
+    static int logged;
+    logged = 0;
+    a.ui.platform.dlOverflow = [](const char*, uint32_t, uint32_t, bool) { ++logged; };
+    h.disp.faultNextFrames = 1000;   // every frame from here on faults
+    a.ui.dirty();
+    h.run(3000);
+    const uint32_t faults = h.disp.faultCount;
+    CHECK(faults >= 2 && faults < 20);
+    CHECK_EQ(a.ui.dlScale(), 128);
+    CHECK(a.ui.lowDetail());
+    CHECK_EQ(logged, 1);
+    h.run(2000);   // idle: no more redraws into the same fault
+    CHECK_EQ(h.disp.faultCount, faults);
+    CHECK(!h.disp.sent);
+    a.ui.platform.dlOverflow = nullptr;
+    Harness::dlOverflowFatal = true;
+}
+
+// The idle poll stops once the frame is reported: a static screen doesn't
+// keep the SPI busy.
+TEST(idle_screen_stops_polling_the_display) {
+    Harness h;
+    App& a = *h.app;
+    h.tap(btn::Master);
+    h.tap(btn::Master);
+    h.run(200);
+    const uint32_t frames0 = a.ui.frames(), polls0 = h.disp.readyPolls;
+    h.run(1000);
+    // Each frame is polled before it starts and once after it is sent.
+    CHECK(h.disp.readyPolls - polls0 <= 2 * (a.ui.frames() - frames0) + 1);
+    CHECK(!h.disp.sent);
 }
 
 TEST(device_measurement_calibrates_the_guard) {

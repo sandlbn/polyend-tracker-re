@@ -23,6 +23,8 @@
 # make fonts      -> regenerate the committed UI font image (src/core/ui/fonts/font_data.*,
 #                    the firmware's packed font_data_z.inc / font_adv.inc,
 #                    sim/third_party/rom_fonts.inc); needs python3 + Pillow
+# make export-sinc-table -> regenerate the committed weight table of the 44.1 kHz export
+#                    (src/core/audio/export_sinc_table.inc); needs python3
 VERSION   ?= 3.0.0
 ROOT      := .
 include profile.mk
@@ -61,6 +63,12 @@ OT_POOL_TEST ?= 0
 OTM_FAST_BYTES := $(if $(filter 1,$(OT_POOL_TEST)),12288,0)
 ifeq ($(OT_POOL_TEST),1)
 BUILD     := $(BUILD)/pooltest
+endif
+# Stack guard test build (src/hal/stack_guard.h): 1 = with
+# /Firmware/ot_guardtest.txt on the card, overflows the stack once on purpose.
+OT_STACK_GUARD_TEST ?= 0
+ifeq ($(OT_STACK_GUARD_TEST),1)
+BUILD     := $(BUILD)/guardtest
 endif
 # [I] shared fast pool (src/core/modules/hot_rows.h): the built-in
 # synths' hot code is linked in flash as rows (tools/hot_rows/<name>.hot) and
@@ -108,9 +116,9 @@ CPUFLAGS  := -mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16
 DEFS      := -D__MK66FX1M0__ -DF_CPU=180000000 -DUSB_MIDI_SERIAL -DLAYOUT_US_ENGLISH \
              -DF_BUS=90000000 -DSERIAL5_TX_BUFFER_SIZE=512 -DSERIAL5_RX_BUFFER_SIZE=512 \
              -DTEENSYDUINO=159 -DARDUINO=10819 -DOT_VERSION=\"$(VERSION)\" -DOT_TARGET_DEVICE=1 \
-             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_POOL_TEST=$(OT_POOL_TEST) -DOT_HOT_POOL=$(OT_HOT_POOL) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
+             -DOT_SDRAM_CACHE=$(OT_SDRAM_CACHE) -DOT_FASTRUN=$(OT_FASTRUN) -DOT_USB_MSC=$(OT_USB_MSC) -DOT_POOL_TEST=$(OT_POOL_TEST) -DOT_HOT_POOL=$(OT_HOT_POOL) -DOT_STACK_GUARD_TEST=$(OT_STACK_GUARD_TEST) -DOT_FONTS_COMPRESSED=1 $(USB_ID) $(DEFS_EXTRA) $(MOD_DEFS)
 INCS      := -I$(CORE) -Isrc -Isrc/core -Isrc/hal -Ithird_party/fatfs $(MOD_INCS) -I$(BUILD)/otm-gen
-COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD
+COMMON    := $(CPUFLAGS) $(DEFS) $(INCS) -O2 -g -ffunction-sections -fdata-sections -Wall -MMD -fstack-usage
 CFLAGS    := $(COMMON) -std=gnu11
 CXXFLAGS  := $(COMMON) -std=gnu++17 -fno-exceptions -fno-rtti -felide-constructors -Wno-psabi
 # Own linker script: the Teensy one + the uncached `.dma` section (src/hal/opentracker.ld).
@@ -123,6 +131,11 @@ CORE_C    := $(wildcard $(CORE)/*.c)
 CORE_CXX  := $(filter-out $(CORE)/main.cpp,$(wildcard $(CORE)/*.cpp))
 APP_C     := $(shell find src -name '*.c') third_party/fatfs/ff.c third_party/fatfs/ffunicode.c
 APP_CXX   := $(shell find src -name '*.cpp')
+# The display command recorder (src/core/remote) is for the simulator and
+# the host tests only. Built into the image, its copy of the inline IDisplay
+# helpers (speculatively devirtualised towards the recorder) can be the one
+# the linker keeps.
+APP_CXX   := $(filter-out src/core/remote/%,$(APP_CXX))
 OBJS      := $(patsubst %,$(BUILD)/%.o,$(CORE_C) $(CORE_CXX) $(APP_C) $(APP_CXX))
 # Profile modules (profile.mk): sources from MODULES_DIR and the generated
 # registry, found through vpath; -O2 (audio path).
@@ -220,7 +233,7 @@ $(BUILD)/%.cpp.o: %.cpp
 
 $(BUILD)/mod/%.cpp.o: %.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(CXXFLAGS) $(ROWDEF) -fstack-usage -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(ROWDEF) -c $< -o $@
 
 $(HOT_LD): $(HOT_ROW_OBJS) $(wildcard $(HOT_ROWS)/*.hot) tools/hot_pool.py tools/make_otm.py
 	@mkdir -p $(dir $@)
@@ -272,6 +285,9 @@ clean:
 #     against the thresholds (render avg < 45 %, max < 70 %, loop max < 50 ms outside loading).
 #  4. Flash size of the firmware image (.text + .data): fail above 800,000 B, warn above
 #     600,000 B (docs/VERIFY_M1.md R4); builds build/opentracker.elf when it is stale.
+#  5. Stack frames (-fstack-usage .su files of the image's objects): fail when one function's
+#     frame reaches the stack guard (src/hal/stack_guard.h) less 256 B for an interrupt's
+#     exception frame, or is unbounded; warn above 75 % of the guard.
 PERF_OUT := $(BUILD)/perf
 # Per-profile baseline when the profile has its own (tests/perf_baseline_<profile>.txt).
 PERF_BASELINE := $(firstword $(wildcard tests/perf_baseline_$(PROFILE).txt) tests/perf_baseline.txt)
@@ -285,10 +301,11 @@ perf-gate:
 	    { $(MAKE) -s $(BUILD)/opentracker.elf > $(PERF_OUT)/firmware_build.txt 2>&1 || \
 	      { tail -20 $(PERF_OUT)/firmware_build.txt; exit 1; }; } && \
 	    python3 tools/telemetry_check.py size --size-tool $(SIZE) $(BUILD)/opentracker.elf && \
+	    python3 tools/telemetry_check.py frames --objects $(OBJS) && \
 	    $(SIZE) $(MOD_OBJS) > $(PERF_OUT)/module_sizes.txt && \
 	    python3 -I tools/profile.py sizes --profile profiles/$(PROFILE).toml --modules-dir $(MODULES_DIR) \
 	        --size-output $(PERF_OUT)/module_sizes.txt; \
-	else echo "perf-gate: $(CXX) missing -- flash size check SKIPPED"; fi
+	else echo "perf-gate: $(CXX) missing -- flash size and stack frame checks SKIPPED"; fi
 	@$(MAKE) -s -C tests bench > $(PERF_OUT)/bench_host.txt && sed 's/^/  host: /' $(PERF_OUT)/bench_host.txt | head -8
 	@python3 tools/telemetry_check.py selftest
 	@if [ -n "$(LOG)" ]; then python3 tools/telemetry_check.py log "$(LOG)" \
@@ -304,6 +321,15 @@ fonts:
 	python3 -I tools/fonts/pack_fonts.py src/core/ui/fonts
 	$(MAKE) -C sim fonts
 .PHONY: fonts
+
+# Weight table of the 44.1 kHz export conversion (tools/gen_export_sinc.py,
+# audio/export_resampler.h): the generated file is committed, so ordinary
+# builds never run Python. The generated floats may differ in the last bit between
+# Python/libm builds, so tests/export_resampler_test.cpp checks the committed
+# table against the design with a tolerance.
+export-sinc-table:
+	python3 -I tools/gen_export_sinc.py src/core/audio/export_sinc_table.inc
+.PHONY: export-sinc-table
 
 # 2.x hardware-test projects (TESTSONGS.md): build/testsongs/Projects/<name>/.
 # SONGS="1 3" limits the set; songs whose milestone is not built are skipped.

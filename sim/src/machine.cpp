@@ -50,6 +50,14 @@ bool Machine::start(const MachineOptions& o, bool headless) {
 
     ot::HalRefs h;
     h.display = &display;
+    if (o.frames) {
+        // --frames: the display recorder, with room for a frame the guard
+        // would cut on the device.
+        tap.reset(new ot::remote::DisplayTap(display));
+        tapBuf.assign(64 * 1024, 0);
+        tap->setBuffer(tapBuf.data(), uint32_t(tapBuf.size()));
+        h.display = tap.get();
+    }
     h.audio = audio;
     h.storage = &storage;
     h.streamReader = &streamReader;

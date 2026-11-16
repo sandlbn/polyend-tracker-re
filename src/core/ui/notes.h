@@ -8,8 +8,21 @@ namespace ot {
 constexpr int kScaleCount = 39;
 
 // Note text, at most 3 chars + NUL: "C5", "C#5" (no separator, stock); specials "FAD", "CUT", "OFF"; empty "---".
-// Note 0 = C0, so note 60 = C5 (spec 06 §1.1).
+// Note 0 = C0, so note 60 = C5 (spec 06 §1.1). Black keys follow the current spelling ("Db5" with flats).
 void noteName(int8_t note, char out[4]);
+
+// [I] Config > General > Note names (not in stock): how black keys are spelled.
+enum NoteSpelling : uint8_t { kSpellSharps = 0, kSpellFlats = 1, kSpellAuto = 2 };
+constexpr int kNoteSpellingCount = 3;
+// Auto: the spelling that names the scale's notes with the fewest repeated
+// letters (C Mixolydian: Bb, not A#); on a tie, flats for flat keys.
+bool keyUsesFlats(int root, uint8_t scale);
+// Sets the spelling noteName() and pitchClassName() use; root/scale are the project's (Auto only).
+// Cheap to call every UI pass: it recomputes only when an argument changed.
+void setNoteSpelling(uint8_t spelling, int root, uint8_t scale);
+bool noteSpellingFlats();
+// Pitch class text without octave: "C", "C#" / "Db", ... (current spelling).
+const char* pitchClassName(int note);
 
 uint16_t scaleMask(uint8_t scale);
 const char* scaleName(uint8_t scale);   // stock names (spec 16 §B.2)
@@ -19,15 +32,37 @@ bool isInScale(int note, int root, uint8_t scale);
 // Pad -> note table (spec 05 §4.1). Physical pad index = row*12 + col, row 0 = top.
 class PadNotes {
 public:
-    void build(uint8_t scale, uint8_t layout, uint8_t root);
+    // [I] a pad that plays nothing (a gap of the piano layout).
+    static constexpr uint8_t kNoNote = 0xFF;
+    // piano: Config > Pad layout "Piano" (layout is then unused): per row
+    // pair the white keys along the lower row (C D E F G A B C D E F G) and
+    // the black keys above them, each over the white key above it (C# over
+    // D; gaps over C and F); the upper pair an octave above the lower one, which starts at the
+    // root note's octave.
+    void build(uint8_t scale, uint8_t layout, uint8_t root, bool piano = false);
     // raw: chromatic pad + 24 (spec 05 §4.1 getNote raw).
     uint8_t note(uint8_t physicalPad, bool raw = false) const;
     // Physical pad producing `note`, or -1.
     int padsForNote(int note, uint8_t* pads, int cap) const;
+    // [I] the piano layout's key lights (levels 0..31, physical pads):
+    // the scale's root brightest, white keys `dim`, black keys dimmer, keys
+    // outside the scale barely lit, gaps dark (lv untouched there). False
+    // (lv untouched) when the table isn't the piano layout. The levels are
+    // built with the table (build) and again only for a new dim / full.
+    bool pianoLeds(uint8_t* lv, uint8_t dim, uint8_t full);
+    bool piano() const { return piano_; }
+    // Times the key-light levels were built (tests).
+    uint32_t ledBuilds() const { return ledBuilds_; }
 
 private:
-    uint8_t notes_[48] = {};   // logical (bottom-origin) index
+    void buildLeds();
+    uint8_t notes_[48] = {};   // logical (bottom-origin) index; kNoNote = gap
     uint8_t scale_ = 0xFF, layout_ = 0xFF, root_ = 0xFF;
+    bool piano_ = false;
+    // Cached key lights (physical pads; kNoNote = gap) for ledDim_ / ledFull_.
+    uint8_t leds_[48] = {};
+    uint8_t ledDim_ = 0, ledFull_ = 0;
+    uint32_t ledBuilds_ = 0;
 };
 
 inline int logicalPad(int physical) { return (3 - physical / 12) * 12 + physical % 12; }

@@ -13,6 +13,7 @@
 #include "audio/block_profile.h"
 #include "audio/cpu_meter.h"
 #include "audio/effects.h"
+#include "audio/export_resampler.h"
 #include "audio/governor.h"
 #include "audio/inserts.h"
 #include "audio/stream_source.h"
@@ -334,13 +335,20 @@ public:
     // and synth_1..3.wav (Mini %s/synth_%d.wav, spec 21 §2; 1-based: U13).
     // Stops after maxBlocks or when running(ctx) returns false.
     // resampleTo44100=false: device-rate samples with 44117 in the header, as
-    // stock (spec 04 §6.1). [I] resampleTo44100=true: the WAVs are resampled to
-    // 44.1 kHz and say 44100. Returns blocks rendered, <0 on I/O error.
+    // stock (spec 04 §6.1). [I] resampleTo44100=true: the WAVs are converted to
+    // 44.1 kHz with a 32-tap fractional-delay FIR (audio/export_resampler.h) and say
+    // 44100. Returns blocks rendered, <0 on I/O error.
     int32_t exportWav(IStorage& fs, const char* path, bool stems, uint32_t maxBlocks, bool (*running)(void*),
                       void* ctx, bool resampleTo44100);
     // Stem block buffer for exportWav (~7 KB; SDRAM on the device). Without
     // one, exportWav allocates it for the export.
-    void setExportScratch(StemBlock* s) { exportScratch_ = s; }
+    // Export buffers from the memory layout (on the device the SDRAM layout,
+    // app_main.cpp): the stems and the 44.1 kHz conversion's history
+    // (ExportResampler::kMaxStems). Null: allocated per export.
+    void setExportScratch(StemBlock* s, ExportResampler::History* h = nullptr) {
+        exportScratch_ = s;
+        exportHistory_ = h;
+    }
 
     // Meters.
     float limiterGainReduction() const { return limL_.meanGain(); }
@@ -455,6 +463,7 @@ private:
 
     PreBlockFn hook_ = nullptr;
     StemBlock* exportScratch_ = nullptr;
+    ExportResampler::History* exportHistory_ = nullptr;   // [I] kMaxStems, or null
     void* hookCtx_ = nullptr;
     IMidiPort* midi_ = nullptr;
     const int16_t* lineIn_ = nullptr;

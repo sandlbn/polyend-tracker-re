@@ -268,6 +268,13 @@ public:
     uint32_t faultCount = 0, measuredBytes = 0;
     uint32_t frameFaultCount() const override { return faultCount; }
     uint32_t measuredDlBytes() const override { return measuredBytes; }
+    // A swapped frame frameReady() has not reported yet (like the FT81x's
+    // dlPending_). faultNextFrames: that many of the next swapped frames
+    // fault, found by the frameReady() poll that ends them, as on the device.
+    // reportsPending = false: a driver without framePending() (2.0.0).
+    bool sent = false, sentFaults = false, reportsPending = true;
+    uint32_t faultNextFrames = 0, readyPolls = 0;
+    bool framePending() const override { return sent && reportsPending; }
     uint16_t width() const override { return 800; }
     uint16_t height() const override { return 480; }
     void dlStart() override {
@@ -294,12 +301,19 @@ public:
     void text(int16_t x, int16_t y, uint8_t font, uint16_t opt, const char* s) override {
         add("TEXT %d %d f%u o%u \"%s\"", x, y, font, opt, s);
     }
+    // Gfx::glyphRun's text (custom-font text is drawn as glyphs).
+    void textHint(int16_t x, int16_t y, uint8_t font, const char* s) override {
+        add("GLYPHS %d %d f%u \"%s\"", x, y, unsigned(ot::romFontFor(font)), s);   // the handle, as TEXT records it
+    }
     void number(int16_t x, int16_t y, uint8_t font, uint16_t opt, int32_t n) override {
         add("NUMBER %d %d f%u o%u %d", x, y, font, opt, int(n));
     }
     void swap() override {
         last = cur;
         ++swaps;
+        sent = true;
+        sentFaults = faultNextFrames > 0;
+        if (sentFaults) --faultNextFrames;
         if (busy.on) {
             busy.frame = cur;
             busy.pending = true;
@@ -325,11 +339,20 @@ public:
     static constexpr uint64_t kVsyncUs = 18480;   // ft81xFrameMilliHz: 54.112 Hz
     std::vector<std::string> shown;
     bool frameReady() override {
-        if (!busy.on) return true;
-        ++busy.polls;
-        busyAccess();
-        busyTick();
-        return !busy.pending;
+        ++readyPolls;
+        bool ready = true;
+        if (busy.on) {
+            ++busy.polls;
+            busyAccess();
+            busyTick();
+            ready = !busy.pending;
+        }
+        if (ready && sent) {
+            sent = false;
+            if (sentFaults) ++faultCount;
+            sentFaults = false;
+        }
+        return ready;
     }
     const std::vector<std::string>& visible() {
         busyTick();
@@ -429,9 +452,20 @@ public:
     void vertexTranslateX(int32_t x16) override { add("TRANSLATE_X %d", int(x16)); }
     void saveContext() override { add("SAVE_CONTEXT"); }
     void restoreContext() override { add("RESTORE_CONTEXT"); }
+    // On screen as CMD_TEXT or as a glyph run.
+    static bool isText(const std::string& l) { return l.compare(0, 5, "TEXT ") == 0 || l.compare(0, 7, "GLYPHS ") == 0; }
     bool lastHasText(const char* s) const {
         for (auto& l : last)
-            if (l.compare(0, 5, "TEXT ") == 0 && l.find(s) != std::string::npos) return true;
+            if (isText(l) && l.find(s) != std::string::npos) return true;
+        return false;
+    }
+    // A TEXT line whose string is exactly `s` (lastHasText also matches the
+    // coordinates: "16" was found in y 316).
+    bool lastHasExactText(const char* s) const {
+        const std::string q = std::string("\"") + s + "\"";
+        for (auto& l : last)
+            if (isText(l) && l.size() >= q.size() && l.compare(l.size() - q.size(), q.size(), q) == 0)
+                return true;
         return false;
     }
 
