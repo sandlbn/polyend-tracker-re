@@ -38,12 +38,12 @@ OpenTracker (one MIT exception below).
   changes).
 - Host tests: `make -C tests PROFILE=<name> run` (`make host-test` runs the default
   profile, full). Simulator: `make sim`, then `make -C sim check` (see `sim/README.md`).
-- Audio changes: `make perf-gate`. Size checks: `tools/telemetry_check.py size`.
+- Audio changes: `make perf-gate`. Size checks: `tools/telemetry_check.py size` and `frames`.
 - Test in the simulator and on the host first. Use the device only for sound, real CPU and
   stack use, pads/LEDs, codec and SD timing.
 - Say which profile you measured when you quote memory numbers.
-- Stack guard: `/Firmware/ot_noguard.txt` on the card turns it off (an overflow
-  self-test image needs `-DOT_STACK_GUARD_TEST=1` in `DEFS`, see `src/hal/stack_guard.h`).
+- Stack guard: `/Firmware/ot_noguard.txt` on the card turns it off, and
+  `make OT_STACK_GUARD_TEST=1` builds the overflow self-test image.
 - Memory tools: `tools/size_report.py <base.elf> <head.elf>` prints the same table as the CI
   size report. `pahole -C App build/<profile>/opentracker.elf` shows struct layouts.
 
