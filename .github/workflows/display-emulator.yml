@@ -5,13 +5,14 @@
 # by SHA-256 (Bridgetek's licence: not redistributed here).
 # The sim-check job already holds every screen to the budget with the UI's own
 # count; this cross-checks that count on the chip model, so it runs only when
-# drawing code, fonts, the simulator or the replay tools change (and on v2 and
-# by hand).
+# drawing code, fonts, the simulator or the replay tools change (and on v3 and
+# by hand). The simulator is the default profile (full), so the module
+# repositories are fetched as in ci.yml.
 name: Display emulator
 
 on:
   push:
-    branches: [v2]
+    branches: [v3]
     paths:
       - 'src/core/ui/**'
       - 'src/core/remote/display_tap.*'
@@ -42,6 +43,12 @@ jobs:
     timeout-minutes: 20   # normally a few minutes; a stuck step (apt) otherwise holds the runner 6 h
     steps:
       - uses: actions/checkout@v5
+      # The synth and effect modules (profiles/*.toml), as in ci.yml.
+      - name: Fetch the module repositories
+        run: |
+          for r in opentracker-synths opentracker-fx; do
+            git clone --depth 1 "https://github.com/opentracker-fw/$r" "$GITHUB_WORKSPACE/../../$r"
+          done
       - name: Cache apt packages
         # The package lists and .debs of the install below: a hit installs
         # without the mirror (a stalled mirror has held this job for its
@@ -106,5 +113,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: eve-frames-${{ github.sha }}
-          path: build/sim/eve
+          path: build/full/sim/eve
           if-no-files-found: ignore
