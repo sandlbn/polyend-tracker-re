@@ -336,6 +336,12 @@ private:
         const uint32_t p = b && b != sl.patch && patchHasPoly(*b) ? b->poly : r.polyphony;
         return int(p > 8 ? 8 : p);
     }
+    // [OT] A macro value as the bound sound plays it.
+    static uint8_t shownMacro(const Slot& sl, int k, uint8_t v) {
+        return sl.patch && sl.bound && sl.bound != sl.patch
+                   ? synthMacroOnPreset(v, sl.patch->macros[k].bipolar, sl.bound->macros[k].bipolar)
+                   : v;
+    }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
     int playable(int s) const;

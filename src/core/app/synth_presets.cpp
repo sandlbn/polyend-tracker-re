@@ -95,6 +95,9 @@ SynthSlotRecord App::synthTargetRecord(int s, int n) const {
         r.reverbSend = held(patchMix(p, kPatchMixReverb), 0.0f, 100.0f, 0.0f);
         r.delaySend = held(patchMix(p, kPatchMixDelay), 0.0f, 100.0f, 0.0f);
     }
+    // [OT] A macro the slot never moved shows the preset's neutral.
+    for (int k = 0; k < int(mt::kSynthMacroCount) && k < kPatchMacros; ++k)
+        r.macros[k] = audio::synthMacroOnPreset(r.macros[k], patches_[s].macros[k].bipolar, p.macros[k].bipolar);
     return r;
 }
 
@@ -125,11 +128,21 @@ void App::setSynthTargetRecord(int s, int n, const SynthSlotRecord& r) {
         changed = true;
     }
     if (changed) markSynthPresetDirty(n);
-    // The macro page values stay the slot's.
-    if (std::memcmp(own.macros, r.macros, sizeof(own.macros)) != 0) {
-        std::memcpy(own.macros, r.macros, sizeof(own.macros));
-        setSynthSlotRecord(s, own);
+    // The macro page values stay the slot's: only what moved from the values
+    // shown; a step onto the value that means "neutral" on this preset goes one
+    // further, so it can pass.
+    SynthSlotRecord w = own;
+    for (int k = 0; k < int(mt::kSynthMacroCount) && k < kPatchMacros; ++k) {
+        if (r.macros[k] == t.macros[k]) continue;
+        int v = r.macros[k];
+        const int ownNeutral = audio::synthMacroDefault(patches_[s].macros[k].bipolar);
+        if (v == ownNeutral && ownNeutral != audio::synthMacroDefault(p.macros[k].bipolar)) {
+            v += v > int(t.macros[k]) ? 1 : -1;
+            if (v < 0 || v > 127) continue;
+        }
+        w.macros[k] = uint8_t(v);
     }
+    if (std::memcmp(w.macros, own.macros, sizeof(own.macros)) != 0) setSynthSlotRecord(s, w);
 }
 
 void App::markSynthTargetDirty(int s, int n) {
