@@ -250,9 +250,13 @@ bool listEngines(IModule& m, int i) {
     return synth;
 }
 
-// [I] Lists m as item i's master effect; false = not one.
+// [I] Lists m as item i's master effect; false = not one. A module that
+// is also a synth slot insert (Dirt, BBD) is not: it loads at boot for
+// good, so a slot insert never points into a module that left, and the
+// slot inserts Open resolves are there.
 bool listFx(IModule& m, int i) {
     if (!m.masterInsert() && !m.page()) return false;
+    if (m.effect(0)) return false;
     const ModuleInfo& in = m.info();
     // A compiled-in module or an earlier file with the id wins.
     if (ModuleHost::instance().find(in.id) || cardFxIndex(in.id) >= 0 || g_card.nFx >= kMaxCardFx) return true;
