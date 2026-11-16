@@ -57,6 +57,10 @@ public:
     // the window and returns its block count. Main-loop context.
     uint32_t renderCyclesWindow(uint32_t& minC, uint32_t& avgC, uint32_t& maxC);
 
+    // Called at the end of every audio block in the TX ISR, after the fill
+    // callback (MIDI DIN out keeps the block timing: MidiPorts::pumpDin).
+    void setBlockEndHook(void (*fn)());
+
     // IAudioOut
     void setCallback(FillFn fn, void* ctx) override;
     bool start() override;

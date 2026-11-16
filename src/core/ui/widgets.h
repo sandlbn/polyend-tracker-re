@@ -227,6 +227,9 @@ struct BarLabelStyle {
     bool nameLines = false;  // a name on two lines (set +0x44): both lines grey, font 3
     uint32_t dotOff = kThemeColour;   // colour of the other page dots (pageDots `off`)
 };
+// Value line width a label fits (wide label: kBarValueWideW).
+constexpr int kBarValueW = 94;
+constexpr int kBarValueWideW = 194;
 // One label: title grey (font 3), value white (font 2; font 3 when too wide
 // for the label) on two lines, a two-line name (both grey, font 3), or one
 // centred line; plus underline (not in themes without bar lines), dots,
@@ -294,6 +297,9 @@ struct ListView {
     // edge in the row's text colour; the name column ends before it (the
     // Sample Loader's '~' for a file that will stream from the card).
     const char* (*tag)(void* ctx, int index) = nullptr;
+    // [I] (may be null): the row's text colour (0xRRGGBB), or -1 for the
+    // set's (Resample Place on: free tracks green, used ones red).
+    int32_t (*colour)(void* ctx, int index) = nullptr;
     void* ctx = nullptr;
 };
 // Rows that fit: (h - 4) / 27 (14 for a 394-px list).

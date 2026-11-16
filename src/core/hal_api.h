@@ -181,6 +181,11 @@ public:
     // frame really used. 0 where unknown (host displays).
     virtual uint32_t frameFaultCount() const { return 0; }
     virtual uint32_t measuredDlBytes() const { return 0; }
+    // A swapped frame whose outcome frameReady() has not seen yet (FT81x:
+    // drawn or faulted). The UI keeps polling frameReady() while this is
+    // true, also when nothing is dirty: a fault is only found by that poll,
+    // and a static screen would otherwise never redraw the lost frame.
+    virtual bool framePending() const { return false; }
 
     // --- cached display-list fragments (spec 05 §3.3 stock scheme) --------
     // The stock firmware keeps each control's display list in RAM_G and
@@ -260,6 +265,14 @@ public:
         (void)a; (void)b; (void)c; (void)d; (void)e; (void)f;
     }
     virtual void bitmapSize(uint8_t handle, uint16_t w, uint16_t h) { (void)handle; (void)w; (void)h; }
+
+    // [I] The text of a glyph run the UI draws as VERTEX2II (Gfx::glyphRun
+    // and textRotatedRun): draws nothing, so a test fake or a display command
+    // recorder can read the string back. (x, y): the run's pen start (a
+    // turned run: its box). Default: ignored.
+    virtual void textHint(int16_t x, int16_t y, uint8_t font, const char* s) {
+        (void)x; (void)y; (void)font; (void)s;
+    }
 
     // --- convenience helpers built on the primitives ---------------------
     // RECTS / LINES vertices go at pixel centres (+8/16): the FT81x draws a

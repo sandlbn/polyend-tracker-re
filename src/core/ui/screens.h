@@ -52,6 +52,8 @@ class PatternScreen final : public Screen {
 public:
     using Screen::Screen;
     const char* name() const override { return "Pattern"; }
+    // Bottom-bar pages over the grid: 2 Live-REC arm page, 1 Shift mute page.
+    uint8_t detailKey() const override;
     void start(int opt) override;
     void stop() override;
     void update(uint32_t now) override;
@@ -174,11 +176,22 @@ private:
     uint32_t colKeyAt_ = 0;
     uint8_t pickerKey_ = 0;
     int pickTrack_ = -1, pickStep_ = -1, pickPattern_ = -1;   // where the list picked (-1 none)
+    // Issue #186: the column key down now, the column before it, and whether
+    // it was used as a modifier (a pad, its hold popup): then its release goes
+    // back to that column.
+    uint8_t heldColKey_ = 0;
+    int8_t colBefore_ = -1;
+    bool colKeyUsed_ = false;
+    void releaseColKey(uint8_t id);
     int noteBase_ = 48;             // Note popup: note under F1 (window of 8)
     uint8_t noteKeysOn_ = 0;        // Note popup F-keys sounding (bit = F-key)
     bool encUsedInHold_ = false;
     bool patternHeld_ = false;
     bool patternCombo_ = false;   // another key / the encoder was used while Pattern was held
+    bool patternLatch_ = false;   // 2.x: F1 tapped, the pads keep picking patterns
+    bool focusUsed_ = false;      // a pad / arrow / key / the encoder was used while F1 was held
+    bool f1Ends_ = false;         // this F1 press ended the latch: its release does nothing
+    uint32_t focusAt_ = 0;
     int maskKeys_[2] = {-1, -1};
     uint32_t lastUpdate_ = 0;
     int lastPlayStep_ = -1;
@@ -191,6 +204,13 @@ private:
     uint32_t countInUntil_ = 0;     // "Counting in" popup end (ms), 0 = none
     bool countInDrawn_ = false;
     int8_t padVoice_[48];
+    // [I] Pad chord entry (padChordEntry): pads held together fill the
+    // target's tracks left to right on its first step.
+    bool padChordEntry(uint8_t pad, uint8_t note);
+    uint64_t chordPads_ = 0;        // held note pads of the chord (bit = pad), 0 = none
+    int8_t chordTrack_ = -1;        // the last track the chord wrote
+    uint8_t chordIns_ = 0;          // the instrument as mapped on the chord's first track
+    uint8_t chordPattern_ = 0;      // the pattern the chord writes
     Picker pop_;                    // column-key popup state (drawn by this screen)
     int noteWin_ = 36;              // Notes popup: lowest shown note (C3)
     int popTop_ = 0;                // list popup: first visible row
@@ -315,6 +335,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] pads only type here
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;
@@ -514,6 +535,7 @@ public:
     void doNew();
     void doOpenSelected();
     void list();
+    const char* browserPath() const;   // the Open / Save browser's folder
 
     // Project cover preview (spec 05 appendix E1.6, spec 13 §I.3): 0 idle,
     // 1 waiting for the 2 s hold, 2 loaded (drawn), 3 no/invalid image.
@@ -548,6 +570,7 @@ public:
     void draw(Gfx& g) override;
     void onButton(uint8_t id, uint8_t state) override;
     void onPad(uint8_t pad, uint8_t state) override;
+    bool padsPlayNotes() const override { return false; }   // [I] pads only feed the test code
     void onEncoder(int d) override;
 #if !(defined(OT_TARGET_DEVICE) && OT_TARGET_DEVICE)
     bool encoderOnList() const override;

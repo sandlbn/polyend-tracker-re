@@ -506,7 +506,7 @@ void barLabel(Gfx& g, const Theme& th, int i, bool wide, const char* top, const 
     if (two) {
         // Set +0x44 names ("Export / Song") stay grey in font 3; a value that
         // does not fit the label in the 10-px mono uses font 3 too.
-        const int maxW = wide ? 194 : 94;
+        const int maxW = wide ? kBarValueWideW : kBarValueW;
         const uint8_t f = st.nameLines || textWidth(kFont2, bottom) > maxW ? kFont3 : kFont2;
         g.text(cx, kLabelY2, f, st.nameLines ? tc : vc, bottom, IDisplay::kOptCenter);
     }
@@ -522,7 +522,7 @@ void bottomFade(Gfx& g, const Theme& th, int x, int y, int w, int h, uint32_t bg
     if (!th.flag(slot::kFlagBottomFade) || w <= 0 || h < kFadeH) return;
     if (g.lowDetail()) return;   // RAM_DL fallback: no gradients
     const int fy = y + h - kFadeH;
-    if (!g.saveContext(7)) return;   // scissor 2 + CMD_GRADIENT 5
+    if (!g.saveContext(2 + Gfx::kGradientDlWords)) return;   // scissor 2 + CMD_GRADIENT
     g.clip(x, fy, w + 1, kFadeH + 2);
     g.gradient(x, fy, x, y + h + 2, bg, th.bg);   // stock: 000000 (Original's background)
     g.restoreContext();
@@ -605,7 +605,8 @@ uint32_t marqueeTicks(int x, int y, int sel, const char* text) {
 }
 
 // Draws the glyphs of `s` (pen origin x0) that overlap left .. right - 1
-// as one text run; glyphs outside cost no RAM_DL words.
+// as one glyph run, like the rows that don't scroll: 1 RAM_DL word per
+// glyph; glyphs outside cost none.
 void textWindow(Gfx& g, uint8_t font, uint32_t c, char* s, int x0, int y, int left, int right) {
     int i = 0, pen = x0;
     while (s[i]) {
@@ -619,7 +620,7 @@ void textWindow(Gfx& g, uint8_t font, uint32_t c, char* s, int x0, int y, int le
     while (s[j] && p < right) p += textWidth(font, s + j++, 1);
     const char keep = s[j];
     s[j] = 0;
-    g.text(pen, y, font, c, s + i, IDisplay::kOptCenterY);
+    g.glyphRun(pen, y - fontHeight(font) / 2, font, s + i, c);
     s[j] = keep;
 }
 }  // namespace
@@ -656,7 +657,11 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             v.item(v.ctx, idx, buf, sizeof(buf));
             buf[sizeof(buf) - 1] = 0;
             const bool marked = v.marked && v.marked(v.ctx, idx);
-            const uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            uint32_t tc = v.enabled ? th.slot(s + (marked ? 5 : 4)) : th.slot(slot::kBottomLabelOff);
+            if (v.enabled && v.colour) {
+                const int32_t c = v.colour(v.ctx, idx);
+                if (c >= 0) tc = uint32_t(c);
+            }
             const int ty = v.y + 17 + kListRowH * r;
             // A tag takes the row's right end; the name column shrinks by it.
             const char* tag = v.tag ? v.tag(v.ctx, idx) : nullptr;
@@ -682,7 +687,9 @@ void list(Gfx& g, const Theme& th, const ListView& v) {
             int n = 0, pen = 0;
             while (buf[n] && pen < room) pen += textWidth(v.font, buf + n++, 1);
             buf[n] = 0;
-            g.text(v.x + 13, ty, v.font, tc, buf, IDisplay::kOptCenterY);
+            // A glyph run: 1 RAM_DL word per glyph anywhere, where CMD_TEXT
+            // takes 2 right of x 511 (the MIDI instrument page's CC lists).
+            g.glyphRun(v.x + 13, ty - fontHeight(v.font) / 2, v.font, buf, tc);
         }
         g.noClip();
     }

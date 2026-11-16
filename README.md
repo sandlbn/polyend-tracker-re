@@ -49,7 +49,7 @@ the whole 2.x line (2.0 to 2.2.3); the full list is in the release notes of the
   manual (live-record velocity, Slice-mode pads, Performance labels, MIDI CC lists and more).
 - **User-report fixes:** live recording (first note with Pre-roll, OFF steps, red cursor), MIDI
   channels on the pads, a crack in the headphones at power-on, headphone level +1 dB.
-- **More free memory:** Games is no longer built into the image (`make OT_GAMES=1` brings it
+- **More free memory:** Games is no longer built into the image (on 2.x `make OT_GAMES=1` brings it
   back), and the file browsers share one buffer (PR #28, syamajala).
 
 ## New in 2.0
@@ -202,6 +202,19 @@ table step lists what still reaches a row from flash only; that code runs the fl
 (for example PERC's snare path). Changing a synth while stopped re-shares the block,
 which cuts synth notes still ringing.
 
+## Clean room
+
+OpenTracker stays clean-room. Polyend has published its own firmware as
+[Tracker CE](https://github.com/polyend/tracker-ce) under a noncommercial licence. Please
+don't read or copy CE source code, headers or binaries when working on OpenTracker, and
+treat developer docs that describe its internals as source too. CE's user docs, changelog
+and on-device behaviour are fine to use as a reference, in your own words.
+
+The one exception is CE's sample editor SDK (`.ptfx` plugins), which is MIT licensed: it
+and its docs may be used, with its licence kept in `third_party/`. Nothing else from CE.
+See `AGENTS.md` for the full rules.
+
+
 ## Known limitations
 
 - The synth sound is own design: settings match the Mini, the sound is close but not
@@ -212,7 +225,7 @@ which cuts synth notes still ringing.
 - The USB ID is the pid.codes test ID 1209:0001.
 - Live resampling from Line In starts 10–14 ms late (the round trip through external gear);
   compensation is planned.
-- Games (the NES player) is not in the release image since 2.2.1.
+- Games (the NES player) is not in the image since 2.2.1; on 3.x nothing reaches the Games screen.
 - Stream from card is new and Off by default; please report anything odd when you turn it on.
 - A couple of Performance screen issues are still open (among them the global Pattern length
   in Song mode); fixes are planned for the next version.

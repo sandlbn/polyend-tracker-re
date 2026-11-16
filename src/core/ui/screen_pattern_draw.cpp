@@ -93,13 +93,11 @@ int capTop(uint8_t role) {
 }
 
 // Glyph text with its cap top at capY: glyphRun at `pitch` px (custom
-// fonts, or the ROM font glyphs when they are not bound: OP-6); one CMD_TEXT
-// in romTextMode() kRomWholeText (host tests read whole strings).
+// fonts, or the ROM font glyphs when they are not bound: OP-6; one CMD_TEXT
+// in romTextMode() kRomWholeText, host tests read whole strings).
 void run(Gfx& g, int x, int capY, uint8_t font, const char* s, uint32_t c, int pitch = 0) {
     if (!s || !*s) return;
-    const int y = capY - capTop(font);
-    if (customFontsBound() || romTextMode() != kRomWholeText) g.glyphRun(x, y, font, s, c, pitch);
-    else g.text(x, y, font, c, s);
+    g.glyphRun(x, capY - capTop(font), font, s, c, pitch);
 }
 
 // Filled box with the stock 1.5-px soft edge: core, one column/row at

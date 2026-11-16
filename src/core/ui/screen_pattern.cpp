@@ -32,6 +32,7 @@ constexpr uint8_t kLenPresets[] = {1, 2, 4, 8, 16, 32, 48, 64, 80, 96, 128};   /
 constexpr uint8_t kJumpPresets[] = {0, 1, 2, 4, 8, 16, 32};
 constexpr uint32_t kNoteHoldMs = 500;              // spec 06 §0.4 item 2
 constexpr uint32_t kColHoldMs = 180;
+constexpr uint32_t kLatchTapMs = 400;   // F1 shorter than this, alone: the Pattern pads stay on
 
 int clampi(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
@@ -196,6 +197,49 @@ bool PatternScreen::midiChordEntry(int t, uint8_t note, uint8_t velocity) {
     return true;
 }
 
+bool PatternScreen::padChordEntry(uint8_t pad, uint8_t note) {
+    // [I] Chord step entry from the pads, as midiChordEntry: edit mode on,
+    // the sequencer stopped, no popup open and a target over more than one
+    // track. Pads held together fill the target's tracks left to right on
+    // its first step; the cursor stays. A single-cell cursor keeps plain
+    // note entry (a fast melody never becomes a chord). A note past the
+    // last target track, or on a track that would map the instrument
+    // differently from the chord's first track (a MIDI track for a sample
+    // instrument), only sounds. One Undo removes the whole chord.
+    App& a = app_;
+    if (!edit() || a.seq.isPlaying()) return false;
+    if (focus != -1 || fillOpen || pop_.isOpen() || ui_.kb.isOpen() || ui_.askOpen()) return false;
+    const SelRect r = target();
+    if (r.t1 <= r.t0) return false;
+    if (chordPads_ && chordPattern_ != a.patternNumber()) chordPads_ = 0;
+    const uint8_t ins = a.currentInstrument();
+    const uint16_t voice = pad;
+    const int t = chordPads_ ? chordTrack_ + 1 : r.t0;
+    if (chordPads_ && (t > r.t1 || pops::mapInstrument(t, ins) != chordIns_)) {
+        a.previewOn(voice, ins, note, 127);   // falls through: audition only
+        padVoice_[pad] = int8_t(pad);
+        return true;
+    }
+    if (!chordPads_) {
+        a.pushUndo();
+        chordIns_ = pops::mapInstrument(t, ins);
+        chordPattern_ = a.patternNumber();
+    }
+    a.previewOn(voice, ins, note, 127, t);   // each note on its own track
+    padVoice_[pad] = int8_t(pad);
+    SelRect c;
+    c.s0 = c.s1 = r.s0;
+    c.t0 = c.t1 = t;
+    pops::writeNote(a.pattern(), c, note, ins);
+    chordTrack_ = int8_t(t);
+    chordPads_ |= uint64_t(1) << pad;
+    a.project.setU8(pf::kLastNote, note);
+    a.markProjectDirty();
+    a.patternEdited();
+    refreshBar();
+    return true;
+}
+
 int PatternScreen::len() const { return pops::length(app_.pattern()); }
 bool PatternScreen::edit() const { return app_.editMode; }
 bool PatternScreen::recordCursor() const { return edit() || app_.seq.isRecording(); }
@@ -207,11 +251,15 @@ int PatternScreen::lastNote() const {
 void PatternScreen::start(int opt) {
     (void)opt;
     focus = -1;
+    patternLatch_ = false;
     fillOpen = false;
     recArmPage = false;
     colKey_ = 0;
     pickerKey_ = 0;
+    heldColKey_ = 0;
+    colBefore_ = -1;
     for (auto& v : padVoice_) v = -1;
+    chordPads_ = 0;
     if (step >= len()) step = len() - 1;
     statusStep_ = step;   // Ui resets the status cursor step before start()
     ui_.setStatusCursorStep(step);
@@ -225,6 +273,7 @@ void PatternScreen::stop() {
     pop_.close();
     pickerKey_ = 0;
     focus = -1;
+    patternLatch_ = false;
 }
 
 bool PatternScreen::pickedHere() const {
@@ -255,6 +304,11 @@ SelRect PatternScreen::target() const {
     }
     if (r.s1 >= kStepCount) r.s1 = kStepCount - 1;
     return r;
+}
+
+uint8_t PatternScreen::detailKey() const {
+    if (recArmPage) return 2;
+    return ui_.shift() && focus < 0 && !pop_.isOpen() ? 1 : 0;   // refreshBar's mute page
 }
 
 void PatternScreen::collapse() {
@@ -500,6 +554,7 @@ void PatternScreen::refreshBar() {
 void PatternScreen::onButton(uint8_t id, uint8_t state) {
     App& a = app_;
     if (patternHeld_ && id != btn::Pattern && state == kPress) patternCombo_ = true;
+    if (focus == 0 && id != btn::F1 && state == kPress) focusUsed_ = true;
     if (fillOpen) {
         if (state == kPress) fillButton(id);
         refreshBar();
@@ -509,8 +564,10 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
         // spec 06 §1.6 step 3: only the opening column key stays bound; the
         // FX list (kind 3) also binds F7/F8 to its description window
         // (spec 05 popup binder 0x29a44; spec 16 §B.4).
-        if (id == pickerKey_ && state == kRelease) commitPicker();
-        else if (state == kPress && popupMove(id)) ui_.dirty();
+        if (id == pickerKey_ && state == kRelease) {
+            commitPicker();
+            releaseColKey(id);
+        } else if (state == kPress && popupMove(id)) ui_.dirty();
         else if (pop_.kind() == 0 && btn::isFKey(id)) noteKey(id, state);
         else if (pop_.kind() == 3 && state == kPress && (id == btn::F7 || id == btn::F8))
             pop_.toggleDescription();
@@ -552,14 +609,18 @@ void PatternScreen::onButton(uint8_t id, uint8_t state) {
                 }
             } else {
                 if (colMask && !(colMask & (1u << ck))) colMask = uint8_t(1u << ck);
-                col = ck;
                 if (!ui_.shift()) {
                     colKey_ = id;
                     colKeyAt_ = ui_.now();
+                    heldColKey_ = id;
+                    colBefore_ = int8_t(col);
+                    colKeyUsed_ = false;
                 }
+                col = ck;
             }
         } else if (state == kRelease) {
             if (colKey_ == id) colKey_ = 0;
+            releaseColKey(id);
         }
         keepTrackVisible();
         refreshBar();
@@ -763,9 +824,38 @@ bool PatternScreen::renderSelection(const char* name, bool load) {
 void PatternScreen::pageButton(int f, uint8_t state) {
     App& a = app_;
     const bool e = edit();
+    // 2.x: any other F-key ends the Pattern focus, latched (F1 tap, below)
+    // or held, so a release that goes to Fill or the next page cannot leave it on.
+    if (f != 0 && state == kPress && focus == 0) {
+        patternLatch_ = false;
+        focus = -1;
+    }
     if (page == 0) {
         switch (f) {
             case 0:
+                // 2.x: F1 tapped alone keeps the Pattern focus, so the pads
+                // pick patterns with one finger; F1 again ends it. Held with
+                // a pad, an arrow or the encoder it is the stock hold.
+                if (state == kPress) {
+                    if (patternLatch_) {
+                        patternLatch_ = false;
+                        focus = -1;
+                        f1Ends_ = true;
+                        return;
+                    }
+                    focus = 0;
+                    focusUsed_ = false;
+                    f1Ends_ = false;
+                    focusAt_ = ui_.now();
+                } else if (state == kRelease) {
+                    if (f1Ends_) f1Ends_ = false;
+                    else if (focus == 0 && !focusUsed_ && ui_.now() - focusAt_ < kLatchTapMs) patternLatch_ = true;
+                    else {
+                        patternLatch_ = false;
+                        if (focus == 0) focus = -1;
+                    }
+                }
+                return;
             case 1:
             case 2:
                 if (state == kPress) focus = f;
@@ -946,11 +1036,12 @@ void PatternScreen::transport() {
             // follows the playhead while playing), as on stock 1.9.2.
         }
     }
-    focus = -1;
+    if (!patternLatch_) focus = -1;   // the latched Pattern pads stay on
 }
 
 void PatternScreen::focusArrow(uint8_t id) {
     App& a = app_;
+    focusUsed_ = true;
     const int fcs = focus >= 0 ? focus : 0;   // Pattern key held acts like focus 0
     if (fcs == 0) {
         // spec 16 §A.2: Up/Right = +1, Down/Left = -1. Up/Down change the
@@ -987,6 +1078,7 @@ void PatternScreen::focusArrow(uint8_t id) {
 
 void PatternScreen::focusDelta(int d) {
     App& a = app_;
+    focusUsed_ = true;
     if (focus == 0 || (focus < 0 && ui_.isDown(btn::Pattern))) {
         // spec 16 §A.2: Pattern + encoder changes the pattern at once, also while
         // playing (like Up/Down; only Left/Right queue).
@@ -1092,8 +1184,10 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         if (state != kPress) return;
         pops::FillParams& f = fill[col];
         int v = pad;
-        if (fillField >= 4 && col == 0) v = a.padNote(pad);
-        else if (fillField >= 4 && col >= 2) v = pops::fxValueFromPad(fillFxType(), pad);
+        if (fillField >= 4 && col == 0) {
+            v = a.padNote(pad);
+            if (v == PadNotes::kNoNote) return;   // [I] piano layout gap
+        } else if (fillField >= 4 && col >= 2) v = pops::fxValueFromPad(fillFxType(), pad);
         switch (fillField) {
             case 0: f.where = int16_t(clampi(v, 0, 6)); break;
             case 1: if (f.where >= 4) f.param[f.where] = int16_t(clampi(v + 1, 1, 128)); break;
@@ -1120,16 +1214,22 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     if (state == kRelease) {
         if (padVoice_[pad] >= 0) a.previewOff(uint16_t(padVoice_[pad]));
         padVoice_[pad] = -1;
+        chordPads_ &= ~(uint64_t(1) << pad);   // [I] the chord ends with its last pad
         // Instr column: release only, no OFF step (manual p.95, MANUAL_AUDIT #4).
-        if (a.seq.isRecording() && col <= 1) a.seq.liveNoteOff(col == 1 ? 60 : a.padNote(pad), col == 0);
+        if (a.seq.isRecording() && col <= 1) {
+            const uint8_t n = col == 1 ? uint8_t(60) : a.padNote(pad);
+            if (n != PadNotes::kNoNote) a.seq.liveNoteOff(n, col == 0);
+        }
         return;
     }
     if (state != kPress) return;
     // A pad pressed while a column key is held is the key + pad entry: the
     // key no longer opens its hold popup, so its release writes nothing more.
     colKey_ = 0;
+    if (heldColKey_) colKeyUsed_ = true;
     // Hold focus: pads pick values (spec 06 §1.6).
     if (focus == 0) {
+        focusUsed_ = true;
         a.selectPattern(pad + 1);
         refreshBar();
         return;
@@ -1149,6 +1249,7 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     }
     if (focus >= 0) return;   // spec 06 §1.6: no note is entered while a focus is held
     const uint8_t note = a.padNote(pad);
+    if (note == PadNotes::kNoNote && col == 0) return;   // [I] a piano layout gap plays nothing
     if (a.seq.isRecording() && col <= 1) {
         // spec 16 §A.6: the Note column records notes with the current
         // instrument; the Instr column records instrument triggers: note 60
@@ -1184,10 +1285,12 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         // 60, like the Instr-column record and edit paths (spec 16 §A.6),
         // not at the pad's own note (user report: every instrument one
         // semitone higher than the previous one).
+        if (col != 1 && note == PadNotes::kNoNote) return;   // [I]
         a.previewOn(voice, a.currentInstrument(), col == 1 ? uint8_t(60) : note, 127);
         padVoice_[pad] = int8_t(pad);
         return;
     }
+    if (col == 0 && padChordEntry(pad, note)) return;
     const SelRect r = target();
     if (col == 0) {
         // Note entry in edit mode plays on the cursor track only, after
@@ -1241,6 +1344,7 @@ void PatternScreen::openPicker(int which) {
     App& a = app_;
     pickerKey_ = colKey_;
     colKey_ = 0;
+    if (heldColKey_) colKeyUsed_ = true;
     const Step& st = a.pattern().tracks[track].steps[step];
     if (which == 0) {
         const int n = st.note >= 0 ? st.note : lastNote();
@@ -1318,6 +1422,19 @@ void PatternScreen::noteKeysOff() {
     for (int i = 0; i < kNoteKeys; ++i)
         if (noteKeysOn_ & (1u << i)) app_.previewOff(uint16_t(kNoteKeyVoice + i));
     noteKeysOn_ = 0;
+}
+
+// Issue #186: a column key used as a modifier goes back to the column it
+// came from (a tap alone stays on its column).
+void PatternScreen::releaseColKey(uint8_t id) {
+    if (id != heldColKey_) return;
+    if (colKeyUsed_ && colBefore_ >= 0) {
+        col = colBefore_;
+        keepTrackVisible();
+    }
+    heldColKey_ = 0;
+    colBefore_ = -1;
+    colKeyUsed_ = false;
 }
 
 void PatternScreen::commitPicker() {
@@ -1509,6 +1626,9 @@ void PatternScreen::fillApply() {
 
 void PatternScreen::update(uint32_t now) {
     App& a = app_;
+    // [I] Pad chord entry ends when the pattern changes, edit mode ends or
+    // play starts: a pad still held then does not continue it.
+    if (chordPads_ && (!edit() || a.seq.isPlaying() || chordPattern_ != a.patternNumber())) chordPads_ = 0;
     // Playhead follow (not in edit mode): every pass, so the frame drawn for
     // a step change (App::onStepChanged -> Ui::dirty) already scrolls to the
     // new step. Behind the 20 ms throttle below the same step cost two
@@ -1557,7 +1677,9 @@ void PatternScreen::update(uint32_t now) {
         if (barPage0) ui_.bar.highlight(0, b);
         ui_.dirty();
     }
-    if (barPage0) {
+    const bool latchBar =
+        page == 0 && focus == 0 && patternLatch_ && !fillOpen && !ui_.shift() && !recArmPage && !pop_.isOpen();
+    if (barPage0 || latchBar) {   // latched: the number follows a queued switch
         char v[8];
         std::snprintf(v, sizeof(v), a.cfg.numbering == 2 ? "%02X" : "%d", q ? q : a.patternNumber());
         if (std::strcmp(v, ui_.bar.label[0].bottom) != 0) {
@@ -1609,7 +1731,14 @@ void PatternScreen::padLeds(uint8_t* lv) {
         for (int p = 0; p < 48; ++p)
             if (a.patternPresent(p + 1) && a.patternHasData(p + 1)) lv[p] = dim;
         const int pn = a.patternNumber() - 1;
-        if (pn >= 0 && pn < 48) lv[pn] = full;
+        if (patternLatch_) {
+            // 2.x latched: the queued pattern at full, the current one blinks.
+            const int q = a.seq.queuedPattern() - 1;
+            if (q >= 0 && q < 48) lv[q] = full;
+            if (pn >= 0 && pn < 48) lv[pn] = ((ui_.now() / 200) & 1) ? full : 0;
+        } else if (pn >= 0 && pn < 48) {
+            lv[pn] = full;
+        }
         return;
     }
     if (focus == 1) {
@@ -1627,11 +1756,15 @@ void PatternScreen::padLeds(uint8_t* lv) {
             if (ci < kSampleInstrumentCount && a.instruments[ci].playMode == uint8_t(PlayMode::BeatSlice)) {
                 for (int p = 0; p < a.instruments[ci].sliceCount && p < 48; ++p) lv[p] = dim;
                 if (st.note >= 24 && st.note < 72) lv[st.note - 24] = full;
-            } else if (st.note >= 0) {
-                a.refreshPadNotes();
-                uint8_t pads[48];
-                const int n = a.padNotes.padsForNote(st.note, pads, 48);
-                for (int i = 0; i < n; ++i) lv[pads[i]] = dim;
+            } else {
+                // [I] on the piano keys the step's note shows at full.
+                const uint8_t on = pianoLeds(lv) ? full : dim;
+                if (st.note >= 0) {
+                    a.refreshPadNotes();
+                    uint8_t pads[48];
+                    const int n = a.padNotes.padsForNote(st.note, pads, 48);
+                    for (int i = 0; i < n; ++i) lv[pads[i]] = on;
+                }
             }
         } else if (col == 1) {
             if (st.instrument < 48) lv[st.instrument] = full;
@@ -1655,7 +1788,9 @@ void PatternScreen::padLeds(uint8_t* lv) {
         }
         return;
     }
-    // Not editing: "Pads preview" (spec 06 §1.6 rule 7).
+    // Not editing: "Pads preview" (spec 06 §1.6 rule 7). [I] over the
+    // piano keys (outside the Instr column) the played notes show at full.
+    const uint8_t on = col != 1 && pianoLeds(lv) ? full : dim;
     if (a.cfg.padsPreview == 0) return;
     a.refreshPadNotes();
     const int t0 = a.cfg.padsPreview == 1 ? track : 0;
@@ -1667,7 +1802,7 @@ void PatternScreen::padLeds(uint8_t* lv) {
         } else if (s.note >= 0) {
             uint8_t pads[48];
             const int n = a.padNotes.padsForNote(s.note, pads, 48);
-            for (int i = 0; i < n; ++i) lv[pads[i]] = dim;
+            for (int i = 0; i < n; ++i) lv[pads[i]] = on;
         }
     }
 }

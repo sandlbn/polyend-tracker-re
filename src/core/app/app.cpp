@@ -29,12 +29,14 @@ struct AppSdram {
     alignas(SynthPatch) unsigned char patches[sizeof(SynthPatch) * kSynthSlotCount];
     unsigned char extKeep[kPatternCount + 1];
     alignas(mod::OtmLoadReport) unsigned char moduleLoad[sizeof(mod::OtmLoadReport)];   // [I]
+    alignas(PadNotes) unsigned char padNotes[sizeof(PadNotes)];   // [I]
 };
 OT_SDRAM_BSS AppSdram gAppSdram;
 }  // namespace
 
 App::App()
-    : names(*reinterpret_cast<PatternNames*>(gAppSdram.names)), bank(engine.bank()), ui(*this),
+    : names(*reinterpret_cast<PatternNames*>(gAppSdram.names)), bank(engine.bank()),
+      padNotes(*reinterpret_cast<PadNotes*>(gAppSdram.padNotes)), ui(*this),
       extKeep_(*reinterpret_cast<ExtKeep*>(gAppSdram.extKeep)),
       patches_(*reinterpret_cast<SynthPatches*>(gAppSdram.patches)),
       moduleLoad_(*reinterpret_cast<mod::OtmLoadReport*>(gAppSdram.moduleLoad)), pj_(*reinterpret_cast<ProjectJob*>(gAppSdram.pj)) {}
@@ -50,6 +52,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
     new (&pj_) ProjectJob();
     for (SynthPatch& p : patches_) new (&p) SynthPatch();
     new (&moduleLoad_) mod::OtmLoadReport();
+    new (&padNotes) PadNotes();
 #else
     for (SynthPatch& p : patches_) p = SynthPatch{};   // plain member without an initialiser
 #endif
@@ -103,7 +106,7 @@ bool App::init(const HalRefs& hal, const AppMemory& mem) {
         },
         this);
     seq.setPerfPatternMemory(mem_.perfPatterns);   // spec 12 §C.1 staging (SDRAM)
-    engine.setExportScratch(mem_.exportStems);
+    engine.setExportScratch(mem_.exportStems, mem_.exportHistory);
     // Synth slots play the App's patches (2.x M3, audio/synth_bank.h).
     for (int s = 0; s < kSynthSlotCount; ++s) engine.synth().bindPatch(s, &patches_[s]);
     resetSynthPresets();
@@ -1078,7 +1081,7 @@ void App::refreshPadNotes() {
     if (sc >= kScaleCount) sc = 0;
     if (lay > 11) lay = 11;
     if (root > 36) root = 24;
-    padNotes.build(sc, lay, root);
+    padNotes.build(sc, lay, root, cfg.padLayout == 1);   // [I] piano layout
 }
 
 uint8_t App::padNote(uint8_t pad) {

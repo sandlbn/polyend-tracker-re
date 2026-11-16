@@ -23,7 +23,10 @@ public:
     uint32_t maxLines = 100000;      // capacity of one slot (refusal tests)
     int appends = 0, begins = 0;
     std::vector<std::string> slot[kFragmentSlots];
-    bool frameReady() override { return ready; }
+    bool frameReady() override {
+        if (ready) RecordingDisplay::frameReady();   // the sent frame is reported
+        return ready;
+    }
     bool fragmentsSupported() const override { return fragments; }
     void dlStart() override {
         RecordingDisplay::dlStart();

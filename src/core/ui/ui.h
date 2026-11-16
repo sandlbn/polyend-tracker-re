@@ -57,6 +57,8 @@ constexpr const char* kExportingSelection = "Exporting Selection";
 
 // Module for a module key, or kModNone (spec 05 §1.5 button -> module map).
 int moduleForButton(uint8_t id);
+// `s` cut to the characters that fit `maxW` px in `font` (a cell line).
+void fitText(char* out, int cap, uint8_t font, const char* s, int maxW);
 
 class Screen {
 public:
@@ -80,11 +82,22 @@ public:
 #endif
     // True if this screen gives its own module key a local meaning (spec 06 §0.3).
     virtual bool ownsModuleKey(uint8_t id) const { (void)id; return false; }
-    // Base pad LED layer, levels 0..31.
-    virtual void padLeds(uint8_t* levels) { (void)levels; }
+    // Base pad LED layer, levels 0..31. Default: the piano layout's keys
+    // where the pads play notes [I].
+    virtual void padLeds(uint8_t* levels) {
+        if (padsPlayNotes()) pianoLeds(levels);
+    }
+    // [I] false on screens whose pads do something other than play the
+    // current instrument (Config, Sample Loader), so no key lights show.
+    virtual bool padsPlayNotes() const { return true; }
     // True while the screen draws the whole 800 x 480 frame itself (Games,
     // spec 14 §3.2): the bottom bar is not drawn over it.
     virtual bool fullScreen() const { return false; }
+    // Low-detail fallback key (Ui::render): a RAM_DL overflow switches the
+    // screen to low detail until the screen, its popups or this value
+    // change. A screen with its own overlay pages (Pattern: the Shift mute
+    // and Live-REC arm pages) reports them so leaving one restores detail.
+    virtual uint8_t detailKey() const { return 0; }
     // MIDI note input owned by the screen's own preview player (spec 17 §1.3
     // owners 2..4: Sample Playback, Sample Editor, Sample Recorder). Returns
     // true when the note was taken; false = the normal track-voice path.
@@ -94,6 +107,9 @@ public:
     }
 
 protected:
+    // [I] draws the piano layout's key lights into `levels`; false when
+    // Pad layout is Stock or the current instrument is Beat Slice.
+    bool pianoLeds(uint8_t* levels);
     Ui& ui_;
     App& app_;
 };
@@ -477,10 +493,18 @@ public:
     static constexpr uint32_t kDlLimitWords = 2048;
     static constexpr uint32_t kDriverDlWords = 36;
     static constexpr uint32_t kDlFrameWords = kDlLimitWords - kDriverDlWords;
+    // Guard limit: Gfx counts what it uploads (gradients at their RAM_DL
+    // cost, Gfx::kGradientDlWords; CMD_TEXT at what the coprocessor builds,
+    // Gfx::text). Measured on a Tracker (six screens, REG_CMD_DL vs the
+    // count): within 4 words of the driver's 36 + the count. 1980 + 36 + 4
+    // leaves 28 words of the 2048. (Before CMD_TEXT was counted right, 1940
+    // kept a 3.7 % margin for the text the FT81x built beyond the count.)
+    static constexpr uint32_t kDlGuardWords = 1980;
     // Design target for any screen + overlay (tests/display_budget_test.cpp).
-    static constexpr uint32_t kDlTargetWords = 1900;
+    static constexpr uint32_t kDlTargetWords = 1940;
     // Frame limit of the guard (host tests lower it to force the fallback).
     void setDlFrameLimit(uint32_t words) { dlFrameLimit_ = words; }
+    uint32_t dlFrameLimit() const { return dlFrameLimit_; }
     uint32_t overBudgetFrames() const { return overBudget_; }
     uint32_t hwFaultFrames() const { return hwFaultFrames_; }
     uint8_t dlScale() const { return dlScale_; }   // 64 = 1.0
@@ -497,6 +521,7 @@ public:
     FragmentCache fragments;
 
 private:
+    void pollPendingFrame(uint32_t now);
     void dispatchButton(uint8_t id, uint8_t state);
     uint8_t resampleShown_ = 0;   // [I] resample state last noticed (Ui::update)
     void updateLeds();
@@ -504,7 +529,7 @@ private:
     // (Master / Song hold, see dispatchButton).
     static bool routesEnteringKey(uint8_t id);
     void deliverEnteringKey(bool asHold = false);
-    uint8_t overlayBits() const;
+    uint32_t overlayBits() const;
     void finishFrame(Gfx& g, const char* screenName);
 
     IDisplay* display_ = nullptr;
@@ -549,12 +574,14 @@ private:
     uint32_t hwFaultsSeen_ = 0, hwFaultFrames_ = 0, hwMeasSeen_ = 0, prevWords_ = 0;
     uint32_t scaleGen_ = 0, frameGen_ = 0;   // screen the scale / last frame belong to
     uint8_t dlScale_ = 64;                   // per screen: reset when it changes
+    static constexpr uint8_t kDlScaleMax = 128;   // 2.0: the tightest guard
+    bool faultLogged_ = false;               // this screen's fault is in the log
     uint32_t maxWords_ = 0, overBudget_ = 0, lowDetailFrames_ = 0, statOver0_ = 0, statLow0_ = 0;
     uint32_t overLogged_ = 0;             // modules whose first overflow was logged
-    uint32_t dlFrameLimit_ = kDlFrameWords;
+    uint32_t dlFrameLimit_ = kDlGuardWords;
     bool lowDetail_ = false;              // RAM_DL fallback for this screen + overlay set
     uint32_t lowDetailGen_ = 0;
-    uint8_t lowDetailOverlays_ = 0;
+    uint32_t lowDetailOverlays_ = 0;
     uint32_t statFrames0_ = 0, statDeferred0_ = 0, renderUsSum_ = 0, renderUsMax_ = 0;
     uint32_t dirtyAtUs_ = 0;              // first dirty() since the last frame (micros)
     uint32_t lastFrameAtMs_ = 0;          // start of the last frame (ms), 0 = none yet
