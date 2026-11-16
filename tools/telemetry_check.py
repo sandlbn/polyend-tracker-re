@@ -28,6 +28,13 @@
       With nm (default: the size tool's sibling): no double-precision libm in the
       image, and the stack headroom _estack - _ebss: fail below 90 KiB
       (docs/OPTIMIZATION_2X.md OP-4 / OP-5).
+  telemetry_check.py frames <build dir> | --objects <x.o ...> [--guard-header src/hal/stack_guard.h]
+      Per-function stack frames from the -fstack-usage .su files (of the given
+      objects, failing when one has none; else every .su under the build dir) against
+      the stack guard (kStackGuardBytes): a frame plus an interrupt's exception
+      frame (104 B with FP state) must stay inside the guard, so fail at >= the
+      guard - 256 B and on unbounded dynamic frames, warn above 75 % of it.
+      Prints the deepest few.
   telemetry_check.py cpi <device.log> <bench_m4 output> [--top 5]
       CPI calibration (docs/OPTIMIZATION_2X.md "CPU round 3"): device cycles per bench-m4
       instruction, per phase and over the render, from the device's peak blocks (the `pk`
@@ -40,6 +47,7 @@
 Exit status: 0 pass, 1 threshold failure, 2 usage / unreadable input.
 """
 import argparse
+import os
 import re
 import sys
 
@@ -442,6 +450,70 @@ def check_symbols(nm_output, quiet=False):
     return ok, head
 
 
+GUARD_HEADER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src", "hal", "stack_guard.h")
+FRAME_WARN = 0.75   # warn above this share of the guard
+# An interrupt can push its exception frame (26 words with FP state, plus
+# alignment) right below a frame that only just reached the guard, so the frame
+# alone must leave that much of the guard: 256 B covers it with room to spare.
+FRAME_SLACK = 256
+
+
+def guard_bytes(header=GUARD_HEADER):
+    """kStackGuardBytes from src/hal/stack_guard.h."""
+    with open(header) as f:
+        m = re.search(r"kStackGuardBytes\s*=\s*(\d+)", f.read())
+    if not m:
+        raise OSError(f"kStackGuardBytes not found in {header}")
+    return int(m.group(1))
+
+
+def read_su(objects):
+    """Object files -> (their -fstack-usage lines, objects without a .su file).
+    gcc writes x.su next to x.o; an object built before -fstack-usage (an
+    incremental build) has none, and its frames would go unchecked."""
+    lines, missing = [], []
+    for obj in objects:
+        su = (obj[:-2] if obj.endswith(".o") else obj) + ".su"
+        try:
+            with open(su, errors="replace") as f:
+                lines.extend(f.read().splitlines())
+        except FileNotFoundError:
+            missing.append(obj)
+    return lines, missing
+
+
+def check_frames(su_lines, guard, quiet=False, top=5):
+    """-fstack-usage lines -> (ok, deepest frame bytes). A frame (plus an
+    interrupt's exception frame below it) as large as the stack guard could step
+    over it, so the overflow would write the heap reserve instead of faulting:
+    fail at >= guard - FRAME_SLACK; warn above FRAME_WARN of the guard.
+    Dynamic frames (alloca / VLAs) have no bound: they fail too."""
+    frames, dynamic = [], []
+    for line in su_lines:
+        f = line.rstrip("\n").split("\t")
+        if len(f) != 3 or not f[1].isdigit():
+            continue
+        frames.append((int(f[1]), f[0]))
+        if "dynamic" in f[2] and "bounded" not in f[2]:
+            dynamic.append(f[0])
+    frames.sort(reverse=True)
+    deepest = frames[0][0] if frames else 0
+    limit = guard - FRAME_SLACK
+    ok = bool(frames) and deepest < limit and not dynamic
+    if not quiet:
+        if not frames:
+            print("frames: FAIL no -fstack-usage output found")
+        else:
+            state = "FAIL" if deepest >= limit else ("WARN" if deepest > guard * FRAME_WARN else "ok")
+            print(f"frames: {state} deepest {deepest} B of a {guard} B stack guard "
+                  f"({len(frames)} functions); fail >= {limit} B, warn > {int(guard * FRAME_WARN)} B")
+            for size, name in frames[:top]:
+                print(f"  {size:6d} B  {name}")
+        for name in dynamic:
+            print(f"frames: FAIL unbounded dynamic frame: {name}")
+    return ok, deepest
+
+
 SAMPLE_OK = """\
 [  12.000] sd: f_mount result 0
 [  20.001] telemetry: io sd cmds 812 read 4194304 B (819 KB/s) write 0 B (0 KB/s) direct 120 bounced 2 | cache sdram on (selftest ok) | sd->sdram dma read direct write direct
@@ -477,6 +549,15 @@ SAMPLE_BENCH_LIMITS = """\
 
 
 def selftest():
+    su = ["a.cpp:1:6:void f()\t6032\tstatic", "b.cpp:2:6:void g()\t96\tstatic", "c.c:3:6:h\t40\tdynamic,bounded"]
+    ok, deep = check_frames(su, 8192, quiet=True)
+    assert ok and deep == 6032, deep
+    assert not check_frames(su + ["d.cpp:4:6:void big()\t8192\tstatic"], 8192, quiet=True)[0]
+    assert not check_frames(su + ["d.cpp:4:6:void big()\t8100\tstatic"], 8192, quiet=True)[0]
+    assert check_frames(su + ["d.cpp:4:6:void big()\t7935\tstatic"], 8192, quiet=True)[0]
+    assert not check_frames(su + ["e.cpp:5:6:void vla(int)\t16\tdynamic"], 8192, quiet=True)[0]
+    assert not check_frames([], 8192, quiet=True)[0]
+    assert guard_bytes() == 8192
     ok, fails, ws = check_log(SAMPLE_OK.splitlines(), quiet=True)
     assert ok and len(ws) == 2, (ok, fails)
     assert ws[0]["io"]["read"] == 4194304 and ws[0]["io"]["cache"] == "on"   # loading window: 140 ms allowed
@@ -547,6 +628,11 @@ def main(argv):
     sz.add_argument("--size-tool", default="arm-none-eabi-size")
     sz.add_argument("--nm-tool", default=None)
     sz.add_argument("elf")
+    fr = sub.add_parser("frames")
+    fr.add_argument("build_dir", nargs="?")
+    fr.add_argument("--objects", nargs="+", default=None,
+                    help="the image's object files: only their .su files, and fail on a missing one")
+    fr.add_argument("--guard-header", default=GUARD_HEADER)
     cp = sub.add_parser("cpi")
     cp.add_argument("log")
     cp.add_argument("bench")
@@ -563,6 +649,23 @@ def main(argv):
             if a.bench:
                 with open(a.bench, errors="replace") as b:
                     cpi_report(log_lines, b.read().splitlines())
+        elif a.cmd == "frames":
+            su, missing = [], []
+            if a.objects:
+                su, missing = read_su(a.objects)
+            elif a.build_dir:
+                for root, _, files in os.walk(a.build_dir):
+                    for name in files:
+                        if name.endswith(".su"):
+                            with open(os.path.join(root, name), errors="replace") as f:
+                                su.extend(f.read().splitlines())
+            else:
+                fr.error("give a build dir or --objects")
+            ok, _ = check_frames(su, guard_bytes(a.guard_header))
+            if missing:
+                print(f"frames: FAIL {len(missing)} of {len(a.objects)} objects have no .su file "
+                      f"(built before -fstack-usage? make clean), e.g. {missing[0]}")
+                ok = False
         elif a.cmd == "cpi":
             with open(a.log, errors="replace") as f, open(a.bench, errors="replace") as b:
                 overall, _ = cpi_report(f.read().splitlines(), b.read().splitlines(), a.top)
