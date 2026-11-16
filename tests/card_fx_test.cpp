@@ -53,12 +53,14 @@ public:
     void adjust(int i, int d) override {
         if (i == 0) on = d > 0;
         else level += d;
+        dirt = true;
     }
     // Section: on + level.
     uint16_t tag() const override { return 0x4F10; }
     uint16_t version() const override { return 1; }
-    bool dirty() const override { return true; }
+    bool dirty() const override { return dirt; }
     uint32_t encode(uint8_t* b, uint32_t cap) override {
+        dirt = false;   // as the shipped effects: written = clean
         if (cap < 2 || (!on && level == 50)) return 0;
         b[0] = on;
         b[1] = uint8_t(level);
@@ -75,6 +77,7 @@ public:
         level = 50;
     }
     bool process(float*, float*, uint32_t) override { return false; }
+    bool dirt = false;
     int attached = 0;
     uint8_t* line = nullptr;
     bool on = false;
@@ -247,4 +250,43 @@ TEST(card_fx_loads_with_the_project) {
     CHECK(!ModuleHost::instance().find("CFX1"));
     CHECK(a.turnMasterFx(bankRow(a), true) == nullptr);
     CHECK_EQ(g_fx.level, 43);
+}
+
+// An edit, then the effect leaves (Off: at the next Stop): the edit is
+// still saved with the project.
+TEST(card_fx_edit_then_leave_is_saved) {
+    FxRig rig;
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    CHECK(a.turnMasterFx(bankRow(a), true) == nullptr);
+    CHECK(a.saveProjectAs("Fx"));
+    CHECK(a.openProject("Projects", "Fx"));
+    h.run(400);
+    g_fx.adjust(1, 5);     // the page: Level
+    g_fx.adjust(0, -1);    // the page: Off
+    h.run(400);
+    CHECK(!ModuleHost::instance().find("CFX1"));
+    CHECK(a.sidecarDirty());
+    CHECK(a.saveProject());
+    CHECK(a.newProject());
+    CHECK(a.openProject("Projects", "Fx"));
+    h.run(400);
+    CHECK(a.turnMasterFx(bankRow(a), true) == nullptr);
+    CHECK_EQ(g_fx.level, 55);
+}
+
+// Open of a project with a card effect's data: no "not in this build".
+TEST(card_fx_open_has_no_missing_module_notice) {
+    FxRig rig;
+    Harness h;
+    App& a = *h.app;
+    CHECK(a.newProject());
+    CHECK(a.turnMasterFx(bankRow(a), true) == nullptr);
+    CHECK(a.saveProjectAs("Fx"));
+    CHECK(a.newProject());
+    CHECK(a.openProject("Projects", "Fx"));
+    h.run(100);
+    CHECK(ModuleHost::instance().find("CFX1"));
+    CHECK(std::strstr(a.ui.notice(), "not in this build") == nullptr);
 }

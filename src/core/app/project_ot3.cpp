@@ -572,7 +572,8 @@ bool App::decodeSidecar(const uint8_t* p, uint32_t len) {
         if (c.tag == ot3::kTagMods) {
             for (uint32_t o = 0; o + sizeof(ot3::ModEntry) <= c.len; o += sizeof(ot3::ModEntry)) {
                 const char* id = reinterpret_cast<const char*>(c.payload + o);
-                if (!h.find(id) && !loadNotice_[0]) {
+                // A card effect is out until the sidecar stage loads it.
+                if (!h.find(id) && mod::cardFxIndex(id) < 0 && !loadNotice_[0]) {
                     char t[5];
                     idText(id, t);
                     std::snprintf(loadNotice_, sizeof(loadNotice_), "Project uses module %s (not in this build)", t);
@@ -661,6 +662,8 @@ void App::stashModuleSection(mod::IModule& m) {
     uint32_t size = 0;
     const int32_t at = opaqueFind(id, &size);
     if (at >= 0) opaqueRemove(uint32_t(at), size);
+    // encode() takes the module's dirty flag: an unsaved edit moves to the project.
+    if (sec->dirty()) sidecarDirty_ = true;
     uint8_t buf[256];   // effect payloads are tens of bytes
     const uint32_t n = sec->encode(buf, sizeof buf);
     if (!n) return;   // its defaults: nothing to keep
