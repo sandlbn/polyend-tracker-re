@@ -4,3 +4,4 @@ dist/
 build/
 syncv3.sh
 __pycache__/
+*.orig
