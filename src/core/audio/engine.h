@@ -366,6 +366,7 @@ public:
     void synthMacroFx(uint8_t slot, uint8_t macro, uint8_t value) override;
     bool synthPreset(uint8_t slot, uint8_t n) override;
     bool synthPresetTakes(uint8_t n) override;
+    void synthExpect(const SynthExpectNote* notes, int count) override;
     void synthTransportStop() override;
 
 private:
