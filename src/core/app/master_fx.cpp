@@ -126,7 +126,7 @@ const char* App::turnMasterFx(int k, bool on) {
     if (seq.isPlaying() || seq.isArmed() || jobBusy()) return nullptr;   // loads at the next Stop
     syncCardSynths(true);
     if (g_fx.error[fx.card] != FxError::kNone) {
-        static char t[48];
+        OT_SDRAM_BSS static char t[48];   // main-loop text: SDRAM on the device
         std::snprintf(t, sizeof t, "%s: %s", fx.name, fxErrorText(g_fx.error[fx.card]));
         return t;
     }
