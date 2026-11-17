@@ -288,6 +288,8 @@ private:
 
     void resetState();
     void advance(float seconds);
+    // [OT] The next step's synth notes, a block ahead (ISequencerSink::synthExpect).
+    void expectNextStep();
     void updateExternalTempo(float seconds);
     void tick();
     void microStep();
@@ -406,9 +408,11 @@ private:
     bool breakPreloadDone_ = false;
     uint8_t zPend_ = 0;   // [OT] bit s: slot s left to step 0's Z at a loop end (applyZ unsent)
     uint8_t stops_ = 0;   // [OT] stopCount()
+    bool expectSent_ = false;   // [OT] expectAt_ holds an announced step start
 
     // clock
     uint32_t tick_ = 1;
+    uint32_t expectAt_ = 0;     // [OT] the step-start tick last announced (expectNextStep)
     uint64_t tickCount_ = 0;
     uint8_t masterMicro_ = 1;
     // [OT] Z chase per synth slot, a nibble each: low = the preset a loop

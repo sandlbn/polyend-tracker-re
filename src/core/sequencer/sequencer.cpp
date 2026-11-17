@@ -271,6 +271,7 @@ void Sequencer::advance(float seconds) {
             tick();
             accUs_ -= p;
         }
+        expectNextStep();
     } else {
         const int32_t n = pendingCorrection_ + pendingPulses_ + leftover_;
         if (n > 0) {
@@ -282,6 +283,90 @@ void Sequencer::advance(float seconds) {
         pendingCorrection_ = 0;
         pendingPulses_ = 0;
     }
+}
+
+// [OT] Steal ahead (synth_bank.h). Once every track's counter has moved to
+// the coming step (micro 1, advanceStep at the end of the last micro), the
+// step starts at the next micro tick; when that tick falls in the next block
+// (this block's period and length), its synth notes are sent now, in the
+// order processTrack plays them. Only steps whose notes are certain: no
+// Chance, random or Micro-move FX, no performance injection, no delayed note
+// (Micro-move or a MIDI delay), no Z that switches a slot or pending Z
+// return, no track or pattern switch on its way, no arp, roll or repeat of a
+// synth note that may play in the same micro; otherwise nothing is sent and
+// the step steals in its own block as before.
+void Sequencer::expectNextStep() {
+    if (!playing_ || !sink_ || !cur_ || selection_ || countInSteps_ > 0 || stopAtStepEnd_) return;
+    if (tracks_[0].micro != 1) return;
+    const uint32_t d0 = (uint32_t(kTicksPerMicro) - tick_ % uint32_t(kTicksPerMicro)) % uint32_t(kTicksPerMicro);
+    const uint32_t startTick = tick_ + d0;
+    if (expectSent_ && expectAt_ == startTick) return;
+    const float p = tickPeriodUs();
+    if (!(p > 0.0f) || (accUs_ + blockUs_) / p < float(d0 + 1)) return;   // not in the next block yet
+    expectAt_ = startTick;
+    expectSent_ = true;
+    if (zPend_ || pendSwitch_.load(std::memory_order_relaxed)) return;
+    // A Z that switches a slot rebinds it before the notes: not followed. A Z
+    // of the preset the slot already plays, or one the bank refuses (an empty
+    // preset), changes nothing (unless Chance may drop it).
+    for (int t = 0; t < kTracks; ++t) {
+        const TrackState& tr = tracks_[t];
+        if (!tr.enabled || isMuted(t)) continue;
+        const Step& s = playTrack(t).steps[clampi(tr.step, 0, kStepCount - 1)];
+        for (int c = 0; c < 2; ++c) {
+            if (!isPresetCmd(s.fx[c].type, s.fx[c].value)) continue;
+            uint8_t in = s.instrument;
+            if (!isSynth(in) && s.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
+            if (!isSynth(in)) continue;
+            const uint8_t n = presetCmdIndex(s.fx[c].value);
+            if (s.fx[1 - c].type == 4) return;
+            if (n != zCur(synthSlotOf(in)) && sink_->synthPresetTakes(n)) return;
+        }
+    }
+    SynthExpectNote out[kTracks * 2];
+    int n = 0;
+    bool anyNote = false;
+    for (int t = 0; t < kTracks; ++t) {
+        const TrackState& tr = tracks_[t];
+        if (!tr.enabled || isMuted(t)) continue;
+        if (pendImm_[t].load(std::memory_order_relaxed)) return;   // the step reads the new track
+        bool sounding = tr.sounding;
+        // processTrack's gate end at this micro, before the step.
+        if (sounding && tr.gateLimit != -1 && tr.gate + 1 >= tr.gateLimit) {
+            sounding = false;
+            if (isSynth(tr.last.instr)) out[n++] = SynthExpectNote{uint8_t(t), 0, 0, 1};
+        }
+        if (tr.delayActive || tr.inject.type != 0 || tr.skipStep == tr.step) return;
+        const Step& s = playTrack(t).steps[clampi(tr.step, 0, kStepCount - 1)];
+        // An arp, roll or Performance repeat of the track's synth note can
+        // play in the step's micro unless a synth note of the step ends it
+        // (one held back by Chance or a delay is not announced below).
+        if (isSynth(tr.last.instr) && (tr.arpActive || tr.rollActive || (perfMode_ && tr.repeatIdx >= 0)) &&
+            !(s.note >= 0 && isSynth(s.instrument)))
+            return;
+        // A sample or MIDI note ends the track's synth note (handleNote).
+        const bool endsSynth = s.note >= 0 && !isSynth(s.instrument) && sounding && isSynth(tr.last.instr);
+        // A synth note or note-off whose step is uncertain (sample steps never
+        // take a synth voice; Random instrument stays in its class).
+        const bool synthStep =
+            s.note >= 0 ? (isSynth(s.instrument) || endsSynth) : (isNoteOffSentinel(s.note) && isSynth(tr.last.instr));
+        if (synthStep)
+            for (const StepFx& f : s.fx)
+                if (f.type == 2 || f.type == 4 || f.type == 5 || f.type == 6 || f.type == 16) return;
+        if (endsSynth) {
+            if (isMidiInstr(s.instrument)) return;   // a MIDI delay byte may hold the note back
+            out[n++] = SynthExpectNote{uint8_t(t), 0, 0, 1};
+        } else if (s.note >= 0) {
+            if (!isSynth(s.instrument)) continue;
+            int note = s.note;
+            if (perfMode_ && tr.transposeOn) note = clampi(note + tr.transpose, 0, 127);
+            out[n++] = SynthExpectNote{uint8_t(t), uint8_t(synthSlotOf(s.instrument)), uint8_t(note), 0};
+            anyNote = true;
+        } else if (isNoteOffSentinel(s.note) && isSynth(tr.last.instr)) {
+            out[n++] = SynthExpectNote{uint8_t(t), 0, 0, uint8_t(NoteOffMode(s.note) == NoteOffMode::Cut ? 2 : 1)};
+        }
+    }
+    if (anyNote) sink_->synthExpect(out, n);
 }
 
 void Sequencer::updateExternalTempo(float seconds) {

@@ -32,6 +32,15 @@
 // queued note whose own note-off follows within the block, started when every
 // record is busy, is dropped like a pending note that gets its note-off.)
 //
+// [OT] Steal ahead (CPU peaks): a step whose notes steal would render the
+// victims' fades and the new notes in the same block. The sequencer announces
+// the next step's notes and note-offs in the block before it (expect(),
+// ISequencerSink::synthExpect; only steps that are certain one block ahead);
+// the steal rules above run on a copy of the records and the voices they
+// would take fade now. At the step the notes start on time in free records.
+// Only the stolen notes change: they end up to one block (2.9 ms) earlier.
+// Notes past the start cap are not followed (they steal in their own block).
+//
 // Macros: M1..M6 = the slot's page values (record +0x38), overridden by FX
 // CC a..f until Stop; M7 = the note's Volume FX; M8 stored only. Law and the
 // M7 rule: synth_params.h. Evaluated at block rate and ramped across the
@@ -194,6 +203,8 @@ public:
     void setTrackPerf(int t, const SynthPerf& p);
     const SynthPerf& trackPerf(int t) const { return perf_[t < 0 || t >= kSynthTracks ? 0 : t]; }
     void applyFx(int track, uint8_t type, uint8_t value);
+    // [OT] Steal ahead (header): the next step's notes, a block before it.
+    void expect(const SynthExpectNote* notes, int count);
     void macroFx(int slot, int macro, uint8_t value);
     void transportStop();     // macro overrides -> page values
     void resetFx();           // pitch FX state of every track (play start)
@@ -335,6 +346,12 @@ private:
         const SynthPatch* b = sl.bound;
         const uint32_t p = b && b != sl.patch && patchHasPoly(*b) ? b->poly : r.polyphony;
         return int(p > 8 ? 8 : p);
+    }
+    // [OT] A macro value as the bound sound plays it.
+    static uint8_t shownMacro(const Slot& sl, int k, uint8_t v) {
+        return sl.patch && sl.bound && sl.bound != sl.patch
+                   ? synthMacroOnPreset(v, sl.patch->macros[k].bipolar, sl.bound->macros[k].bipolar)
+                   : v;
     }
     static int clampSlot(int s) { return s < 0 ? 0 : (s >= kSynthSlots ? kSynthSlots - 1 : s); }
     int cap() const;
