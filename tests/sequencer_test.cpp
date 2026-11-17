@@ -81,11 +81,15 @@ struct FakeSink : ISequencerSink {
     bool synthPreset(uint8_t slot, uint8_t n) override {
         Ev e = base(Ev::SynthPreset, -1);
         const bool ok = n == 0 || !((emptyPresets >> n) & 1);
+        if (ok && slot < 3) presetOfSlot[slot] = n;
         e.a = slot; e.b = n; e.c = ok;
         ev.push_back(e);
         return ok;
     }
     bool synthPresetTakes(uint8_t n) override { return n == 0 || !((emptyPresets >> n) & 1); }
+    // The preset each slot plays (the bank's own record: a patch edit sets 0).
+    int presetOfSlot[3] = {};
+    int synthPresetOf(uint8_t slot) override { return slot < 3 ? presetOfSlot[slot] : -1; }
     int transportStops = 0;
     void synthTransportStop() override { ++transportStops; }
     void resetAllVoiceFx() override { ev.push_back(base(Ev::ResetFx, -1)); }
@@ -2185,6 +2189,18 @@ TEST(synth_expect_skips_uncertain_steps) {
         bool step4 = false;
         for (const Ev& e : r.sink.of(Ev::SynthExpect)) step4 = step4 || e.a == 52;
         CHECK(step4);
+    }
+    {   // The same Z after a patch edit took the slot off the preset: it
+        // switches the slot back (a rebind), so the step is not announced.
+        Rig r(92.0f);
+        synthSteps(r);
+        zA(r, 1, 2, 2);
+        zA(r, 1, 4, 2);
+        r.seq.play(0);
+        r.blocks(int(3.2 * 15.0 / 92.0 / kBlockS));   // into step 3
+        for (int& p : r.sink.presetOfSlot) p = 0;       // the edit
+        r.blocks(int(5 * 15.0 / 92.0 / kBlockS));
+        for (const Ev& e : r.sink.of(Ev::SynthExpect)) CHECK(e.a != 52 && e.a != 64);
     }
     {   // An arp running on a synth track plays notes of its own at the step.
         Rig r(92.0f);
