@@ -94,6 +94,9 @@ public:
     // takes it (0, or a preset that is not empty; a repeat counts); false =
     // the slot plays on as it was.
     virtual bool synthPreset(uint8_t slot, uint8_t n) { (void)slot; (void)n; return false; }
+    // [I] The preset the slot plays now (0: its own patch; a patch edit sets
+    // 0), asked from the audio context; -1: not known.
+    virtual int synthPresetOf(uint8_t slot) { (void)slot; return -1; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
     // [3.x] The synth notes and note-offs the next step will play, in track
