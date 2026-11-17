@@ -84,6 +84,10 @@ public:
     // The Instruments list picked the current instrument with the cursor
     // here (Rec off): the module keys keep it instead of the step's (Ui::switchTo).
     bool pickedHere() const;
+    // FX a-f on a synth step set the slot's macros 1-6 (spec 2x-05 §4.3):
+    // the macro's name there ("M1 Cutoff", "Macro 6" without a name);
+    // false for other FX or steps (MIDI CC A-F).
+    bool fxMacroName(uint8_t type, char* out, int cap) const;
     int page = 0;
     bool fillOpen = false;
     void fillValueText(int val, char* out) const;   // From/To display text (8 bytes)
