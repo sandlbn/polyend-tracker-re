@@ -8,9 +8,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 #include "audio/synth_engine.h"
 #include "formats/crc32.h"
+#include "hal/stack_guard.h"
 #include "modules/module.h"
 #include "modules/module_files.h"
 #include "modules/synth_descriptor.h"
@@ -324,11 +326,33 @@ TEST(boot_scan_again_puts_moved_rows_back_in_flash) {
 // OT_OTM_DIR: make PROFILE=full card; skipped without them): 1-Type in the
 // first slot and V-Type in the second take their main spans back to back,
 // and each card effect alone still fits after them, none of the rows in the
-// fast block (the worst case). kFullPool is Full's room for the pool on
-// 3.0.0 (Arm GNU 14.2.Rel1): _estack - (_ebss + the heap reserve, 32 B
-// aligned) - the guard - the stack floor.
+// fast block (the worst case). The pool's room comes from the image built
+// beside the modules (OT_OTM_DIR/../opentracker.map), as the device works it
+// out (hal/stack_guard.cpp modulePoolMaxBytes).
 namespace {
-constexpr uint32_t kFullPool = 55168;
+// The address of a linker symbol in a GNU ld map ("0x... sym = ."), 0 if absent.
+uint32_t mapSymbol(const std::string& map, const char* sym) {
+    const std::string key = std::string(" ") + sym + " = ";
+    size_t at = map.find(key);
+    if (at == std::string::npos) return 0;
+    const size_t line = map.rfind('\n', at);
+    return uint32_t(std::strtoul(map.c_str() + (line == std::string::npos ? 0 : line + 1), nullptr, 16));
+}
+uint32_t poolRoom(const char* dir) {
+    char path[512];
+    std::snprintf(path, sizeof path, "%s/../opentracker.map", dir);
+    FILE* f = std::fopen(path, "rb");
+    if (!f) return 0;
+    std::string map;
+    char buf[65536];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) map.append(buf, n);
+    std::fclose(f);
+    const uint32_t ebss = mapSymbol(map, "_ebss"), estack = mapSymbol(map, "_estack");
+    if (!ebss || !estack) return 0;
+    const uint32_t base = (ebss + ot::hal::kHeapReserveBytes + 31u) & ~31u;
+    const uint32_t need = base + ot::hal::kStackGuardBytes + ot::hal::kStackFloorBytes;
+    return estack > need ? (estack - need) & ~31u : 0u;
+}
 bool otmHeaderOf(const char* dir, const char* name, OtmHeader* h) {
     char path[512];
     std::snprintf(path, sizeof path, "%s/%s", dir, name);
@@ -349,6 +373,11 @@ TEST(card_pool_holds_vtype_beside_onetype_and_an_effect) {
     OtmHeader one, vty;
     if (!dir || !otmHeaderOf(dir, "onetype.otm", &one) || !otmHeaderOf(dir, "vtype.otm", &vty)) {
         std::printf("  (skipped: no onetype.otm / vtype.otm in OT_OTM_DIR)\n");
+        return;
+    }
+    const uint32_t kFullPool = poolRoom(dir);
+    if (!kFullPool) {
+        std::printf("  (skipped: no opentracker.map beside OT_OTM_DIR)\n");
         return;
     }
     CHECK(std::memcmp(vty.id, "VTY1", 4) == 0);
