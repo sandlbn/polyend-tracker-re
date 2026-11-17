@@ -28,6 +28,7 @@ constexpr int kGutterW = 27;          // left step-number gutter x 0..26, separa
 constexpr int kRightSep = 772;        // right gutter separator, numbers from x 776
 constexpr int kTrackW4 = 186;         // 4-track view
 constexpr int kTrackW8 = 93;          // 8-track view (column-view mask)
+constexpr int kTrackW16 = kTrackW8 / 2;  // nominal width; boundaries alternate 46 / 47 px
 constexpr int kPitch = 11;            // grid cell pitch (font 2 at 11 px, spec 20 §2.3)
 constexpr int kDashW = 6;             // empty-cell dash, cell + 1 .. cell + 6
 constexpr int kStepX = 3;             // left step numbers
@@ -53,6 +54,7 @@ struct ColGeo {
 struct Layout {
     int tracks = 4;
     int trackW = kTrackW4;
+    bool narrow = false;
     ColGeo col[4];
 };
 
@@ -68,6 +70,12 @@ Layout layoutFor(uint8_t mask) {
     int shown[2], n = 0;
     for (int c = 0; c < 4 && n < 2; ++c)
         if (mask & (1u << c)) shown[n++] = c;
+    if (n == 1) {
+        // [I] One visible column is narrow enough to show all 16 tracks.
+        L.tracks = 16;
+        L.trackW = kTrackW16;
+        L.narrow = true;
+    }
     // 1-column view: text Note +32, Instr +37, Fx +27 (spec 20 §4.1 other
     // column modes). SPEC GAP: the 2-column tables 0xaabd4.. are only
     // summarised ("Note +7, Instr +61 or +10, Fx1 +5 or +50, Fx2 +50 or +5");
@@ -81,6 +89,11 @@ Layout layoutFor(uint8_t mask) {
         g = k4[c];
         g.text = n == 1 ? k1[c] : (i == 0 ? kFirst[c] : kSecond[c]);
         g.box = g.text - 6;
+        if (L.narrow) {
+            g.text = (L.trackW - g.chars * kPitch) / 2;
+            g.boxW = c == 0 ? 41 : (c == 1 ? 30 : L.trackW - 2);
+            g.box = (L.trackW - g.boxW) / 2;
+        }
     }
     return L;
 }
@@ -209,7 +222,10 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
     const int top = step - kCursorRow;
     const int right = threeTracks ? kPopupX + 2 : kScreenW;   // bare grid bg up to x 600
     const int trackX0 = kGutterW;
-    auto trackX = [&](int v) { return trackX0 + v * L.trackW; };
+    auto trackX = [&](int v) {
+        return trackX0 + (L.narrow ? v * kTrackW8 / 2 : v * L.trackW);
+    };
+    auto trackWidth = [&](int v) { return trackX(v + 1) - trackX(v); };
     const int dashX1 = trackX(nT) - 1;           // last pixel of the track area
 
     // Visible rows: step shown (or -1 = blank row) and beat flag.
@@ -400,8 +416,8 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
     // 8. Vertical separators [15] with their AA columns: a cached RAM_G
     //    fragment (2.x M0, Gfx::cached), static while the view does not change.
     g.cached(kFragPatSeparators, [&] {
-        int xs[10], n = 0;
-        for (int v = 0; v <= nT && v <= L.tracks; ++v) xs[n++] = (v == 4 && !colMask) || v == 8 ? kRightSep : trackX(v);
+        int xs[18], n = 0;
+        for (int v = 0; v <= nT && v <= L.tracks; ++v) xs[n++] = v == L.tracks ? kRightSep : trackX(v);
         if (threeTracks) n = colMask ? 3 : nT;   // the 4th track area stays bare [S snap 015]
         const uint32_t sc = gc(th, kGcSeparator);
         const int sy = band0, sh = gh - 1;
@@ -446,7 +462,7 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
         const int v0 = sel.t0 - firstTrack < 0 ? 0 : sel.t0 - firstTrack;
         const int v1 = sel.t1 - firstTrack >= nT ? nT - 1 : sel.t1 - firstTrack;
         if (r0 >= 0 && v0 <= v1)
-            wg::stroke(g, trackX(v0) + 2, bandTop(r0) - 1, trackX(v1) + L.trackW - 3, bandTop(r1) + pitch - 2,
+            wg::stroke(g, trackX(v0) + 2, bandTop(r0) - 1, trackX(v1) + trackWidth(v1) - 3, bandTop(r1) + pitch - 2,
                        gc(th, kGcSelect));
     }
     const int cv = track - firstTrack;
@@ -457,7 +473,7 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
         const ColGeo& cg = L.col[col];
         // A box starting on the frame line (Note column) has no AA of its own on the left.
         softBox(g, x + cg.box, cT - 1, x + cg.box + cg.boxW - 1, cT + pitch - 2, curC, false, cg.box > 2);
-        gridStroke(g, x + 2, cT - 1, x + L.trackW - 3, cT + pitch - 2, curC);
+        gridStroke(g, x + 2, cT - 1, x + trackWidth(cv) - 3, cT + pitch - 2, curC);
         const int s = rowStep[kCursorRow];
         if (s >= 0 && colEmpty(pat.tracks[track].steps[s], col)) {
             g.rectsBegin(wg::mix(curC, gc(th, kGcWhite), 220));
@@ -540,10 +556,10 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
     //     cached RAM_G fragment (2.x M0), static while names / mutes / the
     //     view do not change.
     g.cached(kFragPatHeaders, [&] {
-        int tx[8], tw[8], n = 0;
-        char names[8][24];
-        bool muted[8];
-        for (int v = 0; v < nT && n < 8; ++v) {
+        int tx[16], tw[16], n = 0;
+        char names[16][24];
+        bool muted[16];
+        for (int v = 0; v < nT && n < 16; ++v) {
             const int t = firstTrack + v;
             if (t >= kTrackCount) break;
             char nm[24];
@@ -551,11 +567,11 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
                 std::snprintf(nm, sizeof(nm), t < 8 ? "Track %d" : "Midi %d", t + 1);
             std::snprintf(names[n], sizeof(names[n]), "%s", nm);
             int w = textWidth(kFont4, names[n]);
-            const int maxW = L.trackW - 8;
+            const int maxW = trackWidth(v) - 8;
             if (w > maxW) w = maxW;
-            // Narrow (8-track) view: the tab spans the track, or the top row's
+            // Narrow column view: the tab spans the track, or the top row's
             // note shows half-covered beside the name ("Hats5", R3-10).
-            if (L.trackW < 150) w = maxW;
+            if (trackWidth(v) < 150) w = maxW;
             tx[n] = trackX(v);
             tw[n] = w;
             muted[n] = a.trackMuted(t);
@@ -592,7 +608,11 @@ void PatternScreen::drawGridVertical(Gfx& g, bool threeTracks) {
             g.alpha(255);
         }
         g.clip(0, ty, right, 28);
-        for (int i = 0; i < n; ++i) run(g, tx[i] + 4, ty + 6, kFont4, names[i], gc(th, kGcTabText));
+        for (int i = 0; i < n; ++i) {
+            if (L.narrow) g.clip(tx[i] + 2, ty, tw[i] + 4, 28);
+            run(g, tx[i] + 4, ty + 6, kFont4, names[i], gc(th, kGcTabText));
+            if (L.narrow) g.noClip();
+        }
         g.noClip();
     });
 }
