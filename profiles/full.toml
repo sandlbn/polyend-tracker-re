@@ -32,6 +32,7 @@ modules = [
     { id = "BTY1", path = "modules/btype", card = true },
     { id = "ARC1", path = "modules/arc", card = true },
     { id = "1TY1", path = "modules/onetype", card = true },   # 1-Type (tools/sy1_to_patch for .sy1 patches)
+    { id = "VTY1", path = "modules/vtype", card = true },
     # [I] Effects (opentracker-fx, next to opentracker-synths) as card modules:
     # each loads while it is on (the FX bank, Shift + Master); the master chain
     # runs them in a fixed order (ModuleHost::chainOrder). Dirt, BBD and Tape stay
