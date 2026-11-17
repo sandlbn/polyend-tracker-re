@@ -18,6 +18,7 @@
 #include <cstring>
 #include <fstream>
 #include <memory>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -182,6 +183,7 @@ int main(int argc, char** argv) {
     namespace sy = onetype_sy1;
     namespace ty = ot::audio::onetype;
     int failures = 0, made = 0;
+    std::set<std::string> used;   // names taken by earlier files (a later one never replaces them)
     for (const std::string& path : inputs) {
         std::ifstream f(path, std::ios::binary);
         std::stringstream ss;
@@ -192,9 +194,16 @@ int main(int argc, char** argv) {
             continue;
         }
         const sy::Patch src = sy::parse(ss.str());
+        if (src.lines == 0) {
+            std::fprintf(stderr, "FAIL  %s: not a .sy1 patch (no index,value line)\n", path.c_str());
+            ++failures;
+            continue;
+        }
         float o[ty::kParamCount], ext[2];
         sy::toOnetype(src.v, o, ext);
-        const std::string name = sy::patchName(src.name);
+        std::string stem = path.substr(path.find_last_of('/') + 1);
+        stem = stem.substr(0, stem.find_last_of('.'));
+        const std::string name = sy::uniqueName(src.name, stem, used);
         presets::Preset pr{ot::SynthModel::ACD, name.c_str(), "", 1, {}, {}, ty::kEngineId};
         for (int k = 0; k < ty::kParamCount; ++k) pr.edits.push_back({k, o[k]});
         if (ext[1] > 0.0f) pr.edits.push_back({ty::kParamCount + 1, ext[1]});   // Spread
