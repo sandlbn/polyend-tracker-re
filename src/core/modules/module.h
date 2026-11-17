@@ -115,9 +115,14 @@ extern const char* const kCardModuleIds[];
 
 class ModuleHost {
 public:
-    // [I] 32 (stock 3.x: 16): the profile's modules plus the card's (host
-    // builds compile every card module in).
+    // [I] 32 (stock 3.x: 16): the profile's modules plus the card's. Host
+    // builds compile every card module in, so their modules alone come near
+    // 32 in Full: they get room for the card's files on top.
+#if defined(__arm__)
     static constexpr int kMaxModules = 32;
+#else
+    static constexpr int kMaxModules = 48;
+#endif
     static ModuleHost& instance();
     // Walks kModuleFactories: API check, duplicate-id check, attach().
     // Idempotent; main loop only (not audio-safe on the first call).
