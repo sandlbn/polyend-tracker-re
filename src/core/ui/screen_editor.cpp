@@ -35,6 +35,7 @@ void barGreyLabel(Gfx& g, const Theme& th, int i, const char* top, const char* b
 void EditorScreen::start(int opt) {
     (void)opt;
     App& a = app_;
+    a.sampleTailHeld = true;   // undo and the effect preview live in the free sample memory
     page = 1;
     inert = true;
     stopPreview();
@@ -110,6 +111,7 @@ void EditorScreen::enter() {
 }
 
 void EditorScreen::stop() {
+    app_.sampleTailHeld = false;
     stopPreview();
     // The undo data lives in the free bank tail, which other screens reuse.
     undoAvail = false;

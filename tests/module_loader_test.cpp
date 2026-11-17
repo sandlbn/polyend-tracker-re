@@ -416,7 +416,7 @@ TEST(card_modules_load_in_name_order) {
     fs.files["Modules/e.otm"] = a.file();           // lands at 48: the duplicate id
     fs.files["Modules/readme.txt"] = {1, 2, 3};    // not a module
     const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, &fakeResize};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 2);
     CHECK_EQ(r.n, 5);
@@ -450,7 +450,7 @@ TEST(card_modules_wait_when_the_stack_has_no_room) {
     MemStorage fs;
     fs.files["Modules/a.otm"] = Built().file();
     const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, &fakeResize};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     gNSizes = 0;
     gResizeOk = false;
@@ -463,7 +463,7 @@ TEST(card_modules_wait_when_the_stack_has_no_room) {
 
 TEST(card_modules_without_a_pool_or_folder) {
     MemStorage fs;
-    uint8_t scratch[64];
+    uint8_t scratch[64 + kOtmScanScratchBytes];
     OtmLoadReport r;
     const OtmPool none = {nullptr, 0, 0, kCore, nullptr, nullptr, nullptr};
     CHECK_EQ(loadModuleFiles(fs, none, scratch, sizeof(scratch), &r), 0);
@@ -471,7 +471,7 @@ TEST(card_modules_without_a_pool_or_folder) {
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);   // no Modules/
     CHECK_EQ(r.n, 0);
     fs.files["Modules/big.otm"] = Built().file();
-    CHECK_EQ(loadModuleFiles(fs, pool, scratch, 40, &r), 0);   // the file is bigger than the scratch
+    CHECK_EQ(loadModuleFiles(fs, pool, scratch, kOtmListScratchBytes + 40, &r), 0);   // the file is bigger than the scratch
     CHECK(r.items[0].error == OtmError::TooBig);
 }
 
@@ -502,7 +502,7 @@ TEST(card_modules_past_the_first_kmax_by_name) {
         fs.files[name] = a.file();
     }
     const OtmPool pool = {gPoolMem, 0x1FFF8000u, sizeof(gPoolMem), kCore, &fakeSync, &fakeEnter, nullptr};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r);
     CHECK_EQ(r.n, OtmLoadReport::kMax);
@@ -518,7 +518,7 @@ TEST(card_modules_with_no_pool_room_say_so) {
     MemStorage fs;
     fs.files["Modules/a.otm"] = Built().file();
     const OtmPool pool = {gPoolMem, 0x1FFF8000u, 0, kCore, &fakeSync, &fakeEnter, &fakeResize};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
     CHECK(r.noRoom);
@@ -567,7 +567,7 @@ TEST(card_modules_share_the_fast_block) {
     pool.fastMem = fastMem;
     pool.fastBase = kFb;
     pool.fastCap = sizeof(fastMem);
-    static uint8_t scratch[256 + kOtmCutScratchBytes + 8];   // the row cuts after the file
+    static uint8_t scratch[256 + kOtmCutScratchBytes + 8 + kOtmScanScratchBytes];   // the lists and row cuts after the file
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 2);
     // Turns in 24 B: a 8, b 8, a 16; b's 16 doesn't fit.
@@ -631,7 +631,7 @@ TEST(card_synths_listed_at_boot_and_loaded_when_wanted) {
     fs.files["Modules/sa.otm"] = tagged(1);
     fs.files["Modules/sb.otm"] = tagged(2);
     const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, nullptr};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     ModuleHost& h = ModuleHost::instance();
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 1);   // only the effect stays
@@ -681,7 +681,7 @@ TEST(card_synths_first_wanted_gets_the_room) {
     fs.files["Modules/sa.otm"] = tagged(1, 96);   // 96 + 8 bss = 104 B each
     fs.files["Modules/sb.otm"] = tagged(2, 96);
     const OtmPool pool = {gSyPool, 0x20020000u, 160, kCore, nullptr, &synthEnter, nullptr};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
     CHECK_EQ(cardEngineCount(), 2);
@@ -700,7 +700,7 @@ TEST(card_synths_rescanned_after_usb_storage) {
     fs.files["Modules/fx.otm"] = tagged(0);
     fs.files["Modules/sa.otm"] = tagged(1);
     const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, nullptr};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     ModuleHost& h = ModuleHost::instance();
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 1);
@@ -752,7 +752,7 @@ TEST(card_synths_rescanned_after_usb_storage) {
 TEST(card_synths_rescanned_when_modules_was_empty_at_boot) {
     MemStorage fs;   // no Modules/ at boot
     const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, nullptr};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
     CHECK_EQ(r.n, 0);
@@ -772,7 +772,7 @@ TEST(card_synths_kept_when_the_pool_cannot_grow) {
     fs.files["Modules/sa.otm"] = tagged(1);
     fs.files["Modules/sb.otm"] = tagged(2);
     const OtmPool pool = {gSyPool, 0x20020000u, sizeof(gSyPool), kCore, nullptr, &synthEnter, &fakeResize};
-    uint8_t scratch[256];
+    uint8_t scratch[256 + kOtmScanScratchBytes];
     OtmLoadReport r;
     ModuleHost& h = ModuleHost::instance();
     CHECK_EQ(loadModuleFiles(fs, pool, scratch, sizeof(scratch), &r), 0);
@@ -811,13 +811,13 @@ TEST(row_cuts_live_in_the_scratch_tail) {
     // No room for the cuts after the file: the modules load, all from the pool.
     ModuleHost& h = ModuleHost::instance();
     auto fresh = [&] { h.removeLoaded(gRowA); h.removeLoaded(gRowB); gRowEntered = 0; };
-    uint8_t small[256];
+    static uint8_t small[256 + kOtmListScratchBytes];   // the file names, no room for the cuts
     fresh();
     CHECK_EQ(loadModuleFiles(fs, pool, small, sizeof(small), &r), 2);
     CHECK_EQ(r.fastUsed, 0u);
     CHECK_EQ(r.items[0].fastBytes, 0u);
     // With room the block is shared as before.
-    static uint8_t big[256 + kOtmCutScratchBytes + 8];
+    static uint8_t big[256 + kOtmCutScratchBytes + 8 + kOtmListScratchBytes];
     fresh();
     CHECK_EQ(loadModuleFiles(fs, pool, big, sizeof(big), &r), 2);
     CHECK_EQ(r.fastUsed, 24u);

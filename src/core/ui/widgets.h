@@ -298,7 +298,8 @@ struct ListView {
     // Sample Loader's '~' for a file that will stream from the card).
     const char* (*tag)(void* ctx, int index) = nullptr;
     // [I] (may be null): the row's text colour (0xRRGGBB), or -1 for the
-    // set's (Resample Place on: free tracks green, used ones red).
+    // set's (Resample Place on: free tracks green, used ones red; the FX bank:
+    // effects that are on in green).
     int32_t (*colour)(void* ctx, int index) = nullptr;
     void* ctx = nullptr;
 };

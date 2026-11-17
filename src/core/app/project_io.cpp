@@ -2259,7 +2259,9 @@ bool App::jobUnit(uint32_t& cost) {
                     ++pj_.loadErrors;
             }
             loadSidecarFile(dst);
-            // [I] the card synths the slots name, before their patches.
+            // [I] the card synths the slots name, before their patches,
+            // and the card effects the project has data for.
+            openCardFx();
             syncCardSynths(false);
             cost += kJobSmallCost;
             pj_.stage = kLPatch;
