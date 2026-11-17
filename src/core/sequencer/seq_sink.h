@@ -93,6 +93,9 @@ public:
     // [OT] Whether synthPreset(slot, n) would take n (0 always): asked from
     // the audio context, before the Z that sends it.
     virtual bool synthPresetTakes(uint8_t n) { (void)n; return false; }
+    // The preset the slot plays now (0: its own patch; a patch edit sets 0),
+    // asked from the audio context; -1: not known.
+    virtual int synthPresetOf(uint8_t slot) { (void)slot; return -1; }
     // Transport stop: macro overrides return to the page values.
     virtual void synthTransportStop() {}
     // [OT] The synth notes and note-offs the next step will play, in the order
