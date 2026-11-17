@@ -5,6 +5,8 @@
 // names leaves the pool.
 #include "test.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "audio/synth_engine.h"
@@ -317,3 +319,48 @@ TEST(boot_scan_again_puts_moved_rows_back_in_flash) {
     CHECK_EQ(int(r.hotCut[0]), 0);
 }
 
+
+// [I] The card pool with two large card synths (the built card modules,
+// OT_OTM_DIR: make PROFILE=full card; skipped without them): 1-Type in the
+// first slot and V-Type in the second take their main spans back to back,
+// and each card effect alone still fits after them, none of the rows in the
+// fast block (the worst case). kFullPool is Full's room for the pool on
+// 3.0.0 (Arm GNU 14.2.Rel1): _estack - (_ebss + the heap reserve, 32 B
+// aligned) - the guard - the stack floor.
+namespace {
+constexpr uint32_t kFullPool = 55168;
+bool otmHeaderOf(const char* dir, const char* name, OtmHeader* h) {
+    char path[512];
+    std::snprintf(path, sizeof path, "%s/%s", dir, name);
+    FILE* f = std::fopen(path, "rb");
+    if (!f) return false;
+    const bool ok = std::fread(h, 1, sizeof *h, f) == sizeof *h && h->magic == kOtmMagic;
+    std::fclose(f);
+    return ok;
+}
+uint32_t placeAfter(uint32_t used, const OtmHeader& h) {
+    const uint32_t at = (used + h.align - 1) & ~(h.align - 1);
+    return at + otmMainSpan(h, 0);
+}
+}  // namespace
+
+TEST(card_pool_holds_vtype_beside_onetype_and_an_effect) {
+    const char* dir = std::getenv("OT_OTM_DIR");
+    OtmHeader one, vty;
+    if (!dir || !otmHeaderOf(dir, "onetype.otm", &one) || !otmHeaderOf(dir, "vtype.otm", &vty)) {
+        std::printf("  (skipped: no onetype.otm / vtype.otm in OT_OTM_DIR)\n");
+        return;
+    }
+    CHECK(std::memcmp(vty.id, "VTY1", 4) == 0);
+    CHECK(std::memcmp(one.id, "1TY1", 4) == 0);
+    const uint32_t two = placeAfter(placeAfter(0, one), vty);
+    std::printf("  pool: 1-Type + V-Type %u of %u B\n", unsigned(two), unsigned(kFullPool));
+    CHECK(two <= kFullPool);
+    for (const char* fx : {"echo.otm", "lofi.otm", "chorus.otm"}) {
+        OtmHeader e;
+        if (!otmHeaderOf(dir, fx, &e)) continue;
+        const uint32_t all = placeAfter(two, e);
+        std::printf("  pool: + %s %u B\n", fx, unsigned(all));
+        CHECK(all <= kFullPool);
+    }
+}
