@@ -89,3 +89,33 @@ TEST(fx_list_names_the_preset_macro_on_a_preset_instrument_step) {
     CHECK(h.disp.lastHasText("b - M2 Drive"));
     closeList(h);
 }
+
+// Steps without a note follow the sequencer: the synth of the track's last
+// note; a MIDI step or a track with no synth note before keeps the CC names.
+TEST(fx_list_on_steps_without_a_note_follows_the_tracks_last_note) {
+    Harness h;
+    App& a = *h.app;
+    std::snprintf(a.synthPatch(1).macros[0].name, sizeof(a.synthPatch(1).macros[0].name), "Wobble");
+    a.setCurrentInstrument(uint8_t(kFirstSynthInstrument));   // S1: not what the step uses
+    Track& t0 = a.pattern().tracks[0];
+    t0.steps[0].note = 60;
+    t0.steps[0].instrument = uint8_t(kFirstSynthInstrument + 1);   // S2 note
+    t0.steps[1].note = -1;
+    t0.steps[1].instrument = 0;
+    h.tap(btn::Down);   // cursor on step 1 (FX only)
+    h.run(40);
+    openOnCc(h, FxId::MidiCcA);
+    CHECK(h.disp.lastHasText("a - M1 Wobble"));
+    closeList(h);
+    // No note before it on the track: nothing to set a macro on.
+    t0.steps[0].note = -1;
+    openOnCc(h, FxId::MidiCcA);
+    CHECK(h.disp.lastHasText("a - MIDI CC A"));
+    closeList(h);
+    // A MIDI instrument on the step sends the CC, after a synth note too.
+    t0.steps[0].note = 60;
+    t0.steps[1].instrument = uint8_t(kFirstMidiInstrument);
+    openOnCc(h, FxId::MidiCcA);
+    CHECK(h.disp.lastHasText("a - MIDI CC A"));
+    closeList(h);
+}
