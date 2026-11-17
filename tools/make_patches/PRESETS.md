@@ -374,14 +374,14 @@ the acid line and the pluck also scale the envelope with the velocity (M7).
 | OT Sync Sweep | Osc 2 synced to osc 1, its pitch swept down by the mod envelope; M6 the sweep. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sweep (+-) |
 | OT FM Pluck Bass | A sine carrier frequency-modulated by a triangle, the FM falling with the mod envelope, a sine sub. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, FM (+-) |
 | OT Square Sub Bass | A saw with a square sub an octave down through a dark LP24 with a quick envelope; M6 the sub. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sub (+-) |
-| OT Diode Acid | A saw into the resonant LPDL type with a snappy envelope, saturation and legato glide; M6 the drive. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Drive (+-) |
+| OT Acid Line | A saw into the resonant LPDL type (it plays as LP24) with a snappy envelope, saturation and legato glide; M6 the drive. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Drive (+-) |
 | OT Noise Swell | Noise into a resonant BP12 swept by LFO 1 synced to a bar, slow attack; M6 the mix with osc 1. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
-| OT Wobble | Saw and pulse through LP24, LFO 1 synced to 1/8 on the cutoff, saturation; M5 the wobble's depth. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
+| OT Wobble | A saw and a pulse an octave down through LP24, LFO 1 synced to 1/8 on the cutoff, saturation; M5 the wobble's depth. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
 | OT Ring Metal Bell | The ring of a sine and a triangle off the keyboard, a long decay: a metallic bell; M6 osc 2's pitch. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Ring Pitch (+-) |
 | OT PWM Wash | Two pulses, the width swept by LFO 1, an open LP12, slow attack and release, spread; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
 | OT Soft Strings | A detuned saw and a second saw, a gentle LP12, slow attack, a slight vibrato; M6 the detune. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Detune (+-) |
 | OT Short Pluck | Saw and pulse an octave up through LP12 opened by a fast envelope that falls to nothing; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
-| OT Hollow Keys | A narrow pulse with a triangle sub an octave down through HP12: hollow keys; M6 the sub. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sub (+-) |
+| OT Hollow Keys | A narrow pulse (10 % duty) with a triangle sub an octave down through HP12: hollow keys; M6 the sub. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sub (+-) |
 
 ## FM4 (12)
 
