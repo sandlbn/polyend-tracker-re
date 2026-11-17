@@ -135,7 +135,8 @@ void perform(Slot& s, const presets::Preset& p, int poly) {
     if (p.engine == presets::kJu6Engine) m = SynthModel::VAP;
     else if (p.engine == presets::kDtypeEngine || p.engine == presets::kAtypeEngine) m = SynthModel::ACD;
     else if (p.engine == presets::kCstypeEngine || p.engine == presets::kEightEngine || p.engine == presets::kBtypeEngine ||
-             p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine || p.engine == presets::kOnetypeEngine)
+             p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine || p.engine == presets::kOnetypeEngine ||
+             p.engine == presets::kVtypeEngine)
         m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
     else if (p.engine == presets::kHandEngine) m = handKit(p) ? SynthModel::PERC : SynthModel::ACD;
     else if (m == SynthModel::FAT || m == SynthModel::WTFM) m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
@@ -223,7 +224,8 @@ void perform(Slot& s, const presets::Preset& p, int poly) {
 int polyFor(const presets::Preset& p) {
     if (p.engine == presets::kTtypeEngine) return 1;   // one voice owns the kit
     if (p.engine == presets::kEightEngine || p.engine == presets::kHandEngine || p.engine == presets::kBtypeEngine ||
-        p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine || p.engine == presets::kOnetypeEngine)
+        p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine || p.engine == presets::kOnetypeEngine ||
+             p.engine == presets::kVtypeEngine)
         return p.playPoly;
     if (p.engine == presets::kJu6Engine) return 4;
     if (p.engine == presets::kDtypeEngine || p.engine == presets::kAtypeEngine) return 1;
@@ -246,7 +248,7 @@ Pack& pack() {
 
 TEST(presets_names_counts_and_macros) {
     int acd = 0, fat = 0, vap = 0, wtfm = 0, perc = 0, ju6 = 0, dtype = 0, cstype = 0, atype = 0, ttype = 0;
-    int eight = 0, hand = 0, btype = 0, arc = 0, onetype = 0;
+    int eight = 0, hand = 0, btype = 0, arc = 0, onetype = 0, vtype = 0, vtypeRouted = 0;
     std::vector<std::string> names;
     for (const presets::Preset& p : presets::all()) {
         const int32_t e = presets::engineOf(p);
@@ -265,6 +267,12 @@ TEST(presets_names_counts_and_macros) {
         btype += e == presets::kBtypeEngine;
         arc += e == presets::kArcEngine;
         onetype += e == presets::kOnetypeEngine;
+        vtype += e == presets::kVtypeEngine;
+#if defined(OT_MOD_VTY1)
+        if (e == presets::kVtypeEngine)   // V-Type: the patches that use both filters (not Single)
+            for (const presets::Edit& ed : p.edits)
+                if (ed.index == ot::audio::vtype::kRouting && ed.value > 0.5f) ++vtypeRouted;
+#endif
         if (e == presets::kHandEngine && handKit(p)) CHECK(p.playPoly >= 4);   // a kit: a voice per hit
         if (e == presets::kDtypeEngine || e == presets::kAtypeEngine) CHECK_EQ(p.playPoly, 1);   // mono / Duo
         if (e == presets::kTtypeEngine) {   // a kit: Poly 1, "OT Kit " names
@@ -285,7 +293,8 @@ TEST(presets_names_counts_and_macros) {
     }
     std::printf("  presets: ACD %d, FAT %d, VAP %d, WTFM %d, PERC %d, JU6 %d, D-Type %d, CS-Type %d, A-Type %d, T-Type %d\n", acd,
                 fat, vap, wtfm, perc, ju6, dtype, cstype, atype, ttype);
-    std::printf("  presets: 8-Type %d, Hand-Type %d, B-Type %d, Arc-Type %d, 1-Type %d\n", eight, hand, btype, arc, onetype);
+    std::printf("  presets: 8-Type %d, Hand-Type %d, B-Type %d, Arc-Type %d, 1-Type %d, V-Type %d (%d routed)\n", eight, hand,
+                btype, arc, onetype, vtype, vtypeRouted);
 #if defined(OT_MOD_ACD1)
     CHECK(acd >= 10);
 #endif
@@ -331,12 +340,18 @@ TEST(presets_names_counts_and_macros) {
 #if defined(OT_MOD_1TY1)
     CHECK(onetype >= 12);
 #endif
+#if defined(OT_MOD_VTY1)
+    CHECK(vtype >= 12);
+    CHECK(vtypeRouted >= 8);
+#endif
     (void)ttype;
     (void)eight;
     (void)hand;
     (void)btype;
     (void)arc;
     (void)onetype;
+    (void)vtype;
+    (void)vtypeRouted;
 }
 
 TEST(presets_save_and_load_through_the_app) {

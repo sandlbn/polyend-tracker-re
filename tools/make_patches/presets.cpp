@@ -62,6 +62,9 @@
 #if defined(OT_MOD_1TY1)
 #include "onetype.h"
 #endif
+#if defined(OT_MOD_VTY1)
+#include "vtype.h"
+#endif
 #if defined(OT_MOD_FM4S)
 #include "fm4.h"
 #endif
@@ -2209,6 +2212,111 @@ std::vector<Preset> onetypePresets() {
 #undef OT1_NO_LFO
 #endif  // OT_MOD_1TY1
 
+#if defined(OT_MOD_VTY1)
+// ---------------------------------------------------------------------------
+// V-Type (module VTY1, engine 0x8B, Patches/VTYPE/): a swarm-oscillator
+// virtual analog voice in the style of the late-90s desktop VA synths: the
+// Swarm (1..7 detuned saws) and osc 2 into two filters with Drive between
+// them, routed Single / Serial / Parallel / Split. Our own patches, each built
+// from the Init patch; nine of the twelve use a routing with both filters.
+// M1-M4 the same on every patch (Cutoff 1+2, Resonance 1+2, Env Amt 1+2,
+// Decay), M5 Detune, M6 the patch's own (Drive where the patch drives).
+namespace vt1 = ot::audio::vtype;
+
+Macro vtCutoff(float hz1, float hz2) { return {"Cutoff", true, {{vt1::kF1Cutoff, hz1 / 19980.0f}, {vt1::kF2Cutoff, hz2 / 19980.0f}}}; }
+Macro vtRes(float a = 0.25f) { return {"Resonance", true, {{vt1::kF1Reso, a}, {vt1::kF2Reso, a}}}; }
+Macro vtEnv(float a = 0.15f) { return {"Env Amt", true, {{vt1::kF1Env, a}, {vt1::kF2Env, a}}}; }
+Macro vtDecay(float s) { return {"Decay", true, {{vt1::kAmpD, s / 10.0f}, {vt1::kAmpR, s / 10.0f}, {vt1::kE1D, s / 10.0f}}}; }
+Macro vtDetune(float a = 0.5f) { return {"Detune", false, {{vt1::kDetune, a}}}; }
+Macro vtDrive(float a = 0.3f) { return {"Drive", true, {{vt1::kDrive, a}}}; }
+// Velocity (M7) -> Env Amt 1 on the plucks, leads and basses.
+const std::vector<Target> kVtVelEnv = {{vt1::kF1Env, 0.25f}};
+constexpr int kVtSpread = vt1::kParamCount + 1;   // the Spread extension parameter
+#define VT_MOD(k, src, dst, amt) {vt1::modSrc(k), float(src)}, {vt1::modDest(k), float(dst)}, {vt1::modAmt(k), amt}
+
+std::vector<Preset> vtypePresets() {
+    const SynthModel F = SynthModel::ACD;   // the Mini fallback model of the slot record
+    const int32_t E = kVtypeEngine;
+    return {
+        {F, "OT Laser Lead", "Seven tightly detuned saws, Serial LP24 into HP12 with Soft drive between, legato glide; velocity to the envelope.", 1,
+         {{vt1::kCount, 3.0f}, {vt1::kDetune, 0.25f}, {vt1::kSwarmMix, 0.7f}, {vt1::kRouting, float(vt1::kSerial)},
+          {vt1::kF1Type, float(vt1::kLp24)}, {vt1::kF1Cutoff, 2500.0f}, {vt1::kF1Reso, 0.35f}, {vt1::kF1Env, 0.25f}, {vt1::kF1Key, 0.5f},
+          {vt1::kF2Type, float(vt1::kHp12)}, {vt1::kF2Cutoff, 150.0f}, {vt1::kDrive, 0.35f}, {vt1::kE1D, 0.4f}, {vt1::kE1S, 0.4f},
+          {vt1::kAmpS, 0.9f}, {vt1::kAmpR, 0.25f}, {vt1::kGlideMode, float(vt1::kLegato)}, {vt1::kGlideTime, 0.07f}, {vt1::kVolume, 1.7f}},
+         {vtCutoff(1500, 100), vtRes(), vtEnv(), vtDecay(0.4f), vtDetune(), vtDrive()}, E, kVtVelEnv},
+        {F, "OT Growl Low", "Three wide saws and a square sub, Serial LP24 into LP12, LFO 2 slowly moving filter 2: a moving low bass; M6 the growl.", 1,
+         {{vt1::kCount, 1.0f}, {vt1::kDetune, 0.8f}, {vt1::kSwarmMix, 0.8f}, {vt1::kSubLevel, 0.6f}, {vt1::kRouting, float(vt1::kSerial)},
+          {vt1::kF1Type, float(vt1::kLp24)}, {vt1::kF1Cutoff, 500.0f}, {vt1::kF1Reso, 0.4f}, {vt1::kF1Env, 0.35f}, {vt1::kF1Key, 0.2f},
+          {vt1::kF2Type, float(vt1::kLp12)}, {vt1::kF2Cutoff, 900.0f}, {vt1::kF2Reso, 0.3f}, {vt1::kL2Rate, 0.4f},
+          VT_MOD(0, vt1::kSrcLfo2, vt1::kDstCutoff2, 0.15f), {vt1::kE1D, 0.3f}, {vt1::kE1S, 0.2f}, {vt1::kAmpS, 1.0f},
+          {vt1::kAmpR, 0.12f}, {vt1::kVolume, 0.9f}},
+         {vtCutoff(400, 600), vtRes(), vtEnv(), vtDecay(0.3f), vtDetune(0.3f), {"Growl", true, {{vt1::modAmt(0), 0.1f}}}}, E, kVtVelEnv},
+        {F, "OT Sync Razor", "Osc 2 hard-synced to the centre saw, Env 2 sweeping its pitch down, through a resonant BP12: a tearing lead; M6 the sweep.", 1,
+         {{vt1::kCount, 0.0f}, {vt1::kBalance, 0.6f}, {vt1::kO2Wave, float(vt1::kO2Saw)}, {vt1::kO2Sync, 1.0f}, {vt1::kO2Semi, 12.0f},
+          {vt1::kF1Type, float(vt1::kBp12)}, {vt1::kF1Cutoff, 1800.0f}, {vt1::kF1Reso, 0.3f}, {vt1::kF1Env, 0.2f}, {vt1::kF1Key, 0.4f},
+          {vt1::kE2D, 0.6f}, VT_MOD(0, vt1::kSrcEnv2, vt1::kDstO2Pitch, 0.6f), {vt1::kAmpS, 0.9f}, {vt1::kVolume, 1.4f}},
+         {vtCutoff(1500, 0), vtRes(), vtEnv(), vtDecay(0.4f), vtDetune(), {"Sweep", true, {{vt1::modAmt(0), 0.15f}}}}, E, kVtVelEnv},
+        {F, "OT Fold Acid", "One saw into a resonant LP24, Fold between the filters, LP12 after, a snappy envelope and legato glide; M6 the fold.", 1,
+         {{vt1::kCount, 0.0f}, {vt1::kRouting, float(vt1::kSerial)}, {vt1::kF1Type, float(vt1::kLp24)}, {vt1::kF1Cutoff, 450.0f},
+          {vt1::kF1Reso, 0.75f}, {vt1::kF1Env, 0.55f}, {vt1::kF1Key, 0.2f}, {vt1::kDrive, 0.35f}, {vt1::kCurve, float(vt1::kFold)},
+          {vt1::kF2Type, float(vt1::kLp12)}, {vt1::kF2Cutoff, 2500.0f}, {vt1::kF2Reso, 0.2f}, {vt1::kE1D, 0.25f}, {vt1::kE1S, 0.0f},
+          {vt1::kAmpS, 1.0f}, {vt1::kAmpR, 0.1f}, {vt1::kGlideMode, float(vt1::kLegato)}, {vt1::kGlideTime, 0.06f}, {vt1::kVolume, 2.0f}},
+         {vtCutoff(300, 1500), vtRes(0.15f), vtEnv(), vtDecay(0.3f), vtDetune(), vtDrive()}, E, kVtVelEnv},
+        {F, "OT Sub Tunnel", "One saw and a sine sub an octave down through a dark LP24 with a short envelope: a deep plain bass; M6 the sub.", 1,
+         {{vt1::kCount, 0.0f}, {vt1::kSubLevel, 0.9f}, {vt1::kSubWave, float(vt1::kSubSine)}, {vt1::kF1Cutoff, 300.0f},
+          {vt1::kF1Reso, 0.15f}, {vt1::kF1Env, 0.4f}, {vt1::kE1D, 0.2f}, {vt1::kE1S, 0.0f}, {vt1::kAmpD, 0.5f}, {vt1::kAmpS, 0.9f},
+          {vt1::kAmpR, 0.12f}, {vt1::kVolume, 1.6f}},
+         {vtCutoff(300, 0), vtRes(), vtEnv(), vtDecay(0.3f), vtDetune(), {"Sub", true, {{vt1::kSubLevel, 0.3f}}}}, E, kVtVelEnv},
+        {F, "OT Anthem Stack", "Seven saws at a high Swarm Mix, Serial LP12 into HP12, a long release and spread: the big chord sound; M6 the mix.", 4,
+         {{vt1::kCount, 3.0f}, {vt1::kDetune, 0.45f}, {vt1::kSwarmMix, 0.85f}, {vt1::kRouting, float(vt1::kSerial)},
+          {vt1::kF1Type, float(vt1::kLp12)}, {vt1::kF1Cutoff, 4500.0f}, {vt1::kF1Reso, 0.15f}, {vt1::kF1Env, 0.1f},
+          {vt1::kF2Type, float(vt1::kHp12)}, {vt1::kF2Cutoff, 200.0f}, {vt1::kAmpA, 0.01f}, {vt1::kAmpD, 1.0f}, {vt1::kAmpS, 0.85f},
+          {vt1::kAmpR, 1.2f}, {kVtSpread, 0.5f}, {vt1::kVolume, 0.55f}},
+         {vtCutoff(3000, 150), vtRes(), vtEnv(), vtDecay(1.0f), vtDetune(0.4f), {"Swarm Mix", true, {{vt1::kSwarmMix, 0.3f}}}}, E},
+        {F, "OT Swarm Pluck", "Seven saws through LP24 opened by a fast Env 1 that falls to nothing, key tracked; velocity to the envelope.", 4,
+         {{vt1::kCount, 3.0f}, {vt1::kDetune, 0.35f}, {vt1::kSwarmMix, 0.7f}, {vt1::kF1Cutoff, 600.0f}, {vt1::kF1Reso, 0.3f},
+          {vt1::kF1Env, 0.55f}, {vt1::kF1Key, 0.6f}, {vt1::kE1D, 0.22f}, {vt1::kE1S, 0.0f}, {vt1::kAmpD, 0.5f}, {vt1::kAmpS, 0.0f},
+          {vt1::kAmpR, 0.4f}, {vt1::kVolume, 0.65f}},
+         {vtCutoff(500, 0), vtRes(), vtEnv(), vtDecay(0.4f), vtDetune(), {"Pluck", true, {{vt1::kE1D, 0.02f}}}}, E, kVtVelEnv},
+        {F, "OT Glass Shimmer", "Five saws through LP12 and a resonant BP12 in Parallel, LFO 2 slowly moving the balance: a shimmering pad; M6 the shimmer.", 4,
+         {{vt1::kDetune, 0.4f}, {vt1::kRouting, float(vt1::kParallel)}, {vt1::kFltBalance, 0.0f}, {vt1::kF1Type, float(vt1::kLp12)},
+          {vt1::kF1Cutoff, 2500.0f}, {vt1::kF1Reso, 0.2f}, {vt1::kF1Env, 0.05f}, {vt1::kF2Type, float(vt1::kBp12)},
+          {vt1::kF2Cutoff, 1800.0f}, {vt1::kF2Reso, 0.5f}, {vt1::kL2Rate, 0.15f}, {vt1::kL2Wave, float(vt1::kSine)},
+          VT_MOD(0, vt1::kSrcLfo2, vt1::kDstFltBalance, 0.4f), {vt1::kAmpA, 0.8f}, {vt1::kAmpD, 1.0f}, {vt1::kAmpS, 0.9f},
+          {vt1::kAmpR, 2.0f}, {kVtSpread, 0.6f}, {vt1::kVolume, 0.6f}},
+         {vtCutoff(2000, 1500), vtRes(), vtEnv(), vtDecay(1.5f), vtDetune(), {"Shimmer", true, {{vt1::modAmt(0), 0.2f}}}}, E},
+        {F, "OT Split Choir", "Split: the Swarm left through a band pass, a slowly width-modulated pulse right through LP12: a wide vocal pad; M6 the width.", 4,
+         {{vt1::kDetune, 0.3f}, {vt1::kBalance, 0.0f}, {vt1::kO2Wave, float(vt1::kO2Pulse)}, {vt1::kO2Pw, 0.35f},
+          {vt1::kRouting, float(vt1::kSplit)}, {vt1::kFltBalance, 0.0f}, {vt1::kSplitWidth, 0.8f}, {vt1::kF1Type, float(vt1::kBp12)},
+          {vt1::kF1Cutoff, 900.0f}, {vt1::kF1Reso, 0.45f}, {vt1::kF1Env, 0.0f}, {vt1::kF2Type, float(vt1::kLp12)}, {vt1::kF2Cutoff, 2200.0f},
+          {vt1::kF2Reso, 0.1f}, {vt1::kL1Rate, 0.5f}, VT_MOD(0, vt1::kSrcLfo1, vt1::kDstPw, 0.5f), {vt1::kAmpA, 0.5f}, {vt1::kAmpS, 0.9f},
+          {vt1::kAmpR, 1.5f}, {vt1::kVolume, 0.7f}},
+         {vtCutoff(700, 1500), vtRes(), vtEnv(), vtDecay(1.2f), vtDetune(), {"Width", true, {{vt1::kSplitWidth, 0.3f}}}}, E},
+        {F, "OT Rave Stab", "Five saws and osc 2 an octave down, Env 2 dropping the pitch, Serial LP24 into HP12 with Hard drive: a short stab; M6 the drive.", 4,
+         {{vt1::kDetune, 0.55f}, {vt1::kBalance, -0.2f}, {vt1::kO2Wave, float(vt1::kO2Saw)}, {vt1::kO2Semi, -12.0f}, {vt1::kE2D, 0.15f},
+          VT_MOD(0, vt1::kSrcEnv2, vt1::kDstPitch, -0.4f), {vt1::kRouting, float(vt1::kSerial)}, {vt1::kF1Cutoff, 1800.0f},
+          {vt1::kF1Reso, 0.3f}, {vt1::kF1Env, 0.35f}, {vt1::kF2Type, float(vt1::kHp12)}, {vt1::kF2Cutoff, 180.0f}, {vt1::kDrive, 0.4f},
+          {vt1::kCurve, float(vt1::kHard)}, {vt1::kE1D, 0.3f}, {vt1::kE1S, 0.2f}, {vt1::kAmpD, 0.35f}, {vt1::kAmpS, 0.0f},
+          {vt1::kAmpR, 0.25f}, {vt1::kVolume, 0.9f}},
+         {vtCutoff(1200, 120), vtRes(), vtEnv(), vtDecay(0.3f), vtDetune(), vtDrive()}, E, kVtVelEnv},
+        {F, "OT Noise Tide", "Coloured noise and saws through HP12 and LP12 in Parallel, a tempo-synced LFO on both cutoffs, slow swell; M6 the noise.", 4,
+         {{vt1::kBalance, -0.3f}, {vt1::kNoise, 0.7f}, {vt1::kColour, 0.3f}, {vt1::kRouting, float(vt1::kParallel)}, {vt1::kFltBalance, 0.0f},
+          {vt1::kF1Type, float(vt1::kHp12)}, {vt1::kF1Cutoff, 3000.0f}, {vt1::kF1Reso, 0.3f}, {vt1::kF1Env, 0.0f}, {vt1::kF1Key, 0.0f},
+          {vt1::kF2Type, float(vt1::kLp12)}, {vt1::kF2Cutoff, 900.0f}, {vt1::kF2Reso, 0.4f}, {vt1::kL1Sync, 6.0f},
+          VT_MOD(0, vt1::kSrcLfo1, vt1::kDstCutoff12, 0.15f), {vt1::kAmpA, 1.0f}, {vt1::kAmpD, 2.0f}, {vt1::kAmpS, 0.8f},
+          {vt1::kAmpR, 2.0f}, {kVtSpread, 0.4f}, {vt1::kVolume, 0.6f}},
+         {vtCutoff(2000, 600), vtRes(), vtEnv(), vtDecay(1.5f), vtDetune(), {"Noise", true, {{vt1::kNoise, 0.3f}}}}, E},
+        {F, "OT Ring Glint", "Split: one saw left through a band pass, osc 2 a twelfth up ringing against the centre saw right through HP12, a short decay; M6 the ring.", 4,
+         {{vt1::kCount, 0.0f}, {vt1::kBalance, 0.2f}, {vt1::kO2Wave, float(vt1::kO2Sine)}, {vt1::kO2Semi, 19.0f}, {vt1::kRing, 0.8f},
+          {vt1::kRouting, float(vt1::kSplit)}, {vt1::kFltBalance, 0.0f}, {vt1::kSplitWidth, 0.6f}, {vt1::kF1Type, float(vt1::kBp12)},
+          {vt1::kF1Cutoff, 2000.0f}, {vt1::kF1Reso, 0.3f}, {vt1::kF1Env, 0.0f}, {vt1::kF2Type, float(vt1::kHp12)}, {vt1::kF2Cutoff, 400.0f},
+          {vt1::kAmpD, 1.5f}, {vt1::kAmpS, 0.0f}, {vt1::kAmpR, 1.2f}, {vt1::kVolume, 1.3f}},
+         {vtCutoff(1500, 300), vtRes(), vtEnv(), vtDecay(1.0f), vtDetune(), {"Ring", true, {{vt1::kRing, 0.3f}}}}, E},
+    };
+}
+#undef VT_MOD
+#endif  // OT_MOD_VTY1
+
 void fill(ot::PatchMacro& m, const Macro& d) {
     std::snprintf(m.name, sizeof(m.name), "%s", d.name);
     m.nameLen = uint8_t(std::strlen(m.name));
@@ -2277,6 +2385,9 @@ const std::vector<Preset>& all() {
 #endif
 #if defined(OT_MOD_1TY1)
         add(onetypePresets());
+#endif
+#if defined(OT_MOD_VTY1)
+        add(vtypePresets());
 #endif
 #if defined(OT_MOD_FM4S)
         add(fm4Presets());
@@ -2448,6 +2559,14 @@ std::string markdown() {
                      "key sync. Its .sy1 patches convert with `reimpl/tools/sy1_to_patch`. M1 Cutoff, M2 Resonance, M3 Env\n"
                      "Amt, M4 Decay (with the release and the filter decay), M5 LFO 1 Depth, M6 the patch's own. Leads,\n"
                      "the acid line and the pluck also scale the envelope with the velocity (M7).\n\n";
+            if (cur == kVtypeEngine)
+                o += "V-Type is a card module engine (3.x, module VTY1, folder `Patches/VTYPE/`): a swarm-oscillator virtual\n"
+                     "analog voice in the style of the late-90s desktop VA synths. The Swarm (1 / 3 / 5 / 7 detuned saws, a\n"
+                     "sub) and osc 2 (sync, ring, PW) with noise feed two filters (LP12 / LP24 / BP12 / HP12) with Drive\n"
+                     "between them, routed Single, Serial, Parallel or Split (Swarm left, osc 2 right); three envelopes, two\n"
+                     "LFOs, a 4-slot matrix. M1 Cutoff, M2 Resonance, M3 Env Amt (both filters each), M4 Decay (with the\n"
+                     "release and Env 1's decay), M5 Detune, M6 the patch's own. Leads, basses, plucks and the stab also\n"
+                     "scale filter 1's envelope with the velocity (M7).\n\n";
             if (cur == kFm4Engine)
                 o += "FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight\n"
                      "algorithms, feedback on operator 1, per operator Mult (x0.5, x1 .. x15), Detune, Level and a\n"

@@ -383,6 +383,31 @@ the acid line and the pluck also scale the envelope with the velocity (M7).
 | OT Short Pluck | Saw and pulse an octave up through LP12 opened by a fast envelope that falls to nothing; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
 | OT Hollow Keys | A narrow pulse (10 % duty) with a triangle sub an octave down through HP12: hollow keys; M6 the sub. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sub (+-) |
 
+## V-Type (12)
+
+V-Type is a card module engine (3.x, module VTY1, folder `Patches/VTYPE/`): a swarm-oscillator virtual
+analog voice in the style of the late-90s desktop VA synths. The Swarm (1 / 3 / 5 / 7 detuned saws, a
+sub) and osc 2 (sync, ring, PW) with noise feed two filters (LP12 / LP24 / BP12 / HP12) with Drive
+between them, routed Single, Serial, Parallel or Split (Swarm left, osc 2 right); three envelopes, two
+LFOs, a 4-slot matrix. M1 Cutoff, M2 Resonance, M3 Env Amt (both filters each), M4 Decay (with the
+release and Env 1's decay), M5 Detune, M6 the patch's own. Leads, basses, plucks and the stab also
+scale filter 1's envelope with the velocity (M7).
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Laser Lead | Seven tightly detuned saws, Serial LP24 into HP12 with Soft drive between, legato glide; velocity to the envelope. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Drive (+-) |
+| OT Growl Low | Three wide saws and a square sub, Serial LP24 into LP12, LFO 2 slowly moving filter 2: a moving low bass; M6 the growl. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Growl (+-) |
+| OT Sync Razor | Osc 2 hard-synced to the centre saw, Env 2 sweeping its pitch down, through a resonant BP12: a tearing lead; M6 the sweep. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Sweep (+-) |
+| OT Fold Acid | One saw into a resonant LP24, Fold between the filters, LP12 after, a snappy envelope and legato glide; M6 the fold. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Drive (+-) |
+| OT Sub Tunnel | One saw and a sine sub an octave down through a dark LP24 with a short envelope: a deep plain bass; M6 the sub. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Sub (+-) |
+| OT Anthem Stack | Seven saws at a high Swarm Mix, Serial LP12 into HP12, a long release and spread: the big chord sound; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Swarm Mix (+-) |
+| OT Swarm Pluck | Seven saws through LP24 opened by a fast Env 1 that falls to nothing, key tracked; velocity to the envelope. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Pluck (+-) |
+| OT Glass Shimmer | Five saws through LP12 and a resonant BP12 in Parallel, LFO 2 slowly moving the balance: a shimmering pad; M6 the shimmer. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Shimmer (+-) |
+| OT Split Choir | Split: the Swarm left through a band pass, a slowly width-modulated pulse right through LP12: a wide vocal pad; M6 the width. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Width (+-) |
+| OT Rave Stab | Five saws and osc 2 an octave down, Env 2 dropping the pitch, Serial LP24 into HP12 with Hard drive: a short stab; M6 the drive. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Drive (+-) |
+| OT Noise Tide | Coloured noise and saws through HP12 and LP12 in Parallel, a tempo-synced LFO on both cutoffs, slow swell; M6 the noise. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Noise (+-) |
+| OT Ring Glint | Split: one saw left through a band pass, osc 2 a twelfth up ringing against the centre saw right through HP12, a short decay; M6 the ring. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Ring (+-) |
+
 ## FM4 (12)
 
 FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight
@@ -407,4 +432,4 @@ Release, M5 Vibrato.
 | OT 4-Op Sub | 1 > 2 + 3 > 4: a clean x0.5 sine with a touch of x1 harmonics on the attack: sub bass for house and dub. | 1 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Upper (+-) |
 | OT 4-Op Flute | 1 > 2 > 3 > 4 at low levels with a slow attack and vibrato: a breathy, hollow flute; mono. | 1 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Breath (+-) |
 
-Total: 214 patches.
+Total: 226 patches.
