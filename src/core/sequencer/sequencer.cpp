@@ -317,7 +317,10 @@ void Sequencer::expectNextStep() {
             uint8_t in = s.instrument;
             if (!isSynth(in) && s.note < 0 && isSynth(tr.last.instr)) in = tr.last.instr;
             if (!isSynthSlotInstrument(in)) continue;
-            if (s.fx[1 - c].type == 4 || presetCmdIndex(s.fx[c].value) != zCur(synthSlotOf(in))) return;
+            // The bank's own record: a patch edit takes the slot off its preset.
+            const int slot = synthSlotOf(in);
+            const int cur = sink_->synthPresetOf(uint8_t(slot));
+            if (s.fx[1 - c].type == 4 || presetCmdIndex(s.fx[c].value) != (cur >= 0 ? cur : zCur(slot))) return;
         }
     }
     SynthExpectNote out[kTracks * 2];
