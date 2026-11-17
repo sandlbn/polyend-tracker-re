@@ -170,9 +170,10 @@ says "Loads at Stop"). Every load stops the synth voices. A synth that doesn't f
 pool stays unloaded, with "Card memory full" on its slot; the first slot gets the room
 first, and two slots on one engine load it once. A profile entry with `card = true`
 stays out of the image, and `make card` builds it into `build/<profile>/otm/`; the host
-builds (tests, simulator, tools) compile it in. `full` lists the ten synths it doesn't
-build in (FM4S, JU6S, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand, B-Type, ARC) as card
-modules, so its image stays the same and any of them can come from the card.
+builds (tests, simulator, tools) compile it in. `full` lists the eleven synths it doesn't
+build in (FM4S, JU6S, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand, B-Type, ARC, 1-Type) as
+card modules, so its image stays the same and any of them can come from the card. 1-Type's
+.sy1 patches convert on a computer with `tools/sy1_to_patch` (Patches/1TYPE/).
 Leaving USB Storage mode lists `Modules/` again, so a synth module added, replaced or
 removed from a computer takes effect without a restart. A module loaded for good at boot (no synth engines, or an effect that is also
 a slot insert) stays as the boot loaded it and still needs one.
