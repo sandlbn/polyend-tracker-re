@@ -1501,3 +1501,87 @@ TEST(synth_expect_leaves_a_perc_kit_to_its_hand_over) {
     r.bank.expect(ac, 1);
     CHECK_EQ(r.bank.steals(), 1u);
 }
+
+// A note queued past the start cap starts with the step's first note-on, so
+// the step's note-offs before it come first: the queued note takes the voice
+// just released, not a held one, announced or not.
+TEST(synth_expect_a_queued_note_after_the_steps_leading_note_off) {
+    for (int withExpect = 0; withExpect < 2; ++withExpect) {
+        BankRig r(2, 2, 2, 8, 3);
+        r.on(0, 0, 60);
+        r.block();
+        r.on(1, 0, 62);
+        r.block();
+        r.block();
+        // three starts fill the start cap; the fourth (slot 0, full) is queued
+        r.on(4, 1, 50);
+        r.on(5, 1, 52);
+        r.on(6, 2, 54);
+        r.on(7, 0, 70);
+        CHECK_EQ(r.bank.queuedNotes(), 1);
+        const SynthExpectNote ex[2] = {{1, 0, 0, 1}, {8, 2, 40, 0}};
+        if (withExpect) r.bank.expect(ex, 2);
+        r.block();
+        r.bank.noteOff(1, NoteOffMode::Off);   // the step: track 1's note-off, then a note
+        r.on(8, 2, 40);
+        r.block();
+        r.block();
+        CHECK(r.bank.voiceOfTrack(0) != nullptr);   // the held note sounds on
+        CHECK(r.bank.voiceOfTrack(7) != nullptr);
+    }
+}
+
+// The queue due since an earlier block starts in the next block's render,
+// before the step and its note-offs: the held note is taken, announced or not.
+TEST(synth_expect_a_queue_due_before_the_step_starts_first) {
+    int held[2] = {0, 0};
+    for (int withExpect = 0; withExpect < 2; ++withExpect) {
+        BankRig r(2, 2, 2, 8, 3);
+        r.on(0, 0, 60);
+        r.block();
+        r.on(1, 0, 62);
+        r.block();
+        r.block();
+        r.on(4, 1, 50);
+        r.on(5, 1, 52);
+        r.on(6, 2, 54);
+        r.on(7, 0, 70);
+        CHECK_EQ(r.bank.queuedNotes(), 1);
+        r.block();   // the queue is due now
+        const SynthExpectNote ex[2] = {{1, 0, 0, 1}, {8, 2, 40, 0}};
+        if (withExpect) r.bank.expect(ex, 2);
+        r.block();   // its render starts the queue
+        held[withExpect] = r.bank.voiceOfTrack(0) != nullptr;
+        r.bank.noteOff(1, NoteOffMode::Off);
+        r.on(8, 2, 40);
+        r.block();
+    }
+    CHECK_EQ(held[0], held[1]);
+}
+
+// Two queued notes on a full slot and the step's leading note-off for the
+// first one's track: it ends that note before the second starts, which takes
+// its voice; the held note sounds on, announced or not.
+TEST(synth_expect_a_leading_note_off_of_a_queued_track) {
+    int held[2] = {0, 0};
+    for (int withExpect = 0; withExpect < 2; ++withExpect) {
+        BankRig r(2, 2, 2, 8, 3);
+        r.on(0, 0, 60);
+        r.block();
+        r.block();
+        r.on(4, 1, 50);
+        r.on(5, 1, 52);
+        r.on(6, 2, 54);
+        r.on(7, 0, 70);
+        r.on(2, 0, 72);
+        CHECK_EQ(r.bank.queuedNotes(), 2);
+        const SynthExpectNote ex[2] = {{7, 0, 0, 1}, {8, 2, 40, 0}};
+        if (withExpect) r.bank.expect(ex, 2);
+        r.block();
+        r.bank.noteOff(7, NoteOffMode::Off);
+        r.on(8, 2, 40);
+        r.block();
+        held[withExpect] = r.bank.voiceOfTrack(0) != nullptr;
+    }
+    CHECK_EQ(held[0], held[1]);
+}
