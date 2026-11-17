@@ -1315,8 +1315,9 @@ void SynthBank::noteOff(int track, NoteOffMode mode) {
 
 // [3.x] Steal ahead (header). The step's notes run through the rules of
 // noteOnNow / noteOff (release, steal in the slot, else globally) on a copy of
-// the records, in their order, after the notes queued for the next block; the
-// sounding voices that copy takes fade now. Whatever the copy cannot follow
+// the records, in their order, with the notes queued past the start cap where
+// the bank starts them (before the step, or at its first note-on, after its
+// leading note-offs); the sounding voices that copy takes fade now. Whatever the copy cannot follow
 // exactly (a bind, a preset note, a kit or note-priority slot) announces
 // nothing: the step then steals in its own block as before.
 __attribute__((noinline)) void SynthBank::expect(const SynthExpectNote* notes, int count) {
@@ -1446,15 +1447,39 @@ __attribute__((noinline)) void SynthBank::expect(const SynthExpectNote* notes, i
         v[nv] = Rec{int8_t(s), note, 1, 1, -1, 0, ++serial, 0.0f, 0.0f};
         tv[t] = int8_t(nv++);
     };
-    for (int i = 0; i < nDefer_ && ok; ++i) {   // the queued notes start first
+    auto queued = [&](int t) {
+        for (int i = 0; i < nDefer_; ++i)
+            if (defer_[i].track == t) return true;
+        return false;
+    };
+    for (int i = 0; i < nDefer_; ++i)   // not followed: checked before anything moves
+        if (defer_[i].track >= 0 && ((defer_[i].nfx & kDeferBound) || defer_[i].n.preset)) return;
+    // Unless the queue starts in this block's render (due since an earlier
+    // block), the step's note-offs before its first note-on come first:
+    // noteOff doesn't start the queue, the first noteOn does. One of a track
+    // with a queued note ends that note right after it starts.
+    int lead = 0;
+    if (!flushDue_)
+        while (lead < count && notes[lead].off) ++lead;
+    auto leadOff = [&](int t) {   // 0, or the last leading note-off of t (2: Cut)
+        int off = 0;
+        for (int i = 0; i < lead; ++i)
+            if (notes[i].track == t) off = notes[i].off;
+        return off;
+    };
+    for (int i = 0; i < lead; ++i)
+        if (!queued(notes[i].track) && notes[i].track < kSynthTracks) release(notes[i].track, notes[i].off == 2);
+    for (int i = 0; i < nDefer_ && ok; ++i) {   // then the queued notes start
         const Deferred& d = defer_[i];
         if (d.track < 0) continue;
-        if ((d.nfx & kDeferBound) || d.n.preset) return;
         noteOnSim(d.track, d.n.slot, d.n.note > 127 ? 127 : d.n.note, true);
-        if (d.off) release(d.track, NoteOffMode(d.off) == NoteOffMode::Cut);
+        if (d.track >= kSynthTracks) continue;
+        if (const int off = leadOff(d.track)) release(d.track, off == 2);
+        else if (d.off) release(d.track, NoteOffMode(d.off) == NoteOffMode::Cut);
     }
     for (int i = 0; i < count && ok && !capped; ++i) {
         const SynthExpectNote& e = notes[i];
+        if (i < lead) continue;   // applied above
         if (e.off) {
             if (e.track < kSynthTracks) release(e.track, e.off == 2);
         } else {
