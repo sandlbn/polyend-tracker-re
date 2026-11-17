@@ -296,18 +296,30 @@ bool PatternScreen::fxMacroName(uint8_t type, char* out, int cap) const {
         case FxId::MidiCcF: k = 5; break;
         default: return false;
     }
-    // The step's synth; a step without a note plays on the current instrument.
-    const Step& st = app_.pattern().tracks[clampi(track, 0, kTrackCount - 1)].steps[clampi(step, 0, kStepCount - 1)];
+    // As the sequencer applies them: a MIDI step sends the CC; an FX-only
+    // step without a synth uses the synth of the track's last note (here: the
+    // nearest earlier note in this pattern).
+    const int t = clampi(track, 0, kTrackCount - 1);
+    const Track& tr = app_.pattern().tracks[t];
+    const Step& st = tr.steps[clampi(step, 0, kStepCount - 1)];
     uint8_t in = st.instrument;
-    if (st.note < 0 && !isSynthInstrument(in)) in = app_.currentInstrument();
+    if (isMidiInstrument(in)) return false;
+    if (st.note < 0 && !isSynthInstrument(in)) {
+        in = 0xFF;
+        for (int i = clampi(step, 0, kStepCount - 1) - 1; i >= 0; --i)
+            if (tr.steps[i].note >= 0) {
+                in = tr.steps[i].instrument;
+                break;
+            }
+    }
     const int s = synthSlotOf(in);
     if (s < 0) return false;
-    // The name as the Synth Macros page shows it: printable characters only.
+    // The name as the Synth Macros page shows it (control bytes left out).
     const char* src = app_.synthTargetPatch(s).macros[k].name;
     char name[24];
     int n = 0;
     for (int i = 0; src[i] && i < int(sizeof(app_.synthTargetPatch(s).macros[k].name)) && n < int(sizeof(name)) - 1; ++i)
-        if (uint8_t(src[i]) >= 0x20 && uint8_t(src[i]) < 0x7f) name[n++] = src[i];
+        if (uint8_t(src[i]) >= 0x20 && uint8_t(src[i]) != 0x7f) name[n++] = src[i];
     while (n > 0 && name[n - 1] == ' ') --n;
     name[n] = 0;
     if (n) std::snprintf(out, size_t(cap), "M%d %s", k + 1, name);
