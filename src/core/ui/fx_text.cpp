@@ -106,6 +106,15 @@ const char* fxHelpText(uint8_t type) {
     return buf;
 }
 
+const char* fxMacroHelpText(const char* macro) {
+    static char buf[200];
+    std::snprintf(buf, sizeof(buf),
+                  "Sets the synth's macro %s with this value, until the next value or Stop. On a MIDI "
+                  "instrument this FX sends a CC.\n\nFrom 0 to 127",
+                  macro);
+    return buf;
+}
+
 void fxValueText(uint8_t type, uint8_t v, char out[5]) {
     // At most 3 characters (spec 16 §A.8: symbol + 3-character value).
     const size_t n = 5;   // every form below is at most 3 characters

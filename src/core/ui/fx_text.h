@@ -26,6 +26,9 @@ const char* fxDescription(uint8_t type);
 // blank line and the value range ("From -50 to 50") from the engine range;
 // no range for None / Off / Break. Returns a static buffer (UI thread).
 const char* fxHelpText(uint8_t type);
+// The help text of FX a-f on a synth step, where they set macro `macro`
+// ("M1 Cutoff") of the slot (spec 2x-05 §4.3). Static buffer (UI thread).
+const char* fxMacroHelpText(const char* macro);
 
 constexpr int kFxCellChars = 4;
 
