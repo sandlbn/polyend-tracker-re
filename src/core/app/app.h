@@ -530,6 +530,19 @@ public:
     // (and put back) instead.
     bool previewSynthLibraryPatch(int s, const char* name, uint8_t t = kTargetNow);
     void endSynthPreview();
+    // [I] Patch files of another format (modules/synth_descriptor.h
+    // PatchImport, e.g. DX7 .syx banks): Patches/<engine>/<file> of slot s's
+    // engine, one file at a time. Returns its patches, 0 when the file is
+    // missing, too large or not the engine's format. The names are valid
+    // right after (the file sits in the job scratch). Patch k plays / loads
+    // into the slot as the engine's Init patch with the file's patch k, named
+    // after it (the file is read again).
+    // [3.x] On a slot that plays a preset, the preset's engine and entry (t as
+    // in loadSynthTargetPatch).
+    int openPatchImport(int s, const char* file, uint8_t t = kTargetNow);
+    void importPatchName(int k, char* out, int cap) const;   // printable, "" past the end
+    bool previewImportPatch(int s, int k, uint8_t t = kTargetNow);   // like previewSynthLibraryPatch
+    bool loadImportPatch(int s, int k, uint8_t t = kTargetNow);      // like loadSynthTargetPatch
     int synthPreviewSlot() const { return previewSlot_; }
     // The load notice of a project whose slot has no engine in this build
     // ("Synth k (WTFM) not available", the first such slot; MINI_PLAN §3).
@@ -975,6 +988,10 @@ private:
     bool previewDirty_ = false;
     const SynthPatch* readSynthLibraryPatch(int32_t engineId, const char* name);
     SynthPatch* scratchPatch();   // the scratch decode slot (nullptr: no scratch)
+    bool previewSynthPatch(int s, const SynthPatch& p, uint8_t t = kTargetNow);
+    void loadSynthPatch(int s, const SynthPatch& p, const char* name);
+    const SynthPatch* importPatch(int32_t engineId, int k);   // into the scratch decode slot
+    int readPatchImport();
     void dropSynthPreview();      // [3.x] forget a preview without putting anything back (presets reset)
     // previewOn voice holding the synth audition track (kNoSynthAudition: none).
     static constexpr uint16_t kNoSynthAudition = 0xFFFF;

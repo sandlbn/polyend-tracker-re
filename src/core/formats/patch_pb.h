@@ -52,6 +52,14 @@ void patchExtraPayload(uint8_t* out);
 // of an encoded patch. False when absent or the walk fails.
 bool patchFieldSpan(const uint8_t* data, size_t len, uint32_t field, size_t* beg, size_t* end);
 
+// Payload of the first length-delimited field `field` kept in p.opaque (the
+// unknown top-level fields). False when absent or not length-delimited.
+bool patchOpaqueBytes(const SynthPatch& p, uint32_t field, const uint8_t** data, size_t* len);
+// Store `len` bytes as field `field` (wire type 2) in p.opaque: replaces the
+// first such field in place (the rest keep their order), else appends it.
+// False when the opaque area would overflow (p unchanged).
+bool patchSetOpaqueBytes(SynthPatch& p, uint32_t field, const uint8_t* data, size_t len);
+
 // ---- engine tables and validation (spec 21 §8 + MINI_PLAN corrections) ----
 
 // Parameter table of a known engine, or nullptr (count 0).
@@ -59,12 +67,13 @@ const PatchParamRange* patchEngineParams(int32_t engine, int* count);
 // [OT] Extension parameter table of an engine (Width; FAT also Stereo), or
 // nullptr (count 0). Extension parameter k has index (Mini count + k).
 const PatchParamRange* patchEngineExtParams(int32_t engine, int* count);
-const char* patchEngineName(int32_t engine);  // "ACD".."PERC", or nullptr
+const char* patchEngineName(int32_t engine);  // "ACD".."PERC", a module engine's name, or nullptr
 int patchVolumeParam(int32_t engine);         // Volume index, -1 for PERC/unknown
 
 // Build the engine's Init patch: every parameter present at its default
 // (WTFM 6/7 absent, as in every factory WTFM patch), M1-6 "Macro n" empty,
 // M7 "Velocity" -> Volume +1 (none for PERC), M8 "Pressure" empty (U15).
+// [I] Then the engine descriptor's initPatch (patch data of its own, macros).
 // Unused targets are {0, 0} like the factory files. False for an unknown engine.
 bool patchInit(int32_t engine, SynthPatch* out);
 

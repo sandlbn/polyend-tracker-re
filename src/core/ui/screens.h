@@ -1106,13 +1106,20 @@ public:
     static constexpr int kArpGateColumn = 6;
     int section = 0;        // Edit: section index
     int row = 0;            // Edit: row in the section
-    // Browser (Patches/<MODEL>/*.patch, sorted).
+    // Browser (Patches/<MODEL>/*.patch, sorted). [I] An engine with patch
+    // files of another format (synth_descriptor.h PatchImport, e.g. DX7 .syx)
+    // lists those too: banks first, like folders (an open bank lists its
+    // patches), single-patch files with the patches (they play / load as one).
     static constexpr int kBrowserMax = 128;
-    static constexpr int kBrowserNameMax = 32;
+    static constexpr int kBrowserNameMax = 32;    // patch names (Save As)
+    static constexpr int kBrowserEntryMax = 63;   // list entries: bank file names run long
+    enum class Entry : uint8_t { Patch, Bank, Single, Voice };
     int browserCount = 0;
     int browserSel = 0;
-    // In browserListMem() (filled by listBrowser).
-    char (*browser)[kBrowserNameMax + 1] = static_cast<char (*)[kBrowserNameMax + 1]>(browserListMem());
+    // In browserListMem(): names, then the kinds (filled by listBrowser).
+    char (*browser)[kBrowserEntryMax + 1] = static_cast<char (*)[kBrowserEntryMax + 1]>(browserListMem());
+    Entry* browserKind = reinterpret_cast<Entry*>(static_cast<char*>(browserListMem()) + kBrowserMax * (kBrowserEntryMax + 1));
+    char bank[kBrowserEntryMax + 1] = {};   // the open bank's file name ("" = the folder)
 
     int32_t engine() const;
     bool available() const;   // the model has an engine in this build
@@ -1140,6 +1147,8 @@ private:
     void resetEditRow();      // Delete in Edit Patch: the Init patch's value
     void applyModel();        // pendingModel_ -> the slot (after "Discard edits?")
     bool loadSelectedNow();
+    bool openBank(const char* file);   // its patches into the list (false: not the engine's format)
+    void closeBank();                  // back to the folder, the bank highlighted
     void saveAsNow();         // pendingName_ (after "Overwrite?")
     // Patch edits since the last load / init / save / model change, per edit
     // target ("Discard edits?" before Load or a model change): bit s = slot

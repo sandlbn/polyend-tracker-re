@@ -301,6 +301,38 @@ bool patchFieldSpan(const uint8_t* data, size_t len, uint32_t field, size_t* beg
     return false;
 }
 
+bool patchOpaqueBytes(const SynthPatch& p, uint32_t field, const uint8_t** data, size_t* len) {
+    size_t beg = 0, end = 0;
+    if (p.opaqueLen > kPatchOpaqueMax || !patchFieldSpan(p.opaque, p.opaqueLen, field, &beg, &end)) return false;
+    Reader r{p.opaque + beg, p.opaque + end};
+    uint32_t f;
+    uint8_t wt;
+    Reader sub;
+    if (readTag(r, &f, &wt) != PatchStatus::kOk || wt != kWtLen || readLen(r, &sub) != PatchStatus::kOk) return false;
+    *data = sub.p;
+    *len = size_t(sub.end - sub.p);
+    return true;
+}
+
+bool patchSetOpaqueBytes(SynthPatch& p, uint32_t field, const uint8_t* data, size_t len) {
+    if (p.opaqueLen > kPatchOpaqueMax) return false;
+    uint8_t enc[kPatchOpaqueMax];
+    Writer w{enc, enc + sizeof(enc)};
+    w.tag(field, kWtLen);
+    w.varint(len);
+    w.bytes(data, len);
+    if (!w.ok) return false;
+    const size_t n = size_t(w.p - enc);
+    size_t beg = p.opaqueLen, end = p.opaqueLen;   // append when absent
+    patchFieldSpan(p.opaque, p.opaqueLen, field, &beg, &end);
+    const size_t total = p.opaqueLen - (end - beg) + n;
+    if (total > size_t(kPatchOpaqueMax)) return false;
+    std::memmove(p.opaque + beg + n, p.opaque + end, p.opaqueLen - end);
+    std::memcpy(p.opaque + beg, enc, n);
+    p.opaqueLen = uint16_t(total);
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -601,6 +633,9 @@ bool patchInit(int32_t engine, SynthPatch* out) {
         m.targets[0].amountBits = patchFloatToBits(1.0f);
     }
     out->extraPresent = true;
+    // [I] The engine's own additions (its descriptor's initPatch).
+    const mod::SynthDescriptor* d = mod::ModuleHost::instance().synthDescriptor(engine);
+    if (d && d->initPatch) d->initPatch(*out);
     return true;
 }
 

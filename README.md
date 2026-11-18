@@ -178,6 +178,17 @@ Leaving USB Storage mode lists `Modules/` again, so a synth module added, replac
 removed from a computer takes effect without a restart. A module loaded for good at boot (no synth engines, or an effect that is also
 a slot insert) stays as the boot loaded it and still needs one.
 
+**Patch files of another format.** A synth module's descriptor may name a file type of its
+own (`PatchImport` in `src/core/modules/synth_descriptor.h`, for example a DX7 `.syx`
+bank), and Load Patch then lists those files in `Patches/<engine>/` beside the `.patch`
+files. A file of at least the module's bank size comes first and opens like a folder (F8
+or Right; Left goes back): its patches preview, play on the pads and load like `.patch`
+files. A smaller file sits with the patches and loads at once. A loaded patch is the
+engine's Init patch plus what the module reads from the file, named after it, and Save
+writes it as a normal `.patch`. The descriptor's `initPatch` adds the engine's own data to
+its Init patch; modules keep such data in patch fields of their own
+(`patchOpaqueBytes` / `patchSetOpaqueBytes`, exported to card modules).
+
 **Card effects** load while they are on. `full` builds Dirt, BBD and Tape in, as `classic`
 does (Dirt and BBD are also synth slot inserts, and a project must play them without the
 card); LoFi, Chorus and Echo are card modules (`make card`). A card module whose effect is

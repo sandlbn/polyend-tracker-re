@@ -6,11 +6,19 @@
 // Module-facing: only <cstdint> and model/synth_patch.h.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "model/synth_patch.h"
 
 namespace ot {
+
+// [I] Patch fields beyond the Tracker Mini's (formats/patch_pb.h, exported to
+// card modules): the payload of length-delimited field `field` in the
+// patch's unknown fields, and storing one (false: no room, p unchanged).
+bool patchOpaqueBytes(const SynthPatch& p, uint32_t field, const uint8_t** data, size_t* len);
+bool patchSetOpaqueBytes(SynthPatch& p, uint32_t field, const uint8_t* data, size_t len);
+
 namespace synthui {
 
 // Value display / step kinds of one engine parameter.
@@ -77,6 +85,24 @@ enum : uint8_t {
     kSynthFlagNotePriority = 1u << 1,
 };
 
+// [I] Patch files of another format in the engine's folder (DX7 .syx banks):
+// the core lists them in Load Patch, reads a file whole into its scratch and
+// asks the module about it (main loop; the file's bytes, len <= maxBytes).
+struct PatchImport {
+    const char* ext;      // ".syx": lower case, with the dot
+    uint32_t maxBytes;    // larger files are not read (<= formats/patch_pb.h kPatchMaxFileSize)
+    // A file at least this long lists as a bank (Confirm opens it to its
+    // patches, like a folder); a shorter one as a single patch.
+    uint32_t bankBytes;
+    // The patches in the file; 0 = not this format.
+    int (*count)(const uint8_t* file, uint32_t len);
+    // Patch k's name into out (NUL-terminated, cap > 0); the core makes it
+    // printable and names an empty one "Voice <k + 1>".
+    void (*name)(const uint8_t* file, uint32_t len, int k, char* out, int cap);
+    // Patch k into p, which holds the engine's Init patch. false = refused.
+    bool (*toPatch)(const uint8_t* file, uint32_t len, int k, SynthPatch& p);
+};
+
 struct SynthDescriptor {
     int32_t engineId;                   // Tracker Mini id 1, 2, 4, 5, 6, or 0x80..0xFF (module engines)
     const char* name;                   // 1..8 chars [A-Z0-9]: Patches/<name>/, UI, telemetry
@@ -100,6 +126,12 @@ struct SynthDescriptor {
     // [3.x] With kSynthFlagNotePriority: the parameter that picks the
     // priority (0 Last, 1 Low, 2 High; macros may move it); -1 = Last.
     int8_t priorityParam = -1;
+    // [I] After the core's Init patch (every parameter at its default, M7 ->
+    // Volume): the engine's own additions (patch data in unknown fields,
+    // macro presets). nullptr = none.
+    void (*initPatch)(SynthPatch& p) = nullptr;
+    // [I] Patch files of another format (Load Patch), or nullptr.
+    const PatchImport* import = nullptr;
 };
 
 }  // namespace mod
