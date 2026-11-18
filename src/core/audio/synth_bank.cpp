@@ -595,6 +595,7 @@ void SynthBank::reloadParams(int s, bool jump) {
         ++p.serial;
         return;
     }
+    if (sl.eng) sl.eng->loadPatch(sl.scratch, *sl.patch);
     int n = 0;
     const PatchParamRange* t = patchEngineParams(sl.engineId, &n);
     // A live edit ramps from where the last block ended (like a macro move).
@@ -1620,9 +1621,14 @@ void SynthBank::resetFx() {
 }
 
 void SynthBank::stopAll() {
-    // Engine state that outlives a voice (PERC's kit and its owner) goes too.
+    // Engine state that outlives a voice (PERC's kit and its owner) goes too;
+    // the patch data an engine keeps in its slot state (DX7's voice) comes
+    // back at once.
     for (auto& sl : slots_)
-        if (sl.eng) sl.eng->slotReset(sl.scratch);
+        if (sl.eng) {
+            sl.eng->slotReset(sl.scratch);
+            if (sl.patch && !sl.mismatch) sl.eng->loadPatch(sl.scratch, *sl.patch);
+        }
     for (auto& v : voices_) {
         v.state = kFree;
         v.track = -1;

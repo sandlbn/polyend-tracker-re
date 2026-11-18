@@ -144,6 +144,11 @@ public:
     virtual void prepare(SynthSlotScratch& slot, const SynthParams& p) { (void)slot; (void)p; }
     // A slot starts using this engine (patch / model change, project load).
     virtual void slotReset(SynthSlotScratch& slot) { (void)slot; }
+    // The slot's patch, after every slotReset() (engine bind, Stop) and on
+    // every patch change (load, preview, value edit): for engines that keep
+    // data beyond the parameters in the slot state (e.g. DX7: the voice in a patch
+    // field). New notes use it. Optional.
+    virtual void loadPatch(SynthSlotScratch& slot, const SynthPatch& patch) { (void)slot; (void)patch; }
     // Song tempo in BPM (the sequencer's smoothed tempo), once per block
     // before prepare() for every slot with sounding voices: tempo-synced
     // LFOs / delays follow the song. Optional.
