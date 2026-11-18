@@ -1,5 +1,5 @@
 // OpenTracker synth preset pack (tools/make_patches, PRESETS.md): our own
-// ACD / FAT / VAP / WTFM / PERC patches and (3.x) JU6, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand-Type, B-Type and Arc-Type module engine patches, each built from the engine's built-in Init patch
+// ACD / FAT / VAP / WTFM / PERC patches and (3.x) JU6, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand-Type, B-Type, Arc-Type, 1-Type and V-Type module engine patches, each built from the engine's built-in Init patch
 // through the App (no factory patch, no file from the card is read) and
 // written with the App's own Save As path (App::saveSynthLibraryPatch), so
 // the files are byte for byte what the firmware writes:
@@ -49,6 +49,10 @@ constexpr int32_t kEightEngine = 0x86;
 constexpr int32_t kHandEngine = 0x87;
 constexpr int32_t kBtypeEngine = 0x88;
 constexpr int32_t kArcEngine = 0x89;
+// The 1-Type module engine (modules/onetype, module 1TY1, Patches/1TYPE/).
+constexpr int32_t kOnetypeEngine = 0x8A;
+// The V-Type module engine (modules/vtype, module VTY1, Patches/VTYPE/).
+constexpr int32_t kVtypeEngine = 0x8B;
 // The FM4 module engine (modules/fm4, module FM4S, Patches/FM4/).
 constexpr int32_t kFm4Engine = 0x80;
 
@@ -64,7 +68,7 @@ struct Preset {
 };
 
 // Every preset of the pack, ACD first, then FAT, VAP, WTFM, PERC, JU6, D-Type, CS-Type, A-Type, T-Type,
-// 8-Type, Hand-Type, B-Type, Arc-Type, FM4:
+// 8-Type, Hand-Type, B-Type, Arc-Type, 1-Type, V-Type, FM4:
 // the models whose modules are in the build profile.
 const std::vector<Preset>& all();
 

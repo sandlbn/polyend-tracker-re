@@ -1,0 +1,23 @@
+# onetype: the hottest functions of each mode until 95% of that mode's instructions, joined (tools/synth_hot.py --modes, make -C tests bench-m4-synth-modes).
+# <function> <weight: mean share over the modes>, weight per byte first.
+_ZN2ot5audio7onetype12_GLOBAL__N_17outPassEPKfPKNS2_5PointEffPfS8_ 0.08113  # 128 B
+_ZN2ot5audio7onetype12_GLOBAL__N_110filterPassILi1EEEvRNS1_3dsp6FilterEPfPKNS2_5PointERKNS2_9SlotStateE 0.33464  # 580 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17oscPassILi1EEEvRfS4_RhPKNS2_5PointEMS6_fPfSA_ 0.09047  # 200 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17oscPassILi2EEEvRfS4_RhPKNS2_5PointEMS6_fPfSA_ 0.13270  # 352 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17mixPassEPfPKfS5_RKNS2_9SlotStateEb 0.09546  # 312 B
+_ZN2ot5audio7onetype3dsp5incOfEf 0.04492  # 252 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17lfoWaveERKNS2_3LfoE 0.02013  # 232 B
+_ZN2ot5audio7onetype3dsp7ladderAEf 0.04106  # 556 B
+_ZN2ot5audio7onetype12_GLOBAL__N_113OnetypeEngine7prepareERNS0_16SynthSlotScratchERKNS0_11SynthParamsE 0.01615  # 376 B
+_ZN2ot5audio7onetype12_GLOBAL__N_113OnetypeEngine6renderERNS0_10SynthVoiceERKNS0_11SynthParamsEffPfS9_ 0.10863  # 2552 B
+_ZN2ot5audio2va6enumOfEfi 0.00123  # 32 B
+_ZN2ot5audio7onetype12_GLOBAL__N_110filterPassILi0EEEvRNS1_3dsp6FilterEPfPKNS2_5PointERKNS2_9SlotStateE 0.00653  # 384 B
+_ZN2ot5audio7onetype12_GLOBAL__N_19noisePassERNS2_10VoiceStateEPf 0.00070  # 72 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17oscPassILi0EEEvRfS4_RhPKNS2_5PointEMS6_fPfSA_ 0.00129  # 220 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17oscPassILi3EEEvRfS4_RhPKNS2_5PointEMS6_fPfSA_ 0.00241  # 516 B
+_ZN2ot5audio7onetype3dsp11agcGainSlowEf 0.00106  # 296 B
+_ZN2ot5audio7onetype12_GLOBAL__N_19crossPassERNS2_10VoiceStateERKNS2_9SlotStateEPKNS2_5PointEPfSB_SB_.isra.0 0.01021  # 3960 B
+_ZN2ot5audio7onetype3dsp4svfFEf 0.00073  # 296 B
+_ZN2ot5audio7onetype12_GLOBAL__N_110copiesPassILi2EEEvRNS2_10VoiceStateERKNS2_9SlotStateEPKNS2_5PointEPfPKf 0.00143  # 848 B
+_ZN2ot5audio7onetype12_GLOBAL__N_17subPassILi1EEEvRNS2_10VoiceStateEfbPf 0.00078  # 572 B
+# 12736 B, 128 modes, 99.2% of the weight

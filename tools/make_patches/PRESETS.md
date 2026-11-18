@@ -4,7 +4,6 @@ Our own synth patches for the ACD, FAT, VAP, WTFM and PERC engines of OpenTracke
 D-Type, CS-Type, A-Type and T-Type module engines of OpenTracker 3.x, written by
 `reimpl/tools/make_patches` (`make -C reimpl patches`) through the firmware's own Save As path.
 Every patch starts from the engine's built-in Init patch; no factory patch is used.
-The JU6, D-Type and T-Type sections come from `PROFILE=nofm`, the CS-Type and A-Type sections from `PROFILE=classic`, the 8-Type, Hand-Type, B-Type and Arc-Type sections from `PROFILE=retro` (not in profile `full`).
 
 Files: `Patches/<MODEL>/<name>.patch`. Copy the `Patches` folder to the root of the SD card,
 then use Load Patch on a synth page.
@@ -180,34 +179,6 @@ Wheel or Vibrato macro) brings in the modulation of VCO 3 or the noise. Leads an
 | OT Wind Drone | Pink noise + triangle at 32', slow contours, a slow VCO 3 moving the filter on the wheel. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Wheel (+-), Rate (+-) |
 | OT Lab Sweep | Saw + wide pulse, VCO 3 at 16' as audio-rate FM, Emphasis 90 %, a 2 s filter contour sweep. | 1 | Cutoff (+-), Emphasis (+-), Contour (+-), Decay (+-), Wheel (+-), Mod Mix |
 
-## T-Type (12)
-
-T-Type is a module engine (3.x, module TTY1, folder `Patches/TTYPE/`): a drum synth in the
-classic analog drum machine style, pick it after D-Type in the Synth page model list. One
-patch is one kit; play it at Poly 1 (the drums overlap in the one voice). Notes: kick 60, rim
-61, snare 62, clap 63 and 71, hats 64-67 (closed to open; a closed hat cuts an open one),
-cowbell 68, crash 69, ride 70 (one cymbal), low / mid / high tom 48-51 / 52-55 / 56-59 (a
-semitone up per note); notes from 72 up repeat 60-71, notes below 48 play the low tom. Every
-drum has a Character (punchy hybrid / deep analog / small tight). The Volume FX is the hit's
-velocity through Accent. Every kit has the same macros: M1 Kick Decay, M2 Hat Decay, M3 Tune
-(kick, snare, toms), M4 Drive, M5 Snappy (snare noise, clap tail), M6 Accent. The per-drum
-sends sound when the instrument's own Delay / Reverb send is up.
-
-| Patch | Description | Poly | Macros M1-M6 |
-|---|---|---|---|
-| OT Kit Hybrid Punch | Punchy hybrid kick with a click, a cracking snare, noisy hats, a wide clap: the all-round techno kit. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Deep Boom | A long, deep, pure kick (Boom), soft snare, round toms, metal hats and a crash: deep house and dub techno. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Tight | Small and tight: a knocking kick, a thin snare, short toms and hats, a two-burst clap, a low cowbell. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Industrial | Overdriven: the kick's drive and the kit Drive up, a bright cracking snare, metal hats, a thin cymbal, popping rim. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Minimal Tech | Minimal: a short punchy kick, a loud stick rim, thin closed hats with an echo, a clanging cowbell, a dry clap. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Acid House | A booming kick, a wide clap with a long tail, a soft snare, noisy open hats, a bright cowbell, a ride. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Dub | Dub techno: deep kick, a soft snare and a popping rim into the delay and the reverb, metal hats with an echo. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Electro | Electro: a knocking kick with a long sweep, thin snare, a tight clap, sweeping toms, a bright cowbell. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Hard | Hard techno: a driven punchy kick with a loud click, kit Drive, a snappy snare, a dry clap, bright noisy hats. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Dusty Tape | Lo-fi: a dull booming kick, a dark soft snare, dark metal hats, a ringing cymbal, narrow, light accents. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Broken | Broken beat: a knocking kick, a cracking snare, short toms, a ticking rim, a low cowbell, a tight clap. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-| OT Kit Rave | Rave: a long punchy kick with drive, a wide clap into the reverb, a cracking snare, a ringing ride, open hats. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
-
 ## CS-Type (12)
 
 CS-Type is a module engine (3.x, module CST1, folder `Patches/CSTYPE/`): pick it after D-Type
@@ -256,6 +227,34 @@ the envelope amount with the velocity (M7).
 | OT Noise Wind | Noise into the 2-pole near self-oscillation, the cutoff swept by a slow LFO, slow attack: wind; M6 the LFO rate. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Vibrato, LFO Rate (+-) |
 | OT Sync Scream | Synced VCO 2 an octave up, its pitch wobbled by the LFO, a resonant 4-pole above a high-pass: a screaming lead. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Vibrato, Scream (+-) |
 | OT Duo Organ | Duo: two square waves (16' and 8') on an AR, the 2-pole open: a two-voice organ from two tracks; M6 VCO 2's level. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Vibrato, VCO2 Level (+-) |
+
+## T-Type (12)
+
+T-Type is a module engine (3.x, module TTY1, folder `Patches/TTYPE/`): a drum synth in the
+classic analog drum machine style, pick it after D-Type in the Synth page model list. One
+patch is one kit; play it at Poly 1 (the drums overlap in the one voice). Notes: kick 60, rim
+61, snare 62, clap 63 and 71, hats 64-67 (closed to open; a closed hat cuts an open one),
+cowbell 68, crash 69, ride 70 (one cymbal), low / mid / high tom 48-51 / 52-55 / 56-59 (a
+semitone up per note); notes from 72 up repeat 60-71, notes below 48 play the low tom. Every
+drum has a Character (punchy hybrid / deep analog / small tight). The Volume FX is the hit's
+velocity through Accent. Every kit has the same macros: M1 Kick Decay, M2 Hat Decay, M3 Tune
+(kick, snare, toms), M4 Drive, M5 Snappy (snare noise, clap tail), M6 Accent. The per-drum
+sends sound when the instrument's own Delay / Reverb send is up.
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Kit Hybrid Punch | Punchy hybrid kick with a click, a cracking snare, noisy hats, a wide clap: the all-round techno kit. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Deep Boom | A long, deep, pure kick (Boom), soft snare, round toms, metal hats and a crash: deep house and dub techno. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Tight | Small and tight: a knocking kick, a thin snare, short toms and hats, a two-burst clap, a low cowbell. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Industrial | Overdriven: the kick's drive and the kit Drive up, a bright cracking snare, metal hats, a thin cymbal, popping rim. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Minimal Tech | Minimal: a short punchy kick, a loud stick rim, thin closed hats with an echo, a clanging cowbell, a dry clap. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Acid House | A booming kick, a wide clap with a long tail, a soft snare, noisy open hats, a bright cowbell, a ride. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Dub | Dub techno: deep kick, a soft snare and a popping rim into the delay and the reverb, metal hats with an echo. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Electro | Electro: a knocking kick with a long sweep, thin snare, a tight clap, sweeping toms, a bright cowbell. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Hard | Hard techno: a driven punchy kick with a loud click, kit Drive, a snappy snare, a dry clap, bright noisy hats. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Dusty Tape | Lo-fi: a dull booming kick, a dark soft snare, dark metal hats, a ringing cymbal, narrow, light accents. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Broken | Broken beat: a knocking kick, a cracking snare, short toms, a ticking rim, a low cowbell, a tight clap. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
+| OT Kit Rave | Rave: a long punchy kick with drive, a wide clap into the reverb, a cracking snare, a ringing ride, open hats. | 1 | Kick Decay (+-), Hat Decay (+-), Tune (+-), Drive, Snappy (+-), Accent (+-) |
 
 ## 8-Type (12)
 
@@ -360,6 +359,55 @@ M4 Vibrato.
 | OT Twin Square | A soft FM tone with the Aux square an octave down under it: the console's two chips together (Poly 1). | 1 | Brightness (+-), Aux Decay, Release (+-), Vibrato, Aux Level (+-), Octave (+-) |
 | OT Noise Burst | A short FM hit with the Aux noise decaying in frames: snares and zaps (Poly 2). | 2 | Brightness (+-), Feedback (+-), Length (+-), Vibrato, Aux Level (+-), Decay (+-) |
 
+## 1-Type (12)
+
+1-Type is a card module engine (3.x, module 1TY1, folder `Patches/1TYPE/`): two oscillators in the
+style of a classic freeware softsynth (sync, ring, FM, a sub, two detuned copies), LP12 / LP24 / HP12 /
+BP12 / LPDL (LPDL plays as LP24 at 85 % resonance), a mod envelope, two LFOs per slot with tempo and
+key sync. Its .sy1 patches convert with `reimpl/tools/sy1_to_patch`. M1 Cutoff, M2 Resonance, M3 Env
+Amt, M4 Decay (with the release and the filter decay), M5 LFO 1 Depth, M6 the patch's own. Leads,
+the acid line and the pluck also scale the envelope with the velocity (M7).
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Saw Lead | Two saws, osc 1 detuned, a singing LP24 and a short legato glide; velocity to the envelope. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
+| OT Sync Sweep | Osc 2 synced to osc 1, its pitch swept down by the mod envelope; M6 the sweep. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sweep (+-) |
+| OT FM Pluck Bass | A sine carrier frequency-modulated by a triangle, the FM falling with the mod envelope, a sine sub. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, FM (+-) |
+| OT Square Sub Bass | A saw with a square sub an octave down through a dark LP24 with a quick envelope; M6 the sub. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sub (+-) |
+| OT Acid Line | A saw into the resonant LPDL type (it plays as LP24) with a snappy envelope, saturation and legato glide; M6 the drive. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Drive (+-) |
+| OT Noise Swell | Noise into a resonant BP12 swept by LFO 1 synced to a bar, slow attack; M6 the mix with osc 1. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
+| OT Wobble | A saw and a pulse an octave down through LP24, LFO 1 synced to 1/8 on the cutoff, saturation; M5 the wobble's depth. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
+| OT Ring Metal Bell | The ring of a sine and a triangle off the keyboard, a long decay: a metallic bell; M6 osc 2's pitch. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Ring Pitch (+-) |
+| OT PWM Wash | Two pulses, the width swept by LFO 1, an open LP12, slow attack and release, spread; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
+| OT Soft Strings | A detuned saw and a second saw, a gentle LP12, slow attack, a slight vibrato; M6 the detune. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Detune (+-) |
+| OT Short Pluck | Saw and pulse an octave up through LP12 opened by a fast envelope that falls to nothing; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Mix (+-) |
+| OT Hollow Keys | A narrow pulse (10 % duty) with a triangle sub an octave down through HP12: hollow keys; M6 the sub. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), LFO1 Depth, Sub (+-) |
+
+## V-Type (12)
+
+V-Type is a card module engine (3.x, module VTY1, folder `Patches/VTYPE/`): a swarm-oscillator virtual
+analog voice in the style of the late-90s desktop VA synths. The Swarm (1 / 3 / 5 / 7 detuned saws, a
+sub) and osc 2 (sync, ring, PW) with noise feed two filters (LP12 / LP24 / BP12 / HP12) with Drive
+between them, routed Single, Serial, Parallel or Split (Swarm left, osc 2 right); three envelopes, two
+LFOs, a 4-slot matrix. M1 Cutoff, M2 Resonance, M3 Env Amt (both filters each), M4 Decay (with the
+release and Env 1's decay), M5 Detune, M6 the patch's own. Leads, basses, plucks and the stab also
+scale filter 1's envelope with the velocity (M7).
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Laser Lead | Seven tightly detuned saws, Serial LP24 into HP12 with Soft drive between, legato glide; velocity to the envelope. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Drive (+-) |
+| OT Growl Low | Three wide saws and a square sub, Serial LP24 into LP12, LFO 2 slowly moving filter 2: a moving low bass; M6 the growl. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Growl (+-) |
+| OT Sync Razor | Osc 2 hard-synced to the centre saw, Env 2 sweeping its pitch down, through a resonant BP12: a tearing lead; M6 the sweep. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Sweep (+-) |
+| OT Fold Acid | One saw into a resonant LP24, Fold between the filters, LP12 after, a snappy envelope and legato glide; M6 the fold. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Drive (+-) |
+| OT Sub Tunnel | One saw and a sine sub an octave down through a dark LP24 with a short envelope: a deep plain bass; M6 the sub. | 1 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Sub (+-) |
+| OT Anthem Stack | Seven saws at a high Swarm Mix, Serial LP12 into HP12, a long release and spread: the big chord sound; M6 the mix. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Swarm Mix (+-) |
+| OT Swarm Pluck | Seven saws through LP24 opened by a fast Env 1 that falls to nothing, key tracked; velocity to the envelope. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Pluck (+-) |
+| OT Glass Shimmer | Five saws through LP12 and a resonant BP12 in Parallel, LFO 2 slowly moving the balance: a shimmering pad; M6 the shimmer. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Shimmer (+-) |
+| OT Split Choir | Split: the Swarm left through a band pass, a slowly width-modulated pulse right through LP12: a wide vocal pad; M6 the width. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Width (+-) |
+| OT Rave Stab | Five saws and osc 2 an octave down, Env 2 dropping the pitch, Serial LP24 into HP12 with Hard drive: a short stab; M6 the drive. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Drive (+-) |
+| OT Noise Tide | Coloured noise and saws through HP12 and LP12 in Parallel, a tempo-synced LFO on both cutoffs, slow swell; M6 the noise. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Noise (+-) |
+| OT Ring Glint | Split: one saw left through a band pass, osc 2 a twelfth up ringing against the centre saw right through HP12, a short decay; M6 the ring. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Ring (+-) |
+
 ## FM4 (12)
 
 FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight
@@ -384,4 +432,4 @@ Release, M5 Vibrato.
 | OT 4-Op Sub | 1 > 2 + 3 > 4: a clean x0.5 sine with a touch of x1 harmonics on the attack: sub bass for house and dub. | 1 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Upper (+-) |
 | OT 4-Op Flute | 1 > 2 > 3 > 4 at low levels with a slow attack and vibrato: a breathy, hollow flute; mono. | 1 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Breath (+-) |
 
-Total: 202 patches.
+Total: 226 patches.

@@ -392,7 +392,7 @@ firmware: all
 hot-rows:
 	$(MAKE) -C tests bench-m4-synth-modes PROFILE=allsynths
 	python3 -I tools/synth_hot.py build/allsynths/bench/audio_bench_m4_modes.elf build/allsynths/bench/synth_modes_hot.txt \
-	    --modes build/allsynths/bench/synth_modes.txt --emit-hot $(HOT_ROWS)
+	    --modes build/allsynths/bench/synth_modes.txt --modules-dir $(MODULES_DIR) --emit-hot $(HOT_ROWS)
 .PHONY: hot-rows
 
 # Synth preset pack (tools/make_patches/PRESETS.md): build/patches/Patches/<MODEL>/.

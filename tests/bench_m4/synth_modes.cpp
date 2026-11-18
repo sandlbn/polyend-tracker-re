@@ -83,6 +83,31 @@ void play(ISynthEngine* e, const mod::SynthDescriptor& d, const char* what, cons
 
 bool isList(const synthui::ParamUi& u) { return u.fmt == synthui::kFmtEnum || u.fmt == synthui::kFmtOnOff; }
 
+// The parameter labelled `label`, or -1.
+int paramNamed(const mod::SynthDescriptor& d, const char* label) {
+    for (int i = 0; i < d.paramCount; ++i)
+        if (d.ui[i].label && std::strcmp(d.ui[i].label, label) == 0) return i;
+    return -1;
+}
+
+// Every value of each list parameter on top of `base` (one phase each).
+void sweepLists(ISynthEngine* e, const mod::SynthDescriptor& d, const SynthPatch& base, const char* tag) {
+    static const int kOne[] = {60};
+    for (int i = 0; i < d.paramCount; ++i) {
+        if (!d.ui[i].label || !isList(d.ui[i])) continue;
+        const int lo = int(d.params[i].min), hi = int(d.params[i].max);
+        for (int v = lo; v <= hi && v - lo < kMaxValues; ++v) {
+            g_patch = base;
+            synthParamSet(g_patch, i, float(v));
+            char what[48];
+            std::snprintf(what, sizeof what, "%s%s=%d", tag, d.ui[i].label, v);
+            for (char* c = what; *c; ++c)
+                if (*c == ' ') *c = '_';
+            play(e, d, what, kOne, 1, 32);
+        }
+    }
+}
+
 void sweep(const mod::SynthDescriptor& d) {
     ISynthEngine* e = synthEngineFor(d.engineId);
     if (!e || !patchInit(d.engineId, &g_init)) return;
@@ -97,18 +122,21 @@ void sweep(const mod::SynthDescriptor& d) {
             if (!(d.ui[i].label && isList(d.ui[i]))) synthParamSet(g_patch, i, end ? d.params[i].max : d.params[i].min);
         play(e, d, end ? "max" : "min", kOne, 1, 48);
     }
-    for (int i = 0; i < d.paramCount; ++i) {
-        if (!d.ui[i].label || !isList(d.ui[i])) continue;
-        const int lo = int(d.params[i].min), hi = int(d.params[i].max);
-        for (int v = lo; v <= hi && v - lo < kMaxValues; ++v) {
-            g_patch = g_init;
-            synthParamSet(g_patch, i, float(v));
-            char what[48];
-            std::snprintf(what, sizeof what, "%s=%d", d.ui[i].label, v);
-            for (char* c = what; *c; ++c)
-                if (*c == ' ') *c = '_';
-            play(e, d, what, kOne, 1, 32);
-        }
+    sweepLists(e, d, g_init, "");
+    // [I] An engine whose Init leaves its second oscillator, sub and drive
+    // silent (V-Type: Balance, Sub Level, Sync, Drive): the lists again with
+    // them on, synced and free, so those paths' code has modes too.
+    const int bal = paramNamed(d, "Balance"), sub = paramNamed(d, "Sub Level"), sync = paramNamed(d, "Sync"),
+              drive = paramNamed(d, "Drive");
+    if (bal >= 0 && sub >= 0 && sync >= 0 && drive >= 0) {
+        SynthPatch rich = g_init;
+        synthParamSet(rich, bal, 0.0f);
+        synthParamSet(rich, sub, 0.4f);
+        synthParamSet(rich, sync, 1.0f);
+        synthParamSet(rich, drive, 0.4f);
+        sweepLists(e, d, rich, "on:");
+        synthParamSet(rich, sync, 0.0f);
+        sweepLists(e, d, rich, "free:");
     }
 }
 
