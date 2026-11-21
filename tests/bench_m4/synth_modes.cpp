@@ -60,6 +60,7 @@ void play(ISynthEngine* e, const mod::SynthDescriptor& d, const char* what, cons
     for (int k = 0; k < kVoices; ++k) {
         g_v[k] = SynthVoice{};
         g_v[k].slotScratch = &g_sc;
+        g_v[k].index = uint8_t(k);
         g_alive[k] = false;
     }
     for (int i = 0; i < count; ++i) {

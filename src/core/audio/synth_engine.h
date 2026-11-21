@@ -3,7 +3,8 @@
 // The framework (synth_bank.h) owns slots, the voice pool, macros, pitch FX,
 // gain and mixing. An engine is the DSP of one Tracker Mini model (spec 21
 // §8: ACD, FAT, VAP, WTFM, PERC). It is a stateless singleton: every voice
-// keeps its state in SynthVoice::state, every slot in SynthSlotScratch.
+// keeps its state in SynthVoice::state (or, when it is too large, in its own
+// array indexed by SynthVoice::index), every slot in SynthSlotScratch.
 //
 // Contract for engines (WP-F):
 //  - All calls come from the audio context: no allocation, no I/O, no locks.
@@ -123,6 +124,11 @@ struct alignas(8) SynthVoice {
     // falls to 0 and the record is freed after it). Engines that keep state
     // beyond the voice (PERC's kit) release it here.
     bool fading = false;
+    // Framework: the record's place in the pool (0..kSynthMaxVoices-1, fixed
+    // for the bank's lifetime). An engine whose voice state does not fit
+    // `state` keeps it in its own array indexed by this (DX7); a fresh voice
+    // (!SynthNote::reused) must then clear its entry itself.
+    uint8_t index = 0;
     // Framework: Performance filter offset of the note's track, in octaves
     // (issue #23). Engines with a filter add it to their cutoff octave term,
     // inside their own clamp; 0 when the track's Performance FX are off.

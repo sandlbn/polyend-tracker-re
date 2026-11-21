@@ -29,7 +29,10 @@ static_assert(sizeof(SynthVoice) <= 160, "engine-visible voice record");
 SynthBank::SynthBank() { reset(); }
 
 void SynthBank::reset() {
-    for (auto& v : voices_) v = Voice{};
+    for (int r = 0; r < kSynthMaxVoices; ++r) {
+        voices_[r] = Voice{};
+        voices_[r].v.index = uint8_t(r);
+    }
     for (auto& o : owner_) o = -1;
     for (auto& p : pend_) p = Pending{};
     for (auto& d : defer_) d = Deferred{};

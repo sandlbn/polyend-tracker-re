@@ -408,6 +408,26 @@ TEST(synth_mono_legato_and_track_release) {
     CHECK_EQ(r.bank.voicesOf(2), 0);
 }
 
+// Every pool record knows its place (engines with voice state beyond
+// SynthVoice::state index their own arrays by it), also after a reset.
+TEST(synth_voice_index_is_the_pool_record) {
+    BankRig r(4, 4, 4, 8);
+    for (int round = 0; round < 2; ++round) {
+        for (int t = 0; t < 8; ++t) r.on(t, t % 3, 48 + t);
+        r.block();
+        unsigned seen = 0;
+        for (int t = 0; t < 8; ++t) {
+            const SynthVoice* v = r.bank.voiceOfTrack(t);
+            CHECK(v != nullptr);
+            if (!v) continue;
+            CHECK(v->index < kSynthMaxVoices);
+            seen |= 1u << v->index;
+        }
+        CHECK_EQ(seen, 0xFFu);   // eight voices, eight different records
+        r.bank.reset();
+    }
+}
+
 TEST(synth_pitch_fx_hooks) {
     BankRig r(1, 1, 1);
     r.on(0, 0, 60, -1, StepFx{40, 36});   // Tune +12: bend +12 (the note stays 60)
