@@ -1284,7 +1284,10 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
     // Hold focus: pads pick values (spec 06 §1.6).
     if (focus == 0) {
         focusUsed_ = true;
-        a.selectPattern(pad + 1);
+        // spec 06 §1.7 / 16 §A.2: a pad goes through 0x3d548 like Up/Down
+        // and the encoder, so it changes the pattern at once, also while
+        // playing (step kept). Only Left/Right queue.
+        a.switchPatternNow(pad + 1);
         refreshBar();
         return;
     }
