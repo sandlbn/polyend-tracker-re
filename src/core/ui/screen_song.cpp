@@ -121,8 +121,12 @@ int SongScreen::playingRow() const {
     const Sequencer& s = app_.seq;
     if (!s.isPlaying()) return -1;
     if (s.isSongMode() || loopInSong_) return s.songPosition();
-    if (patSlot_ < 0 || patSlot_ >= length()) return -1;
-    return patPending_ || app_.playStartMs() == patRun_ ? patSlot_ : -1;
+    if (patSlot_ >= 0 && patSlot_ < length() && (patPending_ || app_.playStartMs() == patRun_)) return patSlot_;
+    // A run started on another screen (Play on Performance or Pattern): the
+    // marker follows the song position (spec 06 §2.6) when that slot holds
+    // the pattern that plays; any other pattern has no slot to mark.
+    const int pos = s.songPosition();
+    return pos >= 0 && pos < length() && app_.project.playlist[pos] == app_.patternNumber() ? pos : -1;
 }
 
 bool SongScreen::loopingInSong() const {
@@ -550,8 +554,9 @@ void SongScreen::update(uint32_t now) {
             patPending_ = false;
         }
     }
-    if (a.seq.isPlaying() && (a.seq.isSongMode() || loopInSong_) && !edit) {
-        const int pos = a.seq.songPosition();
+    // spec 06 §2.6: the cursor follows the marker, whichever screen started the run.
+    const int pos = playingRow();
+    if (pos >= 0 && !edit) {
         if (pos != followPos_) {
             followPos_ = pos;
             if (pos != cursor && pos < length()) {
