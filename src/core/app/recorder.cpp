@@ -19,6 +19,18 @@ bool App::selectInput(uint8_t source, uint8_t gain) {
 
 namespace {
 bool countEntry(const IStorage::DirEntry&, void*) { return true; }
+
+// [I] A new take's name: "<base> NNN", the first number no other sample
+// instrument uses (numbered like recordings, "recordingNNN").
+void resampleName(const App& a, int slot, const char* base, char* out, size_t cap) {
+    for (int k = 1; k <= 999; ++k) {
+        std::snprintf(out, cap, "%s %03d", base, k);
+        bool used = false;
+        for (int i = 0; i < kSampleInstrumentCount && !used; ++i)
+            used = i != slot && a.instrPresent[i] && std::strcmp(a.instruments[i].name, out) == 0;
+        if (!used) return;
+    }
+}
 }  // namespace
 
 bool App::recordingsFolder(char* out, int cap) {
@@ -233,9 +245,11 @@ void App::finishResample() {
     if (!keep) {
         ins.setDefault();
         const uint8_t src = resampler.source();   // as armed (From may have changed)
-        if (src == 0) std::snprintf(ins.name, sizeof(ins.name), "Resample Master");
-        else if (src == audio::AudioEngine::kTapLineIn) std::snprintf(ins.name, sizeof(ins.name), "Resample Line in");
-        else std::snprintf(ins.name, sizeof(ins.name), "Resample Track %d", src);
+        char base[20];
+        if (src == 0) std::snprintf(base, sizeof(base), "Resample Master");
+        else if (src == audio::AudioEngine::kTapLineIn) std::snprintf(base, sizeof(base), "Resample Line in");
+        else std::snprintf(base, sizeof(base), "Resample Track %d", src);
+        resampleName(*this, slot, base, ins.name, sizeof(ins.name));
     }
     ins.lengthFrames = frames;
     ins.stereo = true;
