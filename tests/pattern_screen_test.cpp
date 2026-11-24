@@ -3,11 +3,13 @@
 // (06 §1.9), PERF marker, hold popups, Fill and focus rules.
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "test.h"
 #include "ui_fakes.h"
 
 #include "app/project_fields.h"
+#include "formats/wav.h"
 #include "sequencer/seq_tables.h"
 #include "ui/fx_text.h"
 #include "ui/screens.h"
@@ -849,4 +851,31 @@ TEST(stop_clears_the_queued_pattern_on_f1) {
     CHECK_STR(a.ui.bar.label[0].bottom, cur);
     CHECK_EQ(a.patternNumber(), num);
     CHECK(!a.ui.bar.label[0].highlight);
+}
+
+// Issue #214: with the sequencer stopped and edit mode on, a pad in the
+// Instr column writes the instrument and auditions it at note 60, as stock
+// 1.9.2 does (and as it already did while playing or with edit mode off).
+TEST(instr_column_pad_auditions_in_edit_mode_when_stopped) {
+    Harness h;
+    App& a = *h.app;
+    std::vector<int16_t> s(20000);
+    for (size_t i = 0; i < s.size(); ++i) s[i] = int16_t((i % 100) * 300 - 15000);
+    std::vector<uint8_t> wav(s.size() * 2 + 64);
+    wav.resize(wavEncode(s.data(), uint32_t(s.size()), 1, wav.data(), wav.size()));
+    h.fs.files["tone.wav"] = wav;
+    CHECK(a.importSample("tone.wav", 2));
+    PatternScreen& p = pe(h);
+    a.setStepJump(1);
+    h.tap(btn::Rec);
+    CHECK(a.editMode);
+    CHECK(!a.seq.isPlaying());
+    h.tap(btn::Instr);
+    CHECK_EQ(p.col, 1);
+    h.push(InputEvent::kPadDown, 2);
+    CHECK_EQ(int(a.pattern().tracks[0].steps[0].instrument), 2);
+    CHECK_EQ(a.currentInstrument(), 2);
+    CHECK(a.auditionTrack(2) >= 0);
+    h.push(InputEvent::kPadUp, 2);
+    CHECK(a.auditionTrack(2) < 0);
 }

@@ -1366,7 +1366,10 @@ void PatternScreen::onPad(uint8_t pad, uint8_t state) {
         pops::writeInstrument(a.pattern(), r, uint8_t(ins));
         a.setCurrentInstrument(ins);
         a.patternEdited();
-        if (a.seq.isPlaying()) a.previewOn(voice, uint8_t(ins), 60, 127);
+        // The pad auditions the instrument at note 60, stopped or playing:
+        // stock 1.9.2 plays it while programming (issue #214).
+        a.previewOn(voice, uint8_t(ins), 60, 127);
+        padVoice_[pad] = int8_t(pad);
         if (selState != 2) advance();   // spec 16 §A.5: every column advances
     } else {
         a.pushUndo();
