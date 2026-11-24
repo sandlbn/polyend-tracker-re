@@ -67,3 +67,32 @@ TEST(song_shows_the_play_head_of_a_performance_run) {
     CHECK_EQ(r.song().playingRow(), 0);
     a.seq.stop();
 }
+
+// "Loop Pattern" belongs to the run it was set in. Looping a slot of the song,
+// then stopping and starting again on the Performance screen, left the Song
+// screen showing "Continue Song" and the loop icon for the new run, and F1
+// then switched that pattern run into the song instead of stopping it.
+TEST(song_loop_state_ends_with_its_run) {
+    Rig r;
+    App& a = r.a();
+    r.h.tap(btn::Song);
+    r.h.tap(btn::F2);   // Play Song
+    r.h.tap(btn::F1);   // Loop Pattern at the next step
+    for (int i = 0; i < 20 && !r.song().loopingInSong(); ++i) {
+        r.h.audio.pump(10);
+        r.h.run(20);
+    }
+    CHECK(r.song().loopingInSong());
+    CHECK_EQ(r.song().transportState(), 3);
+    r.perfSetup();
+    r.h.tap(btn::Play);   // stop
+    r.h.tap(btn::Play);   // a new run, from Performance
+    CHECK(a.seq.isPlaying() && !a.seq.isSongMode());
+    r.h.tap(btn::Song);
+    r.h.run(200);
+    CHECK(!r.song().loopingInSong());
+    CHECK_EQ(r.song().transportState(), 5);   // Stop / Stop: a run started elsewhere
+    CHECK_STR(a.ui.bar.label[0].top, "Stop");
+    r.h.tap(btn::F1);
+    CHECK(!a.seq.isPlaying());
+}

@@ -105,6 +105,9 @@ void SongScreen::start(int opt) {
     (void)opt;
     cursor = clampi(cursor, 0, length() - 1);
     followPos_ = -1;   // re-join the playing slot on entry
+    // A Loop Pattern set in a run that was stopped while another screen was
+    // shown ends with that run.
+    if (loopInSong_ && !loopingInSong()) loopInSong_ = false;
     if (!edit && focus == 0) focus = 1;
     refreshBar();
 }
@@ -534,7 +537,7 @@ void SongScreen::stop() {
 void SongScreen::update(uint32_t now) {
     App& a = app_;
     if (togglePending_ && (!a.seq.isPlaying() || a.seq.masterStep() != toggleStep_)) applyLoopToggle();
-    if (!a.seq.isPlaying() && loopInSong_) {
+    if (loopInSong_ && !loopingInSong()) {   // its run ended, here or on another screen
         loopInSong_ = false;
         ui_.dirty();
     }
