@@ -78,7 +78,7 @@ TEST(resample_fixed_bars_master) {
     CHECK(a.bank.stereo(1));
     CHECK(near(a.bank.frames(1), kBarFrames, 128));
     CHECK(peakOf(a, 1) > 1000);
-    CHECK_STR(a.instruments[1].name, "Resample Master");
+    CHECK_STR(a.instruments[1].name, "Resample Master 001");
     CHECK_EQ(a.currentInstrument(), 1);
     // The sequencer kept playing throughout.
     CHECK(a.seq.isPlaying());
@@ -178,7 +178,7 @@ TEST(resample_track_and_line_sources) {
     h.run(5);
     CHECK(a.instrPresent[1]);
     CHECK_EQ(peakOf(a, 1), 0);
-    CHECK_STR(a.instruments[1].name, "Resample Track 2");
+    CHECK_STR(a.instruments[1].name, "Resample Track 2 001");
     a.resampleCfg.source = 1;   // track 1: the saw
     CHECK(a.resampleToggle() == App::ResampleAction::kArmed);
     h.audio.pump(blocksFor(4.3));
@@ -191,7 +191,7 @@ TEST(resample_track_and_line_sources) {
     h.run(5);
     CHECK(a.instrPresent[3]);
     CHECK_EQ(peakOf(a, 3), 0);
-    CHECK_STR(a.instruments[3].name, "Resample Line in");
+    CHECK_STR(a.instruments[3].name, "Resample Line in 001");
 }
 
 // A synth on a track (2.x: Synth 1..3 play on shared slots, not the
@@ -217,7 +217,7 @@ TEST(resample_track_source_synth) {
     h.run(5);
     CHECK(a.instrPresent[1]);
     CHECK(peakOf(a, 1) > 1000);
-    CHECK_STR(a.instruments[1].name, "Resample Track 3");
+    CHECK_STR(a.instruments[1].name, "Resample Track 3 001");
     a.resampleCfg.source = 2;   // track 2: silent, Synth 1 still sounding on track 3
     CHECK(a.resampleToggle() == App::ResampleAction::kArmed);
     h.audio.pump(blocksFor(4.3));
@@ -242,7 +242,7 @@ TEST(resample_source_latched_at_arm) {
     h.audio.pump(blocksFor(1.3));
     h.run(5);
     CHECK(a.instrPresent[1]);
-    CHECK_STR(a.instruments[1].name, "Resample Master");
+    CHECK_STR(a.instruments[1].name, "Resample Master 001");
     CHECK_EQ(a.lastResample.source, 0);
 }
 
@@ -1141,7 +1141,7 @@ TEST(resample_into_other_length_saves_new) {
     CHECK_EQ(a.bank.frames(1), frames);
     CHECK(a.instrPresent[2]);
     CHECK(near(a.bank.frames(2), 2 * kBarFrames, 256));
-    CHECK_STR(a.instruments[2].name, "Resample Master");
+    CHECK_STR(a.instruments[2].name, "Resample Master 002");
     CHECK_STR(a.ui.notice(), "Instr 2 is another length: saved as instrument 3");
 }
 
@@ -1285,4 +1285,28 @@ TEST(resample_take_starts_on_the_downbeat_sound) {
                     unsigned(first));
         CHECK(first <= 50);   // a retriggered voice first fades the old note for 1 ms (spec 04)
     }
+}
+
+TEST(resample_takes_numbered_names) {
+    Harness h;
+    App& a = *h.app;
+    setup(h);
+    // Each new take gets the next free number on its source's name.
+    take(h, 1);
+    take(h, 1);
+    CHECK_STR(a.instruments[1].name, "Resample Master 001");
+    CHECK_STR(a.instruments[2].name, "Resample Master 002");
+    // A name already in the project (renamed by hand) is skipped.
+    std::snprintf(a.instruments[0].name, sizeof(a.instruments[0].name), "Resample Master 003");
+    take(h, 1);
+    CHECK_STR(a.instruments[3].name, "Resample Master 004");
+    // Numbered per source.
+    a.resampleCfg.source = 2;
+    take(h, 1);
+    CHECK_STR(a.instruments[4].name, "Resample Track 2 001");
+    // A deleted take's number is free again.
+    a.instrPresent[1] = false;
+    a.resampleCfg.source = 0;
+    take(h, 1);
+    CHECK_STR(a.instruments[5].name, "Resample Master 001");
 }
