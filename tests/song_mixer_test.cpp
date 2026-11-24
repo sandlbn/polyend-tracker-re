@@ -785,7 +785,9 @@ TEST(mixer_track_rename_saves_with_save) {
 // User report (2.2.2): "Play Pattern" (F1 while stopped) on the Song screen
 // played the slot's pattern, but the green progress line was missing; it was
 // drawn only while the song played. The line now follows the slot F1
-// started, also when the cursor moves on; a run started elsewhere shows none.
+// started, also when the cursor moves on. A run started elsewhere is marked
+// at the song position when that slot holds the playing pattern (spec 06
+// §2.6, issue #185), else nowhere.
 TEST(song_play_pattern_shows_the_progress_line) {
     Harness h;
     App& a = *h.app;
@@ -810,12 +812,27 @@ TEST(song_play_pattern_shows_the_progress_line) {
     CHECK_EQ(s.playingRow(), a.seq.songPosition());
     h.tap(btn::F2);
     h.run(30);
-    // A pattern started on the Pattern screen: no slot is known, no line.
+    // A pattern started on the Pattern screen: the song position's slot
+    // holds it, so that slot is marked.
     h.tap(btn::Pattern);
     h.tap(btn::Play);
     h.run(30);
     h.tap(btn::Song);
     h.run(30);
     CHECK(a.seq.isPlaying() && !a.seq.isSongMode());
+    CHECK_EQ(a.patternNumber(), a.project.playlist[a.seq.songPosition()]);
+    CHECK_EQ(s.playingRow(), a.seq.songPosition());
+    h.tap(btn::F1);   // Stop
+    h.run(30);
+    // A pattern that is not at the song position: no slot is known, no line.
+    a.selectPattern(4);
+    CHECK(a.project.playlist[a.seq.songPosition()] != 4);
+    h.tap(btn::Pattern);
+    h.tap(btn::Play);
+    h.run(30);
+    h.tap(btn::Song);
+    h.run(30);
+    CHECK(a.seq.isPlaying() && !a.seq.isSongMode());
+    CHECK_EQ(a.patternNumber(), 4);
     CHECK_EQ(s.playingRow(), -1);
 }
