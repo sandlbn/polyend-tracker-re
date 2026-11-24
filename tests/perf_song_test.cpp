@@ -96,3 +96,39 @@ TEST(song_loop_state_ends_with_its_run) {
     r.h.tap(btn::F1);
     CHECK(!a.seq.isPlaying());
 }
+
+// Master keeps the Performance FX live with no time limit (spec 16 §A.15):
+// muting, soloing and unmuting tracks on the Track Mixer over several pattern
+// ends leaves the tracks, rows and FX as they were.
+TEST(perf_fx_survive_track_mixer_mutes) {
+    Rig r;
+    App& a = r.a();
+    r.h.tap(btn::Song);
+    r.h.tap(btn::F2);   // Play Song
+    r.perfSetup();
+    r.h.tap(btn::Master);
+    r.h.tap(btn::Master);   // Track Mixer
+    CHECK(a.ui.active() == kModMaster);
+    r.h.tap(btn::F6);
+    CHECK(a.trackMuted(5));
+    r.h.down(btn::Shift);
+    r.h.tap(btn::F2);   // solo track 2
+    CHECK(a.trackMuted(0) && !a.trackMuted(1));
+    r.h.tap(btn::F2);   // unsolo: every track unmuted
+    r.h.up(btn::Shift);
+    CHECK(!a.trackMuted(5) && !a.trackMuted(0));
+    for (int k = 0; k < 3; ++k) {
+        const uint32_t e0 = a.patternEndCount();
+        for (int i = 0; i < 4000 && a.patternEndCount() == e0; ++i) {
+            r.h.audio.pump(8);
+            r.h.run(10);
+        }
+        CHECK(a.patternEndCount() != e0);
+    }
+    CHECK(a.seq.performanceMode());
+    CHECK_EQ(a.engine.voice(0).perf().tune, -24);
+    r.h.tap(btn::Performance);
+    for (int t = 0; t < 4; ++t) CHECK(r.perf().fxOn[t]);
+    CHECK_EQ(r.perf().src.row(2), 1);
+    a.seq.stop();
+}
