@@ -321,6 +321,7 @@ void SynthScreen::retarget() {
     if (app_.synthPresetsEpoch() != shownEpoch_) {
         shownEpoch_ = app_.synthPresetsEpoch();
         editedBits_ = 0;
+        importedBits_ = 0;
         opened_ = 0;
     }
     if (opened_ && !app_.synthPresetUsed(opened_)) opened_ = 0;
@@ -798,6 +799,7 @@ void SynthScreen::applyModel() {
     if (pendingModel_ < 0) return;
     audition(false, 0);
     editedBits_ = uint16_t(editedBits_ & ~editBit());
+    importedBits_ = uint16_t(importedBits_ & ~editBit());
     app_.setSynthTargetEngine(slot, synthModelListEngine(pendingModel_), et_);
     pendingModel_ = -1;
     section = row = 0;
@@ -880,6 +882,7 @@ bool SynthScreen::loadSelectedNow() {
     previewSel_ = -1;
     const uint16_t bit = editBit();
     bool ok;
+    const bool imported = browserKind[browserSel] == Entry::Voice || browserKind[browserSel] == Entry::Single;
     switch (browserKind[browserSel]) {
         case Entry::Voice: ok = app_.loadImportPatch(slot, browserSel, et_); break;
         case Entry::Single: ok = app_.openPatchImport(slot, browser[browserSel], et_) > 0 && app_.loadImportPatch(slot, 0, et_); break;
@@ -888,6 +891,7 @@ bool SynthScreen::loadSelectedNow() {
     if (ok) {
         bank[0] = 0;
         editedBits_ = uint16_t(editedBits_ & ~bit);
+        importedBits_ = uint16_t(imported ? importedBits_ | bit : importedBits_ & ~bit);
         view = View::Params;   // Confirm closes the popup
         ui_.closePopupHeader();
     }
@@ -905,6 +909,7 @@ void SynthScreen::initPatch() {
                 auto* s = static_cast<SynthScreen*>(c);
                 if (key != btn::F8 || s->askStale()) return;
                 s->editedBits_ = uint16_t(s->editedBits_ & ~s->editBit());
+                s->importedBits_ = uint16_t(s->importedBits_ & ~s->editBit());
                 s->app_.initSynthTargetPatch(s->slot, s->et_);
                 s->section = s->row = 0;
                 s->ui_.notify("Init patch loaded");
@@ -920,15 +925,40 @@ void SynthScreen::savePatch() {
         savePatchAs();
         return;
     }
+    if (importedBits_ & editBit()) {   // not saved yet: a library patch of its name is another one
+        std::snprintf(pendingName_, sizeof(pendingName_), "%s", r.patchName);
+        bindAsk();
+        saveNamed();
+        return;
+    }
     const bool ok = app_.saveSynthLibraryPatch(slot, r.patchName, et_);
     if (ok) editedBits_ = uint16_t(editedBits_ & ~editBit());
     ui_.notify(ok ? "Patch saved" : "Patch could not be saved");
     refreshBar();
 }
 
+void SynthScreen::saveNamed() {
+    char path[96];
+    std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(app_.synthTargetEngine(slot, et_)), pendingName_);
+    if (app_.fs().exists(path)) {
+        askBound_ = true;   // the target the question is about (askStale kept it)
+        ui_.ask("Patch exists", "Overwrite?", nullptr, "Cancel", "Overwrite",
+                [](void* c, int key) {
+                    auto* s = static_cast<SynthScreen*>(c);
+                    if (key == btn::F8 && !s->askStale()) s->saveAsNow();
+                },
+                this);
+        return;
+    }
+    saveAsNow();
+}
+
 void SynthScreen::saveAsNow() {
     const bool ok = app_.saveSynthLibraryPatch(slot, pendingName_, et_);
-    if (ok) editedBits_ = uint16_t(editedBits_ & ~editBit());
+    if (ok) {
+        editedBits_ = uint16_t(editedBits_ & ~editBit());
+        importedBits_ = uint16_t(importedBits_ & ~editBit());
+    }
     ui_.notify(ok ? "Patch saved" : "Patch could not be saved");
     refreshBar();
     ui_.dirty();
@@ -955,20 +985,7 @@ void SynthScreen::savePatchAs() {
                     }
                     for (char* q = name; *q; ++q)
                         if (*q == '/' || *q == '\\') *q = '_';
-                    char path[96];
-                    std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(s->app_.synthTargetEngine(s->slot, s->et_)),
-                                  name);
-                    if (s->app_.fs().exists(path)) {
-                        s->askBound_ = true;   // the target of the keyboard (askStale kept it)
-                        s->ui_.ask("Patch exists", "Overwrite?", nullptr, "Cancel", "Overwrite",
-                                   [](void* c2, int key) {
-                                       auto* s2 = static_cast<SynthScreen*>(c2);
-                                       if (key == btn::F8 && !s2->askStale()) s2->saveAsNow();
-                                   },
-                                   s);
-                        return;
-                    }
-                    s->saveAsNow();
+                    s->saveNamed();
                 },
                 this);
 }

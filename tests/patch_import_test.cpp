@@ -266,3 +266,82 @@ TEST(patch_import_browser) {
     h.tap(btn::F7);
     for (int i = 0; i < s.browserCount; ++i) CHECK(s.browserKind[i] == SynthScreen::Entry::Patch);
 }
+
+// An imported patch's name makes a valid file name: the characters a FAT
+// file name cannot hold become '_'. The first Save of an imported patch
+// asks before it replaces a library patch of the same name; once saved,
+// Save writes over it as for any library patch.
+TEST(patch_import_save_name_and_overwrite) {
+    reg();
+    Harness h(false);
+    h.fs.dirs.insert("Patches");
+    h.fs.dirs.insert("Patches/TIMP");
+    h.fs.files["Patches/TIMP/odd.tbk"] = tbk({"a:b*c?d\"e<f", "g>h|i\x01j\x7fk", "TWO"});
+    SynthPatch lib;
+    CHECK(patchInit(kEng, &lib));
+    const std::vector<uint8_t> kept = encode(lib);
+    h.fs.files["Patches/TIMP/TWO.patch"] = kept;
+    h.app->boot();
+    App& a = *h.app;
+    a.setSynthEngine(1, kEng);
+    a.setCurrentInstrument(kFirstSynthInstrument + 1);
+    h.tap(btn::Pattern);
+    h.tap(btn::InstrParams);
+    SynthScreen& s = synth(a);
+    CHECK(s.available());
+    h.tap(btn::F7);
+    CHECK(s.view == SynthScreen::View::Browser);
+    CHECK_STR(s.browser[0], "odd.tbk");
+    h.tap(btn::F8);   // open the bank
+    CHECK_STR(s.bank, "odd.tbk");
+    CHECK_EQ(s.browserCount, 3);
+    CHECK_STR(s.browser[0], "a_b_c_d_e_f");
+    CHECK_STR(s.browser[1], "g_h_i_j_k");
+    // Load and Save: a file of the mapped name.
+    h.tap(btn::F8);
+    CHECK(s.view == SynthScreen::View::Params);
+    CHECK(std::strcmp(a.synthSlot(1).patchName, "a_b_c_d_e_f") == 0);
+    s.savePatch();
+    CHECK(!a.ui.askOpen());
+    CHECK(h.fs.files.count("Patches/TIMP/a_b_c_d_e_f.patch") == 1);
+    h.tap(btn::F7);
+    s.browserSel = 0;
+    h.tap(btn::F8);   // the bank again
+    CHECK_STR(s.bank, "odd.tbk");
+    s.browserSel = 1;
+    h.tap(btn::F8);
+    CHECK(std::strcmp(a.synthSlot(1).patchName, "g_h_i_j_k") == 0);
+    s.savePatch();
+    CHECK(!a.ui.askOpen());
+    CHECK(h.fs.files.count("Patches/TIMP/g_h_i_j_k.patch") == 1);
+    // A patch of that name exists: Save asks; Cancel writes nothing.
+    h.tap(btn::F7);
+    s.browserSel = 0;
+    h.tap(btn::F8);   // the bank again
+    CHECK_STR(s.bank, "odd.tbk");
+    s.browserSel = 2;
+    h.tap(btn::F8);
+    CHECK(s.view == SynthScreen::View::Params);
+    CHECK(std::strcmp(a.synthSlot(1).patchName, "TWO") == 0);
+    s.savePatch();
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F7);   // Cancel
+    CHECK(!a.ui.askOpen());
+    CHECK(h.fs.files["Patches/TIMP/TWO.patch"] == kept);
+    // Overwrite writes the imported patch.
+    s.savePatch();
+    CHECK(a.ui.askOpen());
+    h.tap(btn::F8);   // Overwrite
+    CHECK(!a.ui.askOpen());
+    SynthPatch back;
+    const std::vector<uint8_t>& f = h.fs.files["Patches/TIMP/TWO.patch"];
+    CHECK(decodePatch(f.data(), f.size(), &back) == PatchStatus::kOk);
+    CHECK(voice(back) == "TWO         ");
+    // Saved once: the next Save writes at once.
+    patchSetOpaqueBytes(a.synthPatch(1), kVoiceField, reinterpret_cast<const uint8_t*>("NEW"), 3);
+    s.savePatch();
+    CHECK(!a.ui.askOpen());
+    const std::vector<uint8_t>& g = h.fs.files["Patches/TIMP/TWO.patch"];
+    CHECK(decodePatch(g.data(), g.size(), &back) == PatchStatus::kOk);
+    CHECK(voice(back) == "NEW");
+}

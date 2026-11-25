@@ -249,8 +249,8 @@ void App::importPatchName(int k, char* out, int cap) const {
     int n = 0;
     for (; out[n]; ++n) {
         const char c = out[n];
-        // Printable ASCII; path separators would make a bad file name on Save.
-        if (c < 0x20 || c > 0x7E || c == '/' || c == '\\') out[n] = '_';
+        // Printable ASCII that a FAT file name can hold (Save names the file after it).
+        if (c < 0x20 || c > 0x7E || std::strchr("/\\*?<>|:\"", c)) out[n] = '_';
     }
     if (!n) std::snprintf(out, size_t(cap), "Voice %d", k + 1);
 }

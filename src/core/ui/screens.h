@@ -1150,10 +1150,14 @@ private:
     bool openBank(const char* file);   // its patches into the list (false: not the engine's format)
     void closeBank();                  // back to the folder, the bank highlighted
     void saveAsNow();         // pendingName_ (after "Overwrite?")
+    void saveNamed();         // pendingName_, asking "Overwrite?" when that library patch exists
     // Patch edits since the last load / init / save / model change, per edit
     // target ("Discard edits?" before Load or a model change): bit s = slot
     // s's own patch, bit kSynthSlotCount + n - 1 = [3.x] preset n.
     uint16_t editedBits_ = 0;
+    // The edit targets whose patch came from an import file and was not saved
+    // since (its first Save asks before it replaces a library patch).
+    uint16_t importedBits_ = 0;
     uint16_t editBit() const;
     // [3.x] What the page showed last (update: a Z or the chase moved the target).
     uint8_t shownTarget_ = 0;
