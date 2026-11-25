@@ -39,6 +39,11 @@ struct SpyEngine : ISynthEngine {
     const char* name() const override { return "SPY"; }
     void prepare(SynthSlotScratch& s, const SynthParams& p) override { ++prepares; inner->prepare(s, p); }
     void slotReset(SynthSlotScratch& s) override { ++resets; inner->slotReset(s); }
+    std::vector<const SynthPatch*> loads;   // the patches loadPatch received, in order
+    void loadPatch(SynthSlotScratch& s, const SynthPatch& p) override {
+        loads.push_back(&p);
+        inner->loadPatch(s, p);
+    }
     void noteOn(SynthVoice& v, const SynthParams& p, const SynthNote& n) override {
         ons.push_back(n);
         inner->noteOn(v, p, n);
@@ -426,6 +431,55 @@ TEST(synth_voice_index_is_the_pool_record) {
         CHECK_EQ(seen, 0xFFu);   // eight voices, eight different records
         r.bank.reset();
     }
+}
+
+// loadPatch gets the patch the slot plays: its own, or the preset it is on
+// (also one of another engine), on every reload and again after Stop.
+TEST(synth_load_patch_gets_the_bound_patch) {
+    BankRig r(2, 2, 2, 4);
+    SynthPatch presets[kSynthPresetCount] = {};
+    CHECK(patchInit(kSynthEngineAcd, &presets[0]));
+    CHECK(patchInit(kSynthEngineFat, &presets[1]));
+    r.bank.bindPresets(presets);
+    auto has = [&](const SynthPatch* p) {
+        for (const SynthPatch* q : r.spy.loads)
+            if (q == p) return true;
+        return false;
+    };
+    // The slot's own patch, on an edit.
+    r.spy.loads.clear();
+    r.bank.patchChanged(0);
+    r.block();
+    CHECK(!r.spy.loads.empty());
+    CHECK(has(&r.patch[0]));
+    // A preset of the same engine.
+    r.spy.loads.clear();
+    CHECK(r.bank.presetSelect(0, 1));
+    r.block();
+    CHECK(!r.spy.loads.empty());
+    CHECK(has(&presets[0]));
+    CHECK(!has(&r.patch[0]));
+    // A preset of another engine.
+    r.spy.loads.clear();
+    CHECK(r.bank.presetSelect(0, 2));
+    r.block();
+    CHECK(!r.spy.loads.empty());
+    CHECK(has(&presets[1]));
+    CHECK(!has(&r.patch[0]));
+    CHECK(!has(&presets[0]));
+    // Stop: every slot's engine gets its patch back, slot 0 still the preset's.
+    r.spy.loads.clear();
+    r.bank.stopAll();
+    CHECK(has(&presets[1]));
+    CHECK(has(&r.patch[1]));
+    CHECK(has(&r.patch[2]));
+    CHECK(!has(&r.patch[0]));
+    // Back on its own patch.
+    r.spy.loads.clear();
+    CHECK(r.bank.presetSelect(0, 0));
+    r.block();
+    CHECK(has(&r.patch[0]));
+    CHECK(!has(&presets[1]));
 }
 
 TEST(synth_pitch_fx_hooks) {
