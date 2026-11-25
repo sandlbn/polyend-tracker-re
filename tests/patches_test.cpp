@@ -21,7 +21,9 @@
 // every drum alone, then eight drums at once, at Poly 1; the retro engines 8-Type, B-Type and Arc-Type
 // (8TY1, BTY1, ARC1) like CS-Type (Poly 1: the mono notes, else 4-voice chords), Hand-Type (HND1,
 // Patches/HANDTYPE/) channel patches the mono notes and its kits ("OT Kit ") every drum alone, then
-// five in one block; this test runs in every profile with a preset module (profile.mk PRESET_MODS).
+// five in one block; 6-Type (6TY1, Patches/6TYPE/) like CS-Type, its voice (patch field 100) the
+// preset's bytes in the file and in the loaded slot; this test runs in every profile with a preset
+// module (profile.mk PRESET_MODS).
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -136,7 +138,7 @@ void perform(Slot& s, const presets::Preset& p, int poly) {
     else if (p.engine == presets::kDtypeEngine || p.engine == presets::kAtypeEngine) m = SynthModel::ACD;
     else if (p.engine == presets::kCstypeEngine || p.engine == presets::kEightEngine || p.engine == presets::kBtypeEngine ||
              p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine || p.engine == presets::kOnetypeEngine ||
-             p.engine == presets::kVtypeEngine)
+             p.engine == presets::kVtypeEngine || p.engine == presets::kSixtypeEngine)
         m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
     else if (p.engine == presets::kHandEngine) m = handKit(p) ? SynthModel::PERC : SynthModel::ACD;
     else if (m == SynthModel::FAT || m == SynthModel::WTFM) m = poly > 1 ? SynthModel::VAP : SynthModel::ACD;
@@ -225,7 +227,7 @@ int polyFor(const presets::Preset& p) {
     if (p.engine == presets::kTtypeEngine) return 1;   // one voice owns the kit
     if (p.engine == presets::kEightEngine || p.engine == presets::kHandEngine || p.engine == presets::kBtypeEngine ||
         p.engine == presets::kArcEngine || p.engine == presets::kFm4Engine || p.engine == presets::kOnetypeEngine ||
-             p.engine == presets::kVtypeEngine)
+             p.engine == presets::kVtypeEngine || p.engine == presets::kSixtypeEngine)
         return p.playPoly;
     if (p.engine == presets::kJu6Engine) return 4;
     if (p.engine == presets::kDtypeEngine || p.engine == presets::kAtypeEngine) return 1;
@@ -248,7 +250,7 @@ Pack& pack() {
 
 TEST(presets_names_counts_and_macros) {
     int acd = 0, fat = 0, vap = 0, wtfm = 0, perc = 0, ju6 = 0, dtype = 0, cstype = 0, atype = 0, ttype = 0;
-    int eight = 0, hand = 0, btype = 0, arc = 0, onetype = 0, vtype = 0, vtypeRouted = 0;
+    int eight = 0, hand = 0, btype = 0, arc = 0, onetype = 0, vtype = 0, vtypeRouted = 0, sixtype = 0;
     std::vector<std::string> names;
     for (const presets::Preset& p : presets::all()) {
         const int32_t e = presets::engineOf(p);
@@ -268,6 +270,19 @@ TEST(presets_names_counts_and_macros) {
         arc += e == presets::kArcEngine;
         onetype += e == presets::kOnetypeEngine;
         vtype += e == presets::kVtypeEngine;
+        sixtype += e == presets::kSixtypeEngine;
+        CHECK_EQ(p.voice.empty(), e != presets::kSixtypeEngine);   // a 6-Type patch carries its own voice
+#if defined(OT_MOD_6TY1)
+        if (e == presets::kSixtypeEngine) {   // in range, not the Init voice, none twice
+            CHECK_EQ(p.voice.size(), size_t(kSixtypeVoiceBytes));
+            uint8_t v[kSixtypeVoiceBytes];
+            std::memcpy(v, p.voice.data(), sizeof v);
+            CHECK_EQ(ot::audio::sixtype::sanitizeVoice(v), 0);
+            CHECK(std::memcmp(v, kSixtypeInitVoice, sizeof v) != 0);
+            for (const presets::Preset& q : presets::all())
+                if (&q != &p && q.voice == p.voice) CHECK(false);
+        }
+#endif
 #if defined(OT_MOD_VTY1)
         if (e == presets::kVtypeEngine)   // V-Type: the patches that use both filters (not Single)
             for (const presets::Edit& ed : p.edits)
@@ -293,8 +308,8 @@ TEST(presets_names_counts_and_macros) {
     }
     std::printf("  presets: ACD %d, FAT %d, VAP %d, WTFM %d, PERC %d, JU6 %d, D-Type %d, CS-Type %d, A-Type %d, T-Type %d\n", acd,
                 fat, vap, wtfm, perc, ju6, dtype, cstype, atype, ttype);
-    std::printf("  presets: 8-Type %d, Hand-Type %d, B-Type %d, Arc-Type %d, 1-Type %d, V-Type %d (%d routed)\n", eight, hand,
-                btype, arc, onetype, vtype, vtypeRouted);
+    std::printf("  presets: 8-Type %d, Hand-Type %d, B-Type %d, Arc-Type %d, 1-Type %d, V-Type %d (%d routed), 6-Type %d\n", eight,
+                hand, btype, arc, onetype, vtype, vtypeRouted, sixtype);
 #if defined(OT_MOD_ACD1)
     CHECK(acd >= 10);
 #endif
@@ -344,6 +359,9 @@ TEST(presets_names_counts_and_macros) {
     CHECK(vtype >= 12);
     CHECK(vtypeRouted >= 8);
 #endif
+#if defined(OT_MOD_6TY1)
+    CHECK_EQ(sixtype, 12);
+#endif
     (void)ttype;
     (void)eight;
     (void)hand;
@@ -352,6 +370,7 @@ TEST(presets_names_counts_and_macros) {
     (void)onetype;
     (void)vtype;
     (void)vtypeRouted;
+    (void)sixtype;
 }
 
 TEST(presets_save_and_load_through_the_app) {
@@ -385,6 +404,15 @@ TEST(presets_save_and_load_through_the_app) {
         CHECK_EQ(a.synthPatch(0).engine, presets::engineOf(p));
         CHECK_EQ(a.slotEngineId(0), presets::engineOf(p));
         CHECK(encode(a.synthPatch(0)) == file);
+#if defined(OT_MOD_6TY1)
+        if (!p.voice.empty()) {   // 6-Type: the voice in the file and in the loaded slot, byte for byte
+            uint8_t v[kSixtypeVoiceBytes];
+            CHECK(patchSixtypeVoice(dec, v));
+            CHECK(std::memcmp(v, p.voice.data(), sizeof v) == 0);
+            CHECK(patchSixtypeVoice(a.synthPatch(0), v));
+            CHECK(std::memcmp(v, p.voice.data(), sizeof v) == 0);
+        }
+#endif
         // Macro page values: bipolar macros at 63 (the patch as saved).
         for (int k = 0; k < kSynthSeqMacros; ++k)
             CHECK_EQ(int(rec.macros[k]), a.synthPatch(0).macros[k].bipolar ? 63 : 0);
@@ -590,7 +618,7 @@ TEST(presets_release_folder_matches_the_generator) {
     }
 }
 
-// The retro engines (8-Type, Hand-Type, B-Type, Arc-Type): every macro M1..M6
+// The retro engines (8-Type, Hand-Type, B-Type, Arc-Type) and 6-Type: every macro M1..M6
 // of every patch changes the sound at one of its extremes (a short phrase;
 // the other macros at their page defaults).
 TEST(presets_retro_macros_have_an_effect) {
@@ -598,7 +626,7 @@ TEST(presets_retro_macros_have_an_effect) {
     int checked = 0;
     for (size_t i = 0; i < pk.loaded.size(); ++i) {
         const presets::Preset& p = presets::all()[i];
-        if (p.engine < presets::kEightEngine || p.engine > presets::kArcEngine) continue;
+        if ((p.engine < presets::kEightEngine || p.engine > presets::kArcEngine) && p.engine != presets::kSixtypeEngine) continue;
         auto phrase = [&](int macro, int value) {
             Slot s(pk.loaded[i], p.model, polyFor(p), -1, p.engine);
             if (macro >= 0) {
