@@ -65,6 +65,10 @@
 #if defined(OT_MOD_VTY1)
 #include "vtype.h"
 #endif
+#if defined(OT_MOD_6TY1)
+#include "sixtype.h"
+#include "sixtype_patch.h"
+#endif
 #if defined(OT_MOD_FM4S)
 #include "fm4.h"
 #endif
@@ -2317,6 +2321,222 @@ std::vector<Preset> vtypePresets() {
 #undef VT_MOD
 #endif  // OT_MOD_VTY1
 
+#if defined(OT_MOD_6TY1)
+// ---------------------------------------------------------------------------
+// 6-Type (module 6TY1, engine 0x8C, Patches/6TYPE/): six-operator FM, 32
+// algorithms. Its patch plays the voice in patch field 100; the parameters are
+// controls on top of it. Our own voices, written below operator by operator
+// and set on the Init patch with the module's own helper (patchSetSixtypeVoice).
+// M1-M6 the same on every patch (Bright, Feedback, Attack, Release, LFO Depth,
+// Detune), the amounts per patch.
+//
+// One operator: output level, frequency (ratio = coarse x (1 + fine / 100),
+// coarse 0 = x0.5; or fixed), detune -7..7, the 4 rates / 4 levels of its
+// envelope (rate 99 = instant; L3 the sustain, L4 the level it starts from and
+// releases to), velocity sensitivity 0..7, rate scaling 0..7 (faster up the
+// keyboard), amplitude modulation sensitivity 0..3, key level scaling (break
+// point, left / right depth 0..99, curves 0 -LIN, 1 -EXP, 2 +EXP, 3 +LIN).
+struct SxOp {
+    uint8_t out, coarse, fine;
+    int8_t det;
+    uint8_t r[4], l[4];
+    uint8_t vel = 0, rs = 0, ams = 0;
+    uint8_t bp = 39, ld = 0, rd = 0, lc = 0, rc = 0;
+    bool fixed = false;
+};
+// LFO: speed, delay, pitch / amplitude depth (0..99), key sync, wave (0 tri,
+// 1 saw down, 2 saw up, 3 square, 4 sine, 5 S&H), pitch sensitivity 0..7.
+struct SxLfo {
+    uint8_t speed, delay, pmd, amd, sync, wave, pms;
+};
+// The pitch envelope: 4 rates / 4 levels, 50 = the note's pitch.
+struct SxPitchEg {
+    uint8_t r[4], l[4];
+};
+constexpr SxPitchEg kSxNoPitchEg = {{99, 99, 99, 99}, {50, 50, 50, 50}};
+// A voice: name (10 characters), algorithm 1..32, feedback 0..7, operators 1..6.
+struct SxVoice {
+    const char* name;
+    uint8_t alg, fb;
+    SxOp op[6];
+    SxLfo lfo;
+    SxPitchEg pe = kSxNoPitchEg;
+};
+// An operator that is not heard (output level 0).
+const SxOp kSxOff = {0, 1, 0, 0, {99, 99, 99, 99}, {99, 99, 99, 0}};
+
+// The 155-byte single voice (sixtype.h): operators 6..1 (21 bytes each), then
+// the pitch envelope, algorithm, feedback, key sync, LFO, transpose (24: as
+// played) and the name.
+std::vector<uint8_t> sxBytes(const SxVoice& v) {
+    std::vector<uint8_t> b(size_t(ot::kSixtypeVoiceBytes), 0);
+    for (int k = 0; k < 6; ++k) {
+        const SxOp& o = v.op[5 - k];
+        uint8_t* d = &b[size_t(k * 21)];
+        for (int i = 0; i < 4; ++i) d[i] = o.r[i], d[4 + i] = o.l[i];
+        d[8] = o.bp, d[9] = o.ld, d[10] = o.rd, d[11] = o.lc, d[12] = o.rc, d[13] = o.rs, d[14] = o.ams;
+        d[15] = o.vel, d[16] = o.out, d[17] = o.fixed ? 1 : 0, d[18] = o.coarse, d[19] = o.fine;
+        d[20] = uint8_t(o.det + 7);
+    }
+    for (int i = 0; i < 4; ++i) b[size_t(126 + i)] = v.pe.r[i], b[size_t(130 + i)] = v.pe.l[i];
+    b[134] = uint8_t(v.alg - 1), b[135] = v.fb, b[136] = 1;
+    const SxLfo& l = v.lfo;
+    b[137] = l.speed, b[138] = l.delay, b[139] = l.pmd, b[140] = l.amd, b[141] = l.sync, b[142] = l.wave, b[143] = l.pms;
+    b[144] = 24;
+    const size_t n = std::strlen(v.name);
+    for (size_t i = 0; i < 10; ++i) b[145 + i] = uint8_t(i < n ? v.name[i] : ' ');
+    return b;
+}
+
+Macro sxBright(float a = 0.25f) { return {"Bright", true, {{ot::kSixtypeBrightness, a}}}; }
+Macro sxFeedback(float a = 0.25f) { return {"Feedback", true, {{ot::kSixtypeFeedback, a}}}; }
+Macro sxAttack(float a = 0.3f) { return {"Attack", true, {{ot::kSixtypeAttack, a}}}; }
+Macro sxRelease(float a = 0.3f) { return {"Release", true, {{ot::kSixtypeRelease, a}}}; }
+Macro sxLfo(float a = 0.5f) { return {"LFO Depth", true, {{ot::kSixtypeLfoDepth, a}}}; }
+Macro sxDetune(float a = 0.5f) { return {"Detune", false, {{ot::kSixtypeDetune, a}}}; }
+
+// Operators 1..6 per voice: C = a carrier (heard), M = a modulator (its level
+// is the brightness it adds).
+const SxVoice kSxTineKeys = {"TINE KEYS", 5, 0,   // three pairs: 2>1, 4>3, 6>5; a gentle tremolo on the carriers
+    {{99, 1, 0, 0, {96, 30, 24, 62}, {99, 86, 0, 0}, 2, 3, 1},                  // C body
+     {78, 1, 0, 0, {96, 46, 30, 62}, {99, 64, 0, 0}, 6, 3},                     // M soft growl, velocity
+     {86, 1, 0, 3, {96, 31, 25, 62}, {99, 82, 0, 0}, 2, 3, 1},                  // C a little sharp
+     {74, 13, 0, 0, {98, 72, 40, 70}, {99, 0, 0, 0}, 7, 4, 0, 39, 0, 30, 0, 0}, // M x13 tine ping, less up high
+     {80, 1, 0, -3, {96, 34, 25, 62}, {99, 80, 0, 0}, 2, 3, 1},                 // C a little flat
+     {70, 1, 0, 0, {96, 52, 34, 62}, {99, 58, 0, 0}, 5, 3}},                    // M bark (no feedback: M2 adds it)
+    {30, 0, 0, 10, 0, 4, 0}};
+const SxVoice kSxChime = {"CHIME", 5, 0,   // three pairs, inharmonic modulators; a little tremolo
+    {{95, 1, 0, 0, {99, 32, 22, 40}, {99, 60, 0, 0}, 2, 2, 1},                  // C fundamental
+     {80, 2, 75, 0, {99, 40, 25, 40}, {99, 50, 0, 0}, 4, 2},                    // M x3.5
+     {75, 4, 5, 0, {99, 45, 30, 45}, {99, 40, 0, 0}, 2, 3, 1},                  // C x4.2 partial
+     {72, 7, 10, 0, {99, 55, 30, 50}, {99, 30, 0, 0}, 4, 3},                    // M x7.7
+     {80, 1, 0, 4, {99, 30, 22, 40}, {99, 70, 0, 0}, 1, 2, 1},                  // C beating against op 1
+     {74, 1, 41, 0, {99, 50, 30, 45}, {99, 40, 0, 0}, 3, 2}},                   // M x1.41
+    {35, 0, 0, 12, 0, 4, 0}};
+const SxVoice kSxBounceBass = {"BOUNCE BAS", 7, 4,   // 2>1 and (4 + 6>5)>3
+    {{99, 0, 0, 0, {99, 40, 30, 72}, {99, 90, 80, 0}, 2, 0},                    // C x0.5 low body
+     {85, 0, 0, 0, {99, 66, 50, 72}, {99, 60, 45, 0}, 5, 0},                    // M x0.5 pluck into body
+     {80, 1, 0, 0, {99, 50, 35, 72}, {99, 80, 60, 0}, 2, 0},                    // C x1
+     {80, 1, 0, 0, {99, 76, 50, 72}, {99, 40, 20, 0}, 6, 0},                    // M x1 snap
+     {62, 2, 0, 0, {99, 82, 60, 72}, {99, 0, 0, 0}, 4, 0},                      // M x2 click
+     {76, 1, 0, 0, {99, 70, 50, 72}, {99, 40, 20, 0}, 3, 0}},                   // M x1 into the click (feedback 4)
+    {35, 40, 3, 0, 0, 4, 2}};                                                   // delayed vibrato on held notes
+const SxVoice kSxPunchBass = {"PUNCH BASS", 3, 6,   // 3>2>1 and 6>5>4
+    {{85, 0, 0, 0, {99, 50, 40, 76}, {99, 85, 70, 0}, 2, 0},                    // C x0.5
+     {88, 1, 0, 0, {99, 86, 60, 76}, {99, 20, 0, 0}, 5, 0},                     // M x1 fast drop: the punch
+     {60, 3, 0, 0, {99, 90, 70, 76}, {99, 0, 0, 0}, 6, 0},                      // M x3 attack click
+     {95, 0, 0, 0, {99, 55, 40, 76}, {99, 85, 75, 0}, 2, 0},                    // C x0.5
+     {86, 0, 0, 0, {99, 70, 45, 76}, {99, 55, 40, 0}, 5, 0},                    // M x0.5
+     {78, 0, 0, 0, {99, 60, 40, 76}, {99, 70, 55, 0}, 3, 0}},                   // M x0.5, feedback 6: a buzz
+    {35, 40, 3, 0, 0, 4, 2},
+    {{99, 72, 99, 99}, {58, 50, 50, 50}}};                                      // a short drop into the note
+const SxVoice kSxHorns = {"HORNS", 22, 5,   // 2>1 and 6>(5, 4, 3)
+    {{95, 1, 0, 0, {62, 40, 30, 60}, {99, 95, 92, 0}, 2, 1},                    // C
+     {90, 1, 0, 0, {56, 40, 30, 60}, {99, 85, 75, 0}, 4, 1},                    // M swells in after the carrier
+     {80, 1, 0, 3, {62, 40, 30, 60}, {99, 95, 92, 0}, 2, 1},                    // C sharp, under op 1
+     {76, 1, 0, -3, {62, 40, 30, 60}, {99, 95, 92, 0}, 2, 1},                   // C flat, under op 1
+     {70, 0, 0, 2, {60, 40, 30, 60}, {99, 95, 92, 0}, 1, 1},                    // C x0.5 body
+     {86, 1, 0, 0, {52, 40, 30, 60}, {99, 80, 70, 0}, 4, 1}},                   // M (feedback 5)
+    {34, 50, 4, 0, 0, 4, 3},
+    {{75, 99, 99, 99}, {50, 50, 50, 47}}};                                      // rises into the note
+const SxVoice kSxOrgan = {"DRAWBARS", 25, 3,   // five carriers (drawbar-like footages), 6>(5, 4)
+    {{88, 0, 0, 0, {99, 80, 99, 90}, {99, 99, 99, 0}},                          // C x0.5
+     {92, 1, 0, 0, {99, 80, 99, 90}, {99, 99, 99, 0}},                          // C x1
+     {84, 2, 0, 0, {99, 80, 99, 90}, {99, 99, 99, 0}},                          // C x2
+     {78, 3, 0, 0, {99, 80, 99, 90}, {99, 99, 99, 0}},                          // C x3
+     {72, 4, 0, 0, {99, 80, 99, 90}, {99, 99, 99, 0}},                          // C x4
+     {62, 1, 0, 0, {99, 80, 99, 90}, {99, 99, 99, 0}}},                         // M x1 edge on x3 and x4 (feedback 3)
+    {40, 0, 3, 0, 0, 4, 3}};
+const SxVoice kSxMallet = {"ROSEWOOD", 5, 0,   // three pairs: body, a ringing partial, a click
+    {{99, 1, 0, 0, {99, 48, 40, 55}, {99, 70, 0, 0}, 2, 3},                     // C body
+     {76, 4, 0, 0, {99, 72, 50, 60}, {99, 0, 0, 0}, 6, 3},                      // M x4 short knock
+     {70, 4, 0, 0, {99, 70, 45, 60}, {99, 0, 0, 0}, 3, 4},                      // C x4 partial, brief
+     {40, 1, 0, 0, {99, 70, 45, 60}, {99, 0, 0, 0}, 3, 4},                      // M x1
+     {55, 10, 0, 0, {99, 85, 60, 70}, {99, 0, 0, 0}, 4, 5},                     // C x10 click
+     {72, 3, 0, 0, {99, 90, 60, 70}, {99, 0, 0, 0}, 4, 5}},                     // M x3 roughens the click
+    {35, 0, 3, 0, 0, 4, 2}};
+const SxVoice kSxHarp = {"NYLON HARP", 2, 4,   // 2>1 (feedback on 2) and 6>5>4>3
+    {{97, 1, 0, 0, {99, 40, 30, 55}, {99, 75, 0, 0}, 2, 3},                     // C
+     {78, 1, 0, 0, {99, 65, 40, 55}, {99, 40, 0, 0}, 5, 3},                     // M x1, feedback 4
+     {78, 2, 0, 0, {99, 45, 32, 55}, {99, 65, 0, 0}, 2, 3},                     // C x2
+     {72, 3, 0, 0, {99, 70, 40, 55}, {99, 20, 0, 0}, 5, 3},                     // M x3
+     {40, 1, 0, 0, {99, 80, 50, 55}, {99, 0, 0, 0}, 4, 3},                      // M x1 brief
+     {30, 5, 0, 0, {99, 90, 50, 60}, {99, 0, 0, 0}, 4, 3}},                     // M x5 the pick
+    {35, 40, 2, 0, 0, 4, 2}};
+const SxVoice kSxDriftPad = {"DRIFT PAD", 5, 2,   // three detuned pairs; modulators move slowly
+    {{90, 1, 0, 3, {40, 30, 25, 40}, {99, 92, 90, 0}, 1, 1},                    // C sharp
+     {72, 1, 0, 0, {30, 20, 25, 40}, {70, 85, 75, 0}, 2, 1, 2},                 // M x1 brightens over seconds, AM
+     {82, 1, 0, -3, {40, 30, 25, 40}, {99, 92, 90, 0}, 1, 1},                   // C flat
+     {55, 2, 0, 0, {25, 18, 22, 40}, {60, 82, 70, 0}, 2, 1, 1},                 // M x2
+     {72, 2, 0, 1, {38, 28, 25, 40}, {99, 90, 85, 0}, 1, 1},                    // C x2 air
+     {72, 3, 0, 0, {45, 15, 20, 40}, {85, 55, 70, 0}, 2, 1}},                   // M x3 in early, fading as op 2 rises (feedback 2)
+    {22, 30, 3, 20, 0, 0, 2}};
+const SxVoice kSxLead = {"EDGE LEAD", 16, 6,   // one carrier, three modulator branches
+    {{99, 1, 0, 0, {95, 60, 40, 70}, {99, 95, 90, 0}, 2, 1},                    // C
+     {82, 1, 0, 0, {90, 50, 35, 70}, {99, 85, 80, 0}, 4, 1},                    // M x1
+     {62, 2, 0, 0, {85, 45, 35, 70}, {99, 80, 75, 0}, 3, 1},                    // M x2
+     {50, 3, 0, 0, {85, 45, 35, 70}, {99, 80, 75, 0}, 3, 1},                    // M x3 into op 3
+     {78, 1, 0, 1, {95, 50, 40, 70}, {99, 85, 80, 0}, 3, 1},                    // M x1 slightly off
+     {80, 1, 0, 0, {95, 50, 40, 70}, {99, 85, 80, 0}, 3, 1}},                   // M x1, feedback 6: saw-like
+    {35, 45, 8, 0, 0, 4, 3}};                                                   // delayed vibrato
+const SxVoice kSxClav = {"CLAV SNAP", 3, 5,   // 3>2>1 and 6>5>4
+    {{95, 1, 0, 0, {99, 60, 45, 85}, {99, 85, 75, 0}, 3, 2},                    // C
+     {84, 3, 0, 0, {99, 70, 50, 85}, {99, 50, 35, 0}, 6, 2},                    // M x3 nasal
+     {55, 1, 0, 0, {99, 80, 60, 85}, {99, 20, 0, 0}, 4, 2},                     // M x1 attack
+     {80, 2, 0, 0, {99, 60, 45, 85}, {99, 82, 72, 0}, 3, 2},                    // C x2
+     {76, 5, 0, 0, {99, 75, 55, 85}, {99, 35, 20, 0}, 6, 2},                    // M x5 bite
+     {50, 1, 0, 0, {99, 80, 60, 85}, {99, 40, 20, 0}, 4, 2}},                   // M x1 (feedback 5)
+    {35, 0, 3, 0, 0, 4, 2}};
+const SxVoice kSxSteelHit = {"STEEL HIT", 1, 7,   // 2>1 and 6>5>4>3, inharmonic ratios, feedback 7
+    {{95, 1, 0, 0, {99, 62, 50, 60}, {99, 40, 0, 0}, 3, 0},                     // C
+     {85, 2, 38, 0, {99, 65, 50, 60}, {99, 30, 0, 0}, 5, 0},                    // M x2.76
+     {85, 3, 6, 0, {99, 58, 45, 60}, {99, 40, 0, 0}, 3, 0},                     // C x3.18
+     {80, 5, 17, 0, {99, 68, 50, 60}, {99, 20, 0, 0}, 5, 0},                    // M x5.85
+     {75, 9, 4, 0, {99, 72, 50, 60}, {99, 10, 0, 0}, 5, 0},                     // M x9.36
+     {70, 14, 4, 0, {99, 75, 55, 60}, {99, 0, 0, 0}, 5, 0}},                    // M x14.56, feedback 7: the noise
+    {35, 0, 4, 0, 0, 4, 3},
+    {{99, 70, 99, 99}, {62, 50, 50, 50}}};                                      // a pitch drop on the hit
+
+std::vector<Preset> sixtypePresets() {
+    const SynthModel F = SynthModel::ACD;   // the Mini fallback model of the slot record
+    const int32_t E = kSixtypeEngine;
+    const std::vector<Target> none;
+    auto p = [&](const char* name, const char* desc, int poly, std::vector<Edit> edits, float bright, float fb,
+                 const SxVoice& v) {
+        return Preset{F, name, desc, poly, edits,
+                      {sxBright(bright), sxFeedback(fb), sxAttack(), sxRelease(), sxLfo(), sxDetune()}, E, none, sxBytes(v)};
+    };
+    using ot::kSixtypeVolume;
+    using ot::kSixtypeMono;
+    return {
+        p("OT Tine Keys", "Algorithm 5: three pairs, a x13 modulator for the struck tine, velocity to every modulator, a gentle tremolo.", 4,
+          {{kSixtypeVolume, 1.0f}}, 0.25f, 0.2f, kSxTineKeys),
+        p("OT Crystal Chime", "Algorithm 5: three pairs with x3.5, x7.7 and x1.41 modulators, long decays; a little tremolo.", 4,
+          {{kSixtypeVolume, 1.4f}}, 0.25f, 0.2f, kSxChime),
+        p("OT Bounce Bass", "Algorithm 7: a x0.5 pair and a x1 carrier under two modulators, a quick snap into a round body.", 1,
+          {{kSixtypeVolume, 2.0f}, {kSixtypeMono, 0.0f}}, 0.2f, 0.2f, kSxBounceBass),
+        p("OT Punch Bass", "Algorithm 3: two stacks, one dropping fast for the punch, one buzzing on feedback 6; a pitch drop.", 1,
+          {{kSixtypeVolume, 2.0f}, {kSixtypeMono, 0.0f}}, 0.2f, 0.15f, kSxPunchBass),
+        p("OT Horn Section", "Algorithm 22: four carriers, two detuned under the main one, modulators swelling in after them, a rise into the note.", 4,
+          {{kSixtypeVolume, 1.0f}}, 0.25f, 0.15f, kSxHorns),
+        p("OT Drawbar Organ", "Algorithm 25: five carriers at x0.5 to x4, a modulator edging x3 and x4, full sustain, a slight vibrato.", 4,
+          {{kSixtypeVolume, 1.3f}}, 0.25f, 0.2f, kSxOrgan),
+        p("OT Rosewood Mallet", "Algorithm 5: a short x4 knock, a brief x4 partial and a roughened x10 click over the body.", 4,
+          {{kSixtypeVolume, 1.4f}}, 0.25f, 0.2f, kSxMallet),
+        p("OT Nylon Harp", "Algorithm 2: a plucked pair and a stack with a x5 pick, decaying faster up the keyboard.", 4,
+          {{kSixtypeVolume, 1.4f}}, 0.25f, 0.2f, kSxHarp),
+        p("OT Drift Pad", "Algorithm 5: three detuned pairs, slow attack, modulators rising and fading over seconds, slow LFO.", 4,
+          {{kSixtypeVolume, 1.8f}}, 0.25f, 0.2f, kSxDriftPad),
+        p("OT Edge Lead", "Algorithm 16: one carrier, three branches, feedback 6, delayed vibrato; legato.", 1,
+          {{kSixtypeVolume, 2.0f}, {kSixtypeMono, 1.0f}}, 0.25f, 0.15f, kSxLead),
+        p("OT Clav Snap", "Algorithm 3: two stacks with x3 and x5 modulators, a snappy attack and a short release.", 4,
+          {{kSixtypeVolume, 1.6f}}, 0.25f, 0.2f, kSxClav),
+        p("OT Steel Hit", "Algorithm 1: inharmonic ratios, feedback 7 on x14.56, a pitch drop; a metallic hit.", 4,
+          {{kSixtypeVolume, 1.3f}}, 0.25f, 0.15f, kSxSteelHit),
+    };
+}
+#endif  // OT_MOD_6TY1
+
 void fill(ot::PatchMacro& m, const Macro& d) {
     std::snprintf(m.name, sizeof(m.name), "%s", d.name);
     m.nameLen = uint8_t(std::strlen(m.name));
@@ -2389,6 +2609,9 @@ const std::vector<Preset>& all() {
 #if defined(OT_MOD_VTY1)
         add(vtypePresets());
 #endif
+#if defined(OT_MOD_6TY1)
+        add(sixtypePresets());
+#endif
 #if defined(OT_MOD_FM4S)
         add(fm4Presets());
 #endif
@@ -2411,6 +2634,20 @@ bool build(ot::App& a, int s, const Preset& pr, std::string& err) {
     if (a.slotEngineId(s) != engine || p.engine != engine) {
         err = std::string(pr.name) + ": engine " + std::to_string(engine) + " not in this build";
         return false;
+    }
+    if (!pr.voice.empty()) {   // 6-Type: the voice on top of Init's, through the module's patch helper
+#if defined(OT_MOD_6TY1)
+        uint8_t v[ot::kSixtypeVoiceBytes];
+        const bool sized = engine == kSixtypeEngine && pr.voice.size() == sizeof v;
+        if (sized) std::memcpy(v, pr.voice.data(), sizeof v);
+        if (!sized || ot::audio::sixtype::sanitizeVoice(v) != 0 || !ot::patchSetSixtypeVoice(p, v)) {
+            err = std::string(pr.name) + ": not a valid 6-Type voice";
+            return false;
+        }
+#else
+        err = std::string(pr.name) + ": a voice needs the 6-Type module";
+        return false;
+#endif
     }
     for (const Edit& e : pr.edits) {
         if (!ot::patchParamInRange(engine, e.index, e.value)) {
@@ -2567,6 +2804,15 @@ std::string markdown() {
                      "LFOs, a 4-slot matrix. M1 Cutoff, M2 Resonance, M3 Env Amt (both filters each), M4 Decay (with the\n"
                      "release and Env 1's decay), M5 Detune, M6 the patch's own. Leads, basses, plucks and the stab also\n"
                      "scale filter 1's envelope with the velocity (M7).\n\n";
+            if (cur == kSixtypeEngine)
+                o += "6-Type is a card module engine (3.x, module 6TY1, folder `Patches/6TYPE/`): six-operator FM, 32\n"
+                     "algorithms, operator 6's feedback, a pitch envelope and an LFO. A patch carries its voice (every\n"
+                     "operator's level, frequency, envelope and scaling; the algorithm, feedback and LFO); its parameters\n"
+                     "act on top of the voice. Load Patch also lists the voices of `.syx` files in `Patches/6TYPE/`. Keys,\n"
+                     "bells, pads and hits at Poly 4, basses and the lead at Poly 1 (Mono: Retrigger on the basses,\n"
+                     "Legato on the lead). M1 Bright (the modulators' levels), M2 Feedback, M3 Attack, M4 Release, M5 LFO\n"
+                     "Depth, M6 Detune (a spread across the operators) on every patch. Velocity acts through each\n"
+                     "operator's velocity sensitivity in the voice (M7 is unassigned, as on Init).\n\n";
             if (cur == kFm4Engine)
                 o += "FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight\n"
                      "algorithms, feedback on operator 1, per operator Mult (x0.5, x1 .. x15), Detune, Level and a\n"

@@ -408,6 +408,32 @@ scale filter 1's envelope with the velocity (M7).
 | OT Noise Tide | Coloured noise and saws through HP12 and LP12 in Parallel, a tempo-synced LFO on both cutoffs, slow swell; M6 the noise. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Noise (+-) |
 | OT Ring Glint | Split: one saw left through a band pass, osc 2 a twelfth up ringing against the centre saw right through HP12, a short decay; M6 the ring. | 4 | Cutoff (+-), Resonance (+-), Env Amt (+-), Decay (+-), Detune, Ring (+-) |
 
+## 6-Type (12)
+
+6-Type is a card module engine (3.x, module 6TY1, folder `Patches/6TYPE/`): six-operator FM, 32
+algorithms, operator 6's feedback, a pitch envelope and an LFO. A patch carries its voice (every
+operator's level, frequency, envelope and scaling; the algorithm, feedback and LFO); its parameters
+act on top of the voice. Load Patch also lists the voices of `.syx` files in `Patches/6TYPE/`. Keys,
+bells, pads and hits at Poly 4, basses and the lead at Poly 1 (Mono: Retrigger on the basses,
+Legato on the lead). M1 Bright (the modulators' levels), M2 Feedback, M3 Attack, M4 Release, M5 LFO
+Depth, M6 Detune (a spread across the operators) on every patch. Velocity acts through each
+operator's velocity sensitivity in the voice (M7 is unassigned, as on Init).
+
+| Patch | Description | Poly | Macros M1-M6 |
+|---|---|---|---|
+| OT Tine Keys | Algorithm 5: three pairs, a x13 modulator for the struck tine, velocity to every modulator, a gentle tremolo. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Crystal Chime | Algorithm 5: three pairs with x3.5, x7.7 and x1.41 modulators, long decays; a little tremolo. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Bounce Bass | Algorithm 7: a x0.5 pair and a x1 carrier under two modulators, a quick snap into a round body. | 1 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Punch Bass | Algorithm 3: two stacks, one dropping fast for the punch, one buzzing on feedback 6; a pitch drop. | 1 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Horn Section | Algorithm 22: four carriers, two detuned under the main one, modulators swelling in after them, a rise into the note. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Drawbar Organ | Algorithm 25: five carriers at x0.5 to x4, a modulator edging x3 and x4, full sustain, a slight vibrato. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Rosewood Mallet | Algorithm 5: a short x4 knock, a brief x4 partial and a roughened x10 click over the body. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Nylon Harp | Algorithm 2: a plucked pair and a stack with a x5 pick, decaying faster up the keyboard. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Drift Pad | Algorithm 5: three detuned pairs, slow attack, modulators rising and fading over seconds, slow LFO. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Edge Lead | Algorithm 16: one carrier, three branches, feedback 6, delayed vibrato; legato. | 1 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Clav Snap | Algorithm 3: two stacks with x3 and x5 modulators, a snappy attack and a short release. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+| OT Steel Hit | Algorithm 1: inharmonic ratios, feedback 7 on x14.56, a pitch drop; a metallic hit. | 4 | Bright (+-), Feedback (+-), Attack (+-), Release (+-), LFO Depth (+-), Detune |
+
 ## FM4 (12)
 
 FM4 is a module engine (3.x, module FM4S, folder `Patches/FM4/`): four sine operators, eight
@@ -432,4 +458,4 @@ Release, M5 Vibrato.
 | OT 4-Op Sub | 1 > 2 + 3 > 4: a clean x0.5 sine with a touch of x1 harmonics on the attack: sub bass for house and dub. | 1 | Brightness (+-), Feedback (+-), Decay (+-), Release (+-), Vibrato, Upper (+-) |
 | OT 4-Op Flute | 1 > 2 > 3 > 4 at low levels with a slow attack and vibrato: a breathy, hollow flute; mono. | 1 | Brightness (+-), Feedback (+-), Attack (+-), Release (+-), Vibrato, Breath (+-) |
 
-Total: 226 patches.
+Total: 238 patches.
