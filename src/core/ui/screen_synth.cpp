@@ -25,6 +25,7 @@
 #include "formats/patch_pb.h"
 #include "sdram_bss.h"
 #include "modules/module.h"
+#include "modules/synth_descriptor.h"
 #include "modules/synth_models.h"
 #include "ui/screens.h"
 
@@ -128,6 +129,10 @@ int setMacroTarget(PatchMacro& mc, int k, int np, uint32_t newAmountBits) {
 // memory (screens.h): Edit Patch is never on screen with the patch browser,
 // and every browser rebuilds its list when it opens. Main loop only.
 static_assert(sizeof(SynthPatch) <= kBrowserListBytes && alignof(SynthPatch) <= kBrowserListAlign, "the Init patch fits the browser lists");
+
+// [I] The patch browser's names and kinds share the browser lists.
+static_assert(SynthScreen::kBrowserMax * (SynthScreen::kBrowserEntryMax + 1 + sizeof(SynthScreen::Entry)) <= kBrowserListBytes,
+              "the patch browser fits the browser lists");
 
 bool sortName(const char* a, const char* b) {
     for (;; ++a, ++b) {
@@ -316,6 +321,7 @@ void SynthScreen::retarget() {
     if (app_.synthPresetsEpoch() != shownEpoch_) {
         shownEpoch_ = app_.synthPresetsEpoch();
         editedBits_ = 0;
+        importedBits_ = 0;
         opened_ = 0;
     }
     if (opened_ && !app_.synthPresetUsed(opened_)) opened_ = 0;
@@ -423,9 +429,11 @@ void SynthScreen::refreshBar() {
         case View::Browser:
             // Tracker+ 1.0 Load Patch popup: F5-F6 Preview, F7 Cancel, F8 Confirm.
             for (int i = 0; i < 4; ++i) b.label[i].hidden = true;
-            b.setWide(4, "Preview", nullptr, browserCount > 0 && !ro);
+            // [I] A highlighted bank (6-Type .syx) shows Open, nothing to preview.
+            const bool onBank = browserSel >= 0 && browserSel < browserCount && browserKind[browserSel] == Entry::Bank;
+            b.setWide(4, "Preview", nullptr, browserCount > 0 && !ro && !onBank);
             b.set(6, "Cancel");
-            b.set(7, "Confirm", nullptr, browserCount > 0 && !ro);
+            b.set(7, onBank ? "Open" : "Confirm", nullptr, browserCount > 0 && !ro);
             break;
     }
 }
@@ -697,41 +705,100 @@ void SynthScreen::editChange(int d) {
 
 void SynthScreen::listBrowser() {
     browserCount = 0;
+    bank[0] = 0;
     const SynthSlotRecord r = app_.synthTargetRecord(slot, et_);
+    const int32_t eng = app_.synthTargetEngine(slot, et_);
     char dir[32];
-    std::snprintf(dir, sizeof(dir), "Patches/%s", synthEngineFolder(app_.synthTargetEngine(slot, et_)));
-    app_.fs().listDir(dir, [](const IStorage::DirEntry& e, void* ctx) {
-        auto* s = static_cast<SynthScreen*>(ctx);
-        if (e.isDir || s->browserCount >= kBrowserMax) return true;
+    std::snprintf(dir, sizeof(dir), "Patches/%s", synthEngineFolder(eng));
+    struct Ctx {
+        SynthScreen* s;
+        const mod::PatchImport* im;   // [I] the engine's other patch files (6-Type .syx), or nullptr
+    } ctx{this, mod::ModuleHost::instance().patchImport(eng)};
+    app_.fs().listDir(dir, [](const IStorage::DirEntry& e, void* c) {
+        auto* x = static_cast<Ctx*>(c);
+        SynthScreen* s = x->s;
+        if (e.isDir || s->browserCount >= kBrowserMax || e.name[0] == '.') return true;
         const size_t n = std::strlen(e.name);
-        if (n <= 6 || n - 6 > size_t(kBrowserNameMax) || e.name[0] == '.') return true;
-        const char* ext = e.name + n - 6;
-        if (!(ext[0] == '.' && (ext[1] | 32) == 'p' && (ext[2] | 32) == 'a' && (ext[3] | 32) == 't' &&
-              (ext[4] | 32) == 'c' && (ext[5] | 32) == 'h'))
+        auto hasExt = [&](const char* ext, size_t len) {
+            if (n <= len) return false;
+            for (size_t i = 0; i < len; ++i)
+                if ((e.name[n - len + i] | 32) != ext[i]) return false;
             return true;
-        std::memcpy(s->browser[s->browserCount], e.name, n - 6);
-        s->browser[s->browserCount][n - 6] = 0;
-        ++s->browserCount;
+        };
+        size_t len = 0;
+        Entry kind = Entry::Patch;
+        if (hasExt(".patch", 6) && n - 6 <= size_t(kBrowserNameMax)) len = 6;
+        else if (x->im && hasExt(x->im->ext, std::strlen(x->im->ext)) && n <= size_t(kBrowserEntryMax))
+            // Whole name; a file of a bank's size lists as a bank (6-Type: a
+            // 32-voice dump is 4104 bytes, a single voice 163).
+            kind = e.size >= x->im->bankBytes ? Entry::Bank : Entry::Single;
+        else return true;
+        std::memcpy(s->browser[s->browserCount], e.name, n - len);
+        s->browser[s->browserCount][n - len] = 0;
+        s->browserKind[s->browserCount++] = kind;
         return true;
-    }, this);
-    // Sorted by name, case-insensitive (stock lists).
+    }, &ctx);
+    // Banks first, then by name, case-insensitive (stock lists).
+    auto before = [&](int a, int b) {
+        const bool ba = browserKind[a] == Entry::Bank, bb = browserKind[b] == Entry::Bank;
+        if (ba != bb) return ba;
+        return sortName(browser[a], browser[b]);
+    };
     for (int i = 1; i < browserCount; ++i)
-        for (int j = i; j > 0 && sortName(browser[j], browser[j - 1]); --j) {
-            char t[kBrowserNameMax + 1];
+        for (int j = i; j > 0 && before(j, j - 1); --j) {
+            char t[kBrowserEntryMax + 1];
             std::memcpy(t, browser[j], sizeof(t));
             std::memcpy(browser[j], browser[j - 1], sizeof(t));
             std::memcpy(browser[j - 1], t, sizeof(t));
+            std::swap(browserKind[j], browserKind[j - 1]);
         }
     browserSel = 0;
     for (int i = 0; i < browserCount; ++i)
-        if (std::strcmp(browser[i], r.patchName) == 0) browserSel = i;
+        if (browserKind[i] == Entry::Patch && std::strcmp(browser[i], r.patchName) == 0) browserSel = i;
     browserTop_ = 0;
+}
+
+bool SynthScreen::openBank(const char* file) {
+    char nm[kBrowserEntryMax + 1];   // a copy: the list is refilled below
+    std::snprintf(nm, sizeof(nm), "%s", file);
+    const int n = app_.openPatchImport(slot, nm, et_);
+    if (n <= 0) return false;
+    audition(false, 0);
+    previewSel_ = -1;   // list indices change: the next preview reads again
+    std::snprintf(bank, sizeof(bank), "%s", nm);
+    browserCount = n < kBrowserMax ? n : kBrowserMax;
+    browserSel = 0;
+    const SynthSlotRecord r = app_.synthTargetRecord(slot, et_);
+    for (int k = 0; k < browserCount; ++k) {
+        app_.importPatchName(k, browser[k], kBrowserEntryMax + 1);
+        browserKind[k] = Entry::Voice;
+    }
+    for (int k = browserCount - 1; k >= 0; --k)
+        if (std::strcmp(browser[k], r.patchName) == 0) browserSel = k;
+    browserTop_ = 0;
+    char title[kBrowserEntryMax + 1];   // the file name, cut to the header band
+    std::snprintf(title, sizeof(title), "%s", bank);
+    fit(title, kFont4, kScreenW - wg::kRightPopupX - 30);
+    ui_.openPopupHeader(title, Ui::PopupHeader::kRightBar);
+    return true;
+}
+
+void SynthScreen::closeBank() {
+    char was[kBrowserEntryMax + 1];
+    std::snprintf(was, sizeof(was), "%s", bank);
+    audition(false, 0);
+    previewSel_ = -1;
+    listBrowser();
+    for (int i = 0; i < browserCount; ++i)
+        if (browserKind[i] == Entry::Bank && std::strcmp(browser[i], was) == 0) browserSel = i;
+    ui_.openPopupHeader("Load Patch", Ui::PopupHeader::kRightBar);
 }
 
 void SynthScreen::applyModel() {
     if (pendingModel_ < 0) return;
     audition(false, 0);
     editedBits_ = uint16_t(editedBits_ & ~editBit());
+    importedBits_ = uint16_t(importedBits_ & ~editBit());
     app_.setSynthTargetEngine(slot, synthModelListEngine(pendingModel_), et_);
     pendingModel_ = -1;
     section = row = 0;
@@ -755,6 +822,7 @@ void SynthScreen::closeBrowser() {
     previewKey_ = -1;
     app_.endSynthPreview();
     previewSel_ = -1;
+    bank[0] = 0;
     if (view == View::Browser) {
         view = View::Params;
         ui_.closePopupHeader();
@@ -765,9 +833,18 @@ void SynthScreen::closeBrowser() {
 // Cancel (read again only when the highlight moved).
 bool SynthScreen::previewHighlighted() {
     if (!available() || browserSel < 0 || browserSel >= browserCount) return false;
+    if (browserKind[browserSel] == Entry::Bank) return false;   // a bank plays nothing
     if (previewSel_ == browserSel) return true;
     audition(false, 0);
-    if (!app_.previewSynthLibraryPatch(slot, browser[browserSel], et_)) {
+    bool ok;
+    switch (browserKind[browserSel]) {
+        case Entry::Voice: ok = app_.previewImportPatch(slot, browserSel, et_); break;
+        case Entry::Single:
+            ok = app_.openPatchImport(slot, browser[browserSel], et_) > 0 && app_.previewImportPatch(slot, 0, et_);
+            break;
+        default: ok = app_.previewSynthLibraryPatch(slot, browser[browserSel], et_); break;
+    }
+    if (!ok) {
         app_.endSynthPreview();
         previewSel_ = -1;
         ui_.notify("Patch could not be loaded");
@@ -779,6 +856,10 @@ bool SynthScreen::previewHighlighted() {
 
 bool SynthScreen::loadSelected() {
     if (!available() || browserSel < 0 || browserSel >= browserCount) return false;
+    if (browserKind[browserSel] == Entry::Bank) {   // Confirm on a bank opens it
+        if (!openBank(browser[browserSel])) ui_.notify("Not a patch bank");
+        return false;
+    }
     if (editedBits_ & editBit()) {   // unsaved patch edits: ask first (2x-05 §6.3)
         bindAsk();
         ui_.ask("Load Patch", "Discard edits?", nullptr, "No", "Yes",
@@ -799,9 +880,17 @@ bool SynthScreen::loadSelectedNow() {
     app_.endSynthPreview();   // the slot's own patch first, then the real load
     previewSel_ = -1;
     const uint16_t bit = editBit();
-    const bool ok = app_.loadSynthTargetPatch(slot, browser[browserSel], et_);
+    bool ok;
+    const bool imported = browserKind[browserSel] == Entry::Voice || browserKind[browserSel] == Entry::Single;
+    switch (browserKind[browserSel]) {
+        case Entry::Voice: ok = app_.loadImportPatch(slot, browserSel, et_); break;
+        case Entry::Single: ok = app_.openPatchImport(slot, browser[browserSel], et_) > 0 && app_.loadImportPatch(slot, 0, et_); break;
+        default: ok = app_.loadSynthTargetPatch(slot, browser[browserSel], et_); break;
+    }
     if (ok) {
+        bank[0] = 0;
         editedBits_ = uint16_t(editedBits_ & ~bit);
+        importedBits_ = uint16_t(imported ? importedBits_ | bit : importedBits_ & ~bit);
         view = View::Params;   // Confirm closes the popup
         ui_.closePopupHeader();
     }
@@ -819,6 +908,7 @@ void SynthScreen::initPatch() {
                 auto* s = static_cast<SynthScreen*>(c);
                 if (key != btn::F8 || s->askStale()) return;
                 s->editedBits_ = uint16_t(s->editedBits_ & ~s->editBit());
+                s->importedBits_ = uint16_t(s->importedBits_ & ~s->editBit());
                 s->app_.initSynthTargetPatch(s->slot, s->et_);
                 s->section = s->row = 0;
                 s->ui_.notify("Init patch loaded");
@@ -834,15 +924,40 @@ void SynthScreen::savePatch() {
         savePatchAs();
         return;
     }
+    if (importedBits_ & editBit()) {   // not saved yet: a library patch of its name is another one
+        std::snprintf(pendingName_, sizeof(pendingName_), "%s", r.patchName);
+        bindAsk();
+        saveNamed();
+        return;
+    }
     const bool ok = app_.saveSynthLibraryPatch(slot, r.patchName, et_);
     if (ok) editedBits_ = uint16_t(editedBits_ & ~editBit());
     ui_.notify(ok ? "Patch saved" : "Patch could not be saved");
     refreshBar();
 }
 
+void SynthScreen::saveNamed() {
+    char path[96];
+    std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(app_.synthTargetEngine(slot, et_)), pendingName_);
+    if (app_.fs().exists(path)) {
+        askBound_ = true;   // the target the question is about (askStale kept it)
+        ui_.ask("Patch exists", "Overwrite?", nullptr, "Cancel", "Overwrite",
+                [](void* c, int key) {
+                    auto* s = static_cast<SynthScreen*>(c);
+                    if (key == btn::F8 && !s->askStale()) s->saveAsNow();
+                },
+                this);
+        return;
+    }
+    saveAsNow();
+}
+
 void SynthScreen::saveAsNow() {
     const bool ok = app_.saveSynthLibraryPatch(slot, pendingName_, et_);
-    if (ok) editedBits_ = uint16_t(editedBits_ & ~editBit());
+    if (ok) {
+        editedBits_ = uint16_t(editedBits_ & ~editBit());
+        importedBits_ = uint16_t(importedBits_ & ~editBit());
+    }
     ui_.notify(ok ? "Patch saved" : "Patch could not be saved");
     refreshBar();
     ui_.dirty();
@@ -869,20 +984,7 @@ void SynthScreen::savePatchAs() {
                     }
                     for (char* q = name; *q; ++q)
                         if (*q == '/' || *q == '\\') *q = '_';
-                    char path[96];
-                    std::snprintf(path, sizeof(path), "Patches/%s/%s.patch", synthEngineFolder(s->app_.synthTargetEngine(s->slot, s->et_)),
-                                  name);
-                    if (s->app_.fs().exists(path)) {
-                        s->askBound_ = true;   // the target of the keyboard (askStale kept it)
-                        s->ui_.ask("Patch exists", "Overwrite?", nullptr, "Cancel", "Overwrite",
-                                   [](void* c2, int key) {
-                                       auto* s2 = static_cast<SynthScreen*>(c2);
-                                       if (key == btn::F8 && !s2->askStale()) s2->saveAsNow();
-                                   },
-                                   s);
-                        return;
-                    }
-                    s->saveAsNow();
+                    s->saveNamed();
                 },
                 this);
 }
@@ -1052,9 +1154,15 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
                 closeBrowser();
             } else if (id == btn::F8) {
                 loadSelected();
-            } else if (id == btn::Up || id == btn::Down)
+            } else if (id == btn::Up || id == btn::Down) {
                 browserSel = clampi(browserSel + (id == btn::Down ? 1 : -1), 0, browserCount > 0 ? browserCount - 1 : 0);
-            else if (!btn::isFKey(id) && id != btn::Left && id != btn::Right) Screen::onButton(id, state);
+            } else if (id == btn::Left) {
+                if (bank[0]) closeBank();   // out of a bank (6-Type .syx)
+            } else if (id == btn::Right) {
+                if (!ro && browserSel < browserCount && browserKind[browserSel] == Entry::Bank) loadSelected();
+            } else if (!btn::isFKey(id)) {
+                Screen::onButton(id, state);
+            }
             break;
     }
     refreshBar();
@@ -1630,11 +1738,15 @@ void SynthScreen::drawBrowser(Gfx& g) {
     v.background = false;
     v.selStyle = wg::ListSel::kWhite;
     v.item = [](void* c, int i, char* out, int cap) {
-        std::snprintf(out, size_t(cap), "%s", static_cast<SynthScreen*>(c)->browser[i]);
+        auto* s = static_cast<SynthScreen*>(c);
+        std::snprintf(out, size_t(cap), "%s", s->browser[i]);
     };
     v.marked = [](void* c, int i) {
         auto* s = static_cast<SynthScreen*>(c);
-        return std::strcmp(s->browser[i], s->app_.synthTargetRecord(s->slot, s->et_).patchName) == 0;
+        // Patches and bank voices by name (a single-voice file shows its file
+        // name, the slot its voice name: not marked).
+        return (s->browserKind[i] == Entry::Patch || s->browserKind[i] == Entry::Voice) &&
+               std::strcmp(s->browser[i], s->app_.synthTargetRecord(s->slot, s->et_).patchName) == 0;
     };
     v.ctx = this;
     wg::list(g, th, v);

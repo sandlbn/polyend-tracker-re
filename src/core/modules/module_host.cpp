@@ -3,6 +3,7 @@
 
 #include "audio/inserts.h"
 #include "audio/synth_engine.h"
+#include "formats/patch_pb.h"
 #include "model/synth_patch.h"
 #include "modules/synth_descriptor.h"
 
@@ -273,6 +274,14 @@ const SynthDescriptor* ModuleHost::synthDescriptor(int32_t engineId) {
     for (int k = 0; k < nDesc_; ++k)
         if (desc_[k]->engineId == engineId) return last_ = desc_[k];
     return nullptr;
+}
+
+const PatchImport* ModuleHost::patchImport(int32_t engineId) {
+    const SynthDescriptor* d = synthDescriptor(engineId);
+    const PatchImport* im = d ? d->import : nullptr;
+    if (!im || !im->ext || im->ext[0] != '.' || !im->ext[1] || !im->count || !im->name || !im->toPatch) return nullptr;
+    if (im->maxBytes == 0 || im->maxBytes > kPatchMaxFileSize) return nullptr;
+    return im;
 }
 
 int ModuleHost::engineCount() {

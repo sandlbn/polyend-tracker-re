@@ -15,6 +15,8 @@
 #include "audio/synth_params.h"
 #include "formats/file_io.h"
 #include "formats/patch_pb.h"
+#include "modules/module.h"
+#include "modules/synth_descriptor.h"
 #include "sdram_bss.h"
 
 namespace ot {
@@ -45,6 +47,17 @@ bool libraryPath(char* out, size_t cap, int32_t engineId, const char* name) {
 // at a time; main loop only).
 OT_SDRAM_BSS SynthPatch g_previewSaved;
 OT_SDRAM_BSS uint8_t g_previewPreset;   // [3.x] 1..8: the preview plays in that preset's entry
+
+// [I] The open import file (openPatchImport; main loop only): its name, the
+// engine whose folder and format it is, its patch count and length. Its
+// bytes live in the scratch, which jobs share: every preview / load reads
+// the file again. Main-loop data: SDRAM on the device.
+OT_SDRAM_BSS char g_importFile[64];
+OT_SDRAM_BSS int32_t g_importEngine;
+OT_SDRAM_BSS int g_importCount;
+OT_SDRAM_BSS uint32_t g_importLen;
+
+const mod::PatchImport* importOf(int32_t engine) { return mod::ModuleHost::instance().patchImport(engine); }
 }  // namespace
 
 SynthPatch* App::scratchPatch() {
@@ -69,9 +82,13 @@ const SynthPatch* App::readSynthLibraryPatch(int32_t eng, const char* name) {
 
 bool App::previewSynthLibraryPatch(int s, const char* name, uint8_t t) {
     if (s < 0 || s >= kSynthSlotCount) return false;
+    const SynthPatch* p = readSynthLibraryPatch(synthTargetEngine(s, synthTargetOf(s, t)), name);
+    return p && previewSynthPatch(s, *p, t);
+}
+
+bool App::previewSynthPatch(int s, const SynthPatch& p, uint8_t t) {
+    if (s < 0 || s >= kSynthSlotCount) return false;
     const uint8_t n = synthTargetOf(s, t);
-    const SynthPatch* p = readSynthLibraryPatch(synthTargetEngine(s, n), name);
-    if (!p) return false;
     if (previewSlot_ != s || g_previewPreset != n) {
         endSynthPreview();
         std::memcpy(&g_previewSaved, &synthTargetPatch(s, n), sizeof(SynthPatch));
@@ -88,7 +105,7 @@ bool App::previewSynthLibraryPatch(int s, const char* name, uint8_t t) {
         g_previewPreset = n;
     }
     // The same engine (readSynthLibraryPatch): the entry's engine word does not change.
-    std::memcpy(&synthTargetPatch(s, n), p, sizeof(SynthPatch));
+    std::memcpy(&synthTargetPatch(s, n), &p, sizeof(SynthPatch));
     if (n) {
         engine.synth().presetChanged(n);   // the slot stays on the preset
         return true;
@@ -177,13 +194,90 @@ bool App::loadSynthLibraryPatch(int s, const char* name) {
     if (previewSlot_ == s) endSynthPreview();
     const SynthPatch* tmp = readSynthLibraryPatch(slotEngineId(s), name);
     if (!tmp) return false;
+    loadSynthPatch(s, *tmp, name);
+    return true;
+}
+
+void App::loadSynthPatch(int s, const SynthPatch& p, const char* name) {
     SynthSlotRecord r = project.synthSlot(s);
-    patches_[s] = *tmp;
+    patches_[s] = p;
     patchSrc_[s] = PatchSource::Library;
     setName(r, name);
     resetMacros(r, patches_[s]);
     setSynthSlotRecord(s, r);
     markSynthPatchDirty(s);
+}
+
+int App::openPatchImport(int s, const char* file, uint8_t t) {
+    std::snprintf(g_importFile, sizeof(g_importFile), "%s", file ? file : "");
+    g_importEngine = s >= 0 && s < kSynthSlotCount ? synthTargetEngine(s, synthTargetOf(s, t)) : 0;
+    return readPatchImport();
+}
+
+// g_importFile into the scratch (kFileOff); its patch count.
+int App::readPatchImport() {
+    g_importCount = 0;
+    g_importLen = 0;
+    const char* file = g_importFile;
+    const mod::PatchImport* im = importOf(g_importEngine);
+    if (!im) return 0;   // none, or incomplete (ModuleHost::patchImport)
+    if (!mem_.scratch || mem_.scratchBytes < kPatchTmpOff + sizeof(SynthPatch)) return 0;
+    if (!file[0] || std::strchr(file, '/')) return 0;
+    if (jobBusy()) finishJob();   // the job shares the scratch
+    char path[96];
+    std::snprintf(path, sizeof(path), "Patches/%s/%s", synthEngineFolder(g_importEngine), file);
+    uint32_t got = 0;
+    if (readWholeFile(fs(), path, mem_.scratch + kFileOff, im->maxBytes + 1, &got) != FmtStatus::Ok ||
+        got > im->maxBytes)
+        return 0;
+    const int n = im->count(mem_.scratch + kFileOff, got);
+    g_importCount = n > 0 ? n : 0;
+    g_importLen = got;
+    return g_importCount;
+}
+
+void App::importPatchName(int k, char* out, int cap) const {
+    if (cap <= 0) return;
+    out[0] = 0;
+    const mod::PatchImport* im = importOf(g_importEngine);
+    if (!im || k < 0 || k >= g_importCount || !mem_.scratch) return;
+    im->name(mem_.scratch + kFileOff, g_importLen, k, out, cap);
+    out[cap - 1] = 0;
+    int n = 0;
+    for (; out[n]; ++n) {
+        const char c = out[n];
+        // Printable ASCII that a FAT file name can hold (Save names the file after it).
+        if (c < 0x20 || c > 0x7E || std::strchr("/\\*?<>|:\"", c)) out[n] = '_';
+    }
+    if (!n) std::snprintf(out, size_t(cap), "Voice %d", k + 1);
+}
+
+const SynthPatch* App::importPatch(int32_t eng, int k) {
+    if (k < 0) return nullptr;
+    const mod::PatchImport* im = importOf(eng);
+    if (!im || eng != g_importEngine) return nullptr;
+    if (k >= readPatchImport()) return nullptr;   // the scratch may have been used since the file opened
+    auto* tmp = reinterpret_cast<SynthPatch*>(mem_.scratch + kPatchTmpOff);
+    if (!patchInit(eng, tmp) || !im->toPatch(mem_.scratch + kFileOff, g_importLen, k, *tmp)) return nullptr;
+    return tmp;
+}
+
+bool App::previewImportPatch(int s, int k, uint8_t t) {
+    if (s < 0 || s >= kSynthSlotCount) return false;
+    const SynthPatch* p = importPatch(synthTargetEngine(s, synthTargetOf(s, t)), k);
+    return p && previewSynthPatch(s, *p, t);
+}
+
+bool App::loadImportPatch(int s, int k, uint8_t t) {
+    if (s < 0 || s >= kSynthSlotCount) return false;
+    const uint8_t n = synthTargetOf(s, t);
+    if (previewSlot_ >= 0) endSynthPreview();
+    const SynthPatch* p = importPatch(synthTargetEngine(s, n), k);
+    if (!p) return false;
+    char name[40];
+    importPatchName(k, name, sizeof(name));   // before the load: it reads the scratch
+    if (n) setSynthPresetPatch(n, *p, name);   // [3.x] the preset's entry, as loadSynthTargetPatch
+    else loadSynthPatch(s, *p, name);
     return true;
 }
 

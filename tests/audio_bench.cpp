@@ -1162,6 +1162,7 @@ void components() {
         SynthNote sn;
         for (int k = 0; k < 4; ++k) {
             v[k] = SynthVoice{};
+            v[k].index = uint8_t(k);
             sn.pitch = float(48 + 7 * k);
             e->noteOn(v[k], bank.params(0), sn);
         }

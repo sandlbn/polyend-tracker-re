@@ -170,13 +170,24 @@ says "Loads at Stop"). Every load stops the synth voices. A synth that doesn't f
 pool stays unloaded, with "Card memory full" on its slot; the first slot gets the room
 first, and two slots on one engine load it once. A profile entry with `card = true`
 stays out of the image, and `make card` builds it into `build/<profile>/otm/`; the host
-builds (tests, simulator, tools) compile it in. `full` lists the twelve synths it doesn't
-build in (FM4S, JU6S, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand, B-Type, ARC, 1-Type, V-Type) as
+builds (tests, simulator, tools) compile it in. `full` lists the thirteen synths it doesn't
+build in (FM4S, JU6S, D-Type, CS-Type, A-Type, T-Type, 8-Type, Hand, B-Type, ARC, 1-Type, V-Type, 6-Type) as
 card modules, so its image stays the same and any of them can come from the card. 1-Type's
 .sy1 patches convert on a computer with `tools/sy1_to_patch` (Patches/1TYPE/).
 Leaving USB Storage mode lists `Modules/` again, so a synth module added, replaced or
 removed from a computer takes effect without a restart. A module loaded for good at boot (no synth engines, or an effect that is also
 a slot insert) stays as the boot loaded it and still needs one.
+
+**Patch files of another format.** A synth module's descriptor may name a file type of its
+own (`PatchImport` in `src/core/modules/synth_descriptor.h`, for example a 6-Type `.syx`
+bank), and Load Patch then lists those files in `Patches/<engine>/` beside the `.patch`
+files. A file of at least the module's bank size comes first and opens like a folder (F8
+or Right; Left goes back): its patches preview, play on the pads and load like `.patch`
+files. A smaller file sits with the patches and loads at once. A loaded patch is the
+engine's Init patch plus what the module reads from the file, named after it, and Save
+writes it as a normal `.patch`. The descriptor's `initPatch` adds the engine's own data to
+its Init patch; modules keep such data in patch fields of their own
+(`patchOpaqueBytes` / `patchSetOpaqueBytes`, exported to card modules).
 
 **Card effects** load while they are on. `full` builds Dirt, BBD and Tape in, as `classic`
 does (Dirt and BBD are also synth slot inserts, and a project must play them without the

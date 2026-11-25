@@ -24,4 +24,5 @@ modules = [
     { id = "ARC1", path = "modules/arc" },
     { id = "1TY1", path = "modules/onetype" },
     { id = "VTY1", path = "modules/vtype" },
+    { id = "6TY1", path = "modules/sixtype" },
 ]

@@ -30,6 +30,7 @@ class IEffect;
 }
 namespace mod {
 struct SynthDescriptor;   // modules/synth_descriptor.h
+struct PatchImport;
 class IModulePage;        // modules/module_ui.h
 
 // Bump on any incompatible change of this header or the hook interfaces it names
@@ -136,6 +137,11 @@ public:
     // whose descriptor repeats an engine id or has too many parameters is refused).
     static constexpr int kMaxEngines = 32;   // [I] 32 (stock 3.x: 16), as kMaxModules
     const SynthDescriptor* synthDescriptor(int32_t engineId);
+    // [I] The engine's patch import (SynthDescriptor::import) when it is
+    // complete: an extension ".x..", maxBytes 1..kPatchMaxFileSize and all
+    // three functions. nullptr otherwise: Load Patch then lists no such
+    // files (the engine itself plays on).
+    const PatchImport* patchImport(int32_t engineId);
     int engineCount();
     const SynthDescriptor* engineAt(int k);
     // [I] The effects (modules with a master insert or a page) in the master
