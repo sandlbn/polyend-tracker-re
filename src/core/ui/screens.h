@@ -1107,7 +1107,7 @@ public:
     int section = 0;        // Edit: section index
     int row = 0;            // Edit: row in the section
     // Browser (Patches/<MODEL>/*.patch, sorted). [I] An engine with patch
-    // files of another format (synth_descriptor.h PatchImport, e.g. DX7 .syx)
+    // files of another format (synth_descriptor.h PatchImport, e.g. 6-Type .syx)
     // lists those too: banks first, like folders (an open bank lists its
     // patches), single-patch files with the patches (they play / load as one).
     static constexpr int kBrowserMax = 128;

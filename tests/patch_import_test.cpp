@@ -1,5 +1,5 @@
 // [I] Patch files of another format (modules/synth_descriptor.h PatchImport,
-// e.g. DX7 .syx banks): a module engine declares the file extension and how
+// e.g. 6-Type .syx banks): a module engine declares the file extension and how
 // to read it; Load Patch lists those files in Patches/<engine>/ next to the
 // .patch files. Files of a bank's size come first and open like folders
 // (their patches preview and load, Left goes back, Right opens again); a

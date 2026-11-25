@@ -429,7 +429,7 @@ void SynthScreen::refreshBar() {
         case View::Browser:
             // Tracker+ 1.0 Load Patch popup: F5-F6 Preview, F7 Cancel, F8 Confirm.
             for (int i = 0; i < 4; ++i) b.label[i].hidden = true;
-            // [I] A highlighted bank (DX7 .syx) shows Open, nothing to preview.
+            // [I] A highlighted bank (6-Type .syx) shows Open, nothing to preview.
             const bool onBank = browserSel >= 0 && browserSel < browserCount && browserKind[browserSel] == Entry::Bank;
             b.setWide(4, "Preview", nullptr, browserCount > 0 && !ro && !onBank);
             b.set(6, "Cancel");
@@ -712,7 +712,7 @@ void SynthScreen::listBrowser() {
     std::snprintf(dir, sizeof(dir), "Patches/%s", synthEngineFolder(eng));
     struct Ctx {
         SynthScreen* s;
-        const mod::PatchImport* im;   // [I] the engine's other patch files (DX7 .syx), or nullptr
+        const mod::PatchImport* im;   // [I] the engine's other patch files (6-Type .syx), or nullptr
     } ctx{this, mod::ModuleHost::instance().patchImport(eng)};
     app_.fs().listDir(dir, [](const IStorage::DirEntry& e, void* c) {
         auto* x = static_cast<Ctx*>(c);
@@ -729,7 +729,7 @@ void SynthScreen::listBrowser() {
         Entry kind = Entry::Patch;
         if (hasExt(".patch", 6) && n - 6 <= size_t(kBrowserNameMax)) len = 6;
         else if (x->im && hasExt(x->im->ext, std::strlen(x->im->ext)) && n <= size_t(kBrowserEntryMax))
-            // Whole name; a file of a bank's size lists as a bank (DX7: a
+            // Whole name; a file of a bank's size lists as a bank (6-Type: a
             // 32-voice dump is 4104 bytes, a single voice 163).
             kind = e.size >= x->im->bankBytes ? Entry::Bank : Entry::Single;
         else return true;
@@ -1157,7 +1157,7 @@ void SynthScreen::onButton(uint8_t id, uint8_t state) {
             } else if (id == btn::Up || id == btn::Down) {
                 browserSel = clampi(browserSel + (id == btn::Down ? 1 : -1), 0, browserCount > 0 ? browserCount - 1 : 0);
             } else if (id == btn::Left) {
-                if (bank[0]) closeBank();   // out of a bank (DX7 .syx)
+                if (bank[0]) closeBank();   // out of a bank (6-Type .syx)
             } else if (id == btn::Right) {
                 if (!ro && browserSel < browserCount && browserKind[browserSel] == Entry::Bank) loadSelected();
             } else if (!btn::isFKey(id)) {

@@ -531,7 +531,7 @@ public:
     bool previewSynthLibraryPatch(int s, const char* name, uint8_t t = kTargetNow);
     void endSynthPreview();
     // [I] Patch files of another format (modules/synth_descriptor.h
-    // PatchImport, e.g. DX7 .syx banks): Patches/<engine>/<file> of slot s's
+    // PatchImport, e.g. 6-Type .syx banks): Patches/<engine>/<file> of slot s's
     // engine, one file at a time. Returns its patches, 0 when the file is
     // missing, too large or not the engine's format. The names are valid
     // right after (the file sits in the job scratch). Patch k plays / loads

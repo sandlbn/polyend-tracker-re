@@ -162,7 +162,7 @@ public:
     virtual void slotReset(SynthSlotScratch& slot) { (void)slot; }
     // The slot's patch, after every slotReset() (engine bind, Stop) and on
     // every patch change (load, preview, value edit): for engines that keep
-    // data beyond the parameters in the slot state (e.g. DX7: the voice in a patch
+    // data beyond the parameters in the slot state (e.g. 6-Type: the voice in a patch
     // field). New notes use it. Optional.
     virtual void loadPatch(SynthSlotScratch& slot, const SynthPatch& patch) { (void)slot; (void)patch; }
     // Song tempo in BPM (the sequencer's smoothed tempo), once per block

@@ -86,7 +86,7 @@ enum : uint8_t {
     kSynthFlagNotePriority = 1u << 1,
 };
 
-// [I] Patch files of another format in the engine's folder (DX7 .syx banks):
+// [I] Patch files of another format in the engine's folder (6-Type .syx banks):
 // the core lists them in Load Patch, reads a file whole into its scratch and
 // asks the module about it (main loop; the file's bytes, len <= maxBytes).
 struct PatchImport {
