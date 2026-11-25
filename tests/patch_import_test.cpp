@@ -131,6 +131,30 @@ TEST(patch_opaque_bytes_replace_and_keep_order) {
     CHECK_EQ(int(n), 6);
 }
 
+// Only an unknown field number may be stored: field 0 and numbers past the
+// protobuf range make no valid tag, and the fields the encoder writes itself
+// (engine, parameters, names, macros, extra, extension parameters) would be
+// written twice.
+TEST(patch_opaque_bytes_refuse_reserved_fields) {
+    SynthPatch p;
+    CHECK(patchInit(kSynthEngineAcd, &p));
+    const std::vector<uint8_t> before = encode(p);
+    const uint8_t* x = reinterpret_cast<const uint8_t*>("x");
+    for (uint32_t f : {0u, 1u, 6u, 7u, 8u, 9u, kPatchExtField, 0x20000000u, 0xFFFFFFFFu}) {
+        CHECK(!patchSetOpaqueBytes(p, f, x, 1));
+        CHECK_EQ(int(p.opaqueLen), 0);
+    }
+    CHECK(encode(p) == before);
+    for (uint32_t f : {2u, 5u, 10u, 15u, 17u, 100u, 0x1FFFFFFFu}) CHECK(patchSetOpaqueBytes(p, f, x, 1));
+    const std::vector<uint8_t> f = encode(p);
+    SynthPatch back;
+    CHECK(decodePatch(f.data(), f.size(), &back) == PatchStatus::kOk);
+    const uint8_t* d = nullptr;
+    size_t n = 0;
+    CHECK(patchOpaqueBytes(back, 0x1FFFFFFFu, &d, &n));
+    CHECK_EQ(int(n), 1);
+}
+
 TEST(patch_import_init_patch_hook) {
     reg();
     SynthPatch p;

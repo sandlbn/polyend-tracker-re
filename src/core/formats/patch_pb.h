@@ -57,7 +57,8 @@ bool patchFieldSpan(const uint8_t* data, size_t len, uint32_t field, size_t* beg
 bool patchOpaqueBytes(const SynthPatch& p, uint32_t field, const uint8_t** data, size_t* len);
 // Store `len` bytes as field `field` (wire type 2) in p.opaque: replaces the
 // first such field in place (the rest keep their order), else appends it.
-// False when the opaque area would overflow (p unchanged).
+// False when the opaque area would overflow, or for field 0, a number past
+// 0x1FFFFFFF or one of the patch's own fields (1, 6-9, 16) (p unchanged).
 bool patchSetOpaqueBytes(SynthPatch& p, uint32_t field, const uint8_t* data, size_t len);
 
 // ---- engine tables and validation (spec 21 §8 + MINI_PLAN corrections) ----

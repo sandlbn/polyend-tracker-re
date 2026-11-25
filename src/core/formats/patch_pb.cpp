@@ -315,6 +315,10 @@ bool patchOpaqueBytes(const SynthPatch& p, uint32_t field, const uint8_t** data,
 }
 
 bool patchSetOpaqueBytes(SynthPatch& p, uint32_t field, const uint8_t* data, size_t len) {
+    // A valid field number that encodePatch does not write itself (it would
+    // be written twice, and the decoder would take it for its own).
+    if (field == 0 || field > 0x1FFFFFFFu) return false;
+    if (field == 1 || (field >= 6 && field <= 9) || field == kPatchExtField) return false;
     if (p.opaqueLen > kPatchOpaqueMax) return false;
     uint8_t enc[kPatchOpaqueMax];
     Writer w{enc, enc + sizeof(enc)};

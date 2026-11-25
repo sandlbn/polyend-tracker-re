@@ -15,7 +15,8 @@ namespace ot {
 
 // [I] Patch fields beyond the Tracker Mini's (formats/patch_pb.h, exported to
 // card modules): the payload of length-delimited field `field` in the
-// patch's unknown fields, and storing one (false: no room, p unchanged).
+// patch's unknown fields, and storing one (false: no room, or a field
+// number of the patch's own or none at all; p unchanged).
 bool patchOpaqueBytes(const SynthPatch& p, uint32_t field, const uint8_t** data, size_t* len);
 bool patchSetOpaqueBytes(SynthPatch& p, uint32_t field, const uint8_t* data, size_t len);
 
