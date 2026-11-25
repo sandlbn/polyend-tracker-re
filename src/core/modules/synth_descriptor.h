@@ -131,7 +131,8 @@ struct SynthDescriptor {
     // Volume): the engine's own additions (patch data in unknown fields,
     // macro presets). nullptr = none.
     void (*initPatch)(SynthPatch& p) = nullptr;
-    // [I] Patch files of another format (Load Patch), or nullptr.
+    // [I] Patch files of another format (Load Patch), or nullptr. One without
+    // an extension, functions or maxBytes counts as none (ModuleHost::patchImport).
     const PatchImport* import = nullptr;
 };
 

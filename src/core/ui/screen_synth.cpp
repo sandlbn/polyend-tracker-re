@@ -713,8 +713,7 @@ void SynthScreen::listBrowser() {
     struct Ctx {
         SynthScreen* s;
         const mod::PatchImport* im;   // [I] the engine's other patch files (DX7 .syx), or nullptr
-    } ctx{this, nullptr};
-    if (const mod::SynthDescriptor* d = mod::ModuleHost::instance().synthDescriptor(eng)) ctx.im = d->import;
+    } ctx{this, mod::ModuleHost::instance().patchImport(eng)};
     app_.fs().listDir(dir, [](const IStorage::DirEntry& e, void* c) {
         auto* x = static_cast<Ctx*>(c);
         SynthScreen* s = x->s;

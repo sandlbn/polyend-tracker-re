@@ -57,10 +57,7 @@ OT_SDRAM_BSS int32_t g_importEngine;
 OT_SDRAM_BSS int g_importCount;
 OT_SDRAM_BSS uint32_t g_importLen;
 
-const mod::PatchImport* importOf(int32_t engine) {
-    const mod::SynthDescriptor* d = mod::ModuleHost::instance().synthDescriptor(engine);
-    return d ? d->import : nullptr;
-}
+const mod::PatchImport* importOf(int32_t engine) { return mod::ModuleHost::instance().patchImport(engine); }
 }  // namespace
 
 SynthPatch* App::scratchPatch() {
@@ -223,7 +220,7 @@ int App::readPatchImport() {
     g_importLen = 0;
     const char* file = g_importFile;
     const mod::PatchImport* im = importOf(g_importEngine);
-    if (!im || im->maxBytes > kPatchMaxFileSize) return 0;
+    if (!im) return 0;   // none, or incomplete (ModuleHost::patchImport)
     if (!mem_.scratch || mem_.scratchBytes < kPatchTmpOff + sizeof(SynthPatch)) return 0;
     if (!file[0] || std::strchr(file, '/')) return 0;
     if (jobBusy()) finishJob();   // the job shares the scratch

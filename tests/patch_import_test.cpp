@@ -369,3 +369,78 @@ TEST(patch_import_save_name_and_overwrite) {
     CHECK(decodePatch(g.data(), g.size(), &back) == PatchStatus::kOk);
     CHECK(voice(back) == "NEW");
 }
+
+namespace {
+// Modules whose patch import is incomplete: the engine registers, Load Patch
+// lists no import files and nothing reads them.
+const mod::PatchImport kNoExt = {nullptr, 1024, 40, tbkCount, tbkName, tbkPatch};
+const mod::PatchImport kEmptyExt = {"", 1024, 40, tbkCount, tbkName, tbkPatch};
+const mod::PatchImport kNoBytes = {".tbk", 0, 40, tbkCount, tbkName, tbkPatch};
+const mod::PatchImport kNoCount = {".tbk", 1024, 40, nullptr, tbkName, tbkPatch};
+const mod::PatchImport kNoName = {".tbk", 1024, 40, tbkCount, nullptr, tbkPatch};
+const mod::PatchImport kNoPatch = {".tbk", 1024, 40, tbkCount, tbkName, nullptr};
+const mod::PatchImport* const kBad[] = {&kNoExt, &kEmptyExt, &kNoBytes, &kNoCount, &kNoName, &kNoPatch};
+constexpr int kBadN = int(sizeof(kBad) / sizeof(kBad[0]));
+const char* const kBadNames[kBadN] = {"TBAD0", "TBAD1", "TBAD2", "TBAD3", "TBAD4", "TBAD5"};
+const char* const kBadIds[kBadN] = {"TBD0", "TBD1", "TBD2", "TBD3", "TBD4", "TBD5"};
+
+struct BadImport final : public mod::IModule {
+    int k = 0;
+    mod::ModuleInfo in{};
+    mod::SynthDescriptor d{};
+    void make(int i) {
+        k = i;
+        in = {"", mod::kModuleApi, 100, "Test bad import", mod::kCapSynthEngine | mod::kCapSynthDescriptor, 0, 0, 0, 0, 8};
+        std::memcpy(in.id, kBadIds[i], 5);
+        d = kDesc;
+        d.engineId = 0xE0 + i;
+        d.name = kBadNames[i];
+        d.import = kBad[i];
+    }
+    const mod::ModuleInfo& info() const override { return in; }
+    bool attach(mod::ModuleHost&) override { return true; }
+    audio::ISynthEngine* synthEngine(int32_t id) override { return id == d.engineId ? audio::synthTestEngine() : nullptr; }
+    const mod::SynthDescriptor* synthDescriptor(int i) const override { return i == 0 ? &d : nullptr; }
+};
+BadImport g_bad[kBadN];
+}  // namespace
+
+TEST(patch_import_incomplete_is_absent) {
+    static bool added = false;
+    if (!added) {
+        for (int i = 0; i < kBadN; ++i) {
+            g_bad[i].make(i);
+            CHECK(mod::ModuleHost::instance().addForTest(g_bad[i]));
+        }
+        added = true;
+    }
+    for (int i = 0; i < kBadN; ++i) {
+        const int32_t eng = 0xE0 + i;
+        CHECK(mod::ModuleHost::instance().synthDescriptor(eng) != nullptr);   // the engine is there
+        CHECK(mod::ModuleHost::instance().patchImport(eng) == nullptr);       // its import is not
+        Harness h(false);
+        const std::string dir = std::string("Patches/") + kBadNames[i];
+        h.fs.dirs.insert("Patches");
+        h.fs.dirs.insert(dir);
+        h.fs.files[dir + "/kit.tbk"] = tbk({"ONE", "TWO", "THREE"});
+        h.fs.files[dir + "/one.tbk"] = tbk({"SOLO"});
+        h.app->boot();
+        App& a = *h.app;
+        a.setSynthEngine(1, eng);
+        a.setCurrentInstrument(kFirstSynthInstrument + 1);
+        h.tap(btn::Pattern);
+        h.tap(btn::InstrParams);
+        SynthScreen& s = synth(a);
+        CHECK(s.available());
+        h.tap(btn::F7);
+        CHECK(s.view == SynthScreen::View::Browser);
+        for (int j = 0; j < s.browserCount; ++j) CHECK(s.browserKind[j] == SynthScreen::Entry::Patch);
+        h.tap(btn::F7);
+        CHECK_EQ(a.openPatchImport(1, "kit.tbk"), 0);
+        char name[16];
+        a.importPatchName(0, name, sizeof name);
+        CHECK_STR(name, "");
+        CHECK(!a.previewImportPatch(1, 0));
+        CHECK(!a.loadImportPatch(1, 0));
+    }
+}
