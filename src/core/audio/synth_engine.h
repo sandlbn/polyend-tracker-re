@@ -113,6 +113,7 @@ struct alignas(8) SynthSlotScratch {
 // One pool voice as an engine sees it. Fields above `state` are written by
 // the framework (read-only for engines) except `level`.
 struct alignas(8) SynthVoice {
+    SynthVoice() : fading(false), index(0) {}
     SynthSlotScratch* slotScratch = nullptr;   // the owning slot's scratch
     float bend = 0.0f;         // step-FX pitch offset at the block end (semitones)
     float bendStart = 0.0f;    // ... at the block start
@@ -123,23 +124,32 @@ struct alignas(8) SynthVoice {
     // Framework: this block is the voice's last (stolen / cut: the gain ramp
     // falls to 0 and the record is freed after it). Engines that keep state
     // beyond the voice (PERC's kit) release it here.
-    bool fading = false;
+    // (fading and index share a byte: the record stays 152 B on the device.)
+    bool fading : 1;
     // Framework: the record's place in the pool (0..kSynthMaxVoices-1, fixed
     // for the bank's lifetime). An engine whose voice state does not fit
-    // `state` keeps it in its own array indexed by this (DX7); a fresh voice
+    // `state` keeps it in its own array indexed by this; a fresh voice
     // (!SynthNote::reused) must then clear its entry itself.
-    uint8_t index = 0;
+    uint8_t index : 7;
     // Framework: Performance filter offset of the note's track, in octaves
     // (issue #23). Engines with a filter add it to their cutoff octave term,
     // inside their own clamp; 0 when the track's Performance FX are off.
     float cutoffOct = 0.0f;
-    alignas(8) uint8_t state[kSynthVoiceStateBytes];
+    alignas(8) uint8_t state[kSynthVoiceStateBytes] = {};
     template <class T>
     T& as() {
         static_assert(sizeof(T) <= kSynthVoiceStateBytes, "voice state too large");
         return *reinterpret_cast<T*>(state);
     }
 };
+static_assert(kSynthMaxVoices <= 128, "SynthVoice::index has 7 bits");
+#if defined(__arm__)
+// The device's voice record (Cortex-M4): 152 B, the engine state at offset
+// 24. Card modules are built against this layout.
+static_assert(sizeof(SynthVoice) == 152, "SynthVoice size on the device");
+static_assert(offsetof(SynthVoice, state) == 24, "SynthVoice::state offset on the device");
+static_assert(offsetof(SynthVoice, cutoffOct) == 20, "SynthVoice::cutoffOct offset on the device");
+#endif
 
 class ISynthEngine {
 public:
